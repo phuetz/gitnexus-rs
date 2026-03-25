@@ -1,0 +1,225 @@
+//! BM25 full-text search via Cypher FTS queries.
+//!
+//! Executes FTS queries across 5 tables (File, Function, Class, Method, Interface)
+//! and merges results by file_path with summed scores.
+
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use gitnexus_db::adapter::DbAdapter;
+use gitnexus_db::error::DbError;
+use gitnexus_db::query::escape_cypher_string;
+
+/// Tables that have FTS indexes.
+const FTS_TABLES: &[&str] = &["File", "Function", "Class", "Method", "Interface"];
+
+/// A single BM25 search result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BM25SearchResult {
+    pub file_path: String,
+    pub score: f64,
+    pub rank: usize,
+    pub node_id: String,
+    pub name: String,
+    pub label: String,
+    pub start_line: Option<u32>,
+    pub end_line: Option<u32>,
+}
+
+/// Execute a BM25 full-text search across all FTS-indexed tables.
+///
+/// Queries each table's FTS index, collects results, merges by file_path
+/// (summing scores), and returns sorted results.
+pub fn search_fts(
+    adapter: &DbAdapter,
+    query_text: &str,
+    limit: usize,
+) -> std::result::Result<Vec<BM25SearchResult>, DbError> {
+    let escaped = escape_cypher_string(query_text);
+    let mut raw_results: Vec<BM25SearchResult> = Vec::new();
+
+    for table in FTS_TABLES {
+        let cypher = build_fts_query(table, &escaped, limit);
+        match adapter.execute_query(&cypher) {
+            Ok(rows) => {
+                for row in rows {
+                    if let Some(result) = parse_fts_row(&row, table) {
+                        raw_results.push(result);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("FTS query failed for {table}: {e}");
+                // Continue with other tables
+            }
+        }
+    }
+
+    // Merge results by file_path, summing scores
+    let merged = merge_by_file_path(raw_results);
+
+    // Sort by score descending and assign ranks
+    let mut sorted: Vec<BM25SearchResult> = merged.into_values().collect();
+    sorted.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.truncate(limit);
+
+    for (i, result) in sorted.iter_mut().enumerate() {
+        result.rank = i + 1;
+    }
+
+    Ok(sorted)
+}
+
+/// Build a Cypher FTS query for a specific table.
+fn build_fts_query(table: &str, escaped_query: &str, limit: usize) -> String {
+    format!(
+        "CALL QUERY_FTS_INDEX('fts_{table}', '{escaped_query}') \
+         YIELD node, score \
+         WITH node, score \
+         ORDER BY score DESC \
+         LIMIT {limit} \
+         RETURN node.id AS nodeId, \
+                node.name AS name, \
+                node.filePath AS filePath, \
+                node.startLine AS startLine, \
+                node.endLine AS endLine, \
+                score"
+    )
+}
+
+/// Parse a JSON row from an FTS query result into a BM25SearchResult.
+fn parse_fts_row(row: &Value, table: &str) -> Option<BM25SearchResult> {
+    let file_path = row.get("filePath")?.as_str()?.to_string();
+    let score = row.get("score")?.as_f64()?;
+    let node_id = row
+        .get("nodeId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let name = row
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let start_line = row.get("startLine").and_then(|v| v.as_u64()).map(|v| v as u32);
+    let end_line = row.get("endLine").and_then(|v| v.as_u64()).map(|v| v as u32);
+
+    Some(BM25SearchResult {
+        file_path,
+        score,
+        rank: 0, // Assigned after sorting
+        node_id,
+        name,
+        label: table.to_string(),
+        start_line,
+        end_line,
+    })
+}
+
+/// Merge results by file_path, summing scores and keeping the highest-scoring
+/// node metadata for each file.
+fn merge_by_file_path(
+    results: Vec<BM25SearchResult>,
+) -> HashMap<String, BM25SearchResult> {
+    let mut merged: HashMap<String, BM25SearchResult> = HashMap::new();
+
+    for result in results {
+        merged
+            .entry(result.file_path.clone())
+            .and_modify(|existing| {
+                existing.score += result.score;
+                // Keep the higher-scoring node's metadata
+                if result.score > existing.score - result.score {
+                    existing.node_id = result.node_id.clone();
+                    existing.name = result.name.clone();
+                    existing.label = result.label.clone();
+                    existing.start_line = result.start_line;
+                    existing.end_line = result.end_line;
+                }
+            })
+            .or_insert(result);
+    }
+
+    merged
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_fts_query() {
+        let q = build_fts_query("Function", "handleLogin", 10);
+        assert!(q.contains("fts_Function"));
+        assert!(q.contains("handleLogin"));
+        assert!(q.contains("LIMIT 10"));
+    }
+
+    #[test]
+    fn test_merge_by_file_path() {
+        let results = vec![
+            BM25SearchResult {
+                file_path: "src/a.ts".into(),
+                score: 2.0,
+                rank: 0,
+                node_id: "f1".into(),
+                name: "foo".into(),
+                label: "Function".into(),
+                start_line: Some(1),
+                end_line: Some(10),
+            },
+            BM25SearchResult {
+                file_path: "src/a.ts".into(),
+                score: 1.0,
+                rank: 0,
+                node_id: "f2".into(),
+                name: "bar".into(),
+                label: "Method".into(),
+                start_line: Some(20),
+                end_line: Some(30),
+            },
+            BM25SearchResult {
+                file_path: "src/b.ts".into(),
+                score: 3.0,
+                rank: 0,
+                node_id: "f3".into(),
+                name: "baz".into(),
+                label: "Class".into(),
+                start_line: Some(1),
+                end_line: Some(50),
+            },
+        ];
+
+        let merged = merge_by_file_path(results);
+        assert_eq!(merged.len(), 2);
+        assert!((merged["src/a.ts"].score - 3.0).abs() < f64::EPSILON);
+        assert!((merged["src/b.ts"].score - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_fts_row() {
+        let row = serde_json::json!({
+            "nodeId": "Function:src/main.ts:handleLogin",
+            "name": "handleLogin",
+            "filePath": "src/main.ts",
+            "startLine": 10,
+            "endLine": 25,
+            "score": 4.5
+        });
+
+        let result = parse_fts_row(&row, "Function").unwrap();
+        assert_eq!(result.file_path, "src/main.ts");
+        assert!((result.score - 4.5).abs() < f64::EPSILON);
+        assert_eq!(result.label, "Function");
+        assert_eq!(result.start_line, Some(10));
+    }
+
+    #[test]
+    fn test_parse_fts_row_missing_fields() {
+        let row = serde_json::json!({"name": "test"});
+        assert!(parse_fts_row(&row, "File").is_none());
+    }
+}

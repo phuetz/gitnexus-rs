@@ -1,0 +1,24 @@
+[package]
+name = "gitnexus-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Hybrid search (BM25 + semantic + RRF) for GitNexus"
+
+[dependencies]
+gitnexus-core.workspace = true
+gitnexus-db.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+ort = { workspace = true, optional = true }
+ndarray = { workspace = true, optional = true }
+
+[features]
+default = []
+embeddings = ["ort", "ndarray"]
+
+[dev-dependencies]

@@ -1,0 +1,18 @@
+[package]
+name = "gitnexus-lang"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Language providers, tree-sitter queries, and type extractors for GitNexus"
+
+[dependencies]
+gitnexus-core.workspace = true
+tree-sitter.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+
+[dev-dependencies]

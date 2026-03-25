@@ -1,0 +1,104 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "PolyForm-Noncommercial-1.0.0"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Parallelism
+rayon = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+regex = "1"
+
+# Graph
+petgraph = "0.6"
+
+# Caching
+lru = "0.12"
+once_cell = "1"
+
+# Streaming iterator (used by tree-sitter query API)
+streaming-iterator = "0.1"
+
+# Concurrent collections
+dashmap = "6"
+
+# File system
+walkdir = "2"
+ignore = "0.4"
+glob = "0.3"
+
+# CSV
+csv = "1"
+
+# Graph database
+kuzu = "0.11"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.17"
+rustyline = "17"
+colored = "3"
+ratatui = "0.29"
+crossterm = "0.28"
+notify = "7"
+notify-debouncer-mini = "0.5"
+
+# HTTP
+axum = "0.7"
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+
+# Tree-sitter
+tree-sitter = "0.24"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-c = "0.23"
+tree-sitter-cpp = "0.23"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-rust = "0.23"
+tree-sitter-php = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-kotlin-ng = "1.1"
+tree-sitter-swift = "0.7"
+
+# ONNX Runtime
+ort = "2.0.0-rc.12"
+ndarray = "0.16"
+
+# Internal crates
+gitnexus-core = { path = "crates/gitnexus-core" }
+gitnexus-lang = { path = "crates/gitnexus-lang" }
+gitnexus-ingest = { path = "crates/gitnexus-ingest" }
+gitnexus-db = { path = "crates/gitnexus-db" }
+gitnexus-search = { path = "crates/gitnexus-search" }
+gitnexus-mcp = { path = "crates/gitnexus-mcp" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+opt-level = 3

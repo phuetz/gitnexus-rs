@@ -1,0 +1,7 @@
+/target
+.gitnexus/
+wiki/
+skills/
+AGENTS.md
+*.exe
+*.pdb

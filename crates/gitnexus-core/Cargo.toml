@@ -1,0 +1,17 @@
+[package]
+name = "gitnexus-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Core types, graph, symbol table, and resolution for GitNexus"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+regex.workspace = true
+bincode = "1"
+
+[dev-dependencies]

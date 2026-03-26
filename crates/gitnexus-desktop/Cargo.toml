@@ -1,0 +1,24 @@
+[package]
+name = "gitnexus-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "GitNexus desktop application (Tauri v2 + React)"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+gitnexus-core.workspace = true
+gitnexus-db.workspace = true
+gitnexus-ingest.workspace = true
+gitnexus-search.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-shell = "2"
+thiserror.workspace = true

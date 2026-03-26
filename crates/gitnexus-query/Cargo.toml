@@ -1,18 +1,17 @@
 [package]
-name = "gitnexus-core"
+name = "gitnexus-query"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Core types, graph, symbol table, and resolution for GitNexus"
+description = "Code Query Language (CQL) parser and executor for GitNexus"
 
 [dependencies]
-gitnexus-types.workspace = true
+gitnexus-core.workspace = true
+pest = { workspace = true }
+pest_derive = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-uuid.workspace = true
+tracing.workspace = true
 regex.workspace = true
-bincode = "1"
-
-[dev-dependencies]

@@ -15,6 +15,8 @@ use rustyline::{Config, Editor, Helper};
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::graph::types::{GraphNode, NodeLabel, RelationshipType};
 use gitnexus_core::storage::repo_manager;
+use gitnexus_output::terminal::TerminalFormatter;
+use gitnexus_output::traits::OutputFormatter;
 
 // ─── Shell Context ──────────────────────────────────────────────────────
 
@@ -110,7 +112,8 @@ impl ShellHelper {
         let commands = vec![
             "query", "q", "context", "ctx", "impact", "cypher", "stats", "find", "f",
             "community", "com", "process", "proc", "neighbors", "n", "path", "files",
-            "export", "reload", "analyze", "help", "h", "quit", "exit",
+            "export", "reload", "analyze", "hotspots", "coupling", "ownership",
+            "help", "h", "quit", "exit",
         ]
         .into_iter()
         .map(String::from)
@@ -297,6 +300,9 @@ fn dispatch(cmd: &str, args: &str, ctx: &mut ShellContext) -> anyhow::Result<()>
         "export" => cmd_export(args, ctx),
         "reload" => cmd_reload(ctx),
         "analyze" => cmd_analyze(args, ctx),
+        "hotspots" => cmd_hotspots(args, ctx),
+        "coupling" => cmd_coupling(args, ctx),
+        "ownership" => cmd_ownership(ctx),
         "help" | "h" | "?" => cmd_help(),
         "quit" | "exit" => std::process::exit(0),
         _ => {
@@ -1532,6 +1538,23 @@ fn cmd_help() -> anyhow::Result<()> {
         "Graph statistics (node/edge counts by type)"
     );
     println!();
+    println!("  {}", "Git Analysis".bold());
+    println!(
+        "    {}  {}",
+        "hotspots [days]".yellow(),
+        "Show file-level hotspots (default: last 90 days)"
+    );
+    println!(
+        "    {}  {}",
+        "coupling [min]".yellow(),
+        "Show temporally coupled file pairs (default: min 3)"
+    );
+    println!(
+        "    {}  {}",
+        "ownership".yellow(),
+        "Show file ownership by author"
+    );
+    println!();
     println!("  {}", "Data".bold());
     println!(
         "    {}  {}",
@@ -1589,6 +1612,135 @@ fn format_number(n: usize) -> String {
         n.to_string()
     }
 }
+
+// ─── Hotspots ────────────────────────────────────────────────────────
+
+fn cmd_hotspots(args: &str, ctx: &ShellContext) -> anyhow::Result<()> {
+    let since_days: u32 = args.trim().parse().unwrap_or(90);
+
+    let hotspots = gitnexus_git::hotspots::analyze_hotspots(&ctx.repo_path, since_days)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if hotspots.is_empty() {
+        println!(
+            "  No file changes found in the last {} days.",
+            since_days.to_string().yellow()
+        );
+        return Ok(());
+    }
+
+    let fmt = TerminalFormatter::new();
+    let headers = &["File", "Commits", "Churn", "Authors", "Score"];
+    let rows: Vec<Vec<String>> = hotspots
+        .iter()
+        .take(20)
+        .map(|h| {
+            vec![
+                h.path.clone(),
+                h.commit_count.to_string(),
+                h.churn.to_string(),
+                h.author_count.to_string(),
+                format!("{:.2}", h.score),
+            ]
+        })
+        .collect();
+
+    let title = format!("Hotspots (last {} days)", since_days);
+    print!("{}", fmt.format_table(&title, headers, &rows));
+
+    if hotspots.len() > 20 {
+        println!(
+            "  ... and {} more files",
+            (hotspots.len() - 20).to_string().dimmed()
+        );
+    }
+
+    Ok(())
+}
+
+// ─── Coupling ────────────────────────────────────────────────────────
+
+fn cmd_coupling(args: &str, ctx: &ShellContext) -> anyhow::Result<()> {
+    let min_shared: u32 = args.trim().parse().unwrap_or(3);
+
+    let couplings = gitnexus_git::coupling::analyze_coupling(&ctx.repo_path, min_shared)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if couplings.is_empty() {
+        println!(
+            "  No file pairs with at least {} shared commits.",
+            min_shared.to_string().yellow()
+        );
+        return Ok(());
+    }
+
+    let fmt = TerminalFormatter::new();
+    let headers = &["File A", "File B", "Shared", "Strength"];
+    let rows: Vec<Vec<String>> = couplings
+        .iter()
+        .take(20)
+        .map(|c| {
+            vec![
+                c.file_a.clone(),
+                c.file_b.clone(),
+                c.shared_commits.to_string(),
+                format!("{:.2}", c.coupling_strength),
+            ]
+        })
+        .collect();
+
+    let title = format!("Temporal Coupling (min {} shared commits)", min_shared);
+    print!("{}", fmt.format_table(&title, headers, &rows));
+
+    if couplings.len() > 20 {
+        println!(
+            "  ... and {} more pairs",
+            (couplings.len() - 20).to_string().dimmed()
+        );
+    }
+
+    Ok(())
+}
+
+// ─── Ownership ───────────────────────────────────────────────────────
+
+fn cmd_ownership(ctx: &ShellContext) -> anyhow::Result<()> {
+    let ownerships = gitnexus_git::ownership::analyze_ownership(&ctx.repo_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if ownerships.is_empty() {
+        println!("  No ownership data found.");
+        return Ok(());
+    }
+
+    let fmt = TerminalFormatter::new();
+    let headers = &["File", "Primary Author", "Ownership %", "Authors"];
+    let rows: Vec<Vec<String>> = ownerships
+        .iter()
+        .take(20)
+        .map(|o| {
+            vec![
+                o.path.clone(),
+                o.primary_author.clone(),
+                format!("{:.0}%", o.ownership_pct),
+                o.author_count.to_string(),
+            ]
+        })
+        .collect();
+
+    print!("{}", fmt.format_table("File Ownership", headers, &rows));
+
+    if ownerships.len() > 20 {
+        println!(
+            "  ... and {} more files",
+            (ownerships.len() - 20).to_string().dimmed()
+        );
+    }
+
+    Ok(())
+}
+
+// ─── Edge Label ─────────────────────────────────────────────────────
 
 fn find_edge_label(from: &str, to: &str, ctx: &ShellContext) -> String {
     // Check outgoing from -> to

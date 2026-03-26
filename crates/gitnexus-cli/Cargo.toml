@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "CLI binary for GitNexus"
+default-run = "gitnexus"
 
 [[bin]]
 name = "gitnexus"
@@ -20,6 +21,8 @@ gitnexus-ingest.workspace = true
 gitnexus-db.workspace = true
 gitnexus-search.workspace = true
 gitnexus-mcp.workspace = true
+gitnexus-git.workspace = true
+gitnexus-output.workspace = true
 tokio.workspace = true
 clap.workspace = true
 indicatif.workspace = true

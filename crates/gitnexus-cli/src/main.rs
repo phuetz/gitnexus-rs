@@ -120,6 +120,39 @@ enum Commands {
         /// Path to the repository (defaults to current directory)
         path: Option<String>,
     },
+    /// Show file-level hotspots (most changed files)
+    Hotspots {
+        /// Only consider commits from the last N days
+        #[arg(long, default_value = "90")]
+        since: u32,
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show temporally coupled file pairs
+    Coupling {
+        /// Minimum number of shared commits
+        #[arg(long, default_value = "3")]
+        min: u32,
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show file ownership by author
+    Ownership {
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -175,5 +208,14 @@ async fn main() -> anyhow::Result<()> {
         Commands::Generate { what, path } => commands::generate::run(&what, path.as_deref()),
         Commands::Watch { path } => commands::watch::run(path.as_deref()).await,
         Commands::Dashboard { path } => commands::dashboard::run(path.as_deref()),
+        Commands::Hotspots { since, path, json } => {
+            commands::hotspots::run(since, path.as_deref(), json)
+        }
+        Commands::Coupling { min, path, json } => {
+            commands::coupling_cmd::run(min, path.as_deref(), json)
+        }
+        Commands::Ownership { path, json } => {
+            commands::ownership_cmd::run(path.as_deref(), json)
+        }
     }
 }

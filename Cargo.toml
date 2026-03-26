@@ -30,6 +30,11 @@ tracing-subscriber = "0.3"
 # Utilities
 uuid = { version = "1", features = ["v4"] }
 regex = "1"
+sha2 = "0.10"
+
+# PEG parser
+pest = "2"
+pest_derive = "2"
 
 # Graph
 petgraph = "0.6"
@@ -64,6 +69,7 @@ ratatui = "0.29"
 crossterm = "0.28"
 notify = "7"
 notify-debouncer-mini = "0.5"
+chrono = "0.4"
 
 # HTTP
 axum = "0.7"
@@ -90,12 +96,16 @@ ort = "2.0.0-rc.12"
 ndarray = "0.16"
 
 # Internal crates
+gitnexus-types = { path = "crates/gitnexus-types" }
 gitnexus-core = { path = "crates/gitnexus-core" }
 gitnexus-lang = { path = "crates/gitnexus-lang" }
 gitnexus-ingest = { path = "crates/gitnexus-ingest" }
 gitnexus-db = { path = "crates/gitnexus-db" }
 gitnexus-search = { path = "crates/gitnexus-search" }
 gitnexus-mcp = { path = "crates/gitnexus-mcp" }
+gitnexus-query = { path = "crates/gitnexus-query" }
+gitnexus-git = { path = "crates/gitnexus-git" }
+gitnexus-output = { path = "crates/gitnexus-output" }
 
 [profile.release]
 lto = "thin"

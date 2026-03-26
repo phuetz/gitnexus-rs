@@ -1,4 +1,8 @@
 //! The `watch` command: monitors a repository for changes and incrementally updates the graph.
+//!
+//! Uses the incremental engine from [`gitnexus_ingest::incremental`] to
+//! efficiently update the knowledge graph when files change, rather than
+//! re-indexing the entire repository.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -9,7 +13,6 @@ use colored::Colorize;
 use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
 
 use gitnexus_core::config::languages::SupportedLanguage;
-use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::storage::repo_manager;
 use gitnexus_db::snapshot;
 
@@ -40,6 +43,13 @@ pub async fn run(path: Option<&str>) -> Result<()> {
             Default::default(),
         )
         .await?;
+
+        // Save initial manifest alongside snapshot
+        let file_entries = gitnexus_ingest::phases::structure::walk_repository(&repo_path)?;
+        let manifest = gitnexus_ingest::manifest::build_manifest_from_entries(&file_entries);
+        let manifest_file = gitnexus_ingest::manifest::manifest_path(&storage.storage_path);
+        gitnexus_ingest::manifest::save_manifest(&manifest, &manifest_file)?;
+
         snapshot::save_snapshot(&result.graph, &snap_path)?;
         Arc::new(Mutex::new(result.graph))
     };
@@ -66,12 +76,11 @@ pub async fn run(path: Option<&str>) -> Result<()> {
     loop {
         match rx.recv() {
             Ok(Ok(events)) => {
-                let mut changed_files: Vec<String> = Vec::new();
-
+                // Check if any source files changed
+                let mut has_source_changes = false;
                 for event in &events {
                     if event.kind == DebouncedEventKind::Any {
                         let path = &event.path;
-                        // Only care about source files
                         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                             if SupportedLanguage::from_extension(&format!(".{ext}")).is_some() {
                                 let rel = path
@@ -82,102 +91,71 @@ pub async fn run(path: Option<&str>) -> Result<()> {
                                 if !rel.starts_with(".gitnexus")
                                     && !rel.contains("/target/")
                                 {
-                                    changed_files.push(rel);
+                                    has_source_changes = true;
+                                    break;
                                 }
                             }
                         }
                     }
                 }
 
-                changed_files.sort();
-                changed_files.dedup();
-
-                if !changed_files.is_empty() {
+                if has_source_changes {
                     println!(
-                        "\n{} {} file(s) changed:",
+                        "\n{} Change detected, running incremental update...",
                         ">>>".yellow().bold(),
-                        changed_files.len()
                     );
-                    for f in &changed_files {
-                        println!("    {} {}", "~".yellow(), f);
-                    }
 
-                    // Incremental update: remove old nodes for changed files, re-parse them
-                    {
+                    // Use the incremental engine
+                    let update_result = {
                         let mut g = graph.lock().unwrap();
-                        for file in &changed_files {
-                            let removed = g.remove_nodes_by_file(file);
-                            if removed > 0 {
+                        gitnexus_ingest::incremental::incremental_update(
+                            &repo_path,
+                            &storage.storage_path,
+                            &mut g,
+                        )
+                    };
+
+                    match update_result {
+                        Ok(result) => {
+                            if result.total_changed() > 0 {
                                 println!(
-                                    "    {} Removed {} old nodes from {}",
-                                    "x".red(),
-                                    removed,
-                                    file
+                                    "    {} +{} added, ~{} modified, -{} removed",
+                                    "delta".cyan(),
+                                    result.added,
+                                    result.modified,
+                                    result.removed,
+                                );
+                                println!(
+                                    "    {} Removed {} nodes, added {} nodes",
+                                    "graph".cyan(),
+                                    result.nodes_removed,
+                                    result.nodes_added,
+                                );
+
+                                // Save updated snapshot
+                                let g = graph.lock().unwrap();
+                                snapshot::save_snapshot(&g, &snap_path).ok();
+                                println!(
+                                    "    {} Graph: {} nodes, {} edges total",
+                                    "=".cyan(),
+                                    g.node_count(),
+                                    g.relationship_count()
+                                );
+                                println!("    {} Snapshot saved", "OK".green());
+                            } else {
+                                println!(
+                                    "    {} No effective changes detected",
+                                    "=".dimmed(),
                                 );
                             }
                         }
-                    }
-
-                    // Re-parse changed files
-                    let file_entries: Vec<_> = changed_files
-                        .iter()
-                        .filter_map(|rel_path| {
-                            let abs = repo_path.join(rel_path);
-                            let content = std::fs::read_to_string(&abs).ok()?;
-                            let lang = SupportedLanguage::from_filename(rel_path)?;
-                            Some(gitnexus_ingest::phases::structure::FileEntry {
-                                path: rel_path.clone(),
-                                content,
-                                size: abs.metadata().map(|m| m.len() as usize).unwrap_or(0),
-                                language: Some(lang),
-                            })
-                        })
-                        .collect();
-
-                    if !file_entries.is_empty() {
-                        let mut temp_graph = KnowledgeGraph::new();
-                        // Add file nodes
-                        gitnexus_ingest::phases::structure::create_structure_nodes(
-                            &mut temp_graph,
-                            &file_entries,
-                        );
-                        // Parse
-                        let _extracted = gitnexus_ingest::phases::parsing::parse_files(
-                            &mut temp_graph,
-                            &file_entries,
-                            None,
-                        )
-                        .unwrap_or_default();
-
-                        // Merge new nodes/edges into main graph
-                        let mut g = graph.lock().unwrap();
-                        let mut added_nodes = 0;
-                        let mut added_edges = 0;
-                        temp_graph.for_each_node(|node| {
-                            g.add_node(node.clone());
-                            added_nodes += 1;
-                        });
-                        temp_graph.for_each_relationship(|rel| {
-                            g.add_relationship(rel.clone());
-                            added_edges += 1;
-                        });
-
-                        println!(
-                            "    {} Added {} nodes, {} edges",
-                            "+".green(),
-                            added_nodes,
-                            added_edges
-                        );
-                        println!(
-                            "    {} Graph: {} nodes, {} edges total",
-                            "=".cyan(),
-                            g.node_count(),
-                            g.relationship_count()
-                        );
-
-                        // Save snapshot
-                        snapshot::save_snapshot(&g, &snap_path).ok();
-                        println!("    {} Snapshot saved", "OK".green());
+                        Err(e) => {
+                            eprintln!(
+                                "    {} Incremental update failed: {}",
+                                "!".red(),
+                                e
+                            );
+                        }
                     }
 
                     println!("{}", "\nWatching for changes...".dimmed());

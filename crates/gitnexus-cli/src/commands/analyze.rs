@@ -55,6 +55,7 @@ pub async fn run(
         embeddings,
         verbose,
         skip_git,
+        ..Default::default()
     };
 
     let result = gitnexus_ingest::pipeline::run_pipeline(&repo_path, Some(tx), options).await;
@@ -97,6 +98,15 @@ pub async fn run(
             let snap_path = gitnexus_db::snapshot::snapshot_path(&storage_paths.storage_path);
             gitnexus_db::snapshot::save_snapshot(&result.graph, &snap_path)?;
             println!("  Graph snapshot saved ({} bytes)", std::fs::metadata(&snap_path).map(|m| m.len()).unwrap_or(0));
+
+            // Save file manifest for incremental indexing
+            {
+                let file_entries = gitnexus_ingest::phases::structure::walk_repository(&repo_path)?;
+                let manifest = gitnexus_ingest::manifest::build_manifest_from_entries(&file_entries);
+                let manifest_file = gitnexus_ingest::manifest::manifest_path(&storage_paths.storage_path);
+                gitnexus_ingest::manifest::save_manifest(&manifest, &manifest_file)?;
+                println!("  File manifest saved ({} files)", manifest.files.len());
+            }
 
             // Generate CSV and save
             println!("  Saving CSVs...");

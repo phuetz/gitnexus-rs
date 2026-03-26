@@ -32,6 +32,8 @@ pub struct PipelineOptions {
     pub embeddings: bool,
     pub verbose: bool,
     pub skip_git: bool,
+    /// If true and a manifest exists, use incremental indexing instead of full.
+    pub incremental: bool,
 }
 
 /// Run the full ingestion pipeline on a repository.

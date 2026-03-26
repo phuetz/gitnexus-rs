@@ -68,6 +68,7 @@ pub async fn analyze_repo(state: State<'_, AppState>, path: String) -> Result<St
         embeddings: false,
         verbose: false,
         skip_git: false,
+        ..Default::default()
     };
 
     // Run the ingestion pipeline directly

@@ -5,6 +5,8 @@ pub mod type_env;
 pub mod ast_cache;
 pub mod grammar;
 pub mod utils;
+pub mod manifest;
+pub mod incremental;
 
 use thiserror::Error;
 

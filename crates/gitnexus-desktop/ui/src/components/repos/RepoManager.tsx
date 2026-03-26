@@ -62,9 +62,9 @@ export function RepoManager() {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-6 fade-in">
+    <div className="h-full overflow-y-auto px-10 py-8 fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-8">
         <div>
           <h1
             className="text-xl font-semibold"
@@ -88,7 +88,7 @@ export function RepoManager() {
       </div>
 
       {/* Cards */}
-      <div className="grid gap-3 stagger">
+      <div className="grid gap-4 stagger" style={{ maxWidth: 720 }}>
         {repos.map((repo) => (
           <RepoCard
             key={repo.name}
@@ -159,7 +159,7 @@ function RepoCard({
       <button
         onClick={onOpen}
         disabled={isOpening || busy}
-        className="flex items-start gap-3.5 w-full p-4 text-left transition-colors"
+        className="flex items-start gap-4 w-full px-5 py-4 text-left transition-colors"
         onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-hover)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
       >

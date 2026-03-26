@@ -18,7 +18,7 @@ export function CommandBar() {
 
   return (
     <div
-      className="flex items-center h-[40px] px-3 shrink-0 select-none"
+      className="flex items-center h-[40px] px-4 shrink-0 select-none"
       style={{
         background: "var(--bg-1)",
         borderBottom: "1px solid var(--surface-border)",

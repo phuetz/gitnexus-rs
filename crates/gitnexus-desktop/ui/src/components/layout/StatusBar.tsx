@@ -6,7 +6,7 @@ export function StatusBar() {
 
   return (
     <div
-      className="h-[22px] flex items-center px-3 gap-5 text-[11px] shrink-0 select-none"
+      className="h-[24px] flex items-center px-4 gap-5 text-[11px] shrink-0 select-none"
       style={{
         background: "var(--bg-1)",
         borderTop: "1px solid var(--surface-border)",

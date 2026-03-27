@@ -11,6 +11,7 @@ pub mod php;
 pub mod ruby;
 pub mod kotlin;
 pub mod swift;
+pub mod razor;
 
 pub use typescript::TypeScriptProvider;
 pub use javascript::JavaScriptProvider;
@@ -25,3 +26,4 @@ pub use php::PhpProvider;
 pub use ruby::RubyProvider;
 pub use kotlin::KotlinProvider;
 pub use swift::SwiftProvider;
+pub use razor::RazorProvider;

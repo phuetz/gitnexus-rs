@@ -193,10 +193,291 @@ fn parse_single_file(file: &FileEntry, lang: SupportedLanguage) -> FileParsed {
         );
     }
 
+    // ── Razor-specific post-processing ─────────────────────────────────
+    // Extract Razor directives, embedded JavaScript, and detect UI
+    // component libraries from .cshtml/.razor files.
+    if lang == SupportedLanguage::Razor {
+        process_razor_extras(
+            file,
+            &file_node_id,
+            &mut nodes,
+            &mut relationships,
+            &mut extracted,
+        );
+    }
+
     FileParsed {
         nodes,
         relationships,
         extracted,
+    }
+}
+
+/// Razor-specific post-processing: extract directives, script blocks,
+/// and detect UI component library usage.
+fn process_razor_extras(
+    file: &FileEntry,
+    file_node_id: &str,
+    nodes: &mut Vec<GraphNode>,
+    relationships: &mut Vec<GraphRelationship>,
+    extracted: &mut ExtractedData,
+) {
+    use gitnexus_lang::component_detection::{
+        extract_html_helpers, extract_razor_directives, extract_script_blocks, ComponentDetector,
+    };
+
+    // 1. Extract Razor directives (@page, @model, @inject, @using, etc.)
+    let directives = extract_razor_directives(&file.content);
+    for directive in &directives {
+        match directive.directive.as_str() {
+            "page" => {
+                // Create a Route node for @page directives
+                let route_id = generate_id("Route", &format!("{}:{}", file.path, directive.value));
+                let edge_id = format!("handles_route_{}_{}", file_node_id, route_id);
+                nodes.push(GraphNode {
+                    id: route_id.clone(),
+                    label: NodeLabel::Route,
+                    properties: NodeProperties {
+                        name: directive.value.clone(),
+                        file_path: file.path.clone(),
+                        start_line: Some(directive.line as u32 + 1),
+                        description: Some("Razor page route".to_string()),
+                        ..Default::default()
+                    },
+                });
+                relationships.push(GraphRelationship {
+                    id: edge_id,
+                    source_id: file_node_id.to_string(),
+                    target_id: route_id,
+                    rel_type: RelationshipType::HandlesRoute,
+                    confidence: 1.0,
+                    reason: "razor_page_directive".to_string(),
+                    step: None,
+                });
+            }
+            "model" => {
+                // Create an import reference for the @model type
+                extracted.imports.push(ExtractedImport {
+                    file_path: file.path.clone(),
+                    raw_import_path: directive.value.clone(),
+                    language: "razor".to_string(),
+                });
+            }
+            "inject" => {
+                // Parse "@inject TypeName FieldName" as an import + dependency
+                let parts: Vec<&str> = directive.value.split_whitespace().collect();
+                if !parts.is_empty() {
+                    extracted.imports.push(ExtractedImport {
+                        file_path: file.path.clone(),
+                        raw_import_path: format!("@inject {}", directive.value),
+                        language: "razor".to_string(),
+                    });
+                }
+            }
+            "using" => {
+                // Capture @using directives as imports
+                extracted.imports.push(ExtractedImport {
+                    file_path: file.path.clone(),
+                    raw_import_path: directive.value.clone(),
+                    language: "razor".to_string(),
+                });
+            }
+            "inherits" => {
+                let filename = std::path::Path::new(&file.path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown");
+                extracted.heritage.push(ExtractedHeritage {
+                    file_path: file.path.clone(),
+                    class_name: filename.to_string(),
+                    parent_name: directive.value.clone(),
+                    kind: "extends".to_string(),
+                });
+            }
+            "implements" => {
+                let filename = std::path::Path::new(&file.path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown");
+                extracted.heritage.push(ExtractedHeritage {
+                    file_path: file.path.clone(),
+                    class_name: filename.to_string(),
+                    parent_name: directive.value.clone(),
+                    kind: "implements".to_string(),
+                });
+            }
+            "layout" => {
+                // @layout defines which layout this component uses (Blazor).
+                // Create a heritage relationship: this component "extends" the layout.
+                let filename = std::path::Path::new(&file.path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown");
+                extracted.heritage.push(ExtractedHeritage {
+                    file_path: file.path.clone(),
+                    class_name: filename.to_string(),
+                    parent_name: directive.value.clone(),
+                    kind: "extends".to_string(),
+                });
+                // Also track as an import so the layout file can be resolved
+                extracted.imports.push(ExtractedImport {
+                    file_path: file.path.clone(),
+                    raw_import_path: directive.value.clone(),
+                    language: "razor".to_string(),
+                });
+            }
+            "namespace" => {
+                // @namespace sets the namespace for the component.
+                // Store as metadata on the file node (useful for symbol resolution).
+                // We don't create a separate node — just an import for the namespace.
+                extracted.imports.push(ExtractedImport {
+                    file_path: file.path.clone(),
+                    raw_import_path: directive.value.clone(),
+                    language: "razor".to_string(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    // 2. Extract JavaScript from <script> blocks
+    let script_blocks = extract_script_blocks(&file.content);
+    if !script_blocks.is_empty() {
+        let js_lang = grammar::get_language(SupportedLanguage::JavaScript);
+        let js_provider = gitnexus_lang::registry::get_provider(SupportedLanguage::JavaScript);
+        let js_query_str = js_provider.tree_sitter_queries();
+
+        let mut js_parser = Parser::new();
+        if js_parser.set_language(&js_lang).is_ok() {
+            if let Ok(js_query) = Query::new(&js_lang, js_query_str) {
+                for (block_idx, (_line_num, script_content)) in script_blocks.iter().enumerate() {
+                    let virtual_path = format!("{}#script-{}", file.path, block_idx);
+                    let virtual_file_id = generate_id("File", &virtual_path);
+
+                    if let Some(tree) = js_parser.parse(script_content, None) {
+                        let content_bytes = script_content.as_bytes();
+                        let capture_names = js_query.capture_names();
+                        let mut cursor = QueryCursor::new();
+                        let mut matches =
+                            cursor.matches(&js_query, tree.root_node(), content_bytes);
+
+                        while let Some(m) = matches.next() {
+                            let mut captures: HashMap<&str, (&str, tree_sitter::Node)> =
+                                HashMap::new();
+                            for capture in m.captures {
+                                let name = capture_names[capture.index as usize];
+                                if let Ok(text) = capture.node.utf8_text(content_bytes) {
+                                    captures.insert(name, (text, capture.node));
+                                }
+                            }
+
+                            let virtual_file = FileEntry {
+                                path: virtual_path.clone(),
+                                content: script_content.clone(),
+                                language: Some(SupportedLanguage::JavaScript),
+                                size: script_content.len(),
+                            };
+
+                            process_match(
+                                &captures,
+                                &virtual_file,
+                                SupportedLanguage::JavaScript,
+                                &virtual_file_id,
+                                nodes,
+                                relationships,
+                                extracted,
+                            );
+                        }
+                    }
+
+                    // Link the virtual script file to the Razor file
+                    let edge_id = format!("contains_script_{}_{}", file_node_id, virtual_file_id);
+                    relationships.push(GraphRelationship {
+                        id: edge_id,
+                        source_id: file_node_id.to_string(),
+                        target_id: virtual_file_id,
+                        rel_type: RelationshipType::Contains,
+                        confidence: 1.0,
+                        reason: "embedded_script_block".to_string(),
+                        step: None,
+                    });
+                }
+            }
+        }
+    }
+
+    // 3. Extract MVC HtmlHelper calls (@Html.Partial, @Html.ActionLink, etc.)
+    let helpers = extract_html_helpers(&file.content);
+    for helper in &helpers {
+        match helper.helper_type.as_str() {
+            "Partial" | "RenderPartial" | "PartialAsync" | "RenderPartialAsync" => {
+                // Partial view reference → create a call to the partial view file
+                extracted.calls.push(ExtractedCall {
+                    file_path: file.path.clone(),
+                    called_name: helper.target.clone(),
+                    source_id: file_node_id.to_string(),
+                    arg_count: None,
+                    call_form: CallForm::Member,
+                    receiver_name: Some("Html".to_string()),
+                    receiver_type_name: Some("IHtmlHelper".to_string()),
+                });
+            }
+            "ActionLink" | "Action" | "RenderAction" | "RouteUrl" => {
+                // Controller action reference → create a call to the action method
+                let target_name = if let Some(ref controller) = helper.controller {
+                    format!("{}.{}", controller, helper.target)
+                } else {
+                    helper.target.clone()
+                };
+                extracted.calls.push(ExtractedCall {
+                    file_path: file.path.clone(),
+                    called_name: target_name,
+                    source_id: file_node_id.to_string(),
+                    arg_count: None,
+                    call_form: CallForm::Member,
+                    receiver_name: helper.controller.clone(),
+                    receiver_type_name: helper
+                        .controller
+                        .as_ref()
+                        .map(|c| format!("{}Controller", c)),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    // 4. Detect UI component libraries (use shared detector to avoid re-init per file)
+    let detector = ComponentDetector::shared();
+    let detected = detector.detect_in_file(&file.content, &file.path);
+    for component in &detected {
+        let lib_id = generate_id("Library", &component.library_name);
+        // Only add the library node once (check by ID)
+        if !nodes.iter().any(|n| n.id == lib_id) {
+            nodes.push(GraphNode {
+                id: lib_id.clone(),
+                label: NodeLabel::Library,
+                properties: NodeProperties {
+                    name: component.library_name.clone(),
+                    file_path: String::new(), // Library is project-level, not file-specific
+                    description: Some(format!(
+                        "{} — {} (detected via {:?})",
+                        component.vendor, component.category, component.detected_by
+                    )),
+                    ..Default::default()
+                },
+            });
+        }
+
+        let edge_id = format!("uses_lib_{}_{}", file_node_id, lib_id);
+        relationships.push(GraphRelationship {
+            id: edge_id,
+            source_id: file_node_id.to_string(),
+            target_id: lib_id,
+            rel_type: RelationshipType::Uses,
+            confidence: component.confidence,
+            reason: format!("{:?}", component.detected_by),
+            step: None,
+        });
     }
 }
 
@@ -974,6 +1255,102 @@ fn extract_assignment(
             property_name: property,
             receiver_type_name: None,
         });
+    }
+}
+
+/// Scan for .csproj files and detect component libraries from NuGet PackageReferences.
+///
+/// This provides higher-confidence library detection than source-level patterns because
+/// .csproj files contain the definitive list of NuGet dependencies with exact versions.
+pub fn detect_csproj_components(
+    graph: &mut KnowledgeGraph,
+    repo_path: &std::path::Path,
+) {
+    use gitnexus_lang::component_detection::ComponentDetector;
+    use ignore::WalkBuilder;
+
+    let detector = ComponentDetector::shared();
+
+    // Walk the repo looking for .csproj files (they may not be in the file_entries
+    // since walk_repository only picks up source files with known languages).
+    let walker = WalkBuilder::new(repo_path)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(false)
+        .git_exclude(true)
+        .max_depth(Some(8)) // .csproj files shouldn't be deeply nested
+        .build();
+
+    for result in walker.flatten() {
+        if !result.file_type().map_or(false, |ft| ft.is_file()) {
+            continue;
+        }
+        let path = result.path();
+        let path_str = path.to_string_lossy();
+
+        let is_project_file = path_str.ends_with(".csproj")
+            || path_str.ends_with("packages.config")
+            || path_str.ends_with("web.config");
+
+        if !is_project_file {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let rel_path = path
+            .strip_prefix(repo_path)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        let detected = detector.detect_in_csproj(&content);
+        if detected.is_empty() {
+            continue;
+        }
+
+        // Create a Project node for the .csproj if it doesn't exist
+        let project_id = generate_id("File", &rel_path);
+
+        for component in &detected {
+            let lib_id = generate_id("Library", &component.library_name);
+
+            // Add Library node if not present
+            if graph.get_node(&lib_id).is_none() {
+                let mut desc = format!(
+                    "{} — {}",
+                    component.vendor, component.category
+                );
+                if let Some(ref ver) = component.detected_version {
+                    desc.push_str(&format!(" (v{})", ver));
+                }
+                graph.add_node(GraphNode {
+                    id: lib_id.clone(),
+                    label: NodeLabel::Library,
+                    properties: NodeProperties {
+                        name: component.library_name.clone(),
+                        file_path: rel_path.clone(),
+                        description: Some(desc),
+                        ..Default::default()
+                    },
+                });
+            }
+
+            // Link project → library
+            let edge_id = format!("uses_lib_{}_{}", project_id, lib_id);
+            graph.add_relationship(GraphRelationship {
+                id: edge_id,
+                source_id: project_id.clone(),
+                target_id: lib_id,
+                rel_type: RelationshipType::Uses,
+                confidence: component.confidence,
+                reason: format!("csproj_{:?}", component.detected_by),
+                step: None,
+            });
+        }
     }
 }
 

@@ -9,3 +9,4 @@ pub mod csharp;
 pub mod php;
 pub mod ruby;
 pub mod swift;
+pub mod razor;

@@ -9,19 +9,22 @@ import {
   PanelLeft,
 } from "lucide-react";
 import { useAppStore, type SidebarTab } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
+import { Tooltip } from "../shared/Tooltip";
 
-const WORKSPACE_TABS: { id: SidebarTab; icon: typeof GitBranch; label: string }[] = [
-  { id: "repos", icon: GitBranch, label: "Repositories" },
-  { id: "files", icon: FolderTree, label: "File Explorer" },
+const WORKSPACE_TABS: { id: SidebarTab; icon: typeof GitBranch; labelKey: string }[] = [
+  { id: "repos", icon: GitBranch, labelKey: "sidebar.repositories" },
+  { id: "files", icon: FolderTree, labelKey: "sidebar.fileExplorer" },
 ];
 
-const TOOL_TABS: { id: SidebarTab; icon: typeof Network; label: string }[] = [
-  { id: "graph", icon: Network, label: "Graph Explorer" },
-  { id: "impact", icon: Zap, label: "Impact Analysis" },
-  { id: "docs", icon: FileText, label: "Documentation" },
+const TOOL_TABS: { id: SidebarTab; icon: typeof Network; labelKey: string }[] = [
+  { id: "graph", icon: Network, labelKey: "sidebar.graphExplorer" },
+  { id: "impact", icon: Zap, labelKey: "sidebar.impactAnalysis" },
+  { id: "docs", icon: FileText, labelKey: "sidebar.documentation" },
 ];
 
 export function Sidebar() {
+  const { t, tt } = useI18n();
   const sidebarTab = useAppStore((s) => s.sidebarTab);
   const setSidebarTab = useAppStore((s) => s.setSidebarTab);
   const collapsed = useAppStore((s) => s.sidebarCollapsed);
@@ -37,7 +40,10 @@ export function Sidebar() {
       }}
     >
       {/* Logo + collapse */}
-      <div className="flex items-center gap-2.5 px-4 h-[52px] shrink-0">
+      <div
+        className="flex items-center shrink-0"
+        style={{ gap: 10, paddingLeft: 16, paddingRight: 16, height: 52 }}
+      >
         <div
           className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
           style={{
@@ -58,45 +64,73 @@ export function Sidebar() {
             GitNexus
           </span>
         )}
-        <button
-          onClick={toggle}
-          className="ml-auto p-1 rounded-md transition-colors shrink-0"
-          style={{ color: "var(--text-3)" }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "var(--surface-hover)";
-            e.currentTarget.style.color = "var(--text-2)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = "var(--text-3)";
-          }}
-        >
-          {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
-        </button>
+        {(() => {
+          const toggleText = tt(collapsed ? "sidebar.expand" : "sidebar.collapse");
+          return (
+            <Tooltip content={toggleText.tip}>
+              <button
+                onClick={toggle}
+                title={toggleText.label}
+                aria-label={toggleText.label}
+                className="rounded-md transition-colors shrink-0"
+                style={{ marginLeft: "auto", padding: 4, color: "var(--text-3)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--surface-hover)";
+                  e.currentTarget.style.color = "var(--text-2)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = "var(--text-3)";
+                }}
+              >
+                {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+              </button>
+            </Tooltip>
+          );
+        })()}
       </div>
 
+      {/* Separator below logo */}
+      <div
+        style={{
+          height: "1px",
+          background: "var(--surface-border)",
+          margin: "0 12px",
+        }}
+      />
+
       {/* Nav sections */}
-      <div className="flex-1 overflow-y-auto px-3 py-2">
-        <SectionLabel collapsed={collapsed}>Workspace</SectionLabel>
+      <div
+        className="flex-1 overflow-y-auto"
+        style={{ padding: "8px 12px" }}
+      >
+        <SectionLabel collapsed={collapsed}>{t("sidebar.workspace")}</SectionLabel>
         {WORKSPACE_TABS.map((tab) => (
           <NavItem
             key={tab.id}
             icon={tab.icon}
-            label={tab.label}
+            labelKey={tab.labelKey}
             active={sidebarTab === tab.id}
             collapsed={collapsed}
             onClick={() => setSidebarTab(tab.id)}
           />
         ))}
 
-        <div className="my-3" />
+        {/* Section divider */}
+        <div
+          style={{
+            height: "1px",
+            background: "var(--surface-border)",
+            margin: "12px 0",
+          }}
+        />
 
-        <SectionLabel collapsed={collapsed}>Tools</SectionLabel>
+        <SectionLabel collapsed={collapsed}>{t("sidebar.explore")}</SectionLabel>
         {TOOL_TABS.map((tab) => (
           <NavItem
             key={tab.id}
             icon={tab.icon}
-            label={tab.label}
+            labelKey={tab.labelKey}
             active={sidebarTab === tab.id}
             collapsed={collapsed}
             onClick={() => setSidebarTab(tab.id)}
@@ -104,14 +138,23 @@ export function Sidebar() {
         ))}
       </div>
 
+      {/* Separator above settings */}
+      <div
+        style={{
+          height: "1px",
+          background: "var(--surface-border)",
+          margin: "0 12px",
+        }}
+      />
+
       {/* Bottom */}
-      <div className="px-3 py-2.5 shrink-0" style={{ borderTop: "1px solid var(--surface-border)" }}>
+      <div className="shrink-0" style={{ padding: "10px 12px" }}>
         <NavItem
           icon={Settings}
-          label="Settings"
+          labelKey="sidebar.settings"
           active={false}
           collapsed={collapsed}
-          onClick={() => {}}
+          onClick={() => useAppStore.getState().setSettingsOpen(true)}
         />
       </div>
     </div>
@@ -122,8 +165,15 @@ function SectionLabel({ collapsed, children }: { collapsed: boolean; children: R
   if (collapsed) return <div className="h-3" />;
   return (
     <div
-      className="px-3 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest select-none"
-      style={{ color: "var(--text-3)", fontFamily: "var(--font-display)" }}
+      className="text-[10px] font-semibold uppercase tracking-widest select-none"
+      style={{
+        color: "var(--text-3)",
+        fontFamily: "var(--font-display)",
+        paddingLeft: 12,
+        paddingRight: 12,
+        paddingTop: 12,
+        paddingBottom: 6,
+      }}
     >
       {children}
     </div>
@@ -132,23 +182,26 @@ function SectionLabel({ collapsed, children }: { collapsed: boolean; children: R
 
 function NavItem({
   icon: Icon,
-  label,
+  labelKey,
   active,
   collapsed,
   onClick,
 }: {
   icon: typeof GitBranch;
-  label: string;
+  labelKey: string;
   active: boolean;
   collapsed: boolean;
   onClick: () => void;
 }) {
+  const { t } = useI18n();
+  const label = t(labelKey);
   return (
     <button
       onClick={onClick}
       title={collapsed ? label : undefined}
-      className="w-full flex items-center gap-2.5 rounded-lg transition-all duration-150 group relative"
+      className="w-full flex items-center rounded-lg transition-all duration-150 group relative overflow-hidden"
       style={{
+        gap: 10,
         padding: collapsed ? "8px" : "7px 10px",
         justifyContent: collapsed ? "center" : "flex-start",
         background: active ? "var(--accent-subtle)" : "transparent",
@@ -168,14 +221,29 @@ function NavItem({
       }}
     >
       {active && (
-        <div
-          className="absolute left-0 top-1/2 -translate-y-1/2 w-[2.5px] rounded-r-full"
-          style={{ height: 16, background: "var(--accent)" }}
-        />
+        <>
+          {/* Left indicator with gradient glow */}
+          <div
+            className="absolute left-0 top-1/2 -translate-y-1/2 w-[2.5px] rounded-r-full transition-all duration-200"
+            style={{
+              height: 20,
+              background: "linear-gradient(180deg, transparent, var(--accent), transparent)",
+              boxShadow: "0 0 12px var(--accent-glow)",
+            }}
+          />
+          {/* Subtle background glow */}
+          <div
+            className="absolute inset-0 opacity-50"
+            style={{
+              background: "radial-gradient(100px circle at left, var(--accent-glow), transparent)",
+              pointerEvents: "none",
+            }}
+          />
+        </>
       )}
-      <Icon size={16} className="shrink-0" />
+      <Icon size={16} className="shrink-0 relative z-10" />
       {!collapsed && (
-        <span className="text-[13px] font-medium truncate">{label}</span>
+        <span className="text-[13px] font-medium truncate relative z-10">{label}</span>
       )}
     </button>
   );

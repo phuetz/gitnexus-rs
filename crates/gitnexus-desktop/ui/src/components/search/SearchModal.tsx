@@ -1,10 +1,28 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Search, X, CornerDownLeft, ArrowUp, ArrowDown } from "lucide-react";
 import { useSearchSymbols } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 import { NodeIcon } from "../shared/NodeIcon";
+import type { SearchResult } from "../../lib/tauri-commands";
+
+/** Re-rank results: exact name > name-contains > path-only, preserving score within tiers */
+function rankResults(results: SearchResult[], query: string): SearchResult[] {
+  if (!query) return results;
+  const q = query.toLowerCase();
+  return [...results].sort((a, b) => {
+    const aExact = a.name.toLowerCase() === q;
+    const bExact = b.name.toLowerCase() === q;
+    if (aExact !== bExact) return aExact ? -1 : 1;
+    const aName = a.name.toLowerCase().includes(q);
+    const bName = b.name.toLowerCase().includes(q);
+    if (aName !== bName) return aName ? -1 : 1;
+    return b.score - a.score;
+  });
+}
 
 export function SearchModal() {
+  const { t } = useI18n();
   const isOpen = useAppStore((s) => s.searchOpen);
   const setSearchOpen = useAppStore((s) => s.setSearchOpen);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
@@ -14,7 +32,11 @@ export function SearchModal() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { data: results } = useSearchSymbols(query, query.length >= 1);
+  const { data: rawResults } = useSearchSymbols(query, query.length >= 1);
+  const results = useMemo(
+    () => (rawResults ? rankResults(rawResults, query) : undefined),
+    [rawResults, query]
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -29,8 +51,8 @@ export function SearchModal() {
   }, [results]);
 
   const selectResult = useCallback(
-    (nodeId: string) => {
-      setSelectedNodeId(nodeId);
+    (nodeId: string, name?: string) => {
+      setSelectedNodeId(nodeId, name);
       setSidebarTab("graph");
       setSearchOpen(false);
     },
@@ -45,7 +67,7 @@ export function SearchModal() {
       e.preventDefault();
       setSelectedIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter" && results?.[selectedIndex]) {
-      selectResult(results[selectedIndex].nodeId);
+      selectResult(results[selectedIndex].nodeId, results[selectedIndex].name);
     } else if (e.key === "Escape") {
       setSearchOpen(false);
     }
@@ -80,7 +102,7 @@ export function SearchModal() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search symbols, files, classes..."
+            placeholder={t("search.placeholder")}
             className="flex-1 bg-transparent outline-none text-[15px]"
             style={{ color: "var(--text-0)", fontFamily: "var(--font-body)" }}
           />
@@ -100,7 +122,7 @@ export function SearchModal() {
               {results.map((r, i) => (
                 <button
                   key={r.nodeId}
-                  onClick={() => selectResult(r.nodeId)}
+                  onClick={() => selectResult(r.nodeId, r.name)}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors"
                   style={{
                     background: i === selectedIndex ? "var(--accent-subtle)" : "transparent",
@@ -140,11 +162,11 @@ export function SearchModal() {
             </div>
           ) : query.length >= 1 ? (
             <div className="py-12 text-center" style={{ color: "var(--text-3)" }}>
-              No results found
+              {t("search.noResults")}
             </div>
           ) : (
             <div className="py-12 text-center" style={{ color: "var(--text-3)" }}>
-              Start typing to search...
+              {t("search.startTyping")}
             </div>
           )}
         </div>
@@ -155,13 +177,13 @@ export function SearchModal() {
           style={{ borderTop: "1px solid var(--surface-border)", color: "var(--text-3)" }}
         >
           <span className="flex items-center gap-1">
-            <ArrowUp size={11} /><ArrowDown size={11} /> Navigate
+            <ArrowUp size={11} /><ArrowDown size={11} /> {t("search.navigate")}
           </span>
           <span className="flex items-center gap-1">
-            <CornerDownLeft size={11} /> Open
+            <CornerDownLeft size={11} /> {t("search.open")}
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="font-mono text-[10px]">Esc</kbd> Close
+            <kbd className="font-mono text-[10px]">Esc</kbd> {t("search.close")}
           </span>
         </div>
       </div>

@@ -230,3 +230,306 @@ pub struct FileContent {
     pub language: Option<String>,
     pub total_lines: usize,
 }
+
+// ─── Documentation ──────────────────────────────────────────────────────────
+
+/// A documentation page in the navigation tree.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocPage {
+    pub id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<DocPage>>,
+}
+
+/// Documentation index with navigation tree and metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocIndex {
+    pub title: String,
+    pub generated_at: String,
+    pub stats: DocStats,
+    pub pages: Vec<DocPage>,
+}
+
+/// Documentation statistics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocStats {
+    pub files: usize,
+    pub nodes: usize,
+    pub edges: usize,
+    pub modules: usize,
+}
+
+/// Content of a documentation page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocContent {
+    pub path: String,
+    pub content: String,
+    pub title: String,
+}
+
+// ─── Chat Q&A ───────────────────────────────────────────────────────────
+
+/// Chat message (user or assistant).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+/// Chat request from the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatRequest {
+    pub question: String,
+    #[serde(default)]
+    pub history: Vec<ChatMessage>,
+}
+
+/// Chat response returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatResponse {
+    pub answer: String,
+    pub sources: Vec<ChatSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// A source citation in a chat response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSource {
+    pub node_id: String,
+    pub symbol_name: String,
+    pub symbol_type: String,
+    pub file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callees: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub community: Option<String>,
+    pub relevance_score: f64,
+}
+
+/// LLM chat configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatConfig {
+    pub provider: String,
+    pub api_key: String,
+    pub base_url: String,
+    pub model: String,
+    pub max_tokens: u32,
+}
+
+impl Default for ChatConfig {
+    fn default() -> Self {
+        Self {
+            provider: "ollama".to_string(),
+            api_key: String::new(),
+            base_url: "http://localhost:11434/v1".to_string(),
+            model: "llama3.2".to_string(),
+            max_tokens: 4096,
+        }
+    }
+}
+
+// ─── Chat Intelligence (Planner & Executor) ─────────────────────────
+
+/// Query complexity classification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QueryComplexity {
+    /// Direct lookup — single search or symbol resolution
+    Simple,
+    /// 2-3 operations — search + context or search + impact
+    Medium,
+    /// Multi-step research — DAG of operations
+    Complex,
+}
+
+/// Filters for scoping chat context to specific files/symbols/modules.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatContextFilter {
+    /// Filter to specific file paths or glob patterns
+    #[serde(default)]
+    pub files: Vec<String>,
+    /// Filter to specific symbol names
+    #[serde(default)]
+    pub symbols: Vec<String>,
+    /// Filter to specific module/community names
+    #[serde(default)]
+    pub modules: Vec<String>,
+    /// Filter to specific languages
+    #[serde(default)]
+    pub languages: Vec<String>,
+    /// Filter to specific node labels (Function, Class, etc.)
+    #[serde(default)]
+    pub labels: Vec<String>,
+}
+
+/// Enhanced chat request with optional context filters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSmartRequest {
+    pub question: String,
+    #[serde(default)]
+    pub history: Vec<ChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filters: Option<ChatContextFilter>,
+    /// If true, execute a full research plan (complex mode)
+    #[serde(default)]
+    pub deep_research: bool,
+}
+
+/// Result of analyzing a query's complexity and required tools.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryAnalysis {
+    pub complexity: QueryComplexity,
+    pub suggested_tools: Vec<String>,
+    pub estimated_steps: u32,
+    pub reasoning: String,
+    /// Keywords extracted from the query
+    pub keywords: Vec<String>,
+    /// Whether the query needs cross-file analysis
+    pub needs_cross_file: bool,
+    /// Whether the query needs impact/dependency analysis
+    pub needs_impact: bool,
+}
+
+/// A research plan — a DAG of steps to answer a complex question.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchPlan {
+    pub id: String,
+    pub query: String,
+    pub analysis: QueryAnalysis,
+    pub steps: Vec<ResearchStep>,
+    pub status: PlanStatus,
+}
+
+/// Status of the overall research plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlanStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+/// A single step in a research plan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchStep {
+    pub id: String,
+    pub order: u32,
+    /// Tool to use: search_symbols, get_symbol_context, get_impact_analysis, execute_cypher, read_file_content
+    pub tool: String,
+    /// Description of what this step does
+    pub description: String,
+    /// Parameters for the tool
+    pub params: serde_json::Value,
+    /// IDs of steps this depends on
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    pub status: StepStatus,
+    /// Result of executing this step
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<StepResult>,
+}
+
+/// Status of an individual research step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StepStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Skipped,
+}
+
+/// Result of executing a research step.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepResult {
+    /// Summary of what was found
+    pub summary: String,
+    /// Sources discovered in this step
+    #[serde(default)]
+    pub sources: Vec<ChatSource>,
+    /// Raw data (tool-specific JSON)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+    /// Duration in milliseconds
+    pub duration_ms: u64,
+}
+
+/// Enhanced chat response with optional research plan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSmartResponse {
+    pub answer: String,
+    pub sources: Vec<ChatSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<ResearchPlan>,
+    pub complexity: QueryComplexity,
+}
+
+/// File quick-pick result (for Ctrl+P style file picker).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileQuickPick {
+    pub path: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    pub symbol_count: u32,
+}
+
+/// Symbol quick-pick result (for Ctrl+Shift+O style symbol picker).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SymbolQuickPick {
+    pub node_id: String,
+    pub name: String,
+    pub kind: String,
+    pub file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_line: Option<u32>,
+}
+
+/// Module quick-pick result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModuleQuickPick {
+    pub community_id: String,
+    pub name: String,
+    pub member_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}

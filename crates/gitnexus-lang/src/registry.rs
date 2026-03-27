@@ -22,6 +22,7 @@ pub fn get_provider(lang: SupportedLanguage) -> &'static dyn LanguageProvider {
         SupportedLanguage::Ruby => &RubyProvider,
         SupportedLanguage::Kotlin => &KotlinProvider,
         SupportedLanguage::Swift => &SwiftProvider,
+        SupportedLanguage::Razor => &RazorProvider,
     }
 }
 

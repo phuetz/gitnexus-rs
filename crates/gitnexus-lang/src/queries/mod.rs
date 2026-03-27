@@ -11,3 +11,4 @@ pub mod php;
 pub mod ruby;
 pub mod kotlin;
 pub mod swift;
+pub mod razor;

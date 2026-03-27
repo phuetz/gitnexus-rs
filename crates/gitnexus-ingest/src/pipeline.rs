@@ -82,6 +82,16 @@ pub async fn run_pipeline(
         &format!("Parsed {total_files} files"),
     );
 
+    // Phase 2b: Detect component libraries from .csproj project files.
+    // This runs after parsing to enrich the graph with NuGet package-level detections,
+    // which have higher confidence than source-level pattern matching.
+    let has_razor_files = file_entries
+        .iter()
+        .any(|f| f.path.ends_with(".cshtml") || f.path.ends_with(".razor"));
+    if has_razor_files {
+        phases::parsing::detect_csproj_components(&mut graph, repo_path);
+    }
+
     // Build symbol table from graph
     let mut symbol_table = SymbolTable::new();
     phases::parsing::build_symbol_table(&graph, &mut symbol_table);

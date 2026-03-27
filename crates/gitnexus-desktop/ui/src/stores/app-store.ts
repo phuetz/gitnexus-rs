@@ -9,7 +9,8 @@ interface AppState {
   setActiveRepo: (name: string | null) => void;
 
   selectedNodeId: string | null;
-  setSelectedNodeId: (id: string | null) => void;
+  selectedNodeName: string | null;
+  setSelectedNodeId: (id: string | null, name?: string | null) => void;
 
   sidebarTab: SidebarTab;
   setSidebarTab: (tab: SidebarTab) => void;
@@ -25,6 +26,9 @@ interface AppState {
 
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
+
+  settingsOpen: boolean;
+  setSettingsOpen: (open: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -32,10 +36,17 @@ export const useAppStore = create<AppState>((set) => ({
   setActiveRepo: (name) => set({ activeRepo: name }),
 
   selectedNodeId: null,
-  setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+  selectedNodeName: null,
+  setSelectedNodeId: (id, name) => set({ selectedNodeId: id, selectedNodeName: name ?? null }),
 
   sidebarTab: "repos",
-  setSidebarTab: (tab) => set({ sidebarTab: tab }),
+  setSidebarTab: (tab) => set(() => ({
+    sidebarTab: tab,
+    // Clear node selection when leaving graph-related tabs
+    ...(tab !== "graph" && tab !== "impact" && tab !== "search"
+      ? { selectedNodeId: null, selectedNodeName: null }
+      : {}),
+  })),
 
   sidebarCollapsed: false,
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -48,4 +59,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   searchOpen: false,
   setSearchOpen: (open) => set({ searchOpen: open }),
+
+  settingsOpen: false,
+  setSettingsOpen: (open) => set({ settingsOpen: open }),
 }));

@@ -9,7 +9,7 @@ pub enum SupportedLanguage {
     #[serde(rename = "csharp")] CSharp,
     Go, Ruby, Rust,
     #[serde(rename = "php")] Php,
-    Kotlin, Swift,
+    Kotlin, Swift, Razor,
 }
 
 impl SupportedLanguage {
@@ -28,6 +28,7 @@ impl SupportedLanguage {
             Self::Php => &[".php"],
             Self::Kotlin => &[".kt", ".kts"],
             Self::Swift => &[".swift"],
+            Self::Razor => &[".cshtml", ".razor"],
         }
     }
 
@@ -46,6 +47,7 @@ impl SupportedLanguage {
             ".php" => Some(Self::Php),
             ".kt" | ".kts" => Some(Self::Kotlin),
             ".swift" => Some(Self::Swift),
+            ".cshtml" | ".razor" => Some(Self::Razor),
             _ => None,
         }
     }
@@ -66,13 +68,14 @@ impl SupportedLanguage {
             Self::Ruby => "ruby", Self::Rust => "rust",
             Self::Php => "php", Self::Kotlin => "kotlin",
             Self::Swift => "swift",
+            Self::Razor => "razor",
         }
     }
 
     pub fn all() -> &'static [Self] {
         &[Self::JavaScript, Self::TypeScript, Self::Python, Self::Java,
           Self::C, Self::CPlusPlus, Self::CSharp, Self::Go, Self::Ruby,
-          Self::Rust, Self::Php, Self::Kotlin, Self::Swift]
+          Self::Rust, Self::Php, Self::Kotlin, Self::Swift, Self::Razor]
     }
 }
 

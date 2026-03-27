@@ -25,6 +25,10 @@ pub fn get_language(lang: SupportedLanguage) -> Language {
         SupportedLanguage::Swift => tree_sitter_swift::LANGUAGE.into(),
         #[cfg(not(feature = "swift"))]
         SupportedLanguage::Swift => tree_sitter_c::LANGUAGE.into(),
+
+        // Razor files (.cshtml / .razor) reuse the C# grammar.
+        // Razor-specific directives are extracted via regex preprocessing.
+        SupportedLanguage::Razor => tree_sitter_c_sharp::LANGUAGE.into(),
     }
 }
 

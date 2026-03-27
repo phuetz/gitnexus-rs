@@ -148,6 +148,7 @@ pub fn score_name_for_language(
         SupportedLanguage::Php => score_php_name(name),
         SupportedLanguage::Swift => score_swift_name(name),
         SupportedLanguage::CSharp => score_csharp_name(name),
+        SupportedLanguage::Razor => score_razor_name(name),
         _ => None,
     };
 
@@ -330,6 +331,53 @@ fn score_swift_name(name: &str) -> Option<EntryPointScore> {
             reason: "UIKit lifecycle callback".into(),
         }),
         _ => None,
+    }
+}
+
+// ── Razor / Blazor ──────────────────────────────────────────────────────────
+
+fn score_razor_name(name: &str) -> Option<EntryPointScore> {
+    match name {
+        // Razor Pages handler methods
+        "OnGet" | "OnGetAsync" => Some(EntryPointScore {
+            score: 0.95,
+            reason: "Razor Page GET handler".into(),
+        }),
+        "OnPost" | "OnPostAsync" => Some(EntryPointScore {
+            score: 0.95,
+            reason: "Razor Page POST handler".into(),
+        }),
+        "OnPut" | "OnPutAsync" => Some(EntryPointScore {
+            score: 0.9,
+            reason: "Razor Page PUT handler".into(),
+        }),
+        "OnDelete" | "OnDeleteAsync" => Some(EntryPointScore {
+            score: 0.9,
+            reason: "Razor Page DELETE handler".into(),
+        }),
+        "OnPatch" | "OnPatchAsync" => Some(EntryPointScore {
+            score: 0.9,
+            reason: "Razor Page PATCH handler".into(),
+        }),
+        // Blazor component lifecycle
+        "OnInitialized" | "OnInitializedAsync" => Some(EntryPointScore {
+            score: 0.85,
+            reason: "Blazor component initialization".into(),
+        }),
+        "OnParametersSet" | "OnParametersSetAsync" => Some(EntryPointScore {
+            score: 0.7,
+            reason: "Blazor parameter lifecycle callback".into(),
+        }),
+        "OnAfterRender" | "OnAfterRenderAsync" => Some(EntryPointScore {
+            score: 0.6,
+            reason: "Blazor render lifecycle callback".into(),
+        }),
+        "BuildRenderTree" => Some(EntryPointScore {
+            score: 0.5,
+            reason: "Blazor render tree builder".into(),
+        }),
+        // Fall back to C# scoring for other names
+        _ => score_csharp_name(name),
     }
 }
 

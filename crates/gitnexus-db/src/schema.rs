@@ -43,6 +43,7 @@ pub const NODE_LABELS: &[&str] = &[
     "Section",
     "Route",
     "Tool",
+    "Library",
 ];
 
 /// Base columns shared by all node tables.

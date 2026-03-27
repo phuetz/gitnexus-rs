@@ -1,41 +1,95 @@
+import { useState } from "react";
 import { useAppStore, type DetailTab } from "../../stores/app-store";
 import { useSymbolContext } from "../../hooks/use-tauri-query";
+import { useI18n } from "../../hooks/use-i18n";
 import { CodePanel } from "../code/CodePanel";
+import { ChevronRight, ChevronDown } from "lucide-react";
 
-const TABS: { id: DetailTab; label: string }[] = [
-  { id: "context", label: "Context" },
-  { id: "code", label: "Code" },
-  { id: "properties", label: "Properties" },
+const TABS: { id: DetailTab; i18nKey: string }[] = [
+  { id: "context", i18nKey: "detail.context" },
+  { id: "code", i18nKey: "detail.code" },
+  { id: "properties", i18nKey: "detail.codeProperties" },
 ];
 
+const NODE_TYPE_COLORS: Record<string, string> = {
+  Function: "var(--cyan)",
+  Class: "var(--amber)",
+  Method: "var(--cyan)",
+  Property: "var(--purple)",
+  Variable: "var(--text-2)",
+  Interface: "var(--green)",
+  Import: "var(--rose)",
+  Export: "var(--green)",
+  Enum: "var(--amber)",
+  Struct: "var(--purple)",
+  Constant: "var(--purple)",
+  Module: "var(--cyan)",
+};
+
+function getNodeTypeColor(label: string): string {
+  return NODE_TYPE_COLORS[label] || "var(--accent)";
+}
+
 export function DetailPanel() {
+  const { t } = useI18n();
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const detailTab = useAppStore((s) => s.detailTab);
   const setDetailTab = useAppStore((s) => s.setDetailTab);
 
   if (!selectedNodeId) {
     return (
-      <div className="h-full flex items-center justify-center text-[var(--text-muted)] p-4 text-center">
-        Click a node in the graph to see its details
+      <div
+        className="h-full flex flex-col items-center justify-center p-6 text-center"
+        style={{ backgroundColor: "var(--bg-0)", borderLeft: "1px solid var(--surface-border)" }}
+      >
+        <div
+          className="w-12 h-12 rounded-lg mb-3 flex items-center justify-center"
+          style={{ backgroundColor: "var(--bg-2)" }}
+        >
+          <span style={{ fontSize: "24px" }}>○</span>
+        </div>
+        <p
+          className="text-sm font-medium"
+          style={{ color: "var(--text-1)" }}
+        >
+          {t("detail.noSelection")}
+        </p>
+        <p
+          className="text-xs mt-1"
+          style={{ color: "var(--text-3)" }}
+        >
+          Click a node in the graph to see its details
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div
+      className="h-full flex flex-col"
+      style={{ backgroundColor: "var(--bg-0)", borderLeft: "1px solid var(--surface-border)" }}
+    >
       {/* Tab bar */}
-      <div className="flex border-b border-[var(--border)] bg-[var(--bg-secondary)]">
-        {TABS.map(({ id, label }) => (
+      <div
+        className="flex gap-1 px-4 py-3 border-b"
+        style={{
+          backgroundColor: "var(--bg-1)",
+          borderColor: "var(--surface-border)",
+        }}
+      >
+        {TABS.map(({ id, i18nKey }) => (
           <button
             key={id}
             onClick={() => setDetailTab(id)}
-            className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
-              detailTab === id
-                ? "border-[var(--accent)] text-[var(--accent)]"
-                : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-            }`}
+            className="px-3 py-1.5 text-xs font-medium rounded transition-all"
+            style={{
+              backgroundColor:
+                detailTab === id ? "var(--accent)" : "var(--bg-2)",
+              color:
+                detailTab === id ? "white" : "var(--text-2)",
+            }}
           >
-            {label}
+            {t(i18nKey)}
           </button>
         ))}
       </div>
@@ -50,15 +104,59 @@ export function DetailPanel() {
   );
 }
 
+interface CollapsibleSectionProps {
+  title: string;
+  count: number;
+  defaultExpanded?: boolean;
+  children: React.ReactNode;
+}
+
+function CollapsibleSection({
+  title,
+  count,
+  defaultExpanded = false,
+  children,
+}: CollapsibleSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+
+  return (
+    <div>
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center gap-2 w-full text-left mb-2 hover:opacity-80 transition-opacity"
+        style={{ padding: "0" }}
+      >
+        {isExpanded ? (
+          <ChevronDown size={16} style={{ color: "var(--text-2)", flexShrink: 0 }} />
+        ) : (
+          <ChevronRight size={16} style={{ color: "var(--text-2)", flexShrink: 0 }} />
+        )}
+        <h3
+          className="text-xs font-semibold uppercase tracking-wider"
+          style={{ color: "var(--text-2)" }}
+        >
+          {title}{" "}
+          <span style={{ color: "var(--text-3)" }}>({count})</span>
+        </h3>
+      </button>
+      {isExpanded && children}
+    </div>
+  );
+}
+
 function ContextTab() {
+  const { t } = useI18n();
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const { data: context, isLoading } = useSymbolContext(selectedNodeId);
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center text-[var(--text-muted)]">
-        Loading...
+      <div
+        className="h-full flex items-center justify-center"
+        style={{ color: "var(--text-3)" }}
+      >
+        Loading context...
       </div>
     );
   }
@@ -66,23 +164,46 @@ function ContextTab() {
   if (!context) return null;
 
   return (
-    <div className="h-full overflow-y-auto p-3 space-y-4">
-      {/* Node header */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-[var(--accent)] text-white">
+    <div
+      className="h-full overflow-y-auto p-4 space-y-4"
+      style={{ backgroundColor: "var(--bg-0)" }}
+    >
+      {/* Node header card */}
+      <div
+        className="rounded-lg p-3 border-l-4"
+        style={{
+          backgroundColor: "var(--bg-1)",
+          borderColor: getNodeTypeColor(context.node.label),
+        }}
+      >
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span
+            className="px-2 py-1 rounded text-[11px] font-medium text-white whitespace-nowrap"
+            style={{
+              backgroundColor: getNodeTypeColor(context.node.label),
+            }}
+          >
             {context.node.label}
           </span>
           {context.node.isExported && (
-            <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-[var(--success)] text-black">
+            <span
+              className="px-2 py-1 rounded text-[11px] font-medium text-white whitespace-nowrap"
+              style={{ backgroundColor: "var(--green)" }}
+            >
               exported
             </span>
           )}
         </div>
-        <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+        <h2
+          className="text-base font-semibold mb-1"
+          style={{ color: "var(--text-0)" }}
+        >
           {context.node.name}
         </h2>
-        <p className="text-[var(--text-muted)] text-xs">
+        <p
+          className="text-xs"
+          style={{ color: "var(--text-3)" }}
+        >
           {context.node.filePath}
           {context.node.startLine && `:${context.node.startLine}`}
           {context.node.endLine && `-${context.node.endLine}`}
@@ -90,40 +211,73 @@ function ContextTab() {
       </div>
 
       {context.callers.length > 0 && (
-        <RelationSection title="Callers" items={context.callers} onSelect={setSelectedNodeId} />
+        <CollapsibleSection title={t("detail.callers")} count={context.callers.length} defaultExpanded>
+          <RelationSection title={t("detail.callers")} items={context.callers} onSelect={setSelectedNodeId} />
+        </CollapsibleSection>
       )}
       {context.callees.length > 0 && (
-        <RelationSection title="Callees" items={context.callees} onSelect={setSelectedNodeId} />
+        <CollapsibleSection title={t("detail.callees")} count={context.callees.length} defaultExpanded>
+          <RelationSection title={t("detail.callees")} items={context.callees} onSelect={setSelectedNodeId} />
+        </CollapsibleSection>
       )}
       {context.imports.length > 0 && (
-        <RelationSection title="Imports" items={context.imports} onSelect={setSelectedNodeId} />
+        <CollapsibleSection title="Imports" count={context.imports.length}>
+          <RelationSection title="Imports" items={context.imports} onSelect={setSelectedNodeId} />
+        </CollapsibleSection>
       )}
       {context.importedBy.length > 0 && (
-        <RelationSection title="Imported By" items={context.importedBy} onSelect={setSelectedNodeId} />
+        <CollapsibleSection title="Imported By" count={context.importedBy.length}>
+          <RelationSection title="Imported By" items={context.importedBy} onSelect={setSelectedNodeId} />
+        </CollapsibleSection>
       )}
       {context.inherits.length > 0 && (
-        <RelationSection title="Inherits" items={context.inherits} onSelect={setSelectedNodeId} />
+        <CollapsibleSection title="Inherits" count={context.inherits.length}>
+          <RelationSection title="Inherits" items={context.inherits} onSelect={setSelectedNodeId} />
+        </CollapsibleSection>
       )}
       {context.inheritedBy.length > 0 && (
-        <RelationSection title="Inherited By" items={context.inheritedBy} onSelect={setSelectedNodeId} />
+        <CollapsibleSection title="Inherited By" count={context.inheritedBy.length}>
+          <RelationSection title="Inherited By" items={context.inheritedBy} onSelect={setSelectedNodeId} />
+        </CollapsibleSection>
       )}
 
       {context.community && (
-        <div>
-          <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1">
-            Community
-          </h3>
-          <div className="rounded border border-[var(--border)] p-2 bg-[var(--bg-secondary)]">
-            <p className="font-medium">{context.community.name}</p>
+        <CollapsibleSection title={t("detail.community")} count={1}>
+          <div
+            className="rounded-lg p-3 overflow-hidden"
+            style={{
+              backgroundColor: "var(--bg-1)",
+              borderLeft: "4px solid",
+              borderColor: "var(--purple)",
+            }}
+          >
+            <p
+              className="font-medium text-sm"
+              style={{ color: "var(--text-0)" }}
+            >
+              {context.community.name}
+            </p>
             {context.community.description && (
-              <p className="text-xs text-[var(--text-muted)] mt-1">{context.community.description}</p>
+              <p
+                className="text-xs mt-1"
+                style={{ color: "var(--text-3)" }}
+              >
+                {context.community.description}
+              </p>
             )}
-            <div className="flex gap-3 mt-1 text-xs text-[var(--text-muted)]">
-              {context.community.memberCount != null && <span>{context.community.memberCount} members</span>}
-              {context.community.cohesion != null && <span>Cohesion: {context.community.cohesion.toFixed(2)}</span>}
+            <div
+              className="flex gap-3 mt-2 text-xs"
+              style={{ color: "var(--text-2)" }}
+            >
+              {context.community.memberCount != null && (
+                <span>{context.community.memberCount} {t("detail.members")}</span>
+              )}
+              {context.community.cohesion != null && (
+                <span>{t("detail.cohesion")}: {context.community.cohesion.toFixed(2)}</span>
+              )}
             </div>
           </div>
-        </div>
+        </CollapsibleSection>
       )}
     </div>
   );
@@ -150,59 +304,103 @@ function PropertiesTab() {
     ["Description", node.description ?? undefined],
   ];
 
+  const visibleProps = props.filter(([, v]) => v !== undefined);
+
   return (
-    <div className="h-full overflow-y-auto p-3">
-      <table className="w-full text-xs">
-        <tbody>
-          {props
-            .filter(([, v]) => v !== undefined)
-            .map(([key, value]) => (
-              <tr key={key} className="border-b border-[var(--border)]">
-                <td className="py-1.5 pr-3 text-[var(--text-muted)] font-medium whitespace-nowrap align-top">
-                  {key}
-                </td>
-                <td className="py-1.5 text-[var(--text-primary)] break-all">
-                  {value}
-                </td>
-              </tr>
-            ))}
-        </tbody>
-      </table>
+    <div
+      className="h-full overflow-y-auto p-4"
+      style={{ backgroundColor: "var(--bg-0)" }}
+    >
+      <div className="grid gap-2">
+        {visibleProps.map(([key, value]) => (
+          <div
+            key={key}
+            className="rounded-lg p-3 border"
+            style={{
+              backgroundColor: "var(--bg-1)",
+              borderColor: "var(--surface-border)",
+            }}
+          >
+            <p
+              className="text-xs font-medium mb-1"
+              style={{ color: "var(--text-2)" }}
+            >
+              {key}
+            </p>
+            <p
+              className="text-xs break-all"
+              style={{ color: "var(--text-0)" }}
+            >
+              {value}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
+interface RelationItem {
+  id: string;
+  name: string;
+  label: string;
+  filePath: string;
+}
+
+interface RelationSectionProps {
+  title: string;
+  items: RelationItem[];
+  onSelect: (id: string, name?: string) => void;
+}
+
 function RelationSection({
-  title,
+  title: _title,
   items,
   onSelect,
-}: {
-  title: string;
-  items: { id: string; name: string; label: string; filePath: string }[];
-  onSelect: (id: string) => void;
-}) {
+}: RelationSectionProps) {
   return (
-    <div>
-      <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1">
-        {title} <span className="text-[var(--text-muted)]">({items.length})</span>
-      </h3>
-      <ul className="space-y-0.5">
+    <div className="space-y-1.5">
         {items.map((item) => (
-          <li
+          <button
             key={item.id}
-            className="flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors"
-            onClick={() => onSelect(item.id)}
+            onClick={() => onSelect(item.id, item.name)}
+            className="w-full flex items-start gap-2 px-3 py-2 rounded-lg border transition-colors text-left"
+            style={{
+              backgroundColor: "var(--bg-1)",
+              borderColor: "var(--surface-border)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = "var(--surface-hover)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = "var(--bg-1)";
+            }}
           >
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
+            <span
+              className="text-[10px] px-2 py-0.5 rounded shrink-0 font-medium whitespace-nowrap"
+              style={{
+                backgroundColor: "var(--bg-2)",
+                color: "var(--text-2)",
+              }}
+            >
               {item.label}
             </span>
-            <span className="truncate">{item.name}</span>
-            <span className="ml-auto text-[10px] text-[var(--text-muted)] truncate max-w-[120px]">
-              {item.filePath}
-            </span>
-          </li>
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <p
+                className="text-xs font-medium truncate"
+                style={{ color: "var(--text-0)" }}
+              >
+                {item.name}
+              </p>
+              <p
+                className="text-[10px] truncate"
+                style={{ color: "var(--text-3)" }}
+              >
+                {item.filePath}
+              </p>
+            </div>
+          </button>
         ))}
-      </ul>
     </div>
   );
 }

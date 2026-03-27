@@ -5,3 +5,7 @@ pub mod context;
 pub mod impact;
 pub mod files;
 pub mod cypher;
+pub mod docs;
+pub mod chat;
+pub mod chat_planner;
+pub mod chat_executor;

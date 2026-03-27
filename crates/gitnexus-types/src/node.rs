@@ -13,6 +13,8 @@ pub enum NodeLabel {
     BasicBlock, BranchPoint, LoopHead, ExitPoint,
     // New: Git behavioral types
     Author,
+    // New: External library / UI component library
+    Library,
 }
 
 impl NodeLabel {
@@ -39,6 +41,7 @@ impl NodeLabel {
             Self::BasicBlock => "BasicBlock", Self::BranchPoint => "BranchPoint",
             Self::LoopHead => "LoopHead", Self::ExitPoint => "ExitPoint",
             Self::Author => "Author",
+            Self::Library => "Library",
         }
     }
 
@@ -65,6 +68,7 @@ impl NodeLabel {
             "BasicBlock" => Some(Self::BasicBlock), "BranchPoint" => Some(Self::BranchPoint),
             "LoopHead" => Some(Self::LoopHead), "ExitPoint" => Some(Self::ExitPoint),
             "Author" => Some(Self::Author),
+            "Library" => Some(Self::Library),
             _ => None,
         }
     }

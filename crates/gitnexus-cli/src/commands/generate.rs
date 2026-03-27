@@ -6,6 +6,8 @@ use std::path::Path;
 
 use anyhow::Result;
 use colored::Colorize;
+use serde_json::{json, Value};
+use chrono;
 
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
@@ -22,14 +24,16 @@ pub fn run(what: &str, path: Option<&str>) -> Result<()> {
         "context" | "agents" => generate_agents_md(&graph, &repo_path)?,
         "wiki" => generate_wiki(&graph, &repo_path)?,
         "skills" => generate_skills(&graph, &repo_path)?,
+        "docs" => generate_docs(&graph, &repo_path)?,
         "all" => {
             generate_agents_md(&graph, &repo_path)?;
             generate_wiki(&graph, &repo_path)?;
             generate_skills(&graph, &repo_path)?;
+            generate_docs(&graph, &repo_path)?;
         }
         _ => {
             eprintln!(
-                "Unknown target: {}. Use: context, wiki, skills, all",
+                "Unknown target: {}. Use: context, wiki, skills, docs, all",
                 what
             );
         }
@@ -625,5 +629,712 @@ fn generate_skills(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         communities.len(),
         skills_dir.display()
     );
+    Ok(())
+}
+
+// ─── Docs Generator (DeepWiki-style) ─────────────────────────────────────
+
+fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
+    let docs_dir = repo_path.join(".gitnexus").join("docs");
+    std::fs::create_dir_all(&docs_dir)?;
+    let modules_dir = docs_dir.join("modules");
+    std::fs::create_dir_all(&modules_dir)?;
+
+    let repo_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("repository");
+
+    let communities = collect_communities(graph);
+    let edge_map = build_edge_map(graph);
+    let lang_stats = collect_language_stats(graph);
+    let file_count = count_files(graph);
+
+    let node_count = graph.iter_nodes().count();
+    let edge_count = graph.iter_relationships().count();
+
+    if communities.is_empty() {
+        println!(
+            "{} No communities found. Run `gitnexus analyze` first.",
+            "!".yellow()
+        );
+        return Ok(());
+    }
+
+    // 1. Generate _index.json
+    generate_docs_index(
+        &docs_dir,
+        repo_name,
+        file_count,
+        node_count,
+        edge_count,
+        communities.len(),
+        &communities,
+    )?;
+
+    // 2. Generate overview.md
+    generate_docs_overview(
+        &docs_dir,
+        repo_name,
+        file_count,
+        node_count,
+        edge_count,
+        &lang_stats,
+        &communities,
+        graph,
+    )?;
+
+    // 3. Generate architecture.md
+    generate_docs_architecture(
+        &docs_dir,
+        &communities,
+        graph,
+        &edge_map,
+        file_count,
+        node_count,
+        edge_count,
+    )?;
+
+    // 4. Generate getting-started.md
+    generate_docs_getting_started(&docs_dir, repo_name, &communities, graph)?;
+
+    // 5. Generate per-module files
+    generate_docs_modules(
+        &modules_dir,
+        &communities,
+        graph,
+        &edge_map,
+    )?;
+
+    println!(
+        "{} Generated DeepWiki docs in {}",
+        "OK".green(),
+        docs_dir.display()
+    );
+    Ok(())
+}
+
+/// Generate the _index.json navigation file.
+fn generate_docs_index(
+    docs_dir: &Path,
+    repo_name: &str,
+    file_count: usize,
+    node_count: usize,
+    edge_count: usize,
+    module_count: usize,
+    communities: &BTreeMap<String, CommunityInfo>,
+) -> Result<()> {
+    let now = chrono::Local::now().to_rfc3339();
+
+    // Build module children
+    let mut module_children = Vec::new();
+    for (_cid, info) in communities {
+        let filename = sanitize_filename(&info.label);
+        module_children.push(json!({
+            "id": format!("mod-{}", filename),
+            "title": info.label,
+            "path": format!("modules/{}.md", filename),
+            "icon": "box"
+        }));
+    }
+
+    let index = json!({
+        "title": repo_name,
+        "generatedAt": now,
+        "stats": {
+            "files": file_count,
+            "nodes": node_count,
+            "edges": edge_count,
+            "modules": module_count
+        },
+        "pages": [
+            {
+                "id": "overview",
+                "title": "Overview",
+                "path": "overview.md",
+                "icon": "home"
+            },
+            {
+                "id": "architecture",
+                "title": "Architecture",
+                "path": "architecture.md",
+                "icon": "git-branch"
+            },
+            {
+                "id": "getting-started",
+                "title": "Getting Started",
+                "path": "getting-started.md",
+                "icon": "book-open"
+            },
+            {
+                "id": "modules",
+                "title": "Modules",
+                "icon": "layers",
+                "children": module_children
+            }
+        ]
+    });
+
+    let index_path = docs_dir.join("_index.json");
+    let mut f = std::fs::File::create(&index_path)?;
+    writeln!(f, "{}", index.to_string())?;
+    println!("  {} _index.json", "OK".green());
+    Ok(())
+}
+
+/// Generate overview.md with architecture diagram.
+fn generate_docs_overview(
+    docs_dir: &Path,
+    repo_name: &str,
+    file_count: usize,
+    node_count: usize,
+    edge_count: usize,
+    lang_stats: &BTreeMap<String, usize>,
+    communities: &BTreeMap<String, CommunityInfo>,
+    graph: &KnowledgeGraph,
+) -> Result<()> {
+    let out_path = docs_dir.join("overview.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    writeln!(f, "# {}", repo_name)?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "This project contains **{file_count}** source files with **{node_count}** nodes and **{edge_count}** relationships in the code graph."
+    )?;
+    writeln!(f)?;
+
+    // Language Distribution
+    writeln!(f, "## Language Distribution")?;
+    writeln!(f)?;
+    let mut lang_vec: Vec<_> = lang_stats.iter().collect();
+    lang_vec.sort_by(|a, b| b.1.cmp(&a.1));
+    for (lang, count) in lang_vec {
+        writeln!(f, "- **{}**: {} files", lang, count)?;
+    }
+    writeln!(f)?;
+
+    // Architecture Overview with Mermaid diagram
+    if communities.len() > 1 {
+        writeln!(f, "## Architecture Overview")?;
+        writeln!(f)?;
+
+        // Build member->community mappings and cross-community calls
+        let mut member_to_community: HashMap<String, String> = HashMap::new();
+        for (_cid, info) in communities {
+            for mid in &info.member_ids {
+                member_to_community.insert(mid.clone(), info.label.clone());
+            }
+        }
+
+        let mut cross_deps: BTreeMap<String, (usize, BTreeSet<String>)> = BTreeMap::new();
+        for rel in graph.iter_relationships() {
+            if rel.rel_type == RelationshipType::Calls {
+                if let (Some(src_comm), Some(tgt_comm)) = (
+                    member_to_community.get(&rel.source_id),
+                    member_to_community.get(&rel.target_id),
+                ) {
+                    if src_comm != tgt_comm {
+                        let entry = cross_deps
+                            .entry(src_comm.clone())
+                            .or_insert_with(|| (0, BTreeSet::new()));
+                        entry.0 += 1;
+                        entry.1.insert(tgt_comm.clone());
+                    }
+                }
+            }
+        }
+
+        writeln!(f, "```mermaid")?;
+        writeln!(f, "graph TD")?;
+        for (cid, info) in communities {
+            let safe_id = sanitize_filename(&info.label).replace('-', "_");
+            writeln!(f, "    {}[{}]", safe_id, info.label)?;
+        }
+        for (src, (_count, targets)) in &cross_deps {
+            let src_id = sanitize_filename(src).replace('-', "_");
+            for tgt in targets {
+                let tgt_id = sanitize_filename(tgt).replace('-', "_");
+                writeln!(f, "    {} --> {}", src_id, tgt_id)?;
+            }
+        }
+        writeln!(f, "```")?;
+        writeln!(f)?;
+    }
+
+    // Modules
+    writeln!(f, "## Modules")?;
+    writeln!(f)?;
+    for (_cid, info) in communities {
+        let filename = sanitize_filename(&info.label);
+        writeln!(
+            f,
+            "- **[{}](modules/{}.md)** - {} members",
+            info.label, filename, info.member_ids.len()
+        )?;
+        if let Some(desc) = &info.description {
+            writeln!(f, "  - {}", desc)?;
+        }
+    }
+    writeln!(f)?;
+
+    println!("  {} overview.md", "OK".green());
+    Ok(())
+}
+
+/// Generate architecture.md with detailed module info.
+fn generate_docs_architecture(
+    docs_dir: &Path,
+    communities: &BTreeMap<String, CommunityInfo>,
+    graph: &KnowledgeGraph,
+    edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+    file_count: usize,
+    node_count: usize,
+    edge_count: usize,
+) -> Result<()> {
+    let out_path = docs_dir.join("architecture.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    writeln!(f, "# Architecture")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "System architecture with **{}** modules, **{}** nodes, and **{}** relationships.",
+        communities.len(),
+        node_count,
+        edge_count
+    )?;
+    writeln!(f)?;
+
+    // Module Dependency Graph
+    if communities.len() > 1 {
+        writeln!(f, "## Module Dependency Graph")?;
+        writeln!(f)?;
+
+        let mut member_to_community: HashMap<String, String> = HashMap::new();
+        for (_cid, info) in communities {
+            for mid in &info.member_ids {
+                member_to_community.insert(mid.clone(), info.label.clone());
+            }
+        }
+
+        let mut cross_deps: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for rel in graph.iter_relationships() {
+            if rel.rel_type == RelationshipType::Calls {
+                if let (Some(src_comm), Some(tgt_comm)) = (
+                    member_to_community.get(&rel.source_id),
+                    member_to_community.get(&rel.target_id),
+                ) {
+                    if src_comm != tgt_comm {
+                        cross_deps
+                            .entry(src_comm.clone())
+                            .or_default()
+                            .insert(tgt_comm.clone());
+                    }
+                }
+            }
+        }
+
+        writeln!(f, "```mermaid")?;
+        writeln!(f, "graph TD")?;
+        for (cid, info) in communities {
+            let safe_id = sanitize_filename(&info.label).replace('-', "_");
+            writeln!(f, "    {}[{}]", safe_id, info.label)?;
+        }
+        for (src, targets) in &cross_deps {
+            let src_id = sanitize_filename(src).replace('-', "_");
+            for tgt in targets {
+                let tgt_id = sanitize_filename(tgt).replace('-', "_");
+                writeln!(f, "    {} --> {}", src_id, tgt_id)?;
+            }
+        }
+        writeln!(f, "```")?;
+        writeln!(f)?;
+    }
+
+    // Module Details
+    writeln!(f, "## Module Details")?;
+    writeln!(f)?;
+    for (_cid, info) in communities {
+        writeln!(f, "### {}", info.label)?;
+        if let Some(desc) = &info.description {
+            writeln!(f, "{}", desc)?;
+        } else {
+            writeln!(f, "Module with {} members.", info.member_ids.len())?;
+        }
+        writeln!(f)?;
+        writeln!(f, "- **Members**: {}", info.member_ids.len())?;
+
+        // Entry points in this community
+        let entry_points: Vec<&GraphNode> = info
+            .member_ids
+            .iter()
+            .filter_map(|mid| graph.get_node(mid))
+            .filter(|n| {
+                n.properties
+                    .entry_point_score
+                    .map(|s| s > 0.3)
+                    .unwrap_or(false)
+            })
+            .collect();
+        if !entry_points.is_empty() {
+            writeln!(f, "- **Entry Points**: {}", entry_points.len())?;
+        }
+        writeln!(f)?;
+    }
+
+    // Key Entry Points
+    let mut all_entry_points: Vec<(&GraphNode, f64)> = graph
+        .iter_nodes()
+        .filter_map(|n| {
+            n.properties
+                .entry_point_score
+                .filter(|&s| s > 0.3)
+                .map(|s| (n, s))
+        })
+        .collect();
+    all_entry_points.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if !all_entry_points.is_empty() {
+        writeln!(f, "## Key Entry Points")?;
+        writeln!(f)?;
+        for (node, score) in all_entry_points.iter().take(20) {
+            let reason = node
+                .properties
+                .entry_point_reason
+                .as_deref()
+                .unwrap_or("");
+            writeln!(
+                f,
+                "- **{}** in `{}` (score: {:.2})",
+                node.properties.name, node.properties.file_path, score
+            )?;
+            if !reason.is_empty() {
+                writeln!(f, "  - {}", reason)?;
+            }
+        }
+        writeln!(f)?;
+    }
+
+    // Execution Flows
+    let processes: Vec<&GraphNode> = graph
+        .iter_nodes()
+        .filter(|n| n.label == NodeLabel::Process)
+        .collect();
+    if !processes.is_empty() {
+        writeln!(f, "## Execution Flows")?;
+        writeln!(f)?;
+        for proc_node in processes.iter().take(20) {
+            let step_count = proc_node.properties.step_count.unwrap_or(0);
+            let ptype = proc_node
+                .properties
+                .process_type
+                .map(|t| match t {
+                    ProcessType::IntraCommunity => "intra-community",
+                    ProcessType::CrossCommunity => "cross-community",
+                })
+                .unwrap_or("unknown");
+            writeln!(
+                f,
+                "- **{}**: {} steps ({})",
+                proc_node.properties.name, step_count, ptype
+            )?;
+            if let Some(desc) = &proc_node.properties.description {
+                writeln!(f, "  - {}", desc)?;
+            }
+        }
+        writeln!(f)?;
+    }
+
+    println!("  {} architecture.md", "OK".green());
+    Ok(())
+}
+
+/// Generate getting-started.md guide.
+fn generate_docs_getting_started(
+    docs_dir: &Path,
+    repo_name: &str,
+    communities: &BTreeMap<String, CommunityInfo>,
+    graph: &KnowledgeGraph,
+) -> Result<()> {
+    let out_path = docs_dir.join("getting-started.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    writeln!(f, "# Getting Started")?;
+    writeln!(f)?;
+    writeln!(f, "Welcome to the **{}** codebase!", repo_name)?;
+    writeln!(f)?;
+
+    // Project Structure
+    writeln!(f, "## Project Structure")?;
+    writeln!(f)?;
+
+    // Infer folder structure from module file paths
+    let mut folder_info: BTreeMap<String, usize> = BTreeMap::new();
+    for node in graph.iter_nodes() {
+        if node.label == NodeLabel::File {
+            if let Some(path) = &node.properties.file_path {
+                if let Some(parent) = Path::new(path).parent() {
+                    let parent_str = parent.to_string_lossy().to_string();
+                    *folder_info.entry(parent_str).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
+    writeln!(f, "The codebase is organized as follows:")?;
+    writeln!(f)?;
+    let mut folders: Vec<_> = folder_info.iter().collect();
+    folders.sort();
+    for (folder, count) in folders.iter().take(10) {
+        writeln!(f, "- `{}` - {} files", folder, count)?;
+    }
+    writeln!(f)?;
+
+    // Key Entry Points
+    let mut entry_points: Vec<(&GraphNode, f64)> = graph
+        .iter_nodes()
+        .filter_map(|n| {
+            n.properties
+                .entry_point_score
+                .filter(|&s| s > 0.3)
+                .map(|s| (n, s))
+        })
+        .collect();
+    entry_points.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if !entry_points.is_empty() {
+        writeln!(f, "## Key Entry Points")?;
+        writeln!(f)?;
+        writeln!(f, "Start exploring from these main entry points:")?;
+        writeln!(f)?;
+        for (node, _score) in entry_points.iter().take(10) {
+            writeln!(
+                f,
+                "- `{}` in `{}`",
+                node.properties.name, node.properties.file_path
+            )?;
+        }
+        writeln!(f)?;
+    }
+
+    // Module Map
+    writeln!(f, "## Module Map")?;
+    writeln!(f)?;
+    for (_cid, info) in communities {
+        let filename = sanitize_filename(&info.label);
+        writeln!(f, "- **[{}](modules/{}.md)** - {} members", info.label, filename, info.member_ids.len())?;
+        if let Some(desc) = &info.description {
+            writeln!(f, "  - {}", desc)?;
+        }
+    }
+    writeln!(f)?;
+
+    // Navigation Tips
+    writeln!(f, "## Navigation Tips")?;
+    writeln!(f)?;
+    writeln!(f, "- Use the **Modules** section in the navigation to explore specific components")?;
+    writeln!(f, "- Check the **Architecture** page to understand module dependencies")?;
+    writeln!(f, "- Each module page shows entry points, call graphs, and file locations")?;
+    writeln!(f, "- Look for symbols with high entry point scores as starting points for understanding flows")?;
+    writeln!(f)?;
+
+    println!("  {} getting-started.md", "OK".green());
+    Ok(())
+}
+
+/// Generate per-module documentation files.
+fn generate_docs_modules(
+    modules_dir: &Path,
+    communities: &BTreeMap<String, CommunityInfo>,
+    graph: &KnowledgeGraph,
+    edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+) -> Result<()> {
+    // Build member->community mapping
+    let mut member_to_community: HashMap<String, String> = HashMap::new();
+    for (_cid, info) in communities {
+        for mid in &info.member_ids {
+            member_to_community.insert(mid.clone(), info.label.clone());
+        }
+    }
+
+    for (_cid, info) in communities {
+        let filename = sanitize_filename(&info.label);
+        let out_path = modules_dir.join(format!("{}.md", filename));
+        let mut f = std::fs::File::create(&out_path)?;
+
+        let member_set: HashSet<&str> = info.member_ids.iter().map(|s| s.as_str()).collect();
+
+        writeln!(f, "# {}", info.label)?;
+        writeln!(f)?;
+
+        if let Some(desc) = &info.description {
+            writeln!(f, "{}", desc)?;
+            writeln!(f)?;
+        }
+
+        // Keywords
+        if !info.keywords.is_empty() {
+            writeln!(f, "**Keywords**: {}", info.keywords.join(", "))?;
+            writeln!(f)?;
+        }
+
+        // Call Graph (internal calls only, limit to 30)
+        let mut internal_calls: Vec<(String, String)> = Vec::new();
+        for mid in &info.member_ids {
+            if let Some(edges) = edge_map.get(mid.as_str()) {
+                for (target_id, rel_type) in edges {
+                    if *rel_type == RelationshipType::Calls && member_set.contains(target_id.as_str()) {
+                        let src_name = graph
+                            .get_node(mid)
+                            .map(|n| n.properties.name.as_str())
+                            .unwrap_or("?");
+                        let tgt_name = graph
+                            .get_node(target_id)
+                            .map(|n| n.properties.name.as_str())
+                            .unwrap_or("?");
+                        internal_calls.push((src_name.to_string(), tgt_name.to_string()));
+                    }
+                }
+            }
+        }
+
+        if !internal_calls.is_empty() && internal_calls.len() <= 30 {
+            writeln!(f, "## Call Graph")?;
+            writeln!(f)?;
+            writeln!(f, "```mermaid")?;
+            writeln!(f, "graph LR")?;
+            let mut seen_nodes = HashSet::new();
+            for (src, tgt) in &internal_calls {
+                let src_safe = src.replace(' ', "_").replace('-', "_");
+                let tgt_safe = tgt.replace(' ', "_").replace('-', "_");
+                if seen_nodes.insert(src_safe.clone()) {
+                    writeln!(f, "    {}[{}]", src_safe, src)?;
+                }
+                if seen_nodes.insert(tgt_safe.clone()) {
+                    writeln!(f, "    {}[{}]", tgt_safe, tgt)?;
+                }
+                writeln!(f, "    {} --> {}", src_safe, tgt_safe)?;
+            }
+            writeln!(f, "```")?;
+            writeln!(f)?;
+        }
+
+        // Members
+        writeln!(f, "## Members")?;
+        writeln!(f)?;
+        writeln!(f, "| Symbol | Type | File | Lines |")?;
+        writeln!(f, "|--------|------|------|-------|")?;
+
+        let mut files_set: BTreeSet<String> = BTreeSet::new();
+        for mid in &info.member_ids {
+            if let Some(node) = graph.get_node(mid) {
+                let lines = match (node.properties.start_line, node.properties.end_line) {
+                    (Some(s), Some(e)) => format!("{}-{}", s, e),
+                    (Some(s), None) => format!("{}", s),
+                    _ => "-".to_string(),
+                };
+                writeln!(
+                    f,
+                    "| `{}` | {} | `{}` | {} |",
+                    node.properties.name,
+                    node.label.as_str(),
+                    node.properties.file_path,
+                    lines
+                )?;
+                files_set.insert(node.properties.file_path.clone());
+            }
+        }
+        writeln!(f)?;
+
+        // Entry Points
+        let mut entry_points: Vec<&GraphNode> = info
+            .member_ids
+            .iter()
+            .filter_map(|mid| graph.get_node(mid))
+            .filter(|n| {
+                n.properties
+                    .entry_point_score
+                    .map(|s| s > 0.3)
+                    .unwrap_or(false)
+            })
+            .collect();
+        entry_points.sort_by(|a, b| {
+            let sa = a.properties.entry_point_score.unwrap_or(0.0);
+            let sb = b.properties.entry_point_score.unwrap_or(0.0);
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        if !entry_points.is_empty() {
+            writeln!(f, "## Entry Points")?;
+            writeln!(f)?;
+            for node in entry_points.iter().take(10) {
+                let score = node.properties.entry_point_score.unwrap_or(0.0);
+                writeln!(
+                    f,
+                    "- `{}` (score: {:.2}) in `{}`",
+                    node.properties.name, score, node.properties.file_path
+                )?;
+            }
+            writeln!(f)?;
+        }
+
+        // Internal Calls
+        if !internal_calls.is_empty() {
+            writeln!(f, "## Internal Calls")?;
+            writeln!(f)?;
+            for (src, tgt) in &internal_calls {
+                writeln!(f, "- `{}` -> `{}`", src, tgt)?;
+            }
+            writeln!(f)?;
+        }
+
+        // External Dependencies
+        let mut external_deps: BTreeMap<String, usize> = BTreeMap::new();
+        for mid in &info.member_ids {
+            if let Some(edges) = edge_map.get(mid.as_str()) {
+                for (target_id, rel_type) in edges {
+                    if *rel_type == RelationshipType::Calls && !member_set.contains(target_id.as_str()) {
+                        if let Some(target_comm) = member_to_community.get(target_id) {
+                            *external_deps.entry(target_comm.clone()).or_insert(0) += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !external_deps.is_empty() {
+            writeln!(f, "## External Dependencies")?;
+            writeln!(f)?;
+            let mut sorted: Vec<_> = external_deps.into_iter().collect();
+            sorted.sort_by(|a, b| b.1.cmp(&a.1));
+            for (target_comm, count) in sorted {
+                let target_filename = sanitize_filename(&target_comm);
+                writeln!(
+                    f,
+                    "- [**{}**]({}.md) - {} call(s)",
+                    target_comm, target_filename, count
+                )?;
+            }
+            writeln!(f)?;
+        }
+
+        // Files
+        if !files_set.is_empty() {
+            writeln!(f, "## Files")?;
+            writeln!(f)?;
+            for file_path in &files_set {
+                writeln!(f, "- `{}`", file_path)?;
+            }
+            writeln!(f)?;
+        }
+
+        println!(
+            "  {} modules/{}",
+            "OK".green(),
+            format!("{}.md", filename)
+        );
+    }
+
     Ok(())
 }

@@ -21,6 +21,7 @@ pub enum SupportedLanguage {
     Php,
     Kotlin,
     Swift,
+    Razor,
 }
 
 impl SupportedLanguage {
@@ -40,6 +41,7 @@ impl SupportedLanguage {
             Self::Php => &[".php"],
             Self::Kotlin => &[".kt", ".kts"],
             Self::Swift => &[".swift"],
+            Self::Razor => &[".cshtml", ".razor"],
         }
     }
 
@@ -61,6 +63,7 @@ impl SupportedLanguage {
             ".php" => Some(Self::Php),
             ".kt" | ".kts" => Some(Self::Kotlin),
             ".swift" => Some(Self::Swift),
+            ".cshtml" | ".razor" => Some(Self::Razor),
             _ => None,
         }
     }
@@ -89,6 +92,7 @@ impl SupportedLanguage {
             Self::Php => "php",
             Self::Kotlin => "kotlin",
             Self::Swift => "swift",
+            Self::Razor => "razor",
         }
     }
 
@@ -108,6 +112,7 @@ impl SupportedLanguage {
             Self::Php,
             Self::Kotlin,
             Self::Swift,
+            Self::Razor,
         ]
     }
 }
@@ -148,6 +153,6 @@ mod tests {
 
     #[test]
     fn test_all_languages_count() {
-        assert_eq!(SupportedLanguage::all().len(), 13);
+        assert_eq!(SupportedLanguage::all().len(), 14);
     }
 }

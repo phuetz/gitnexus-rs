@@ -88,6 +88,25 @@ pub fn check_csharp_export(node_text: &str, _node_type: &str, _ancestors: &[&str
     node_text_has_modifier(node_text, "public") || node_text_has_modifier(node_text, "internal")
 }
 
+// ── Razor (.cshtml / .razor) ─────────────────────────────────────────
+
+/// Razor: symbols inside `@code` blocks follow C# visibility rules.
+/// Additionally, Razor components with `@page` directives are publicly
+/// routable, and `@inject` fields are treated as exported dependencies.
+///
+/// Since the tree-sitter parsing sees C# code, we apply the same logic
+/// as C# (public/internal = exported) with a Razor-specific relaxation:
+/// in Blazor components, properties decorated with `[Parameter]` are
+/// always considered exported (they're the component's public API).
+pub fn check_razor_export(node_text: &str, node_type: &str, ancestors: &[&str]) -> bool {
+    // [Parameter] attribute makes properties public API in Blazor
+    if node_text.contains("[Parameter]") {
+        return true;
+    }
+    // Fall back to C# rules: public or internal = exported
+    check_csharp_export(node_text, node_type, ancestors)
+}
+
 // ── PHP ──────────────────────────────────────────────────────────────────────
 
 /// PHP: symbols are exported if they have `public` visibility or are at the

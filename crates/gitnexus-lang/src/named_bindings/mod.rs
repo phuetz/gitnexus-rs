@@ -6,3 +6,4 @@ pub mod csharp;
 pub mod rust_lang;
 pub mod php;
 pub mod kotlin;
+pub mod razor;

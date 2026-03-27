@@ -1,48 +1,103 @@
 import { Search, ChevronRight } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 
 export function CommandBar() {
+  const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const sidebarTab = useAppStore((s) => s.sidebarTab);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
+  const selectedNodeName = useAppStore((s) => s.selectedNodeName);
   const setSearchOpen = useAppStore((s) => s.setSearchOpen);
 
   const tabLabels: Record<string, string> = {
-    repos: "Repositories",
-    search: "Search",
-    files: "Files",
-    graph: "Graph Explorer",
-    impact: "Impact Analysis",
-    docs: "Documentation",
+    repos: t("commandBar.tab.repos"),
+    search: t("commandBar.tab.search"),
+    files: t("commandBar.tab.files"),
+    graph: t("commandBar.tab.graph"),
+    impact: t("commandBar.tab.impact"),
+    docs: t("commandBar.tab.docs"),
   };
 
   return (
     <div
-      className="flex items-center h-[40px] px-4 shrink-0 select-none"
+      className="flex items-center shrink-0 select-none"
       style={{
+        height: 46,
+        paddingLeft: 16,
+        paddingRight: 16,
+        gap: 16,
         background: "var(--bg-1)",
         borderBottom: "1px solid var(--surface-border)",
       }}
       data-tauri-drag-region
     >
       {/* Breadcrumb */}
-      <div className="flex items-center gap-1 text-xs min-w-0">
+      <div className="flex items-center text-xs min-w-0 flex-1" style={{ gap: 8 }}>
         {activeRepo ? (
           <>
-            <span style={{ color: "var(--text-2)" }}>{activeRepo}</span>
+            {/* Repo indicator with dot */}
+            <div className="flex items-center gap-1.5">
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{
+                  background: "var(--green)",
+                  boxShadow: "0 0 8px var(--green)",
+                }}
+              />
+              <span
+                style={{
+                  color: "var(--text-2)",
+                  fontWeight: 500,
+                  maxWidth: 120,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {activeRepo}
+              </span>
+            </div>
+
+            {/* Chevron separator */}
             <ChevronRight size={12} style={{ color: "var(--text-3)" }} />
-            <span style={{ color: "var(--text-1)", fontWeight: 500 }}>
+
+            {/* Tab chip */}
+            <div
+              className="rounded-md"
+              style={{
+                paddingLeft: 8,
+                paddingRight: 8,
+                paddingTop: 4,
+                paddingBottom: 4,
+                background: "var(--accent-subtle)",
+                color: "var(--accent)",
+                fontSize: 11,
+                fontWeight: 500,
+              }}
+            >
               {tabLabels[sidebarTab] || sidebarTab}
-            </span>
+            </div>
+
+            {/* Selected node */}
             {selectedNodeId && (
               <>
                 <ChevronRight size={12} style={{ color: "var(--text-3)" }} />
-                <span
-                  className="truncate max-w-[200px] font-mono text-[11px]"
-                  style={{ color: "var(--accent)" }}
+                <div
+                  className="rounded-md max-w-[200px] truncate text-[11px]"
+                  style={{
+                    paddingLeft: 8,
+                    paddingRight: 8,
+                    paddingTop: 4,
+                    paddingBottom: 4,
+                    background: "var(--purple)",
+                    color: "var(--bg-0)",
+                    fontWeight: 600,
+                    fontFamily: "var(--font-mono)",
+                  }}
                 >
-                  {selectedNodeId}
-                </span>
+                  {selectedNodeName || selectedNodeId}
+                </div>
               </>
             )}
           </>
@@ -63,8 +118,14 @@ export function CommandBar() {
       {/* Center: search trigger */}
       <button
         onClick={() => setSearchOpen(true)}
-        className="mx-auto flex items-center gap-2 px-3 py-1 rounded-lg transition-all"
+        aria-label={t("search.ariaLabel")}
+        className="flex items-center rounded-lg transition-all shrink-0"
         style={{
+          gap: 8,
+          paddingLeft: 12,
+          paddingRight: 12,
+          paddingTop: 6,
+          paddingBottom: 6,
           background: "var(--bg-3)",
           border: "1px solid var(--surface-border)",
           color: "var(--text-3)",
@@ -72,26 +133,30 @@ export function CommandBar() {
           minWidth: 220,
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = "var(--surface-border-hover)";
+          e.currentTarget.style.borderColor = "var(--accent)";
+          e.currentTarget.style.borderImage = "linear-gradient(135deg, var(--accent), var(--purple)) 1";
           e.currentTarget.style.color = "var(--text-2)";
+          e.currentTarget.style.background = "var(--bg-4)";
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.borderColor = "var(--surface-border)";
+          e.currentTarget.style.borderImage = "none";
           e.currentTarget.style.color = "var(--text-3)";
+          e.currentTarget.style.background = "var(--bg-3)";
         }}
       >
         <Search size={13} />
-        <span>Search symbols...</span>
+        <span>{t("search.placeholder")}</span>
         <kbd
-          className="ml-auto font-mono text-[10px] px-1.5 py-0.5 rounded"
-          style={{ background: "var(--bg-2)", color: "var(--text-3)" }}
+          className="font-mono text-[10px] rounded"
+          style={{ marginLeft: "auto", paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, background: "var(--bg-2)", color: "var(--text-3)" }}
         >
-          Ctrl K
+          {t("search.shortcut")}
         </kbd>
       </button>
 
       {/* Right: spacer */}
-      <div className="w-[100px]" />
+      <div className="w-[80px] shrink-0" />
     </div>
   );
 }

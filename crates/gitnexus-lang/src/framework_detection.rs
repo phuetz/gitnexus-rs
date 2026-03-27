@@ -183,6 +183,78 @@ pub fn detect_framework_from_path(path: &str) -> Option<FrameworkHint> {
         });
     }
 
+    // ── ASP.NET MVC Razor Views (.cshtml) ────────────────────────────────
+    if path_lower.ends_with(".cshtml") {
+        // Shared layouts are high-priority structural files
+        if segments.contains(&"shared") {
+            if filename.starts_with("_layout") || filename.starts_with("_viewstart")
+                || filename.starts_with("_viewimports")
+            {
+                return Some(FrameworkHint {
+                    multiplier: 1.8,
+                    reason: "ASP.NET MVC shared layout/configuration".into(),
+                });
+            }
+            // Partial views in Shared/
+            return Some(FrameworkHint {
+                multiplier: 1.5,
+                reason: "ASP.NET MVC shared partial view".into(),
+            });
+        }
+        // Views in the standard Views/ directory
+        if segments.contains(&"views") {
+            return Some(FrameworkHint {
+                multiplier: 1.6,
+                reason: "ASP.NET MVC view (Razor)".into(),
+            });
+        }
+        // Razor Pages in Pages/ directory
+        if segments.contains(&"pages") {
+            return Some(FrameworkHint {
+                multiplier: 2.0,
+                reason: "ASP.NET Razor Page".into(),
+            });
+        }
+        // Areas/ (modular ASP.NET MVC structure)
+        if segments.contains(&"areas") {
+            return Some(FrameworkHint {
+                multiplier: 1.6,
+                reason: "ASP.NET MVC area view".into(),
+            });
+        }
+        // Generic .cshtml file
+        return Some(FrameworkHint {
+            multiplier: 1.3,
+            reason: "Razor template".into(),
+        });
+    }
+
+    // ── Blazor Components (.razor) ───────────────────────────────────────
+    if path_lower.ends_with(".razor") {
+        if segments.contains(&"shared") || segments.contains(&"layout") {
+            return Some(FrameworkHint {
+                multiplier: 1.8,
+                reason: "Blazor shared/layout component".into(),
+            });
+        }
+        if segments.contains(&"pages") {
+            return Some(FrameworkHint {
+                multiplier: 2.0,
+                reason: "Blazor routable page component".into(),
+            });
+        }
+        if segments.contains(&"components") {
+            return Some(FrameworkHint {
+                multiplier: 1.5,
+                reason: "Blazor UI component".into(),
+            });
+        }
+        return Some(FrameworkHint {
+            multiplier: 1.4,
+            reason: "Blazor component".into(),
+        });
+    }
+
     // ── Go HTTP handlers ─────────────────────────────────────────────────
     if segments.contains(&"handlers") || segments.contains(&"handler") {
         if path_lower.ends_with(".go") {
@@ -224,7 +296,7 @@ pub fn detect_framework_from_path(path: &str) -> Option<FrameworkHint> {
 fn has_code_extension(filename: &str) -> bool {
     let code_exts = [
         ".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".go", ".rs", ".rb", ".php", ".cs", ".kt",
-        ".swift", ".c", ".cpp", ".h", ".hpp",
+        ".swift", ".c", ".cpp", ".h", ".hpp", ".cshtml", ".razor",
     ];
     code_exts.iter().any(|ext| filename.ends_with(ext))
 }

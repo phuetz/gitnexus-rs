@@ -47,6 +47,8 @@ pub enum NodeLabel {
     Route,
     /// MCP tool definition
     Tool,
+    /// External library / UI component library
+    Library,
 }
 
 impl NodeLabel {
@@ -89,6 +91,7 @@ impl NodeLabel {
             Self::Section => "Section",
             Self::Route => "Route",
             Self::Tool => "Tool",
+            Self::Library => "Library",
         }
     }
 
@@ -131,6 +134,7 @@ impl NodeLabel {
             "Section" => Some(Self::Section),
             "Route" => Some(Self::Route),
             "Tool" => Some(Self::Tool),
+            "Library" => Some(Self::Library),
             _ => None,
         }
     }

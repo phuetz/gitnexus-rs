@@ -2,10 +2,12 @@ import { useState } from "react";
 import { Zap, ArrowUp, ArrowDown, FileText } from "lucide-react";
 import { useImpactAnalysis, useSearchSymbols } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 
 type Direction = "upstream" | "downstream" | "both";
 
 export function ImpactView() {
+  const { t } = useI18n();
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const [targetId, setTargetId] = useState<string | null>(selectedNodeId);
@@ -30,7 +32,7 @@ export function ImpactView() {
       <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-secondary)]">
         <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-2 flex items-center gap-2">
           <Zap size={16} className="text-[var(--warning)]" />
-          Impact Analysis
+          {t("impact.title")}
         </h2>
 
         {/* Target search */}
@@ -39,7 +41,7 @@ export function ImpactView() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search symbol to analyze..."
+            placeholder={t("impact.placeholder")}
             className="w-full px-3 py-1.5 rounded border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder-[var(--text-muted)] text-xs focus:outline-none focus:border-[var(--accent)]"
           />
           {searchResults && searchResults.length > 0 && searchQuery.length >= 2 && (
@@ -74,7 +76,7 @@ export function ImpactView() {
             >
               {d === "upstream" && <ArrowUp size={11} className="inline mr-1" />}
               {d === "downstream" && <ArrowDown size={11} className="inline mr-1" />}
-              {d.charAt(0).toUpperCase() + d.slice(1)}
+              {d === "upstream" ? t("impact.directionUpstream") : d === "both" ? t("impact.directionBoth") : t("impact.directionDownstream")}
             </button>
           ))}
         </div>
@@ -84,13 +86,13 @@ export function ImpactView() {
       <div className="flex-1 overflow-y-auto p-3">
         {!targetId && (
           <p className="text-center text-[var(--text-muted)] py-8">
-            Search and select a symbol to analyze its blast radius
+            {t("impact.searchAndSelect")}
           </p>
         )}
 
         {isLoading && (
           <p className="text-center text-[var(--text-muted)] py-8">
-            Analyzing impact...
+            {t("impact.analyzingImpact")}
           </p>
         )}
 
@@ -105,19 +107,19 @@ export function ImpactView() {
             {/* Summary */}
             <div className="grid grid-cols-3 gap-2">
               <StatCard
-                label="Upstream"
+                label={t("impact.statUpstream")}
                 value={impact.summary.upstreamCount}
                 icon={<ArrowUp size={14} />}
                 color="var(--accent)"
               />
               <StatCard
-                label="Downstream"
+                label={t("impact.statDownstream")}
                 value={impact.summary.downstreamCount}
                 icon={<ArrowDown size={14} />}
                 color="var(--warning)"
               />
               <StatCard
-                label="Files"
+                label={t("impact.statFiles")}
                 value={impact.summary.affectedFilesCount}
                 icon={<FileText size={14} />}
                 color="var(--success)"
@@ -125,12 +127,14 @@ export function ImpactView() {
             </div>
 
             {/* Target info */}
-            <div className="p-2 rounded border border-[var(--accent)] bg-[var(--accent)]/10">
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent)] text-white">
-                {impact.target.label}
-              </span>
-              <span className="ml-2 font-medium">{impact.target.name}</span>
-              <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
+            <div className="p-3 rounded border border-[var(--accent)] bg-[var(--accent)]/10">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent)] text-white shrink-0">
+                  {impact.target.label}
+                </span>
+                <span className="font-medium truncate">{impact.target.name}</span>
+              </div>
+              <p className="text-[10px] text-[var(--text-muted)] mt-1">
                 {impact.target.filePath}
               </p>
             </div>
@@ -138,10 +142,10 @@ export function ImpactView() {
             {/* Upstream list */}
             {impact.upstream.length > 0 && (
               <ImpactSection
-                title="Upstream (callers)"
+                title={t("impact.upstream")}
                 nodes={impact.upstream}
-                onSelect={(id) => {
-                  setSelectedNodeId(id);
+                onSelect={(id, name) => {
+                  setSelectedNodeId(id, name);
                 }}
               />
             )}
@@ -149,10 +153,10 @@ export function ImpactView() {
             {/* Downstream list */}
             {impact.downstream.length > 0 && (
               <ImpactSection
-                title="Downstream (callees)"
+                title={t("impact.downstream")}
                 nodes={impact.downstream}
-                onSelect={(id) => {
-                  setSelectedNodeId(id);
+                onSelect={(id, name) => {
+                  setSelectedNodeId(id, name);
                 }}
               />
             )}
@@ -161,7 +165,7 @@ export function ImpactView() {
             {impact.affectedFiles.length > 0 && (
               <div>
                 <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1">
-                  Affected Files ({impact.affectedFiles.length})
+                  {t("impact.affectedFiles")} ({impact.affectedFiles.length})
                 </h3>
                 <ul className="space-y-0.5 text-xs">
                   {impact.affectedFiles.map((f) => (
@@ -211,7 +215,7 @@ function ImpactSection({
 }: {
   title: string;
   nodes: { node: { id: string; name: string; label: string; filePath: string }; depth: number }[];
-  onSelect: (id: string) => void;
+  onSelect: (id: string, name?: string) => void;
 }) {
   return (
     <div>
@@ -222,7 +226,7 @@ function ImpactSection({
         {nodes.map((item) => (
           <li
             key={item.node.id}
-            onClick={() => onSelect(item.node.id)}
+            onClick={() => onSelect(item.node.id, item.node.name)}
             className="flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors text-xs"
           >
             <span

@@ -1,14 +1,48 @@
-import { useState } from "react";
-import { Database, RefreshCw, BookOpen, FileText, MoreHorizontal } from "lucide-react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
+import {
+  Database,
+  RefreshCw,
+  BookOpen,
+  FileText,
+  MoreHorizontal,
+  Clock,
+} from "lucide-react";
 import { useRepos, useOpenRepo } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { commands } from "../../lib/tauri-commands";
+import { isTauri } from "../../lib/tauri-env";
+import { useI18n } from "../../hooks/use-i18n";
+import { Tooltip } from "../shared/Tooltip";
+import { AnalyzeProgress, AnalyzeButton } from "./AnalyzeProgress";
+
+/** Strip the Windows \\?\ long-path prefix for display */
+function cleanPath(p: string): string {
+  return p.replace(/^\\\\\?\\/, "");
+}
+
+/** Format a timestamp to relative time */
+function timeAgo(ts: string): string {
+  const secs = parseInt(ts.replace("Z", ""), 10);
+  if (isNaN(secs)) return ts;
+  const diff = Math.floor(Date.now() / 1000) - secs;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(secs * 1000).toLocaleDateString();
+}
 
 export function RepoManager() {
+  const { t, tt } = useI18n();
   const { data: repos, isLoading, error, refetch } = useRepos();
   const openRepo = useOpenRepo();
   const setActiveRepo = useAppStore((s) => s.setActiveRepo);
   const setSidebarTab = useAppStore((s) => s.setSidebarTab);
+
+  // Analysis state
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzeRepoPath, setAnalyzeRepoPath] = useState<string | null>(null);
 
   const handleOpen = async (name: string) => {
     try {
@@ -20,25 +54,81 @@ export function RepoManager() {
     }
   };
 
+  /** Open native folder picker, then launch analysis */
+  const handleAnalyze = useCallback(async () => {
+    try {
+      if (!isTauri()) {
+        console.warn("[GitNexus] Folder picker requires the Tauri desktop app.");
+        return;
+      }
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select a project folder to analyze",
+      });
+
+      if (!selected) return; // User cancelled
+
+      const folderPath = typeof selected === "string" ? selected : selected;
+      setAnalyzeRepoPath(folderPath);
+      setIsAnalyzing(true);
+
+      // Launch analysis in background — progress comes via Tauri events
+      commands.analyzeRepo(folderPath).catch((err) => {
+        console.error("Analysis failed:", err);
+      });
+    } catch (e) {
+      console.error("Folder selection failed:", e);
+    }
+  }, []);
+
+  const handleAnalyzeComplete = useCallback(() => {
+    setIsAnalyzing(false);
+    refetch(); // Refresh the repo list to show the new entry
+  }, [refetch]);
+
+  const handleDismissProgress = useCallback(() => {
+    setIsAnalyzing(false);
+    setAnalyzeRepoPath(null);
+  }, []);
+
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center">
-        <div className="pulse-subtle" style={{ color: "var(--text-3)" }}>Loading repositories...</div>
+        <div className="pulse-subtle" style={{ color: "var(--text-3)" }}>
+          {t("repos.loading")}
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ color: "var(--rose)" }}>
-        Error: {String(error)}
+      <div
+        className="h-full flex items-center justify-center"
+        style={{ color: "var(--rose)" }}
+      >
+        {t("repos.error")}: {String(error)}
       </div>
     );
   }
 
   if (!repos || repos.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-5 fade-in">
+      <div className="h-full flex flex-col items-center justify-center fade-in" style={{ gap: 20 }}>
+        {/* Progress overlay if analyzing */}
+        {(isAnalyzing || analyzeRepoPath) && (
+          <div style={{ width: 500, marginBottom: 16 }}>
+            <AnalyzeProgress
+              isAnalyzing={isAnalyzing}
+              repoPath={analyzeRepoPath}
+              onComplete={handleAnalyzeComplete}
+              onDismiss={handleDismissProgress}
+            />
+          </div>
+        )}
+
         <div
           className="w-16 h-16 rounded-2xl flex items-center justify-center"
           style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
@@ -46,57 +136,223 @@ export function RepoManager() {
           <Database size={28} />
         </div>
         <div className="text-center">
-          <p className="text-lg font-semibold mb-1" style={{ fontFamily: "var(--font-display)", color: "var(--text-1)" }}>
-            No repositories indexed
+          <p
+            className="text-lg font-semibold"
+            style={{
+              fontFamily: "var(--font-display)",
+              color: "var(--text-1)",
+              marginBottom: 4,
+            }}
+          >
+            {t("repos.noRepos")}
           </p>
-          <p className="text-sm" style={{ color: "var(--text-3)" }}>
-            Run{" "}
-            <code className="px-1.5 py-0.5 rounded-md font-mono text-xs" style={{ background: "var(--bg-3)", color: "var(--accent)" }}>
-              gitnexus analyze &lt;path&gt;
-            </code>{" "}
-            to get started
+          <p className="text-sm" style={{ color: "var(--text-3)", marginBottom: 20 }}>
+            {t("repos.noReposDesc")}
           </p>
+          <AnalyzeButton onClick={handleAnalyze} disabled={isAnalyzing} />
+
+          {/* Onboarding steps */}
+          <div
+            style={{
+              marginTop: 32,
+              padding: "20px 24px",
+              background: "var(--bg-2)",
+              border: "1px solid var(--surface-border)",
+              borderRadius: 12,
+              maxWidth: 320,
+              marginLeft: "auto",
+              marginRight: "auto",
+            }}
+          >
+            {/* Step 1 */}
+            <div
+              className="flex items-center"
+              style={{ marginBottom: 20 }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  background: "var(--bg-3)",
+                  color: "var(--accent)",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  marginRight: 12,
+                  flexShrink: 0,
+                }}
+              >
+                1
+              </div>
+              <span
+                style={{
+                  color: "var(--text-2)",
+                  fontSize: 13,
+                  textAlign: "left",
+                }}
+              >
+                {t("repos.onboarding.step1")}
+              </span>
+            </div>
+
+            {/* Step 2 */}
+            <div
+              className="flex items-center"
+              style={{ marginBottom: 20 }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  background: "var(--bg-3)",
+                  color: "var(--accent)",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  marginRight: 12,
+                  flexShrink: 0,
+                }}
+              >
+                2
+              </div>
+              <span
+                style={{
+                  color: "var(--text-2)",
+                  fontSize: 13,
+                  textAlign: "left",
+                }}
+              >
+                {t("repos.onboarding.step2")}
+              </span>
+            </div>
+
+            {/* Step 3 */}
+            <div
+              className="flex items-center"
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  background: "var(--bg-3)",
+                  color: "var(--accent)",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  marginRight: 12,
+                  flexShrink: 0,
+                }}
+              >
+                3
+              </div>
+              <span
+                style={{
+                  color: "var(--text-2)",
+                  fontSize: 13,
+                  textAlign: "left",
+                }}
+              >
+                {t("repos.onboarding.step3")}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto px-10 py-8 fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1
-            className="text-xl font-semibold"
-            style={{ fontFamily: "var(--font-display)", color: "var(--text-0)" }}
-          >
-            Repositories
-          </h1>
-          <p className="text-xs mt-0.5" style={{ color: "var(--text-3)" }}>
-            {repos.length} indexed {repos.length === 1 ? "repository" : "repositories"}
-          </p>
+    <div className="h-full overflow-y-auto fade-in">
+      {/* Centered content container with generous padding */}
+      <div
+        style={{
+          maxWidth: 780,
+          marginLeft: "auto",
+          marginRight: "auto",
+          paddingLeft: 40,
+          paddingRight: 40,
+          paddingTop: 40,
+          paddingBottom: 40,
+        }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between" style={{ marginBottom: 32 }}>
+          <div>
+            <h1
+              className="text-xl font-semibold"
+              style={{
+                fontFamily: "var(--font-display)",
+                color: "var(--text-0)",
+              }}
+            >
+              {t("repos.title")}
+            </h1>
+            <p className="text-xs" style={{ color: "var(--text-3)", marginTop: 4 }}>
+              {repos.length} {t("repos.indexed")}{" "}
+              {repos.length === 1 ? t("repos.repository") : t("repos.repositories")}
+            </p>
+          </div>
+          <div className="flex items-center" style={{ gap: 10 }}>
+            <AnalyzeButton onClick={handleAnalyze} disabled={isAnalyzing} />
+            <Tooltip content={tt("repos.refresh").tip}>
+              <button
+                onClick={() => refetch()}
+                className="flex items-center rounded-lg text-xs font-medium transition-all"
+                style={{
+                  gap: 6,
+                  paddingLeft: 14,
+                  paddingRight: 14,
+                  paddingTop: 8,
+                  paddingBottom: 8,
+                  background: "var(--bg-3)",
+                  color: "var(--text-2)",
+                  border: "1px solid var(--surface-border)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "var(--surface-border-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--surface-border)";
+                }}
+              >
+                <RefreshCw size={13} /> {tt("repos.refresh").label}
+              </button>
+            </Tooltip>
+          </div>
         </div>
-        <button
-          onClick={() => refetch()}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-          style={{ background: "var(--bg-3)", color: "var(--text-2)", border: "1px solid var(--surface-border)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--surface-border-hover)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--surface-border)"; }}
-        >
-          <RefreshCw size={13} /> Refresh
-        </button>
-      </div>
 
-      {/* Cards */}
-      <div className="grid gap-4 stagger" style={{ maxWidth: 720 }}>
-        {repos.map((repo) => (
-          <RepoCard
-            key={repo.name}
-            repo={repo}
-            onOpen={() => handleOpen(repo.name)}
-            isOpening={openRepo.isPending}
-          />
-        ))}
+        {/* Analysis progress */}
+        {(isAnalyzing || analyzeRepoPath) && (
+          <div style={{ marginBottom: 24 }}>
+            <AnalyzeProgress
+              isAnalyzing={isAnalyzing}
+              repoPath={analyzeRepoPath}
+              onComplete={handleAnalyzeComplete}
+              onDismiss={handleDismissProgress}
+            />
+          </div>
+        )}
+
+        {/* Cards */}
+        <div className="grid stagger" style={{ gap: 20 }}>
+          {repos.map((repo) => (
+            <RepoCard
+              key={repo.name}
+              repo={repo}
+              onOpen={() => handleOpen(repo.name)}
+              isOpening={openRepo.isPending}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -119,9 +375,31 @@ function RepoCard({
   onOpen: () => void;
   isOpening: boolean;
 }) {
+  const { t, tt } = useI18n();
   const [showMenu, setShowMenu] = useState(false);
-  const [status, setStatus] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const [status, setStatus] = useState<{
+    text: string;
+    type: "success" | "error";
+  } | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Close menu on scroll or outside click
+  useEffect(() => {
+    if (!showMenu) return;
+    const close = () => setShowMenu(false);
+    // Delay adding click listener so the opening click doesn't immediately close it
+    const timer = setTimeout(() => {
+      window.addEventListener("click", close);
+    }, 0);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("click", close);
+    };
+  }, [showMenu]);
 
   const runAction = async (action: () => Promise<unknown>, label: string) => {
     setBusy(true);
@@ -138,11 +416,12 @@ function RepoCard({
   };
 
   // Generate a color from repo name
-  const hue = repo.name.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
+  const hue =
+    repo.name.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
 
   return (
     <div
-      className="rounded-xl overflow-hidden transition-all duration-200 group"
+      className="rounded-xl transition-all duration-200 group"
       style={{
         background: "var(--surface)",
         border: "1px solid var(--surface-border)",
@@ -156,16 +435,24 @@ function RepoCard({
         e.currentTarget.style.boxShadow = "none";
       }}
     >
-      <button
-        onClick={onOpen}
-        disabled={isOpening || busy}
-        className="flex items-start gap-4 w-full px-5 py-4 text-left transition-colors"
-        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-hover)"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => { if (!isOpening && !busy) onOpen(); }}
+        onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !isOpening && !busy) { e.preventDefault(); onOpen(); } }}
+        className="flex items-start w-full text-left transition-colors cursor-pointer"
+        style={{ gap: 16, paddingLeft: 24, paddingRight: 24, paddingTop: 20, paddingBottom: 20, opacity: isOpening || busy ? 0.6 : 1 }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "var(--surface-hover)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+        }}
       >
         {/* Avatar */}
         <div
           className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold shrink-0"
+
           style={{
             background: `linear-gradient(135deg, hsl(${hue}, 60%, 45%), hsl(${hue + 40}, 50%, 35%))`,
             fontFamily: "var(--font-display)",
@@ -176,96 +463,200 @@ function RepoCard({
         </div>
 
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-sm" style={{ color: "var(--text-0)", fontFamily: "var(--font-display)" }}>
-            {repo.name}
-          </h3>
-          <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
-            {repo.path}
+          {/* Name + timestamp row */}
+          <div className="flex items-center" style={{ gap: 8 }}>
+            <h3
+              className="font-semibold text-sm"
+              style={{
+                color: "var(--text-0)",
+                fontFamily: "var(--font-display)",
+              }}
+            >
+              {repo.name}
+            </h3>
+            {repo.indexedAt && (
+              <span
+                className="flex items-center text-[10px] shrink-0"
+                style={{ gap: 4, color: "var(--text-4)" }}
+              >
+                <Clock size={10} />
+                {timeAgo(repo.indexedAt)}
+              </span>
+            )}
+          </div>
+
+          {/* Clean path */}
+          <p
+            className="text-[11px] truncate"
+            style={{ color: "var(--text-3)", fontFamily: "var(--font-mono)", marginTop: 2 }}
+          >
+            {cleanPath(repo.path)}
           </p>
 
           {/* Stats badges */}
-          <div className="flex flex-wrap gap-1.5 mt-2.5">
+          <div className="flex flex-wrap" style={{ gap: 6, marginTop: 10 }}>
             {repo.files != null && (
-              <StatBadge value={repo.files} label="files" color="var(--accent)" />
+              <StatBadge
+                value={repo.files}
+                label={t("repos.files")}
+                bg="rgba(99, 179, 237, 0.12)"
+                fg="var(--accent)"
+              />
             )}
             {repo.nodes != null && (
-              <StatBadge value={formatNumber(repo.nodes)} label="nodes" color="var(--purple)" />
+              <StatBadge
+                value={formatNumber(repo.nodes)}
+                label={t("repos.nodes")}
+                bg="rgba(180, 130, 255, 0.12)"
+                fg="var(--purple)"
+              />
             )}
             {repo.edges != null && (
-              <StatBadge value={formatNumber(repo.edges)} label="edges" color="var(--cyan)" />
+              <StatBadge
+                value={formatNumber(repo.edges)}
+                label={t("repos.edges")}
+                bg="rgba(100, 220, 220, 0.12)"
+                fg="var(--cyan)"
+              />
             )}
             {repo.communities != null && (
-              <StatBadge value={repo.communities} label="communities" color="var(--green)" />
+              <StatBadge
+                value={repo.communities}
+                label={t("repos.communities")}
+                bg="rgba(100, 220, 150, 0.12)"
+                fg="var(--green)"
+              />
             )}
           </div>
         </div>
 
         {/* Menu button */}
-        <div className="relative shrink-0">
+        <div className="shrink-0">
           <button
+            ref={menuBtnRef}
             onClick={(e) => {
               e.stopPropagation();
+              if (!showMenu && menuBtnRef.current) {
+                const rect = menuBtnRef.current.getBoundingClientRect();
+                setMenuPos({ top: rect.bottom + 4, left: rect.right - 192 });
+              }
               setShowMenu(!showMenu);
             }}
-            className="p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ color: "var(--text-3)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-4)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+            className="rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ padding: 6, color: "var(--text-3)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--bg-4)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+            }}
           >
             <MoreHorizontal size={16} />
           </button>
 
-          {showMenu && (
+          {showMenu && menuPos && createPortal(
             <div
-              className="absolute right-0 top-8 w-48 py-1 rounded-lg z-20 fade-in"
+              className="w-48 rounded-lg fade-in"
               style={{
+                position: "fixed",
+                top: menuPos.top,
+                left: menuPos.left,
+                zIndex: 9999,
                 background: "var(--bg-3)",
                 border: "1px solid var(--surface-border-hover)",
                 boxShadow: "var(--shadow-lg)",
+                paddingTop: 4,
+                paddingBottom: 4,
               }}
               onMouseLeave={() => setShowMenu(false)}
             >
               <MenuItem
                 icon={<RefreshCw size={13} />}
-                label="Re-index"
-                onClick={() => runAction(() => commands.analyzeRepo(repo.path), "Re-index")}
+                label={tt("repos.reindex").label}
+                title={tt("repos.reindex").tip}
+                onClick={() =>
+                  runAction(
+                    () => commands.analyzeRepo(repo.path),
+                    tt("repos.reindex").label
+                  )
+                }
               />
-              <div className="my-1" style={{ borderTop: "1px solid var(--surface-border)" }} />
+              <div
+                style={{ marginTop: 4, marginBottom: 4, borderTop: "1px solid var(--surface-border)" }}
+              />
               <MenuItem
                 icon={<BookOpen size={13} />}
-                label="Generate Wiki"
-                onClick={() => runAction(() => commands.generateDocs("wiki", repo.path), "Wiki")}
+                label={tt("repos.generateWiki").label}
+                title={tt("repos.generateWiki").tip}
+                onClick={() =>
+                  runAction(
+                    () => commands.generateDocs("wiki", repo.path),
+                    tt("repos.generateWiki").label
+                  )
+                }
               />
               <MenuItem
                 icon={<FileText size={13} />}
-                label="Generate AGENTS.md"
-                onClick={() => runAction(() => commands.generateDocs("context", repo.path), "AGENTS.md")}
+                label={tt("repos.generateDocs").label}
+                title={tt("repos.generateDocs").tip}
+                onClick={() =>
+                  runAction(
+                    () => commands.generateDocs("docs", repo.path),
+                    tt("repos.generateDocs").label
+                  )
+                }
               />
               <MenuItem
                 icon={<FileText size={13} />}
-                label="Generate All"
-                onClick={() => runAction(() => commands.generateDocs("all", repo.path), "All docs")}
+                label={tt("repos.generateAgents").label}
+                title={tt("repos.generateAgents").tip}
+                onClick={() =>
+                  runAction(
+                    () => commands.generateDocs("context", repo.path),
+                    tt("repos.generateAgents").label
+                  )
+                }
               />
-            </div>
+              <MenuItem
+                icon={<FileText size={13} />}
+                label={tt("repos.generateAll").label}
+                title={tt("repos.generateAll").tip}
+                onClick={() =>
+                  runAction(
+                    () => commands.generateDocs("all", repo.path),
+                    tt("repos.generateAll").label
+                  )
+                }
+              />
+            </div>,
+            document.body
           )}
         </div>
-      </button>
+      </div>
 
       {/* Status */}
-      {(status || busy) && (
+      {(status || busy || isOpening) && (
         <div
-          className="px-4 py-2 text-[11px] font-medium"
+          className="text-[11px] font-medium"
           style={{
+            paddingLeft: 24,
+            paddingRight: 24,
+            paddingTop: 10,
+            paddingBottom: 10,
             borderTop: "1px solid var(--surface-border)",
-            color: busy ? "var(--text-3)" : status?.type === "success" ? "var(--green)" : "var(--rose)",
-            background: busy
+            color: busy || isOpening
+              ? "var(--text-3)"
+              : status?.type === "success"
+                ? "var(--green)"
+                : "var(--rose)",
+            background: busy || isOpening
               ? "var(--bg-2)"
               : status?.type === "success"
-                ? "var(--green-subtle)"
-                : "var(--rose-subtle)",
+                ? "rgba(100, 220, 150, 0.08)"
+                : "rgba(240, 100, 120, 0.08)",
           }}
         >
-          {busy ? "Processing..." : status?.text}
+          {isOpening ? t("repos.opening") : busy ? t("repos.processing") : status?.text}
         </div>
       )}
     </div>
@@ -275,10 +666,12 @@ function RepoCard({
 function MenuItem({
   icon,
   label,
+  title,
   onClick,
 }: {
   icon: React.ReactNode;
   label: string;
+  title?: string;
   onClick: () => void;
 }) {
   return (
@@ -287,8 +680,9 @@ function MenuItem({
         e.stopPropagation();
         onClick();
       }}
-      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left transition-colors"
-      style={{ color: "var(--text-2)" }}
+      className="w-full flex items-center text-[12px] text-left transition-colors"
+      style={{ gap: 10, paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, color: "var(--text-2)" }}
+      title={title}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = "var(--surface-hover)";
         e.currentTarget.style.color = "var(--text-0)";
@@ -304,11 +698,32 @@ function MenuItem({
   );
 }
 
-function StatBadge({ value, label, color }: { value: string | number; label: string; color: string }) {
+function StatBadge({
+  value,
+  label,
+  bg,
+  fg,
+}: {
+  value: string | number;
+  label: string;
+  bg: string;
+  fg: string;
+}) {
   return (
     <span
-      className="badge"
-      style={{ background: `${color}12`, color, fontSize: 10, fontWeight: 500 }}
+      className="inline-flex items-center rounded-md"
+      style={{
+        gap: 4,
+        paddingLeft: 8,
+        paddingRight: 8,
+        paddingTop: 2,
+        paddingBottom: 2,
+        background: bg,
+        color: fg,
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: "0.01em",
+      }}
     >
       {value} {label}
     </span>

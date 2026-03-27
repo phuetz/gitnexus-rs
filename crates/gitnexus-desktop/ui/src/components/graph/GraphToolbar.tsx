@@ -1,11 +1,14 @@
-import { Maximize2 } from "lucide-react";
+import { Maximize2, ChevronDown } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
+import { Tooltip } from "../shared/Tooltip";
 import type { GraphStats, ZoomLevel } from "../../lib/tauri-commands";
+import { useState } from "react";
 
-const ZOOM_LEVELS: { id: ZoomLevel; label: string }[] = [
-  { id: "package", label: "Packages" },
-  { id: "module", label: "Modules" },
-  { id: "symbol", label: "Symbols" },
+const ZOOM_LEVELS: { id: ZoomLevel; i18nKey: string }[] = [
+  { id: "package", i18nKey: "graph.packages" },
+  { id: "module", i18nKey: "graph.modules" },
+  { id: "symbol", i18nKey: "graph.symbols" },
 ];
 
 const LAYOUTS = [
@@ -26,57 +29,200 @@ export function GraphToolbar({
   onLayoutChange: (layout: string) => void;
   onFit: () => void;
 }) {
+  const { t, tt } = useI18n();
   const zoomLevel = useAppStore((s) => s.zoomLevel);
   const setZoomLevel = useAppStore((s) => s.setZoomLevel);
+  const [showLayoutMenu, setShowLayoutMenu] = useState(false);
+
+  const layoutLabel = LAYOUTS.find((l) => l.id === layout)?.label || "Layout";
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 border-b border-[var(--border)] bg-[var(--bg-secondary)] flex-wrap">
-      {/* Zoom level */}
-      <div className="flex rounded-lg border border-[var(--border)] overflow-hidden">
-        {ZOOM_LEVELS.map(({ id, label }) => (
-          <button
-            key={id}
-            onClick={() => setZoomLevel(id)}
-            className={`px-3 py-1 text-xs transition-colors ${
-              zoomLevel === id
-                ? "bg-[var(--accent)] text-white"
-                : "text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+    <div
+      className="flex items-center gap-4 px-4 py-2.5 border-b flex-wrap"
+      style={{
+        backgroundColor: "var(--bg-2)",
+        borderBottomColor: "var(--surface-border)",
+      }}
+    >
+      {/* Zoom Level Pill Toggle Group */}
+      <div
+        className="flex rounded-full p-1 gap-1"
+        style={{
+          backgroundColor: "var(--surface)",
+          border: "1px solid",
+          borderColor: "var(--surface-border)",
+        }}
+        title="Graph granularity level"
+      >
+        {ZOOM_LEVELS.map(({ id, i18nKey }) => {
+          const { label, tip } = tt(i18nKey);
+          return (
+            <Tooltip key={id} content={tip}>
+              <button
+                onClick={() => setZoomLevel(id)}
+                className="relative px-3 py-1.5 text-xs font-medium transition-all"
+                style={{
+                  color: zoomLevel === id ? "var(--accent)" : "var(--text-3)",
+                  backgroundColor: zoomLevel === id ? "var(--bg-2)" : "transparent",
+                  borderRadius: "var(--radius-md)",
+                  cursor: "pointer",
+                  boxShadow: zoomLevel === id
+                    ? "0 1px 3px rgba(0,0,0,0.2), inset 0 -2px 0 var(--accent)"
+                    : "none",
+                  fontWeight: zoomLevel === id ? 600 : 500,
+                }}
+                onMouseEnter={(e) => {
+                  if (zoomLevel !== id) {
+                    (e.currentTarget as HTMLElement).style.backgroundColor =
+                      "var(--surface-hover)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (zoomLevel !== id) {
+                    (e.currentTarget as HTMLElement).style.backgroundColor =
+                      "transparent";
+                  }
+                }}
+              >
+                {label}
+              </button>
+            </Tooltip>
+          );
+        })}
       </div>
 
-      {/* Layout selector */}
-      <select
-        value={layout}
-        onChange={(e) => onLayoutChange(e.target.value)}
-        className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] text-xs focus:outline-none focus:border-[var(--accent)]"
-      >
-        {LAYOUTS.map(({ id, label }) => (
-          <option key={id} value={id}>
-            {label}
-          </option>
-        ))}
-      </select>
+      {/* Layout Dropdown Button */}
+      <div className="relative">
+        <Tooltip content={tt("graph.layout").tip}>
+          <button
+            onClick={() => setShowLayoutMenu(!showLayoutMenu)}
+            aria-label={tt("graph.layout").label}
+            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md transition-all"
+            style={{
+              backgroundColor: "var(--surface)",
+              color: "var(--text-2)",
+              border: "1px solid",
+              borderColor: "var(--surface-border)",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.borderColor =
+                "var(--surface-border-hover)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.borderColor =
+                "var(--surface-border)";
+            }}
+          >
+            {layoutLabel}
+            <ChevronDown
+              size={14}
+              style={{
+                transform: showLayoutMenu ? "rotate(180deg)" : "rotate(0deg)",
+                transition: "transform 0.2s",
+              }}
+            />
+          </button>
+        </Tooltip>
 
-      {/* Fit button */}
-      <button
-        onClick={onFit}
-        title="Fit to screen"
-        className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-      >
-        <Maximize2 size={14} />
-      </button>
+        {/* Dropdown Menu */}
+        {showLayoutMenu && (
+          <div
+            className="absolute left-0 top-full mt-1 rounded-md overflow-hidden shadow-lg z-50"
+            style={{
+              backgroundColor: "var(--surface)",
+              border: "1px solid",
+              borderColor: "var(--surface-border)",
+              minWidth: "120px",
+            }}
+            onMouseLeave={() => setShowLayoutMenu(false)}
+          >
+            {LAYOUTS.map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => {
+                  onLayoutChange(id);
+                  setShowLayoutMenu(false);
+                }}
+                className="w-full text-left px-3 py-2 text-xs transition-colors"
+                style={{
+                  color: layout === id ? "var(--accent)" : "var(--text-2)",
+                  backgroundColor:
+                    layout === id ? "var(--bg-2)" : "transparent",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.backgroundColor =
+                    "var(--surface-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.backgroundColor =
+                    layout === id ? "var(--bg-2)" : "transparent";
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
-      {/* Stats */}
+      {/* Fit Button */}
+      <Tooltip content={tt("graph.fitView").tip}>
+        <button
+          onClick={onFit}
+          aria-label={tt("graph.fitView").label}
+          className="p-2 rounded-md transition-all"
+          style={{
+            color: "var(--text-3)",
+            cursor: "pointer",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor =
+              "var(--surface-hover)";
+            (e.currentTarget as HTMLElement).style.color = "var(--text-2)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor =
+              "transparent";
+            (e.currentTarget as HTMLElement).style.color = "var(--text-3)";
+          }}
+        >
+          <Maximize2 size={16} />
+        </button>
+      </Tooltip>
+
+      {/* Stats Badges */}
       {stats && (
-        <div className="flex gap-3 text-xs text-[var(--text-muted)] ml-auto">
-          <span>{stats.nodeCount} nodes</span>
-          <span>{stats.edgeCount} edges</span>
+        <div className="flex gap-2 ml-auto">
+          <div
+            className="px-2.5 py-1 rounded-full text-xs font-medium"
+            style={{
+              backgroundColor: "var(--accent-subtle)",
+              color: "var(--accent)",
+            }}
+          >
+            {stats.nodeCount} {t("graph.nodesCount")}
+          </div>
+          <div
+            className="px-2.5 py-1 rounded-full text-xs font-medium"
+            style={{
+              backgroundColor: "var(--accent-subtle)",
+              color: "var(--accent)",
+            }}
+          >
+            {stats.edgeCount} {t("graph.edgesCount")}
+          </div>
           {stats.truncated && (
-            <span className="text-[var(--warning)]">truncated</span>
+            <div
+              className="px-2.5 py-1 rounded-full text-xs font-medium"
+              style={{
+                backgroundColor: "var(--amber)",
+                color: "var(--bg-0)",
+              }}
+            >
+              truncated
+            </div>
           )}
         </div>
       )}

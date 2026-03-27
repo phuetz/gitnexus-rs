@@ -1,7 +1,9 @@
 use std::path::Path;
 
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
+use tokio::sync::mpsc;
 
+use gitnexus_core::pipeline::types::PipelineProgress;
 use gitnexus_core::storage::{git, repo_manager};
 use gitnexus_db::csv_generator;
 use gitnexus_db::snapshot;
@@ -57,8 +59,13 @@ pub async fn get_active_repo(state: State<'_, AppState>) -> Result<Option<String
 }
 
 /// Index a repository using the Rust pipeline directly (no subprocess).
+/// Emits "pipeline-progress" events to the frontend for real-time progress tracking.
 #[tauri::command]
-pub async fn analyze_repo(state: State<'_, AppState>, path: String) -> Result<String, String> {
+pub async fn analyze_repo(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
     let repo_path = Path::new(&path)
         .canonicalize()
         .map_err(|e| format!("Invalid path '{}': {}", path, e))?;
@@ -71,8 +78,18 @@ pub async fn analyze_repo(state: State<'_, AppState>, path: String) -> Result<St
         ..Default::default()
     };
 
-    // Run the ingestion pipeline directly
-    let result = run_pipeline(&repo_path, None, options)
+    // Create a progress channel and forward events to the frontend via Tauri events
+    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<PipelineProgress>();
+
+    let app_handle = app.clone();
+    tokio::spawn(async move {
+        while let Some(progress) = progress_rx.recv().await {
+            let _ = app_handle.emit("pipeline-progress", &progress);
+        }
+    });
+
+    // Run the ingestion pipeline with progress reporting
+    let result = run_pipeline(&repo_path, Some(progress_tx), options)
         .await
         .map_err(|e| format!("Pipeline failed: {}", e))?;
 
@@ -127,6 +144,25 @@ pub async fn analyze_repo(state: State<'_, AppState>, path: String) -> Result<St
     state.load_registry().await?;
     let _ = state.reload_repo(&repo_name).await;
 
+    // Emit completion event
+    let _ = app.emit(
+        "pipeline-progress",
+        &PipelineProgress {
+            phase: gitnexus_core::pipeline::types::PipelinePhase::Complete,
+            percent: 100.0,
+            message: format!(
+                "Indexed successfully: {} files, {} nodes, {} edges, {} communities",
+                file_count, node_count, edge_count, community_count
+            ),
+            detail: None,
+            stats: Some(gitnexus_core::pipeline::types::PipelineStats {
+                files_processed: file_count,
+                total_files: file_count,
+                nodes_created: node_count,
+            }),
+        },
+    );
+
     Ok(format!(
         "Indexed successfully: {} files, {} nodes, {} edges, {} communities",
         file_count, node_count, edge_count, community_count
@@ -137,7 +173,7 @@ pub async fn analyze_repo(state: State<'_, AppState>, path: String) -> Result<St
 /// Finds the gitnexus binary next to the desktop binary, then falls back to PATH.
 #[tauri::command]
 pub async fn generate_docs(what: String, path: String) -> Result<String, String> {
-    let valid = ["context", "wiki", "skills", "all"];
+    let valid = ["context", "wiki", "skills", "docs", "all"];
     if !valid.contains(&what.as_str()) {
         return Err(format!(
             "Invalid target '{}'. Must be one of: {}",

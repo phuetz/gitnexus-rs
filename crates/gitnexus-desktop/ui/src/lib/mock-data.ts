@@ -15,6 +15,14 @@ import type {
   ChatResponse,
   ChatConfig,
   ChatSource,
+  QueryAnalysis,
+  ResearchPlan,
+  StepResult,
+  ChatSmartResponse,
+  FileQuickPick,
+  SymbolQuickPick,
+  ModuleQuickPick,
+  AspNetStats,
 } from "./tauri-commands";
 
 const MOCK_REPOS: RepoInfo[] = [
@@ -574,4 +582,93 @@ export const MOCK_RESPONSES: Record<string, unknown | ((args?: Record<string, un
 
   chat_set_config: undefined,
   chat_search_context: [] as ChatSource[],
+
+  chat_analyze_query: {
+    complexity: "medium",
+    suggestedTools: ["search_symbols", "get_symbol_context"],
+    estimatedSteps: 2,
+    reasoning: "Query requires cross-file symbol lookup and context gathering.",
+    keywords: ["pipeline", "function"],
+    needsCrossFile: true,
+    needsImpact: false,
+  } satisfies QueryAnalysis,
+
+  chat_plan_research: {
+    id: "plan-mock-001",
+    query: "How does the pipeline work?",
+    analysis: {
+      complexity: "medium",
+      suggestedTools: ["search_symbols", "get_symbol_context"],
+      estimatedSteps: 2,
+      reasoning: "Query requires cross-file symbol lookup and context gathering.",
+      keywords: ["pipeline", "function"],
+      needsCrossFile: true,
+      needsImpact: false,
+    },
+    steps: [
+      {
+        id: "step-1",
+        order: 0,
+        tool: "search_symbols",
+        description: "Search for pipeline-related symbols",
+        params: { query: "pipeline" },
+        dependsOn: [],
+        status: "pending",
+      },
+      {
+        id: "step-2",
+        order: 1,
+        tool: "get_symbol_context",
+        description: "Get context for top result",
+        params: { nodeId: "n1" },
+        dependsOn: ["step-1"],
+        status: "pending",
+      },
+    ],
+    status: "pending",
+  } satisfies ResearchPlan,
+
+  chat_execute_step: {
+    summary: "Found 3 pipeline-related symbols in src/pipeline.rs.",
+    sources: [
+      { nodeId: "n1", symbolName: "run_pipeline", symbolType: "Function", filePath: "src/pipeline.rs", startLine: 42, relevanceScore: 0.95 },
+    ] as ChatSource[],
+    durationMs: 120,
+  } satisfies StepResult,
+
+  chat_execute_plan: {
+    answer: "The pipeline orchestrates 6 phases: structure scanning, AST parsing, import resolution, call analysis, heritage building, and community detection.",
+    sources: [
+      { nodeId: "n1", symbolName: "run_pipeline", symbolType: "Function", filePath: "src/pipeline.rs", startLine: 42, relevanceScore: 0.95 },
+    ] as ChatSource[],
+    model: "mock-model",
+    complexity: "medium",
+  } satisfies ChatSmartResponse,
+
+  chat_pick_files: [
+    { path: "src/pipeline.rs", name: "pipeline.rs", language: "rust", symbolCount: 5 },
+    { path: "src/core/graph.rs", name: "graph.rs", language: "rust", symbolCount: 8 },
+  ] as FileQuickPick[],
+
+  chat_pick_symbols: [
+    { nodeId: "n1", name: "run_pipeline", kind: "Function", filePath: "src/pipeline.rs", startLine: 42 },
+    { nodeId: "n6", name: "KnowledgeGraph", kind: "Struct", filePath: "src/core/graph.rs", startLine: 10 },
+  ] as SymbolQuickPick[],
+
+  chat_pick_modules: [
+    { communityId: "c1", name: "Pipeline Core", memberCount: 5, description: "Main ingestion pipeline" },
+    { communityId: "c2", name: "Language Providers", memberCount: 13, description: "Tree-sitter language support" },
+  ] as ModuleQuickPick[],
+
+  export_docs_docx: "/tmp/gitnexus-docs.docx",
+
+  get_aspnet_stats: {
+    controllers: 0,
+    actions: 0,
+    apiEndpoints: 0,
+    views: 0,
+    entities: 0,
+    dbContexts: 0,
+    areas: 0,
+  } satisfies AspNetStats,
 };

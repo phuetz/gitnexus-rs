@@ -371,9 +371,9 @@ fn parse_associations(csdl: &str) -> Vec<EdmxAssociation> {
 
     while let Some(start) = csdl[search..].find("<Association ") {
         let abs = search + start;
-        // Skip AssociationSet
-        if abs > 0 && &csdl[abs - 1..abs] == "n" {
-            // This is "AssociationSet", skip
+        // Skip AssociationSet — check if the text right after "<Association" is "Set"
+        let tag_end = abs + "<Association".len();
+        if csdl.get(tag_end..tag_end + 3) == Some("Set") {
             search = abs + 1;
             continue;
         }

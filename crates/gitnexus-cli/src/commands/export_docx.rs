@@ -44,14 +44,21 @@ pub fn export_docs_as_docx(
         (fallback_file_order(), DocStats::default())
     };
 
-    // Read all markdown files in order
+    // Read all markdown files in order (with path traversal protection)
+    let docs_canonical = docs_dir.canonicalize().unwrap_or_else(|_| docs_dir.to_path_buf());
     let mut md_files: Vec<(String, String, String)> = Vec::new(); // (id, title, content)
     for (id, title, filename) in &ordered_files {
         let path = docs_dir.join(filename);
-        if path.exists() {
-            let content = std::fs::read_to_string(&path)?;
-            md_files.push((id.clone(), title.clone(), content));
+        let canonical = match path.canonicalize() {
+            Ok(p) => p,
+            Err(_) => continue, // file doesn't exist, skip
+        };
+        if !canonical.starts_with(&docs_canonical) {
+            eprintln!("Warning: skipping path outside docs directory: {}", filename);
+            continue;
         }
+        let content = std::fs::read_to_string(&canonical)?;
+        md_files.push((id.clone(), title.clone(), content));
     }
 
     if md_files.is_empty() {

@@ -55,7 +55,7 @@ pub async fn run(path: Option<&str>) -> Result<()> {
     };
 
     let graph_count = {
-        let g = graph.lock().unwrap();
+        let g = graph.lock().expect("graph mutex poisoned");
         (g.node_count(), g.relationship_count())
     };
     println!(
@@ -107,7 +107,13 @@ pub async fn run(path: Option<&str>) -> Result<()> {
 
                     // Use the incremental engine
                     let update_result = {
-                        let mut g = graph.lock().unwrap();
+                        let mut g = match graph.lock() {
+                            Ok(g) => g,
+                            Err(e) => {
+                                eprintln!("    Graph mutex poisoned, recovering");
+                                e.into_inner()
+                            }
+                        };
                         gitnexus_ingest::incremental::incremental_update(
                             &repo_path,
                             &storage.storage_path,
@@ -133,7 +139,13 @@ pub async fn run(path: Option<&str>) -> Result<()> {
                                 );
 
                                 // Save updated snapshot
-                                let g = graph.lock().unwrap();
+                                let g = match graph.lock() {
+                                    Ok(g) => g,
+                                    Err(e) => {
+                                        eprintln!("    Graph mutex poisoned, recovering");
+                                        e.into_inner()
+                                    }
+                                };
                                 match snapshot::save_snapshot(&g, &snap_path) {
                                     Ok(_) => println!("    {} Snapshot saved", "OK".green()),
                                     Err(e) => eprintln!("    {} Failed to save snapshot: {}", "!".red(), e),

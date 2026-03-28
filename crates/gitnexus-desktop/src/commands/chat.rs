@@ -473,17 +473,31 @@ async fn call_llm(
 
 /// Build a response using only graph data (no LLM).
 fn build_graph_only_response(
-    _results: &[(String, f64)],
+    results: &[(String, f64)],
     sources: &[ChatSource],
-    _graph: &KnowledgeGraph,
+    graph: &KnowledgeGraph,
 ) -> ChatResponse {
+    // Build score lookup from search results
+    let score_map: std::collections::HashMap<&str, f64> = results
+        .iter()
+        .map(|(id, score)| (id.as_str(), *score))
+        .collect();
+
     let mut answer = String::from("## Relevant Symbols Found\n\n");
-    answer.push_str("*No LLM configured — showing graph search results. Configure an API key in Settings to get AI-powered answers.*\n\n");
+    answer.push_str(&format!(
+        "*No LLM configured — showing graph search results ({} nodes, {} relationships). Configure an API key in Settings to get AI-powered answers.*\n\n",
+        graph.node_count(),
+        graph.relationship_count(),
+    ));
 
     for source in sources {
+        let score_str = score_map
+            .get(source.node_id.as_str())
+            .map(|s| format!(" (score: {:.2})", s))
+            .unwrap_or_default();
         answer.push_str(&format!(
-            "### `{}` ({}) — `{}`\n",
-            source.symbol_name, source.symbol_type, source.file_path
+            "### `{}` ({}){} — `{}`\n",
+            source.symbol_name, source.symbol_type, score_str, source.file_path
         ));
 
         if let Some(community) = &source.community {

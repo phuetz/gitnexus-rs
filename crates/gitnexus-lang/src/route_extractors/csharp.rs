@@ -309,11 +309,12 @@ pub fn extract_view_info(file_path: &str, source: &str) -> ViewInfo {
     let layout_path = source.lines().find_map(|line| {
         let trimmed = line.trim();
         if let Some(idx) = trimmed.find("Layout") {
-            let after = &trimmed[idx..];
+            let after = trimmed.get(idx..)?;
             // Look for quoted string after Layout =
             if let Some(q1) = after.find('"') {
-                if let Some(q2) = after[q1 + 1..].find('"') {
-                    return Some(after[q1 + 1..q1 + 1 + q2].to_string());
+                let after_q1 = after.get(q1 + 1..)?;
+                if let Some(q2) = after_q1.find('"') {
+                    return Some(after_q1.get(..q2).unwrap_or_default().to_string());
                 }
             }
         }
@@ -322,11 +323,15 @@ pub fn extract_view_info(file_path: &str, source: &str) -> ViewInfo {
 
     // Infer area from path: Areas/<name>/Views/...
     let area_name = if let Some(areas_idx) = path_lower.find("/areas/") {
-        let after = &file_path[areas_idx + 7..];
-        after.split('/').next().map(|s| s.to_string())
+        file_path
+            .get(areas_idx + 7..)
+            .and_then(|after| after.split('/').next())
+            .map(|s| s.to_string())
     } else if path_lower.starts_with("areas/") {
-        let after = &file_path[6..];
-        after.split('/').next().map(|s| s.to_string())
+        file_path
+            .get(6..)
+            .and_then(|after| after.split('/').next())
+            .map(|s| s.to_string())
     } else {
         None
     };
@@ -369,7 +374,9 @@ fn find_class_declaration(lines: &[&str], start: usize) -> Option<ClassMatch> {
             j -= 1;
             let trimmed = lines[j].trim();
             if trimmed.starts_with('[') && trimmed.ends_with(']') {
-                attributes.push(trimmed[1..trimmed.len() - 1].to_string());
+                attributes.push(
+                    trimmed.get(1..trimmed.len() - 1).unwrap_or_default().to_string(),
+                );
                 _attr_start = j;
             } else if trimmed.is_empty() || trimmed.starts_with("//") {
                 continue;
@@ -384,13 +391,13 @@ fn find_class_declaration(lines: &[&str], start: usize) -> Option<ClassMatch> {
 
     // Match pattern: [public|internal|...] [abstract|sealed|partial|static]* class ClassName [: BaseClass, IInterface]
     let class_keyword_idx = line.find(" class ")?;
-    let after_class = &line[class_keyword_idx + 7..];
+    let after_class = line.get(class_keyword_idx + 7..)?;
 
     // Extract class name (before any : or { or < or where)
     let name_end = after_class
         .find([':', '{', '<', ' '])
         .unwrap_or(after_class.len());
-    let name = after_class[..name_end].trim().to_string();
+    let name = after_class.get(..name_end).unwrap_or_default().trim().to_string();
 
     if name.is_empty() {
         return None;
@@ -399,15 +406,15 @@ fn find_class_declaration(lines: &[&str], start: usize) -> Option<ClassMatch> {
     // Extract base classes (after :)
     let mut base_classes = Vec::new();
     if let Some(colon_idx) = after_class.find(':') {
-        let bases_str = &after_class[colon_idx + 1..];
+        let bases_str = after_class.get(colon_idx + 1..).unwrap_or_default();
         let bases_end = bases_str
             .find(['{', '\n'])
             .unwrap_or(bases_str.len());
-        for base in bases_str[..bases_end].split(',') {
+        for base in bases_str.get(..bases_end).unwrap_or_default().split(',') {
             let base_name = base.trim();
             // Handle generic base: Controller<T> → Controller
             let clean = if let Some(lt) = base_name.find('<') {
-                &base_name[..lt]
+                base_name.get(..lt).unwrap_or_default()
             } else {
                 base_name
             };
@@ -424,7 +431,7 @@ fn find_class_declaration(lines: &[&str], start: usize) -> Option<ClassMatch> {
     // Also check if line itself has attributes
     if line.starts_with('[') {
         if let Some(attr_end) = line.find(']') {
-            attributes.push(line[1..attr_end].to_string());
+            attributes.push(line.get(1..attr_end).unwrap_or_default().to_string());
         }
     }
 
@@ -480,9 +487,9 @@ fn extract_attribute_value(attributes: &[String], attr_name: &str) -> Option<Str
         if trimmed.starts_with(attr_name) {
             // Check for parenthesized value
             if let Some(paren_start) = trimmed.find('(') {
-                let inner = &trimmed[paren_start + 1..];
+                let inner = trimmed.get(paren_start + 1..).unwrap_or_default();
                 if let Some(paren_end) = inner.find(')') {
-                    let value = &inner[..paren_end];
+                    let value = inner.get(..paren_end).unwrap_or_default();
                     // Strip quotes
                     let clean = value.trim().trim_matches('"').trim_matches('\'');
                     return Some(clean.to_string());
@@ -511,13 +518,17 @@ fn extract_actions(
         // Collect attributes for this method
         let mut method_attrs = Vec::new();
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            method_attrs.push(trimmed[1..trimmed.len() - 1].to_string());
+            method_attrs.push(
+                trimmed.get(1..trimmed.len() - 1).unwrap_or_default().to_string(),
+            );
             i += 1;
             // Collect multiple attribute lines
             while i <= body_end && i < lines.len() {
                 let next = lines[i].trim();
                 if next.starts_with('[') && next.ends_with(']') {
-                    method_attrs.push(next[1..next.len() - 1].to_string());
+                    method_attrs.push(
+                        next.get(1..next.len() - 1).unwrap_or_default().to_string(),
+                    );
                     i += 1;
                 } else {
                     break;
@@ -668,7 +679,7 @@ fn extract_http_method(attributes: &[String], _is_api: bool) -> String {
 fn extract_model_type_from_params(line: &str) -> Option<String> {
     let paren_start = line.find('(')?;
     let paren_end = line.rfind(')')?;
-    let params = &line[paren_start + 1..paren_end];
+    let params = line.get(paren_start + 1..paren_end)?;
 
     for param in params.split(',') {
         let parts: Vec<&str> = param.split_whitespace().collect();
@@ -707,12 +718,12 @@ fn extract_dbset(line: &str) -> Option<EntitySetInfo> {
     let dbset_markers = ["DbSet<", "IDbSet<", "ObjectSet<"];
     for marker in dbset_markers {
         if let Some(idx) = trimmed.find(marker) {
-            let after = &trimmed[idx + marker.len()..];
+            let after = trimmed.get(idx + marker.len()..)?;
             let type_end = after.find('>')?;
-            let entity_type = after[..type_end].trim().to_string();
+            let entity_type = after.get(..type_end).unwrap_or_default().trim().to_string();
 
             // Property name is after > and before {
-            let after_type = &after[type_end + 1..];
+            let after_type = after.get(type_end + 1..)?;
             let prop_name = after_type
                 .split('{')
                 .next()?
@@ -736,8 +747,9 @@ fn extract_connection_string(line: &str) -> Option<String> {
     // Pattern: : base("connectionStringName") or "name=ConnectionStringName"
     if trimmed.contains("base(") || trimmed.contains("nameOrConnectionString") {
         if let Some(q1) = trimmed.find('"') {
-            if let Some(q2) = trimmed[q1 + 1..].find('"') {
-                let value = &trimmed[q1 + 1..q1 + 1 + q2];
+            let after_q1 = trimmed.get(q1 + 1..)?;
+            if let Some(q2) = after_q1.find('"') {
+                let value = after_q1.get(..q2).unwrap_or_default();
                 // Handle "name=X" format
                 if let Some(rest) = value.strip_prefix("name=") {
                     return Some(rest.to_string());
@@ -771,7 +783,7 @@ fn extract_entity_properties(
 
         // Collect attributes
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            let attr_content = &trimmed[1..trimmed.len() - 1];
+            let attr_content = trimmed.get(1..trimmed.len() - 1).unwrap_or_default();
             // May have multiple attributes: [Required, MaxLength(100)]
             for attr in attr_content.split(',') {
                 let a = attr.trim().to_string();
@@ -803,7 +815,7 @@ fn extract_entity_properties(
                     // Extract target type from generic
                     if let Some(start) = prop_type.find('<') {
                         if let Some(end) = prop_type.find('>') {
-                            let target = prop_type[start + 1..end].trim().to_string();
+                            let target = prop_type.get(start + 1..end).unwrap_or_default().trim().to_string();
                             entity.navigation_properties.push(NavigationProperty {
                                 name: prop_name,
                                 target_type: target,

@@ -84,10 +84,10 @@ pub fn enrich_aspnet_mvc(
     // ──────────────────────────────────────────────────────────────────────
     // Pass 1b: Parse Web.config files
     // ──────────────────────────────────────────────────────────────────────
-    let re_auth = Regex::new(r#"<authentication\s+mode="([^"]+)""#).ok();
-    let re_conn = Regex::new(r#"<add\s+name="[^"]+"\s+connectionString="#).ok();
-    let re_appsettings = Regex::new(r#"<appSettings>[\s\S]*?<add\s+key="#).ok();
-    let re_binding = Regex::new(r#"<bindingRedirect\s+oldVersion="#).ok();
+    let re_auth = Regex::new(r#"<authentication\s+mode="([^"]+)""#).expect("regex pattern must compile");
+    let re_conn = Regex::new(r#"<add\s+name="[^"]+"\s+connectionString="#).expect("regex pattern must compile");
+    let re_appsettings = Regex::new(r#"<appSettings>[\s\S]*?<add\s+key="#).expect("regex pattern must compile");
+    let re_binding = Regex::new(r#"<bindingRedirect\s+oldVersion="#).expect("regex pattern must compile");
 
     for entry in file_entries {
         if entry.path.ends_with("Web.config") || entry.path.ends_with("web.config") {
@@ -95,33 +95,21 @@ pub fn enrich_aspnet_mvc(
 
             let mut description_parts = Vec::new();
 
-            if let Some(auth_match) = re_auth
-                .as_ref()
-                .and_then(|re| re.captures(&entry.content))
-            {
+            if let Some(auth_match) = re_auth.captures(&entry.content) {
                 description_parts.push(format!("auth: {}", &auth_match[1]));
             }
 
-            let conn_string_count = re_conn
-                .as_ref()
-                .map(|re| re.find_iter(&entry.content).count())
-                .unwrap_or(0);
+            let conn_string_count = re_conn.find_iter(&entry.content).count();
             if conn_string_count > 0 {
                 description_parts.push(format!("{} connection strings", conn_string_count));
             }
 
-            let app_settings_count = re_appsettings
-                .as_ref()
-                .map(|re| re.find_iter(&entry.content).count())
-                .unwrap_or(0);
+            let app_settings_count = re_appsettings.find_iter(&entry.content).count();
             if app_settings_count > 0 {
                 description_parts.push(format!("{} app settings", app_settings_count));
             }
 
-            let binding_redirects = re_binding
-                .as_ref()
-                .map(|re| re.find_iter(&entry.content).count())
-                .unwrap_or(0);
+            let binding_redirects = re_binding.find_iter(&entry.content).count();
             if binding_redirects > 0 {
                 description_parts.push(format!("{} binding redirects", binding_redirects));
             }
@@ -150,7 +138,7 @@ pub fn enrich_aspnet_mvc(
     // ──────────────────────────────────────────────────────────────────────
     // Pass 1c: Group partial classes by name for content merging
     // ──────────────────────────────────────────────────────────────────────
-    let partial_class_regex = Regex::new(r"partial\s+class\s+(\w+)").ok();
+    let partial_class_regex = Regex::new(r"partial\s+class\s+(\w+)").expect("regex pattern must compile");
     let mut partial_classes: HashMap<String, Vec<String>> = HashMap::new();
     let cs_files_for_partial: Vec<&FileEntry> = file_entries
         .iter()
@@ -158,14 +146,12 @@ pub fn enrich_aspnet_mvc(
         .collect();
 
     for entry in &cs_files_for_partial {
-        if let Some(ref re) = partial_class_regex {
-            for cap in re.captures_iter(&entry.content) {
-                let class_name = &cap[1];
-                partial_classes
-                    .entry(class_name.to_string())
-                    .or_default()
-                    .push(entry.content.clone());
-            }
+        for cap in partial_class_regex.captures_iter(&entry.content) {
+            let class_name = &cap[1];
+            partial_classes
+                .entry(class_name.to_string())
+                .or_default()
+                .push(entry.content.clone());
         }
     }
 
@@ -457,60 +443,58 @@ pub fn enrich_aspnet_mvc(
     // ──────────────────────────────────────────────────────────────────────
     let filter_regex = Regex::new(
         r"\[(?:(?:System\.Web\.Mvc\.)?)(Authorize|ValidateAntiForgeryToken|OutputCache|HandleError|AllowAnonymous|RequireHttps|ActionFilter|ExceptionFilter|ResultFilter)(?:\(([^)]*)\))?\]"
-    );
+    ).expect("regex pattern must compile");
 
     for (file_path, ctrl) in &all_controllers {
-        if let Ok(ref re) = filter_regex {
-            if let Ok(content) = std::fs::read_to_string(file_path) {
-                let mut seen_filters: HashSet<String> = HashSet::new();
+        if let Ok(content) = std::fs::read_to_string(file_path) {
+            let mut seen_filters: HashSet<String> = HashSet::new();
 
-                for cap in re.captures_iter(&content) {
-                    let filter_name = &cap[1];
-                    let filter_params = cap.get(2).map_or("", |m| m.as_str());
+            for cap in filter_regex.captures_iter(&content) {
+                let filter_name = &cap[1];
+                let filter_params = cap.get(2).map_or("", |m| m.as_str());
 
-                    let filter_key = if filter_params.is_empty() {
-                        filter_name.to_string()
-                    } else {
-                        format!("{}({})", filter_name, filter_params)
-                    };
+                let filter_key = if filter_params.is_empty() {
+                    filter_name.to_string()
+                } else {
+                    format!("{}({})", filter_name, filter_params)
+                };
 
-                    if !seen_filters.contains(&filter_key) {
-                        let filter_id = format!("Filter:{}", filter_name);
+                if !seen_filters.contains(&filter_key) {
+                    let filter_id = format!("Filter:{}", filter_name);
 
-                        if graph.get_node(&filter_id).is_none() {
-                            let mut props = NodeProperties {
-                                name: filter_name.to_string(),
-                                file_path: String::new(),
-                                ..Default::default()
-                            };
-                            if !filter_params.is_empty() {
-                                props.description = Some(filter_params.to_string());
-                            }
-                            graph.add_node(GraphNode {
-                                id: filter_id.clone(),
-                                label: NodeLabel::Filter,
-                                properties: props,
-                            });
+                    if graph.get_node(&filter_id).is_none() {
+                        let mut props = NodeProperties {
+                            name: filter_name.to_string(),
+                            file_path: String::new(),
+                            ..Default::default()
+                        };
+                        if !filter_params.is_empty() {
+                            props.description = Some(filter_params.to_string());
                         }
-
-                        let ctrl_id = format!("Controller:{}:{}", file_path, ctrl.class_name);
-                        graph.add_relationship(GraphRelationship {
-                            id: format!("filter:{}:{}", ctrl.class_name, filter_name),
-                            source_id: ctrl_id,
-                            target_id: filter_id,
-                            rel_type: RelationshipType::HasFilter,
-                            confidence: 0.95,
-                            reason: if filter_params.is_empty() {
-                                "attribute".to_string()
-                            } else {
-                                format!("attribute:{}", filter_params)
-                            },
-                            step: None,
+                        graph.add_node(GraphNode {
+                            id: filter_id.clone(),
+                            label: NodeLabel::Filter,
+                            properties: props,
                         });
-
-                        seen_filters.insert(filter_key);
-                        stats.filters += 1;
                     }
+
+                    let ctrl_id = format!("Controller:{}:{}", file_path, ctrl.class_name);
+                    graph.add_relationship(GraphRelationship {
+                        id: format!("filter:{}:{}", ctrl.class_name, filter_name),
+                        source_id: ctrl_id,
+                        target_id: filter_id,
+                        rel_type: RelationshipType::HasFilter,
+                        confidence: 0.95,
+                        reason: if filter_params.is_empty() {
+                            "attribute".to_string()
+                        } else {
+                            format!("attribute:{}", filter_params)
+                        },
+                        step: None,
+                    });
+
+                    seen_filters.insert(filter_key);
+                    stats.filters += 1;
                 }
             }
         }
@@ -600,47 +584,45 @@ pub fn enrich_aspnet_mvc(
     // ──────────────────────────────────────────────────────────────────────
     // Pass 6b: Detect @Html.Partial and @Html.RenderAction calls in views
     // ──────────────────────────────────────────────────────────────────────
-    let partial_regex = Regex::new(r#"@?\s*Html\.(Partial|RenderPartial|RenderAction)\("([^"]+)""#).ok();
+    let partial_regex = Regex::new(r#"@?\s*Html\.(Partial|RenderPartial|RenderAction)\("([^"]+)""#).expect("regex pattern must compile");
 
     for entry in &view_files {
         let view_id = format!("View:{}", entry.path);
 
-        if let Some(ref re) = partial_regex {
-            let mut seen_partials: HashSet<String> = HashSet::new();
+        let mut seen_partials: HashSet<String> = HashSet::new();
 
-            for cap in re.captures_iter(&entry.content) {
-                let method = &cap[1];
-                let partial_name = &cap[2];
+        for cap in partial_regex.captures_iter(&entry.content) {
+            let method = &cap[1];
+            let partial_name = &cap[2];
 
-                if !seen_partials.contains(partial_name) {
-                    let partial_view_id = format!("PartialView:{}", partial_name);
+            if !seen_partials.contains(partial_name) {
+                let partial_view_id = format!("PartialView:{}", partial_name);
 
-                    if graph.get_node(&partial_view_id).is_none() {
-                        graph.add_node(GraphNode {
-                            id: partial_view_id.clone(),
-                            label: NodeLabel::PartialView,
-                            properties: NodeProperties {
-                                name: partial_name.to_string(),
-                                file_path: String::new(),
-                                view_engine: Some("partial".to_string()),
-                                ..Default::default()
-                            },
-                        });
-                    }
-
-                    graph.add_relationship(GraphRelationship {
-                        id: format!("partial:{}:{}", entry.path, partial_name),
-                        source_id: view_id.clone(),
-                        target_id: partial_view_id,
-                        rel_type: RelationshipType::UsesPartial,
-                        confidence: 0.95,
-                        reason: method.to_string(),
-                        step: None,
+                if graph.get_node(&partial_view_id).is_none() {
+                    graph.add_node(GraphNode {
+                        id: partial_view_id.clone(),
+                        label: NodeLabel::PartialView,
+                        properties: NodeProperties {
+                            name: partial_name.to_string(),
+                            file_path: String::new(),
+                            view_engine: Some("partial".to_string()),
+                            ..Default::default()
+                        },
                     });
-
-                    seen_partials.insert(partial_name.to_string());
-                    stats.partial_views += 1;
                 }
+
+                graph.add_relationship(GraphRelationship {
+                    id: format!("partial:{}:{}", entry.path, partial_name),
+                    source_id: view_id.clone(),
+                    target_id: partial_view_id,
+                    rel_type: RelationshipType::UsesPartial,
+                    confidence: 0.95,
+                    reason: method.to_string(),
+                    step: None,
+                });
+
+                seen_partials.insert(partial_name.to_string());
+                stats.partial_views += 1;
             }
         }
     }

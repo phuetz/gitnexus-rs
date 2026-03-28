@@ -145,12 +145,6 @@ fn collect_by_label(graph: &KnowledgeGraph, label: NodeLabel) -> Vec<&GraphNode>
     nodes
 }
 
-/// Safely extract the name portion from a node ID like "Type:Name".
-/// Returns the full ID if no colon separator is found.
-fn _extract_node_name(id: &str) -> &str {
-    id.split_once(':').map_or(id, |(_, name)| name)
-}
-
 // ─── Controllers Documentation ──────────────────────────────────────────
 
 fn generate_controllers_doc(

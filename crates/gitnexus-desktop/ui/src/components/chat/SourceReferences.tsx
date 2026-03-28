@@ -32,16 +32,17 @@ export function SourceReferences({
   onNavigateToNode,
 }: SourceReferencesProps) {
   const [showAll, setShowAll] = useState(false);
-  const displaySources = showAll ? sources : sources.slice(0, maxInitial);
+  const safeSources = sources ?? [];
+  const displaySources = showAll ? safeSources : safeSources.slice(0, maxInitial);
 
-  if (sources.length === 0) return null;
+  if (safeSources.length === 0) return null;
 
   return (
     <div className="mt-3">
       <div className="flex items-center gap-1.5 mb-2">
         <FileCode size={12} style={{ color: "var(--text-2)" }} />
         <span className="text-[12px] font-medium" style={{ color: "var(--text-2)" }}>
-          {sources.length} source{sources.length > 1 ? "s" : ""} referenced
+          {safeSources.length} source{safeSources.length > 1 ? "s" : ""} referenced
         </span>
       </div>
 
@@ -55,7 +56,7 @@ export function SourceReferences({
         ))}
       </div>
 
-      {sources.length > maxInitial && (
+      {safeSources.length > maxInitial && (
         <button
           onClick={() => setShowAll(!showAll)}
           className="flex items-center gap-1 mt-2 text-[11px] transition-colors"
@@ -69,7 +70,7 @@ export function SourceReferences({
           ) : (
             <>
               <ChevronRight size={11} />
-              Show {sources.length - maxInitial} more source{sources.length - maxInitial > 1 ? "s" : ""}
+              Show {safeSources.length - maxInitial} more source{safeSources.length - maxInitial > 1 ? "s" : ""}
             </>
           )}
         </button>
@@ -89,7 +90,7 @@ function SourceCard({
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  const lang = source.filePath.split(".").pop() || "";
+  const lang = (source.filePath ?? "").split(".").pop() || "";
   const relevanceWidth = Math.min(source.relevanceScore * 100, 100);
 
   return (

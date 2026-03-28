@@ -76,6 +76,12 @@ export function SearchModal() {
     setSelectedIndex(0);
   }
 
+  // Scroll selected result into view when selectedIndex changes
+  useEffect(() => {
+    const el = document.querySelector(`[data-search-index="${selectedIndex}"]`);
+    el?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
+
   const selectResult = useCallback(
     (nodeId: string, name?: string) => {
       setSelectedNodeId(nodeId, name);
@@ -88,7 +94,7 @@ export function SearchModal() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex((i) => Math.min(i + 1, (results?.length ?? 1) - 1));
+      setSelectedIndex((i) => Math.min(i + 1, Math.max((results?.length ?? 1) - 1, 0)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setSelectedIndex((i) => Math.max(i - 1, 0));
@@ -148,6 +154,7 @@ export function SearchModal() {
               {results.map((r, i) => (
                 <button
                   key={r.nodeId}
+                  data-search-index={i}
                   onClick={() => selectResult(r.nodeId, r.name)}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors"
                   style={{
@@ -201,6 +208,7 @@ export function SearchModal() {
         <div
           className="flex items-center gap-4 px-4 py-2 text-[11px]"
           style={{ borderTop: "1px solid var(--surface-border)", color: "var(--text-3)" }}
+          aria-label="Keyboard shortcuts: Up/Down arrows to navigate, Enter to select, Escape to close"
         >
           <span className="flex items-center gap-1">
             <ArrowUp size={11} /><ArrowDown size={11} /> {t("search.navigate")}

@@ -72,6 +72,7 @@ export function DetailPanel() {
       {/* Tab bar */}
       <div
         className="flex gap-1 px-4 py-3 border-b"
+        role="tablist"
         style={{
           backgroundColor: "var(--bg-1)",
           borderColor: "var(--surface-border)",
@@ -80,6 +81,8 @@ export function DetailPanel() {
         {TABS.map(({ id, i18nKey }) => (
           <button
             key={id}
+            role="tab"
+            aria-selected={detailTab === id}
             onClick={() => setDetailTab(id)}
             className="px-3 py-1.5 text-xs font-medium rounded transition-all"
             style={{
@@ -359,7 +362,7 @@ function RelationSection({
   onSelect,
 }: RelationSectionProps) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5 max-h-64 overflow-y-auto">
         {title && (
           <p className="text-[11px] font-medium px-1" style={{ color: "var(--text-3)" }}>{title}</p>
         )}

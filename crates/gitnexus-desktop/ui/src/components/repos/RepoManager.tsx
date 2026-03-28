@@ -43,6 +43,7 @@ export function RepoManager() {
   // Analysis state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeRepoPath, setAnalyzeRepoPath] = useState<string | null>(null);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
   const handleOpen = async (name: string) => {
     try {
@@ -75,8 +76,11 @@ export function RepoManager() {
       setIsAnalyzing(true);
 
       // Launch analysis in background — progress comes via Tauri events
+      setAnalyzeError(null);
       commands.analyzeRepo(folderPath).catch((err) => {
         console.error("Analysis failed:", err);
+        setIsAnalyzing(false);
+        setAnalyzeError(String(err));
       });
     } catch (e) {
       console.error("Folder selection failed:", e);
@@ -339,6 +343,22 @@ export function RepoManager() {
               onComplete={handleAnalyzeComplete}
               onDismiss={handleDismissProgress}
             />
+          </div>
+        )}
+
+        {/* Analysis error */}
+        {analyzeError && (
+          <div
+            className="rounded-lg text-sm"
+            style={{
+              marginBottom: 24,
+              padding: "12px 16px",
+              background: "rgba(240, 100, 120, 0.08)",
+              border: "1px solid rgba(240, 100, 120, 0.25)",
+              color: "var(--rose)",
+            }}
+          >
+            Analysis failed: {analyzeError}
           </div>
         )}
 

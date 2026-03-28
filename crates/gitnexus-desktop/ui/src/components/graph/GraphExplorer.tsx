@@ -562,6 +562,27 @@ export function GraphExplorer() {
     );
   }
 
+  if (data && data.nodes.length === 0) {
+    return (
+      <div className="h-full flex flex-col">
+        <GraphToolbar
+          stats={data?.stats}
+          layout={layout}
+          onLayoutChange={handleLayoutChange}
+          onFit={handleFit}
+        />
+        <div
+          className="flex-1 relative flex flex-col items-center justify-center gap-4 overflow-hidden"
+          style={{ backgroundColor: "var(--bg-1)", color: "var(--text-3)" }}
+        >
+          <div className="text-5xl">📊</div>
+          <p className="text-lg font-medium">No graph data available</p>
+          <p className="text-sm">Analyze a repository first to see the knowledge graph.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="h-full flex flex-col">

@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef, useMemo, useState, useId } from "react";
+import { ChevronRight, BookOpen } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
@@ -370,6 +371,51 @@ function createMarkdownComponents(onNavigate?: (path: string) => void): Componen
   };
 }
 
+// ─── Breadcrumb ────────────────────────────────────────────────────
+
+function DocsBreadcrumb({ title, onNavigate }: { title: string; onNavigate?: (path: string) => void }) {
+  const segments = title.split(/[/\\]/).filter(Boolean);
+  if (segments.length === 0) return null;
+
+  return (
+    <nav
+      className="flex items-center gap-1 mb-6 text-[12px]"
+      aria-label="Breadcrumb"
+    >
+      <button
+        onClick={() => onNavigate?.("index")}
+        className="flex items-center gap-1.5 hover-surface rounded px-1.5 py-0.5"
+        style={{ color: "var(--text-3)" }}
+      >
+        <BookOpen size={12} />
+        <span>Docs</span>
+      </button>
+      {segments.map((segment, i) => {
+        const isLast = i === segments.length - 1;
+        const partialPath = segments.slice(0, i + 1).join("/");
+        return (
+          <span key={i} className="flex items-center gap-1">
+            <ChevronRight size={10} style={{ color: "var(--text-4)" }} />
+            <button
+              onClick={() => {
+                if (!isLast && onNavigate) onNavigate(partialPath);
+              }}
+              className="hover-surface rounded px-1.5 py-0.5"
+              style={{
+                color: isLast ? "var(--text-0)" : "var(--text-3)",
+                fontWeight: isLast ? 500 : 400,
+                cursor: isLast ? "default" : "pointer",
+              }}
+            >
+              {segment.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+            </button>
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
 // ─── Main Component ─────────────────────────────────────────────────
 
 export function DocsContent({ content, title, onNavigate }: DocsContentProps) {
@@ -409,6 +455,7 @@ export function DocsContent({ content, title, onNavigate }: DocsContentProps) {
       {/* Main content */}
       <div ref={contentRef} className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-8 py-8">
+          <DocsBreadcrumb title={title} onNavigate={onNavigate} />
           <article className="docs-prose">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
               {content}

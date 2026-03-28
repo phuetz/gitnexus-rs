@@ -46,17 +46,9 @@ export function SettingsModal() {
           </h2>
           <button
             onClick={() => setSettingsOpen(false)}
-            className="rounded-md transition-colors"
+            className="rounded-md hover-surface"
             style={{ color: "var(--text-3)", padding: 6 }}
             title={t("search.close")}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "var(--surface-hover)";
-              e.currentTarget.style.color = "var(--text-1)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "var(--text-3)";
-            }}
           >
             <X size={16} />
           </button>
@@ -94,7 +86,7 @@ export function SettingsModal() {
                   <button
                     key={lang.code}
                     onClick={() => setLocale(lang.code)}
-                    className="rounded-md text-xs font-medium transition-all"
+                    className={`rounded-md text-xs font-medium hover-lang-btn ${isActive ? "lang-active" : ""}`}
                     style={{
                       padding: "8px 16px",
                       background: isActive ? "var(--accent)" : "var(--bg-3)",
@@ -102,12 +94,6 @@ export function SettingsModal() {
                       border: isActive ? "1px solid var(--accent)" : "1px solid var(--surface-border)",
                       cursor: "pointer",
                       flex: 1,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) e.currentTarget.style.background = "var(--bg-4)";
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) e.currentTarget.style.background = "var(--bg-3)";
                     }}
                   >
                     {lang.flag}  {lang.label}

@@ -315,7 +315,78 @@ pre.shiki code > .line::before {
   }
 }
 
+/* ── Hover surface utilities ── */
+.hover-surface {
+  transition: background 150ms, color 150ms;
+}
+.hover-surface:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.hover-bg4 {
+  transition: background 150ms;
+}
+.hover-bg4:hover {
+  background: var(--bg-4);
+}
+
+.hover-brighten {
+  transition: filter 150ms;
+}
+.hover-brighten:not(:disabled):hover {
+  filter: brightness(1.1);
+}
+
+.hover-cmd-search {
+  transition: border-color 150ms, color 150ms, background 150ms;
+}
+.hover-cmd-search:hover {
+  border-color: var(--accent);
+  border-image: linear-gradient(135deg, var(--accent), var(--purple)) 1;
+  color: var(--text-2);
+  background: var(--bg-4);
+}
+
+.hover-lang-btn {
+  transition: background 150ms;
+}
+.hover-lang-btn:not(.lang-active):hover {
+  background: var(--bg-4);
+}
+
+.hover-line {
+  transition: background 150ms;
+}
+.hover-line:hover {
+  background: var(--surface-hover);
+}
+
+/* ── Progress glow ── */
+.progress-glow {
+  box-shadow: 0 0 8px var(--accent), 0 0 16px color-mix(in srgb, var(--accent) 30%, transparent);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px var(--accent), 0 0 16px color-mix(in srgb, var(--accent) 30%, transparent); }
+  50% { box-shadow: 0 0 12px var(--accent), 0 0 24px color-mix(in srgb, var(--accent) 40%, transparent); }
+}
+
 /* ── Health gradient utilities ── */
 .health-good { color: var(--green); }
 .health-warn { color: var(--amber); }
 .health-bad { color: var(--rose); }
+
+/* ── Chat UI: blinking cursor ── */
+@keyframes blink-cursor { 50% { opacity: 0; } }
+.typing-cursor::after {
+  content: "\25CB";
+  animation: blink-cursor 1s step-end infinite;
+  color: var(--accent);
+}
+
+/* ── Chat UI: input focus ring ── */
+.chat-input-container:focus-within {
+  border-color: var(--accent-border) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}

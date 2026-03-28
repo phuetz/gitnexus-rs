@@ -50,8 +50,61 @@ function countFiles(nodes: FileTreeNode[]): number {
   return count;
 }
 
+function Breadcrumbs({ selectedNodeId }: { selectedNodeId: string | null }) {
+  const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
+
+  if (!selectedNodeId || !selectedNodeId.startsWith("File:")) return null;
+
+  const filePath = selectedNodeId.slice(5);
+  const segments = filePath.split(/[\\/]/);
+
+  return (
+    <div
+      className="flex items-center gap-1 px-3 py-2 overflow-x-auto text-[11px]"
+      style={{
+        borderBottom: "1px solid var(--surface-border)",
+        background: "var(--bg-1)",
+        minHeight: 32,
+      }}
+    >
+      {segments.map((segment, i) => {
+        const isLast = i === segments.length - 1;
+        const partialPath = segments.slice(0, i + 1).join("/");
+        return (
+          <span key={i} className="flex items-center gap-1 shrink-0">
+            {i > 0 && (
+              <ChevronRight
+                size={10}
+                style={{ color: "var(--text-4)", flexShrink: 0 }}
+              />
+            )}
+            <button
+              onClick={() => {
+                if (!isLast) {
+                  // Navigate to directory (no-op for now, but sets selection)
+                  setSelectedNodeId(`File:${partialPath}`, segment);
+                }
+              }}
+              className="hover-surface rounded px-1 py-0.5"
+              style={{
+                color: isLast ? "var(--text-0)" : "var(--text-3)",
+                fontWeight: isLast ? 500 : 400,
+                fontFamily: "var(--font-mono)",
+                cursor: isLast ? "default" : "pointer",
+              }}
+            >
+              {segment}
+            </button>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export function FileTreeView() {
   const { t } = useI18n();
+  const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const { data: tree, isLoading, error } = useFileTree(true);
 
   if (isLoading) {
@@ -134,6 +187,9 @@ export function FileTreeView() {
           {fileCount}
         </span>
       </div>
+
+      {/* Breadcrumb */}
+      <Breadcrumbs selectedNodeId={selectedNodeId} />
 
       {/* Tree container */}
       <div

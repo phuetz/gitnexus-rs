@@ -147,10 +147,8 @@ export function AnalyzeProgress({ isAnalyzing, repoPath, onComplete, onDismiss }
         {(completed || error) && (
           <button
             onClick={onDismiss}
-            className="rounded-md transition-colors"
+            className="rounded-md hover-bg4"
             style={{ padding: 4, color: "var(--text-3)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-4)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
           >
             <X size={14} />
           </button>
@@ -166,7 +164,7 @@ export function AnalyzeProgress({ isAnalyzing, repoPath, onComplete, onDismiss }
             style={{ background: "var(--bg-3)" }}
           >
             <div
-              className="h-full rounded-full transition-all duration-500 ease-out"
+              className={`h-full rounded-full transition-all duration-500 ease-out ${!error && !completed && overallPercent > 0 ? "progress-glow" : ""}`}
               style={{
                 width: `${overallPercent}%`,
                 background: error
@@ -268,7 +266,7 @@ export function AnalyzeButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="flex items-center rounded-lg text-xs font-medium transition-all"
+      className="flex items-center rounded-lg text-xs font-medium hover-brighten"
       style={{
         gap: 8,
         paddingLeft: 16,
@@ -279,12 +277,6 @@ export function AnalyzeButton({
         color: disabled ? "var(--text-3)" : "#fff",
         opacity: disabled ? 0.7 : 1,
         cursor: disabled ? "not-allowed" : "pointer",
-      }}
-      onMouseEnter={(e) => {
-        if (!disabled) e.currentTarget.style.filter = "brightness(1.1)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.filter = "none";
       }}
     >
       <FolderOpen size={14} />

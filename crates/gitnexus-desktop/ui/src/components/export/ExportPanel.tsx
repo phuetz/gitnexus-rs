@@ -193,21 +193,13 @@ export function ExportPanel() {
             onClick={loadStats}
             title={t("export.refreshStats")}
             aria-label={t("export.refreshStats")}
-            className="rounded-md transition-colors"
+            className="rounded-md hover-surface"
             style={{
               padding: 8,
               color: "var(--text-3)",
               background: "transparent",
               border: "none",
               cursor: "pointer",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "var(--surface-hover)";
-              e.currentTarget.style.color = "var(--text-1)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "var(--text-3)";
             }}
           >
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />

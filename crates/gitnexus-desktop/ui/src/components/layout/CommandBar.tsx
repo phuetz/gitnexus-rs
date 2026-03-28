@@ -119,7 +119,7 @@ export function CommandBar() {
       <button
         onClick={() => setCommandPaletteOpen(true)}
         aria-label={t("search.ariaLabel")}
-        className="flex items-center rounded-lg transition-all shrink-0"
+        className="flex items-center rounded-lg shrink-0 hover-cmd-search"
         style={{
           gap: 8,
           paddingLeft: 12,
@@ -131,18 +131,6 @@ export function CommandBar() {
           color: "var(--text-3)",
           fontSize: 12,
           minWidth: 220,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = "var(--accent)";
-          e.currentTarget.style.borderImage = "linear-gradient(135deg, var(--accent), var(--purple)) 1";
-          e.currentTarget.style.color = "var(--text-2)";
-          e.currentTarget.style.background = "var(--bg-4)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = "var(--surface-border)";
-          e.currentTarget.style.borderImage = "none";
-          e.currentTarget.style.color = "var(--text-3)";
-          e.currentTarget.style.background = "var(--bg-3)";
         }}
       >
         <Search size={13} />

@@ -55,15 +55,9 @@ export function FilePreview({
       >
         <button
           onClick={onClose}
-          className="rounded transition-colors"
+          className="rounded hover-surface"
           style={{ padding: 4, color: "var(--text-3)" }}
           title={t("files.closePreview")}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "var(--surface-hover)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-          }}
         >
           <ArrowLeft size={14} />
         </button>
@@ -130,14 +124,8 @@ export function FilePreview({
                   tokens.map((lineTokens, i) => (
                     <div
                       key={i}
-                      className="flex transition-colors"
+                      className="flex hover-line"
                       style={{ minHeight: "1.6em" }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "var(--surface-hover)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "transparent";
-                      }}
                     >
                       <span
                         className="select-none text-right shrink-0"
@@ -163,14 +151,8 @@ export function FilePreview({
                   fileContent.content.split("\n").map((line, i) => (
                     <div
                       key={i}
-                      className="flex transition-colors"
+                      className="flex hover-line"
                       style={{ minHeight: "1.6em" }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "var(--surface-hover)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "transparent";
-                      }}
                     >
                       <span
                         className="select-none text-right shrink-0"

@@ -8,6 +8,34 @@
 import { useState, useMemo, useCallback } from "react";
 import { ChevronDown, ChevronRight, Copy, Check, FileCode } from "lucide-react";
 
+const LANG_COLORS: Record<string, string> = {
+  typescript: "#3178c6",
+  tsx: "#3178c6",
+  rust: "#dea584",
+  python: "#3776ab",
+  javascript: "#f7df1e",
+  jsx: "#f7df1e",
+  java: "#b07219",
+  go: "#00add8",
+  csharp: "#178600",
+  cs: "#178600",
+  cpp: "#f34b7d",
+  "c++": "#f34b7d",
+  c: "#555555",
+  ruby: "#701516",
+  php: "#4f5d95",
+  kotlin: "#A97BFF",
+  swift: "#F05138",
+  html: "#e34c26",
+  css: "#563d7c",
+  json: "#292929",
+  yaml: "#cb171e",
+  sql: "#e38c00",
+  shell: "#89e051",
+  bash: "#89e051",
+  markdown: "#083fa1",
+};
+
 interface CodeSnippetRendererProps {
   code: string;
   language?: string;
@@ -78,9 +106,15 @@ export function CodeSnippetRenderer({
 
         {language && (
           <span
-            className="text-[10px] px-1 py-0.5 rounded ml-auto"
+            className="flex items-center gap-1.5 text-[10px] px-1.5 py-0.5 rounded ml-auto"
             style={{ background: "var(--bg-3)", color: "var(--text-2)" }}
           >
+            <span
+              className="inline-block w-2 h-2 rounded-full shrink-0"
+              style={{
+                background: LANG_COLORS[language.toLowerCase()] ?? "var(--text-3)",
+              }}
+            />
             {language}
           </span>
         )}

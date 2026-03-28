@@ -17,15 +17,16 @@ import {
   Send,
   MessageSquare,
   Loader2,
-  Bot,
-  User,
   Settings2,
   Sparkles,
   Microscope,
   Zap,
+  Copy,
+  Pencil,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
 import type {
   ChatSource as ChatSourceType,
@@ -294,24 +295,29 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
           />
         ))}
 
-        {/* Loading indicator */}
+        {/* Streaming/typing indicator */}
         {askMutation.isPending && (
-          <div className="flex items-start gap-3 fade-in">
-            <div
-              className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-              style={{ background: "var(--purple-subtle)", color: "var(--purple)" }}
-            >
-              <Bot size={14} />
-            </div>
-            <div className="flex items-center gap-2 py-2" style={{ color: "var(--text-3)" }}>
-              <Loader2 size={14} className="animate-spin" />
-              <span className="text-[13px]">
-                {deepResearchEnabled
-                  ? "Executing research plan..."
-                  : hasActiveFilters()
-                  ? "Searching filtered context..."
-                  : "Searching knowledge graph & generating answer..."}
+          <div className="fade-in">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: "var(--purple)" }}
+              />
+              <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
+                GitNexus
               </span>
+              <span className="text-[11px]" style={{ color: "var(--text-3)" }}>
+                {deepResearchEnabled
+                  ? "executing research plan..."
+                  : hasActiveFilters()
+                  ? "searching filtered context..."
+                  : "thinking..."}
+              </span>
+            </div>
+            <div className="space-y-2 py-4 px-4">
+              <div className="shimmer rounded" style={{ height: 14, width: "80%", background: "var(--bg-3)" }} />
+              <div className="shimmer rounded" style={{ height: 14, width: "65%", background: "var(--bg-3)" }} />
+              <div className="shimmer rounded" style={{ height: 14, width: "45%", background: "var(--bg-3)" }} />
             </div>
           </div>
         )}
@@ -340,7 +346,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   );
 }
 
-// ─── MessageBubble ──────────────────────────────────────────────────
+// ─── MessageBubble (flat developer-tool layout) ────────────────────
 
 function MessageBubble({
   message,
@@ -349,80 +355,121 @@ function MessageBubble({
   message: Message;
   onNavigateToNode?: (nodeId: string) => void;
 }) {
+  const handleCopyMessage = useCallback(() => {
+    navigator.clipboard.writeText(message.content);
+    toast.success("Copied to clipboard");
+  }, [message.content]);
+
   if (message.role === "user") {
     return (
-      <div className="flex items-start gap-3 justify-end">
+      <div className="group relative fade-in">
+        {/* Role label */}
+        <div className="flex items-center gap-1.5 mb-1">
+          <span
+            className="w-2 h-2 rounded-full flex-shrink-0"
+            style={{ background: "var(--accent)" }}
+          />
+          <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
+            You
+          </span>
+        </div>
+        {/* Message content */}
         <div
-          className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-md text-[13px]"
-          style={{
-            background: "var(--accent)",
-            color: "#fff",
-          }}
+          className="px-4 py-3 rounded-lg text-[13px] leading-relaxed"
+          style={{ background: "var(--bg-2)", color: "var(--text-1)" }}
         >
           {message.content}
         </div>
+        {/* Hover actions */}
         <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-          style={{ background: "var(--bg-3)", color: "var(--text-2)" }}
+          className="absolute top-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ marginTop: -2 }}
         >
-          <User size={14} />
+          <button
+            onClick={handleCopyMessage}
+            className="p-1 rounded transition-colors"
+            style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
+            title="Copy message"
+          >
+            <Copy size={12} />
+          </button>
+          <button
+            className="p-1 rounded transition-colors"
+            style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
+            title="Edit message"
+          >
+            <Pencil size={12} />
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex items-start gap-3 fade-in">
+    <div className="group relative fade-in">
+      {/* Role label */}
+      <div className="flex items-center gap-1.5 mb-1">
+        <span
+          className="w-2 h-2 rounded-full flex-shrink-0"
+          style={{ background: "var(--purple)" }}
+        />
+        <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
+          GitNexus
+        </span>
+        {/* Complexity badge inline */}
+        {message.complexity && <ComplexityIndicator complexity={message.complexity} />}
+      </div>
+
+      {/* Hover actions */}
       <div
-        className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-        style={{ background: "var(--purple-subtle)", color: "var(--purple)" }}
+        className="absolute top-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{ marginTop: -2 }}
       >
-        <Bot size={14} />
-      </div>
-      <div className="flex-1 min-w-0">
-        {/* Complexity badge */}
-        {message.complexity && (
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <ComplexityIndicator complexity={message.complexity} />
-          </div>
-        )}
-
-        {/* Research plan (if present) */}
-        {message.plan && (
-          <div className="mb-3">
-            <ResearchPlanViewer plan={message.plan} />
-          </div>
-        )}
-
-        {/* Response content */}
-        <div
-          className="prose-sm text-[13px] leading-relaxed"
-          style={{ color: "var(--text-1)" }}
+        <button
+          onClick={handleCopyMessage}
+          className="p-1 rounded transition-colors"
+          style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
+          title="Copy message"
         >
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            components={markdownComponents as any}
-          >
-            {message.content}
-          </ReactMarkdown>
-        </div>
-
-        {/* Enhanced source references */}
-        {message.sources && message.sources.length > 0 && (
-          <SourceReferences
-            sources={message.sources}
-            onNavigateToNode={onNavigateToNode}
-          />
-        )}
-
-        {/* Model indicator */}
-        {message.model && (
-          <div className="mt-2 text-[11px]" style={{ color: "var(--text-3)" }}>
-            Answered by {message.model}
-          </div>
-        )}
+          <Copy size={12} />
+        </button>
       </div>
+
+      {/* Research plan (if present) */}
+      {message.plan && (
+        <div className="mb-3">
+          <ResearchPlanViewer plan={message.plan} />
+        </div>
+      )}
+
+      {/* Response content */}
+      <div
+        className="prose-sm text-[13px] leading-relaxed"
+        style={{ color: "var(--text-1)" }}
+      >
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          components={markdownComponents as any}
+        >
+          {message.content}
+        </ReactMarkdown>
+      </div>
+
+      {/* Enhanced source references */}
+      {message.sources && message.sources.length > 0 && (
+        <SourceReferences
+          sources={message.sources}
+          onNavigateToNode={onNavigateToNode}
+        />
+      )}
+
+      {/* Model indicator */}
+      {message.model && (
+        <div className="mt-2 text-[11px]" style={{ color: "var(--text-3)" }}>
+          Answered by {message.model}
+        </div>
+      )}
     </div>
   );
 }
@@ -467,11 +514,33 @@ interface ChatInputProps {
 
 const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
   ({ value, onChange, onSend, onKeyDown, isPending, onOpenSettings, deepResearch, hasFilters }, ref) => {
+    const internalRef = useRef<HTMLTextAreaElement | null>(null);
     const placeholder = deepResearch
       ? "Ask a complex question (deep research mode)..."
       : hasFilters
       ? "Ask about filtered context..."
       : "Ask about this codebase...";
+
+    // Auto-resize textarea on input change
+    useEffect(() => {
+      const el = internalRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    }, [value]);
+
+    // Merge forwarded ref with internal ref
+    const setRefs = useCallback(
+      (node: HTMLTextAreaElement | null) => {
+        internalRef.current = node;
+        if (typeof ref === "function") {
+          ref(node);
+        } else if (ref) {
+          (ref as React.MutableRefObject<HTMLTextAreaElement | null>).current = node;
+        }
+      },
+      [ref],
+    );
 
     return (
       <div
@@ -479,7 +548,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         style={{ borderTop: "1px solid var(--surface-border)" }}
       >
         <div
-          className="flex items-end gap-2 rounded-xl px-3 py-2"
+          className="chat-input-container flex items-end gap-2 rounded-xl px-3 py-2 transition-all"
           style={{
             background: "var(--surface)",
             border: deepResearch
@@ -497,13 +566,13 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
           )}
 
           <textarea
-            ref={ref}
+            ref={setRefs}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={placeholder}
             rows={1}
-            className="flex-1 bg-transparent resize-none text-[13px] outline-none min-h-[24px] max-h-[120px]"
+            className="flex-1 bg-transparent resize-none text-[13px] outline-none min-h-[24px] max-h-[200px]"
             style={{
               color: "var(--text-0)",
               fontFamily: "var(--font-body)",
@@ -553,18 +622,47 @@ ChatInput.displayName = "ChatInput";
 
 // ─── Markdown Components ────────────────────────────────────────────
 
+// ─── Helper: extract text from React children ─────────────────────
+
+function extractTextFromChildren(children: React.ReactNode): string {
+  if (typeof children === "string") return children;
+  if (typeof children === "number") return String(children);
+  if (!children) return "";
+  if (Array.isArray(children)) return children.map(extractTextFromChildren).join("");
+  if (typeof children === "object" && children !== null && "props" in children) {
+    const el = children as React.ReactElement<{ children?: React.ReactNode }>;
+    return extractTextFromChildren(el.props.children);
+  }
+  return "";
+}
+
 const markdownComponents = {
   pre: ({ children }: { children: React.ReactNode }) => (
-    <pre
-      className="my-3 p-3 rounded-lg overflow-x-auto text-[12px] leading-relaxed"
-      style={{
-        background: "var(--bg-1)",
-        border: "1px solid var(--surface-border)",
-        fontFamily: "var(--font-mono)",
-      }}
-    >
-      {children}
-    </pre>
+    <div className="relative group my-3">
+      <pre
+        className="p-4 rounded-lg overflow-x-auto text-[12px] leading-relaxed"
+        style={{
+          background: "var(--bg-0)",
+          border: "1px solid var(--surface-border)",
+          fontFamily: "var(--font-mono)",
+          borderRadius: 8,
+        }}
+      >
+        {children}
+      </pre>
+      <button
+        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded text-xs"
+        style={{ background: "var(--bg-3)", color: "var(--text-2)" }}
+        onClick={() => {
+          const text = extractTextFromChildren(children);
+          navigator.clipboard.writeText(text);
+          toast.success("Copied!");
+        }}
+      >
+        <Copy size={12} className="inline mr-1" />
+        Copy
+      </button>
+    </div>
   ),
   code: ({ className, children }: { className?: string; children: React.ReactNode }) => {
     if (className) {

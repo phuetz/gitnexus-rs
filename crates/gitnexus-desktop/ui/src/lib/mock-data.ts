@@ -578,6 +578,7 @@ export const MOCK_RESPONSES: Record<string, unknown | ((args?: Record<string, un
     baseUrl: "https://api.openai.com/v1",
     model: "gpt-4",
     maxTokens: 4096,
+    reasoningEffort: "",
   } satisfies ChatConfig,
 
   chat_set_config: undefined,

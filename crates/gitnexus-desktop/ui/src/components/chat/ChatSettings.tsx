@@ -45,6 +45,15 @@ const PRESETS: { label: string; config: Partial<ChatConfig> }[] = [
       model: "anthropic/claude-sonnet-4",
     },
   },
+  {
+    label: "Gemini Flash Lite",
+    config: {
+      provider: "gemini",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      model: "gemini-2.5-flash-lite",
+      reasoningEffort: "high",
+    },
+  },
 ];
 
 export function ChatSettings({ onClose }: ChatSettingsProps) {
@@ -60,6 +69,7 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
     baseUrl: "http://localhost:11434/v1",
     model: "llama3.2",
     maxTokens: 4096,
+    reasoningEffort: "",
   });
 
   // Sync form from loaded config (render-time state adjustment)
@@ -158,6 +168,45 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
             value={String(form.maxTokens)}
             onChange={(v) => setForm((f) => ({ ...f, maxTokens: parseInt(v) || 4096 }))}
           />
+
+          {/* Reasoning Effort */}
+          <div>
+            <label className="text-[12px] font-medium mb-1 block" style={{ color: "var(--text-2)" }}>
+              Thinking / Reasoning
+            </label>
+            <div className="flex gap-1.5">
+              {(["none", "low", "medium", "high"] as const).map((level) => (
+                <button
+                  key={level}
+                  onClick={() => setForm((f) => ({ ...f, reasoningEffort: level === "none" ? "" : level }))}
+                  className="flex-1 px-2 py-1.5 rounded-lg text-[12px] capitalize transition-all"
+                  style={{
+                    background:
+                      (form.reasoningEffort || "none") === (level === "none" ? "" : level) ||
+                      (level === "none" && !form.reasoningEffort)
+                        ? "var(--accent-subtle)"
+                        : "var(--surface)",
+                    color:
+                      (form.reasoningEffort || "none") === (level === "none" ? "" : level) ||
+                      (level === "none" && !form.reasoningEffort)
+                        ? "var(--accent)"
+                        : "var(--text-3)",
+                    border: `1px solid ${
+                      (form.reasoningEffort || "none") === (level === "none" ? "" : level) ||
+                      (level === "none" && !form.reasoningEffort)
+                        ? "var(--accent-border)"
+                        : "var(--surface-border)"
+                    }`,
+                  }}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] mt-1" style={{ color: "var(--text-4)" }}>
+              For models with thinking support (Gemini, o1, etc.)
+            </p>
+          </div>
         </div>
 
         {/* Save */}

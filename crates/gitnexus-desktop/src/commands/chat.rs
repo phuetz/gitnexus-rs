@@ -426,13 +426,19 @@ async fn call_llm(
 ) -> Result<String, String> {
     let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": config.model,
         "messages": messages,
         "max_tokens": config.max_tokens,
         "temperature": 0.3,
         "stream": false
     });
+
+    // Add reasoning_effort for models that support thinking (e.g. Gemini)
+    let effort = config.reasoning_effort.trim().to_lowercase();
+    if !effort.is_empty() && effort != "none" {
+        body["reasoning_effort"] = serde_json::Value::String(effort);
+    }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))

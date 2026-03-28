@@ -201,6 +201,7 @@ export interface ChatConfig {
   baseUrl: string;
   model: string;
   maxTokens: number;
+  reasoningEffort: string;
 }
 
 // ─── Chat Intelligence Types ────────────────────────────────────────

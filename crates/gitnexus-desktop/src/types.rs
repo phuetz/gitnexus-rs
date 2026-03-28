@@ -337,6 +337,10 @@ pub struct ChatConfig {
     pub base_url: String,
     pub model: String,
     pub max_tokens: u32,
+    /// Reasoning effort level for models that support thinking (e.g. Gemini).
+    /// Values: "none", "low", "medium", "high". Empty or "none" means disabled.
+    #[serde(default)]
+    pub reasoning_effort: String,
 }
 
 impl Default for ChatConfig {
@@ -347,6 +351,7 @@ impl Default for ChatConfig {
             base_url: "http://localhost:11434/v1".to_string(),
             model: "llama3.2".to_string(),
             max_tokens: 4096,
+            reasoning_effort: String::new(),
         }
     }
 }

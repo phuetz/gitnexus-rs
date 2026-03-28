@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use once_cell::sync::Lazy;
@@ -22,29 +22,38 @@ use crate::commands::chat_planner;
 
 // ─── In-Memory Plan Store ───────────────────────────────────────────
 
-static ACTIVE_PLANS: Lazy<Mutex<HashMap<String, ResearchPlan>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+/// Stores plans with insertion-order tracking for proper FIFO eviction.
+struct PlanStore {
+    plans: HashMap<String, ResearchPlan>,
+    insertion_order: VecDeque<String>,
+}
+
+static ACTIVE_PLANS: Lazy<Mutex<PlanStore>> =
+    Lazy::new(|| Mutex::new(PlanStore { plans: HashMap::new(), insertion_order: VecDeque::new() }));
 
 fn store_plan(plan: &ResearchPlan) {
-    if let Ok(mut plans) = ACTIVE_PLANS.lock() {
-        plans.insert(plan.id.clone(), plan.clone());
-        // Keep only last 10 plans
-        if plans.len() > 10 {
-            let oldest = plans.keys().next().cloned();
-            if let Some(key) = oldest {
-                plans.remove(&key);
+    if let Ok(mut store) = ACTIVE_PLANS.lock() {
+        if store.plans.contains_key(&plan.id) {
+            store.insertion_order.retain(|id| id != &plan.id);
+        }
+        store.plans.insert(plan.id.clone(), plan.clone());
+        store.insertion_order.push_back(plan.id.clone());
+        // Evict oldest plans beyond capacity
+        while store.plans.len() > 10 {
+            if let Some(oldest_id) = store.insertion_order.pop_front() {
+                store.plans.remove(&oldest_id);
             }
         }
     }
 }
 
 fn get_plan(plan_id: &str) -> Option<ResearchPlan> {
-    ACTIVE_PLANS.lock().ok().and_then(|plans| plans.get(plan_id).cloned())
+    ACTIVE_PLANS.lock().ok().and_then(|store| store.plans.get(plan_id).cloned())
 }
 
 fn update_plan(plan: &ResearchPlan) {
-    if let Ok(mut plans) = ACTIVE_PLANS.lock() {
-        plans.insert(plan.id.clone(), plan.clone());
+    if let Ok(mut store) = ACTIVE_PLANS.lock() {
+        store.plans.insert(plan.id.clone(), plan.clone());
     }
 }
 
@@ -182,7 +191,9 @@ fn execute_search(
         // Apply filters
         if let Some(ref f) = filters {
             if let Some(node) = graph.get_node(&fts_result.node_id) {
-                if !f.files.is_empty() && !f.files.iter().any(|fp| node.properties.file_path.contains(fp.as_str())) {
+                if !f.files.is_empty() && !f.files.iter().any(|fp| {
+                    node.properties.file_path == *fp || node.properties.file_path.ends_with(&format!("/{}", fp))
+                }) {
                     continue;
                 }
                 if !f.labels.is_empty() && !f.labels.iter().any(|l| node.label.as_str() == l.as_str()) {
@@ -332,13 +343,13 @@ fn execute_impact(
 
     affected_files.insert(target_node.properties.file_path.clone());
 
-    // Downstream: what does this symbol call/affect?
+    // Downstream: what does this symbol call/affect? (BFS)
     if direction == "both" || direction == "downstream" {
-        let mut queue = vec![(target_id.clone(), 0u32)];
+        let mut queue = VecDeque::from(vec![(target_id.clone(), 0u32)]);
         let mut visited = std::collections::HashSet::new();
         visited.insert(target_id.clone());
 
-        while let Some((current_id, depth)) = queue.pop() {
+        while let Some((current_id, depth)) = queue.pop_front() {
             if depth >= max_depth {
                 continue;
             }
@@ -348,7 +359,7 @@ fn execute_impact(
                         if let Some(node) = graph.get_node(&rel.target_id) {
                             affected_files.insert(node.properties.file_path.clone());
                             downstream.push(node.properties.name.clone());
-                            queue.push((rel.target_id.clone(), depth + 1));
+                            queue.push_back((rel.target_id.clone(), depth + 1));
                         }
                     }
                 }
@@ -356,13 +367,13 @@ fn execute_impact(
         }
     }
 
-    // Upstream: what calls/uses this symbol?
+    // Upstream: what calls/uses this symbol? (BFS)
     if direction == "both" || direction == "upstream" {
-        let mut queue = vec![(target_id.clone(), 0u32)];
+        let mut queue = VecDeque::from(vec![(target_id.clone(), 0u32)]);
         let mut visited = std::collections::HashSet::new();
         visited.insert(target_id.clone());
 
-        while let Some((current_id, depth)) = queue.pop() {
+        while let Some((current_id, depth)) = queue.pop_front() {
             if depth >= max_depth {
                 continue;
             }
@@ -372,7 +383,7 @@ fn execute_impact(
                         if let Some(node) = graph.get_node(&rel.source_id) {
                             affected_files.insert(node.properties.file_path.clone());
                             upstream.push(node.properties.name.clone());
-                            queue.push((rel.source_id.clone(), depth + 1));
+                            queue.push_back((rel.source_id.clone(), depth + 1));
                         }
                     }
                 }
@@ -441,7 +452,8 @@ fn execute_read_file(
 
             if file_symbols.is_empty() {
                 // Show first 50 lines
-                let preview: String = lines.iter().take(50).copied().collect::<Vec<_>>().join("\n");
+                let end = std::cmp::min(50, lines.len());
+                let preview: String = lines[..end].join("\n");
                 snippets.push(serde_json::json!({
                     "file": fp,
                     "total_lines": total_lines,
@@ -451,9 +463,10 @@ fn execute_read_file(
                 // Show code around each symbol
                 for sym in file_symbols {
                     if let (Some(start), Some(end)) = (sym.start_line, sym.end_line) {
-                        let s = (start.saturating_sub(1)) as usize;
+                        let s = std::cmp::min((start.saturating_sub(1)) as usize, lines.len());
                         let e = std::cmp::min(end as usize, lines.len());
                         let e = std::cmp::min(e, s + 60); // Max 60 lines per snippet
+                        if s >= e { continue; }
                         let snippet: String = lines[s..e].join("\n");
                         snippets.push(serde_json::json!({
                             "file": fp,
@@ -475,10 +488,12 @@ fn execute_read_file(
             if let Ok(content) = std::fs::read_to_string(&full_path) {
                 let lines: Vec<&str> = content.lines().collect();
                 if let (Some(start), Some(end)) = (source.start_line, source.end_line) {
-                    let s = (start.saturating_sub(1)) as usize;
+                    let s = std::cmp::min((start.saturating_sub(1)) as usize, lines.len());
                     let e = std::cmp::min(end as usize, lines.len());
                     let e = std::cmp::min(e, s + 50);
-                    source.snippet = Some(lines[s..e].join("\n"));
+                    if s < e {
+                        source.snippet = Some(lines[s..e].join("\n"));
+                    }
                 }
             }
         }
@@ -758,14 +773,16 @@ fn read_snippet(repo_path: &PathBuf, file_path: &str, start: Option<u32>, end: O
 
     match (start, end) {
         (Some(s), Some(e)) => {
-            let s = (s.saturating_sub(1)) as usize;
+            let s = std::cmp::min((s.saturating_sub(1)) as usize, lines.len());
             let e = std::cmp::min(e as usize, lines.len());
             let e = std::cmp::min(e, s + 50);
+            if s >= e { return None; }
             Some(lines[s..e].join("\n"))
         }
         (Some(s), None) => {
-            let s = (s.saturating_sub(1)) as usize;
+            let s = std::cmp::min((s.saturating_sub(1)) as usize, lines.len());
             let e = std::cmp::min(s + 20, lines.len());
+            if s >= e { return None; }
             Some(lines[s..e].join("\n"))
         }
         _ => {
@@ -885,16 +902,21 @@ fn detect_lang_from_path(file_path: &str) -> &str {
         Some("ts" | "mts" | "cts") => "typescript",
         Some("tsx") => "tsx",
         Some("jsx") => "jsx",
-        Some("py") => "python",
+        Some("py" | "pyi") => "python",
         Some("java") => "java",
         Some("cs") => "csharp",
         Some("go") => "go",
         Some("rb") => "ruby",
         Some("php") => "php",
-        Some("kt") => "kotlin",
+        Some("kt" | "kts") => "kotlin",
         Some("swift") => "swift",
         Some("c" | "h") => "c",
-        Some("cpp" | "hpp" | "cc") => "cpp",
+        Some("cpp" | "hpp" | "cc" | "hh" | "cxx" | "hxx") => "cpp",
+        Some("razor" | "cshtml") => "razor",
+        Some("json") => "json",
+        Some("toml") => "toml",
+        Some("yaml" | "yml") => "yaml",
+        Some("md") => "markdown",
         _ => "",
     }
 }

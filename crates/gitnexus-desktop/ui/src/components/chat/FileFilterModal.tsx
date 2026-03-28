@@ -36,19 +36,30 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
     staleTime: 2000,
   });
 
-  // Reset on open
-  useEffect(() => {
+  // Reset on open (render-time state adjustment)
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setQuery("");
       setSelectedIndex(0);
-      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }
+
+  // Focus input after opening
+  useEffect(() => {
+    if (open) {
+      const timer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
     }
   }, [open]);
 
-  // Reset selection on results change
-  useEffect(() => {
+  // Reset selection on results change (render-time state adjustment)
+  const [prevResults, setPrevResults] = useState(results);
+  if (results !== prevResults) {
+    setPrevResults(results);
     setSelectedIndex(0);
-  }, [results]);
+  }
 
   // Scroll selected item into view
   useEffect(() => {

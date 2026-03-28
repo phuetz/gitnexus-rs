@@ -3,7 +3,7 @@
  * Renders the _index.json structure as an expandable tree.
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   Home,
   GitBranch,
@@ -14,6 +14,8 @@ import {
   ChevronDown,
   RefreshCw,
   FileText,
+  Search,
+  X,
 } from "lucide-react";
 import { useI18n } from "../../hooks/use-i18n";
 
@@ -70,8 +72,34 @@ interface DocsNavProps {
 
 // ─── Component ──────────────────────────────────────────────────────
 
+/** Recursively flatten all pages that match the search query. */
+function filterPages(pages: DocPage[], query: string): DocPage[] {
+  const q = query.toLowerCase();
+  const result: DocPage[] = [];
+  for (const page of pages) {
+    const titleMatch = page.title.toLowerCase().includes(q);
+    const childMatches = page.children ? filterPages(page.children, query) : [];
+    if (titleMatch || childMatches.length > 0) {
+      result.push({
+        ...page,
+        children: childMatches.length > 0 ? childMatches : page.children,
+      });
+    }
+  }
+  return result;
+}
+
 export function DocsNav({ index, activePath, onNavigate, onRegenerate, isRegenerating }: DocsNavProps) {
   const { t } = useI18n();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredPages = useMemo(() => {
+    if (!searchQuery.trim()) return index.pages;
+    return filterPages(index.pages, searchQuery.trim());
+  }, [index.pages, searchQuery]);
+
+  const clearSearch = useCallback(() => setSearchQuery(""), []);
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -89,6 +117,7 @@ export function DocsNav({ index, activePath, onNavigate, onRegenerate, isRegener
             className="p-1 rounded transition-colors"
             style={{ color: "var(--text-3)" }}
             title={t("docs.regenerateTitle")}
+            aria-label={t("docs.regenerateTitle")}
           >
             <RefreshCw size={13} className={isRegenerating ? "animate-spin" : ""} />
           </button>
@@ -99,20 +128,62 @@ export function DocsNav({ index, activePath, onNavigate, onRegenerate, isRegener
         </div>
       </div>
 
+      {/* Search */}
+      <div className="px-3 pb-2">
+        <div
+          className="flex items-center gap-2 rounded-md"
+          style={{
+            padding: "5px 8px",
+            background: "var(--surface-0)",
+            border: "1px solid var(--surface-border)",
+          }}
+        >
+          <Search size={13} style={{ color: "var(--text-3)", flexShrink: 0 }} />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t("docs.searchPlaceholder")}
+            className="flex-1 text-[12px] outline-none bg-transparent"
+            style={{ color: "var(--text-1)", minWidth: 0 }}
+            aria-label={t("docs.searchPlaceholder")}
+          />
+          {searchQuery && (
+            <button
+              onClick={clearSearch}
+              className="rounded p-0.5 transition-colors"
+              style={{ color: "var(--text-3)", background: "transparent", border: "none", cursor: "pointer" }}
+              aria-label="Clear search"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Separator */}
       <div className="mx-3 mb-1" style={{ borderBottom: "1px solid var(--surface-border)" }} />
 
       {/* Navigation tree */}
       <nav className="flex-1 overflow-y-auto px-2 pb-4">
-        {index.pages.map((page) => (
-          <NavItem
-            key={page.id}
-            page={page}
-            depth={0}
-            activePath={activePath}
-            onNavigate={onNavigate}
-          />
-        ))}
+        {filteredPages.length > 0 ? (
+          filteredPages.map((page) => (
+            <NavItem
+              key={page.id}
+              page={page}
+              depth={0}
+              activePath={activePath}
+              onNavigate={onNavigate}
+            />
+          ))
+        ) : (
+          <div
+            className="text-center text-[12px] py-6"
+            style={{ color: "var(--text-3)" }}
+          >
+            {t("docs.noResults")}
+          </div>
+        )}
       </nav>
     </div>
   );
@@ -137,9 +208,11 @@ function NavItem({
   const isActive = activePath === page.path;
   const isInActiveSubtree = useMemo(() => {
     if (!activePath || !hasChildren) return false;
-    return page.children!.some(
-      (c) => c.path === activePath || c.children?.some((cc) => cc.path === activePath)
-    );
+    const containsActive = (pages: DocPage[]): boolean =>
+      pages.some(
+        (c) => c.path === activePath || (c.children ? containsActive(c.children) : false)
+      );
+    return containsActive(page.children!);
   }, [activePath, hasChildren, page.children]);
 
   const handleClick = () => {

@@ -44,10 +44,13 @@ fn print_mcp_config() {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "gitnexus".to_string());
 
+    // Escape backslashes and quotes for valid JSON output
+    let escaped = exe_path.replace('\\', "\\\\").replace('"', "\\\"");
+
     println!(r#"{{
   "mcpServers": {{
     "gitnexus": {{
-      "command": "{exe_path}",
+      "command": "{escaped}",
       "args": ["mcp"],
       "env": {{}}
     }}

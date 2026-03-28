@@ -180,7 +180,10 @@ fn search_relevant_context(
     }
 
     // Sort by score descending, take top N
-    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or_else(|| {
+        // Handle NaN: treat NaN as less than any number
+        if a.1.is_nan() { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Less }
+    }));
     results.truncate(max_results);
     results
 }
@@ -276,15 +279,16 @@ fn read_code_snippet(
 
     match (start_line, end_line) {
         (Some(start), Some(end)) => {
-            let start = (start.saturating_sub(1)) as usize;
+            let start = std::cmp::min((start.saturating_sub(1)) as usize, lines.len());
             let end = std::cmp::min(end as usize, lines.len());
-            // Limit snippet to 50 lines max
             let end = std::cmp::min(end, start + 50);
+            if start >= end { return None; }
             Some(lines[start..end].join("\n"))
         }
         (Some(start), None) => {
-            let start = (start.saturating_sub(1)) as usize;
+            let start = std::cmp::min((start.saturating_sub(1)) as usize, lines.len());
             let end = std::cmp::min(start + 20, lines.len());
+            if start >= end { return None; }
             Some(lines[start..end].join("\n"))
         }
         _ => {
@@ -430,7 +434,10 @@ async fn call_llm(
         "stream": false
     });
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     let mut request = client.post(&url).json(&body);
 
     // Add authorization header if API key is provided

@@ -6,6 +6,7 @@ import { FileTreeView } from "../files/FileTreeView";
 import { FilePreview } from "../files/FilePreview";
 import { ImpactView } from "../impact/ImpactView";
 import { DocsViewer } from "../docs/DocsViewer";
+import { ExportPanel } from "../export/ExportPanel";
 
 export function MainView() {
   const activeRepo = useAppStore((s) => s.activeRepo);
@@ -25,8 +26,7 @@ export function MainView() {
       // Search is now a modal overlay; show graph as default
       return <GraphExplorer />;
     case "files": {
-      const isFileSelected = selectedNodeId?.startsWith("File:");
-      if (isFileSelected) {
+      if (selectedNodeId && selectedNodeId.startsWith("File:")) {
         return (
           <Group orientation="horizontal" className="h-full">
             <Panel defaultSize={35} minSize={20}>
@@ -61,6 +61,8 @@ export function MainView() {
       return <ImpactView />;
     case "docs":
       return <DocsViewer />;
+    case "export":
+      return <ExportPanel />;
     case "graph":
     default:
       return <GraphExplorer />;

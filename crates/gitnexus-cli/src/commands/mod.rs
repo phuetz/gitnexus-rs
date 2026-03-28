@@ -12,6 +12,8 @@ pub mod setup;
 pub mod shell;
 pub mod watch;
 pub mod generate;
+pub mod generate_aspnet;
+pub mod export_docx;
 pub mod dashboard;
 pub mod hotspots;
 pub mod coupling_cmd;

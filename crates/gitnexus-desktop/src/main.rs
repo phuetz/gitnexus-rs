@@ -55,6 +55,9 @@ fn main() {
             commands::chat_executor::chat_execute_plan,
             // Cypher
             commands::cypher::execute_cypher,
+            // Export
+            commands::export::export_docs_docx,
+            commands::export::get_aspnet_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GitNexus desktop application");

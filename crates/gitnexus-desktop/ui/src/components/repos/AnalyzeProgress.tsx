@@ -57,8 +57,12 @@ export function AnalyzeProgress({ isAnalyzing, repoPath, onComplete, onDismiss }
 
     if (!isTauri()) return;
 
-    const unlistenPromise = import("@tauri-apps/api/event").then((mod) =>
+    let cancelled = false;
+    let unlistenFn: (() => void) | null = null;
+
+    import("@tauri-apps/api/event").then((mod) =>
       mod.listen<PipelineProgress>("pipeline-progress", (event) => {
+        if (cancelled) return;
         const p = event.payload;
         setProgress(p);
 
@@ -72,10 +76,19 @@ export function AnalyzeProgress({ isAnalyzing, repoPath, onComplete, onDismiss }
           setOverallPercent(computeOverallProgress(p.phase, p.percent));
         }
       })
-    );
+    ).then((fn) => {
+      if (cancelled) {
+        fn(); // Already unmounted, immediately unlisten
+      } else {
+        unlistenFn = fn;
+      }
+    }).catch((err) => {
+      if (!cancelled) setError(String(err));
+    });
 
     return () => {
-      unlistenPromise.then((fn) => fn());
+      cancelled = true;
+      if (unlistenFn) unlistenFn();
     };
   }, [isAnalyzing, onComplete]);
 
@@ -97,8 +110,7 @@ export function AnalyzeProgress({ isAnalyzing, repoPath, onComplete, onDismiss }
       {/* Header */}
       <div
         className="flex items-center"
-        style={{ gap: 12, paddingLeft: 20, paddingRight: 20, paddingTop: 12, paddingBottom: 12 }}
-        style={{ borderBottom: "1px solid var(--surface-border)" }}
+        style={{ gap: 12, paddingLeft: 20, paddingRight: 20, paddingTop: 12, paddingBottom: 12, borderBottom: "1px solid var(--surface-border)" }}
       >
         <div
           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
@@ -136,8 +148,7 @@ export function AnalyzeProgress({ isAnalyzing, repoPath, onComplete, onDismiss }
           <button
             onClick={onDismiss}
             className="rounded-md transition-colors"
-            style={{ padding: 4 }}
-            style={{ color: "var(--text-3)" }}
+            style={{ padding: 4, color: "var(--text-3)" }}
             onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-4)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
           >

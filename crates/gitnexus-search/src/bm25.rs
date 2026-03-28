@@ -130,9 +130,10 @@ fn merge_by_file_path(
         merged
             .entry(result.file_path.clone())
             .and_modify(|existing| {
+                let old_score = existing.score;
                 existing.score += result.score;
                 // Keep the higher-scoring node's metadata
-                if result.score > existing.score - result.score {
+                if result.score > old_score {
                     existing.node_id = result.node_id.clone();
                     existing.name = result.name.clone();
                     existing.label = result.label.clone();

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitNexus-RS — Audit Global</title>
+<style>
+  :root { --bg: #0d1117; --surface: #161b22; --surface2: #21262d; --border: #30363d; --text: #e6edf3; --text2: #8b949e; --accent: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 32px; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 28px; margin-bottom: 8px; }
+  h2 { font-size: 22px; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); color: var(--accent); }
+  h3 { font-size: 17px; margin: 24px 0 10px; color: var(--purple); }
+  h4 { font-size: 15px; margin: 16px 0 8px; color: var(--text2); }
+  p, li { font-size: 14px; margin-bottom: 6px; }
+  .subtitle { color: var(--text2); font-size: 15px; margin-bottom: 32px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .critical { background: rgba(248,81,73,.15); color: var(--red); }
+  .high { background: rgba(210,153,34,.15); color: var(--yellow); }
+  .medium { background: rgba(88,166,255,.15); color: var(--accent); }
+  .low { background: rgba(63,185,80,.15); color: var(--green); }
+  .ok { background: rgba(63,185,80,.15); color: var(--green); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 13px; }
+  th, td { padding: 8px 12px; text-align: left; border: 1px solid var(--border); }
+  th { background: var(--surface2); font-weight: 600; color: var(--text); }
+  td { background: var(--surface); }
+  tr:hover td { background: var(--surface2); }
+  code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; background: var(--surface2); padding: 2px 6px; border-radius: 4px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin: 12px 0; }
+  .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; text-align: center; }
+  .stat .num { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .stat .label { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  ul { padding-left: 20px; }
+  .section-divider { height: 1px; background: var(--border); margin: 32px 0; }
+  .fix-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .fix-item:last-child { border-bottom: none; }
+  .fix-num { min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: var(--surface2); border-radius: 50%; font-size: 12px; font-weight: 700; color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>Audit Global — GitNexus-RS</h1>
+<p class="subtitle">Rapport d'audit complet du systeme de documentation ASP.NET MVC 5 / EF6<br>Date : 28 mars 2026 — 5 modules audites — 18 fichiers analyses</p>
+
+<!-- Stats overview -->
+<div class="stat-grid">
+  <div class="stat"><div class="num" style="color:var(--red)">7</div><div class="label">CRITIQUES</div></div>
+  <div class="stat"><div class="num" style="color:var(--yellow)">9</div><div class="label">HAUTE PRIORITE</div></div>
+  <div class="stat"><div class="num" style="color:var(--accent)">8</div><div class="label">MOYENNE PRIORITE</div></div>
+  <div class="stat"><div class="num" style="color:var(--green)">6</div><div class="label">BASSE PRIORITE</div></div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>1. Generation des documents web (generate.rs + generate_aspnet.rs)</h2>
+
+<h3>Fonctions auditees</h3>
+<p><code>generate.rs</code> : 1 435 lignes, 16 fonctions — <code>generate_aspnet.rs</code> : 1 066 lignes, 13 fonctions</p>
+
+<h3>Problemes trouves</h3>
+
+<table>
+<tr><th>Severite</th><th>Probleme</th><th>Fichier / Ligne</th><th>Impact</th></tr>
+<tr><td><span class="badge critical">CRITIQUE</span></td><td>Mermaid <code>escape_mermaid_label()</code> ne gere pas <code>&amp;</code> → <code>#amp;</code> ni les retours a la ligne</td><td>generate.rs:169, generate_aspnet.rs:1061</td><td>Diagrammes casses si un nom contient <code>&amp;</code></td></tr>
+<tr><td><span class="badge critical">CRITIQUE</span></td><td><code>entity_map.unwrap()</code> apres un <code>map_or()</code> — panic possible</td><td>generate_aspnet.rs:696, 962</td><td>Crash en production si None</td></tr>
+<tr><td><span class="badge high">HAUTE</span></td><td>IDs noeud assumes format <code>Type:Name</code> sans validation — <code>split_once(':')</code></td><td>generate_aspnet.rs:365, 405, 558, 559</td><td>Parsing incorrect si format change</td></tr>
+<tr><td><span class="badge high">HAUTE</span></td><td>Seuil ER diagramme = 2 entites, devrait etre >= 1</td><td>generate_aspnet.rs:104</td><td>Projets avec 1 seule entite n'ont pas de diagramme</td></tr>
+<tr><td><span class="badge medium">MOYENNE</span></td><td>30+ chaines hardcodees (noms de commande, headers, icones)</td><td>generate.rs passim</td><td>Maintenance difficile, risque de desynchronisation</td></tr>
+<tr><td><span class="badge medium">MOYENNE</span></td><td>Section "Modules" toujours presente dans _index.json meme si vide</td><td>generate.rs:810-834</td><td>Confusion UI</td></tr>
+<tr><td><span class="badge low">BASSE</span></td><td>Boucles imbriquees O(relations x actions) au lieu d'un index</td><td>generate_aspnet.rs:625-637</td><td>Lenteur sur grands projets</td></tr>
+<tr><td><span class="badge low">BASSE</span></td><td>Erreurs I/O sans contexte de chemin</td><td>generate_aspnet.rs passim</td><td>Debug difficile</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>2. Export DOCX (CLI vs Desktop)</h2>
+
+<h3>Comparaison CLI / Desktop</h3>
+<table>
+<tr><th>Fonctionnalite</th><th>CLI (896 lignes)</th><th>Desktop (598 lignes)</th><th>Statut</th></tr>
+<tr><td>Lecture _index.json</td><td>Oui</td><td>Oui</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Page de titre avec tableau stats</td><td>Tableau complet (4 cellules)</td><td>Ligne de texte simple</td><td><span class="badge high">DIVERGENT</span></td></tr>
+<tr><td>Table des matieres</td><td>\o "1-4"</td><td>\o "1-4"</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Titres H1-H4</td><td>Oui</td><td>Oui</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Titres H5-H6</td><td>Non</td><td>Non</td><td><span class="badge medium">MANQUANT</span></td></tr>
+<tr><td>Listes a puces (level 0)</td><td>Oui</td><td>Oui</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Listes imbriquees (level 1)</td><td>Oui (detection indentation)</td><td><strong>Non</strong></td><td><span class="badge critical">DIVERGENT</span></td></tr>
+<tr><td>Listes numerotees</td><td>Oui</td><td>Oui</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Blocs de code + label lang</td><td>Oui</td><td>Oui</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Detection Mermaid</td><td>5 types (sequence, ER, graph, class, flowchart)</td><td>3 types (sequence, ER, graph)</td><td><span class="badge high">DIVERGENT</span></td></tr>
+<tr><td>Tableaux</td><td>Oui</td><td>Oui</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Blockquotes</td><td>Oui</td><td>Oui</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Gras / Italique / Code inline</td><td>Oui</td><td>Oui</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Liens [text](url)</td><td>Texte colore (pas cliquable)</td><td>Texte colore (pas cliquable)</td><td><span class="badge high">PAS HYPERLINKS</span></td></tr>
+<tr><td>Namespaces XML</td><td>10 (complet)</td><td><strong>2 seulement</strong></td><td><span class="badge critical">CRITIQUE</span></td></tr>
+<tr><td>styles.xml</td><td>Complet (ListBullet, ListNumber, etc.)</td><td>Partiel (manque ListBullet/ListNumber)</td><td><span class="badge high">DIVERGENT</span></td></tr>
+<tr><td>numbering.xml</td><td>2 niveaux bullets + 1 numbered</td><td>1 seul niveau</td><td><span class="badge critical">DIVERGENT</span></td></tr>
+<tr><td>Images</td><td>Non</td><td>Non</td><td><span class="badge medium">MANQUANT</span></td></tr>
+<tr><td>Strikethrough</td><td>Non</td><td>Non</td><td><span class="badge low">MANQUANT</span></td></tr>
+</table>
+
+<h3>Problemes critiques DOCX</h3>
+<div class="card">
+<div class="card-header"><span class="badge critical">CRITIQUE</span> <strong>Desktop : Namespaces XML insuffisants</strong></div>
+<p>Le Desktop ne declare que <code>xmlns:r</code> et <code>xmlns:w</code>. Word 2016 et versions anterieures peuvent rejeter le fichier. Le CLI declare 10 namespaces. Il faut copier les declarations du CLI vers le Desktop.</p>
+</div>
+<div class="card">
+<div class="card-header"><span class="badge critical">CRITIQUE</span> <strong>Desktop : Pas de support listes imbriquees</strong></div>
+<p>Le CLI detecte l'indentation (2+ espaces ou tab) pour les sous-listes et genere <code>ilvl="1"</code>. Le Desktop ignore l'indentation. De plus, <code>numbering.xml</code> du Desktop ne definit qu'un seul niveau.</p>
+</div>
+<div class="card">
+<div class="card-header"><span class="badge high">HAUTE</span> <strong>Les liens ne sont pas des hyperlinks Word</strong></div>
+<p>Les deux generateurs rendent les liens <code>[text](url)</code> comme du texte bleu souligne, mais sans element <code>&lt;w:hyperlink&gt;</code> ni relation dans <code>document.xml.rels</code>. L'utilisateur ne peut pas cliquer dessus.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>3. Interface Desktop (Tauri + React)</h2>
+
+<h3>ExportPanel.tsx</h3>
+<table>
+<tr><th>Aspect</th><th>Statut</th><th>Details</th></tr>
+<tr><td>Integration IPC Tauri</td><td><span class="badge ok">OK</span></td><td>Commandes registrees dans invoke_handler, types synchronises</td></tr>
+<tr><td>Guard no-repo</td><td><span class="badge ok">OK</span></td><td>Ecran vide avec message si aucun repo actif</td></tr>
+<tr><td>Gestion erreurs</td><td><span class="badge ok">OK</span></td><td>try/catch, messages succes/erreur</td></tr>
+<tr><td>Internationalisation (i18n)</td><td><span class="badge high">INCOMPLET</span></td><td>10+ chaines hardcodees en francais sans cle i18n</td></tr>
+<tr><td>Accessibilite (a11y)</td><td><span class="badge medium">PARTIEL</span></td><td>Manque aria-label sur boutons, title en francais</td></tr>
+</table>
+
+<h3>DocsViewer — Visionneuse de documentation</h3>
+<table>
+<tr><th>Aspect</th><th>Statut</th><th>Details</th></tr>
+<tr><td>Architecture 3 composants</td><td><span class="badge ok">OK</span></td><td>DocsViewer + DocsNav + DocsContent, clean</td></tr>
+<tr><td>Navigation _index.json</td><td><span class="badge ok">OK</span></td><td>Arbre hierarchique, expand/collapse, icones</td></tr>
+<tr><td>Rendu Mermaid</td><td><span class="badge ok">OK</span></td><td>Mermaid.js v11.13, theme sombre, sanitize SVG</td></tr>
+<tr><td>Rendu Markdown</td><td><span class="badge ok">OK</span></td><td>react-markdown + remark-gfm, tableaux, listes, etc.</td></tr>
+<tr><td><strong>Liens internes</strong></td><td><span class="badge critical">BUG</span></td><td><code>createMarkdownComponents()</code> appele SANS callback <code>onNavigate</code> → liens internes ouvrent le navigateur externe au lieu de naviguer dans les docs</td></tr>
+<tr><td><strong>Coloration syntaxique</strong></td><td><span class="badge high">MANQUANT</span></td><td>Shiki v4.0.2 installe mais PAS integre dans DocsContent — code sans couleurs</td></tr>
+<tr><td><strong>IDs headings</strong></td><td><span class="badge high">BUG</span></td><td>La table des matieres genere des ancres <code>#heading-id</code> mais les h2/h3 n'ont PAS d'attribut <code>id</code> — navigation TOC fragile</td></tr>
+<tr><td>Recherche dans les docs</td><td><span class="badge medium">MANQUANT</span></td><td>Aucune fonctionnalite de recherche plein-texte</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>4. Pipeline d'ingestion ASP.NET</h2>
+
+<h3>Ce qui est capture (11 types d'artefacts)</h3>
+<table>
+<tr><th>Artefact</th><th>Detection</th><th>Statut</th></tr>
+<tr><td>Controllers</td><td>Regex sur heritage (Controller, ApiController, AsyncController, etc.)</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Actions</td><td>Methodes publiques avec types retour ActionResult, etc.</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Vues Razor (.cshtml)</td><td>Convention chemin Views/Controller/Action.cshtml</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>DbContexts</td><td>Heritage de DbContext, IdentityDbContext, ObjectContext</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Entites EF</td><td>Double passe : .edmx + DbSet&lt;T&gt; + [Table]</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Areas</td><td>Attribut [Area] + convention dossier Areas/</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Routes</td><td>Attributs [Route], [RoutePrefix]</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Proprietes entites</td><td>Data annotations ([Required], [Key], etc.)</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>Navigation properties</td><td>virtual + ICollection&lt;T&gt;, List&lt;T&gt;</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>.edmx CSDL</td><td>Regex XML (EntityType, Association, Multiplicity)</td><td><span class="badge ok">OK</span></td></tr>
+<tr><td>ViewModels/DTOs</td><td>Parametres d'action (types non-primitifs)</td><td><span class="badge ok">OK</span></td></tr>
+</table>
+
+<h3>Ce qui MANQUE</h3>
+<table>
+<tr><th>Pattern manquant</th><th>Severite</th><th>Impact</th></tr>
+<tr><td><strong>Filters</strong> ([Authorize], [ValidateAntiForgery], ActionFilter, ExceptionFilter)</td><td><span class="badge high">HAUTE</span></td><td>Impossible de tracer le flux d'autorisation/securite</td></tr>
+<tr><td><strong>RouteConfig.cs</strong> (routes statiques MapRoute)</td><td><span class="badge high">HAUTE</span></td><td>Routes programmatiques non capturees</td></tr>
+<tr><td><strong>Fluent API</strong> (OnModelCreating : HasKey, HasRequired, etc.)</td><td><span class="badge high">HAUTE</span></td><td>Mappings, contraintes et seeding non extraits</td></tr>
+<tr><td><strong>Web.config</strong> (auth, assembly redirects, custom sections)</td><td><span class="badge medium">MOYENNE</span></td><td>Configuration globale ignoree</td></tr>
+<tr><td><strong>Global.asax</strong> (lifecycle, exception handlers)</td><td><span class="badge medium">MOYENNE</span></td><td>Gestionnaires globaux ignores</td></tr>
+<tr><td><strong>@Html.Partial / @Html.RenderAction</strong> dans les vues</td><td><span class="badge medium">MOYENNE</span></td><td>Composition de vues partielles non modelisee</td></tr>
+<tr><td><strong>Classes partielles</strong> (partial class sur plusieurs fichiers)</td><td><span class="badge medium">MOYENNE</span></td><td>Seule la premiere definition est vue</td></tr>
+<tr><td><strong>Custom HTML Helpers</strong></td><td><span class="badge low">BASSE</span></td><td>Extensions Razor non liees aux vues</td></tr>
+<tr><td><strong>BundleConfig.cs</strong></td><td><span class="badge low">BASSE</span></td><td>Assets CSS/JS non lies</td></tr>
+</table>
+
+<h3>Robustesse de la detection</h3>
+<table>
+<tr><th>Edge Case</th><th>Gere?</th></tr>
+<tr><td>Actions async (Task&lt;ActionResult&gt;)</td><td><span class="badge ok">OUI</span></td></tr>
+<tr><td>Controllers avec heritage generique (BaseController&lt;T&gt;)</td><td>Partiel — &lt;T&gt; est retire, info de type perdue</td></tr>
+<tr><td>Classes partielles</td><td><span class="badge critical">NON</span> — seule la 1ere definition</td></tr>
+<tr><td>Controllers imbriques</td><td><span class="badge critical">NON</span> — brace matching ne gere pas la profondeur</td></tr>
+<tr><td>Sub-areas (Areas dans Areas)</td><td><span class="badge high">NON</span> — modele plat</td></tr>
+<tr><td>return View("CustomPath")</td><td><span class="badge high">NON</span> — liens vues 100% par convention</td></tr>
+<tr><td>Faux positifs dans commentaires/strings</td><td><span class="badge medium">NON</span> — regex peut matcher du code commente</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>5. Plan de correction prioritise</h2>
+
+<h3>Sprint 1 — Corrections critiques (production-blocking)</h3>
+<div class="card">
+<div class="fix-item"><div class="fix-num">1</div><div><strong>Desktop DOCX : Ajouter les 10 namespaces XML</strong> — Copier les declarations xmlns du CLI vers <code>export.rs</code>. Sans ca, Word peut rejeter le fichier.</div></div>
+<div class="fix-item"><div class="fix-num">2</div><div><strong>Desktop DOCX : Ajouter numbering.xml niveau 1 + detection indentation</strong> — Porter la logique du CLI (lignes 385-392) vers le Desktop. Ajouter <code>&lt;w:lvl w:ilvl="1"&gt;</code> dans numbering.xml.</div></div>
+<div class="fix-item"><div class="fix-num">3</div><div><strong>Mermaid : Echapper <code>&amp;</code> → <code>#amp;</code></strong> dans <code>escape_mermaid_label()</code> des deux fichiers generate.rs et generate_aspnet.rs.</div></div>
+<div class="fix-item"><div class="fix-num">4</div><div><strong>Fix unwrap() panic</strong> dans generate_aspnet.rs lignes 696 et 962 — remplacer par <code>let Some(x) = ... else { continue; }</code></div></div>
+<div class="fix-item"><div class="fix-num">5</div><div><strong>DocsViewer : Passer le callback onNavigate</strong> a <code>createMarkdownComponents()</code> dans DocsContent.tsx ligne 321 pour que les liens internes fonctionnent.</div></div>
+<div class="fix-item"><div class="fix-num">6</div><div><strong>Desktop DOCX : Ajouter styles ListBullet/ListNumber</strong> dans styles.xml pour correspondre au CLI.</div></div>
+<div class="fix-item"><div class="fix-num">7</div><div><strong>Desktop DOCX : Ajouter detection Mermaid classDiagram + flowchart</strong> — 4 lignes a ajouter dans mermaid_placeholder().</div></div>
+</div>
+
+<h3>Sprint 2 — Haute priorite</h3>
+<div class="card">
+<div class="fix-item"><div class="fix-num">8</div><div><strong>Liens DOCX cliquables</strong> — Generer <code>&lt;w:hyperlink r:id="rIdN"&gt;</code> + relations dans document.xml.rels (les deux fichiers).</div></div>
+<div class="fix-item"><div class="fix-num">9</div><div><strong>ExportPanel : Internationaliser les 10+ chaines hardcodees</strong> — Ajouter les cles dans i18n.ts EN/FR.</div></div>
+<div class="fix-item"><div class="fix-num">10</div><div><strong>DocsViewer : Integrer Shiki</strong> pour la coloration syntaxique dans les blocs de code.</div></div>
+<div class="fix-item"><div class="fix-num">11</div><div><strong>DocsViewer : Generer les IDs sur les headings</strong> pour que la TOC fonctionne proprement.</div></div>
+<div class="fix-item"><div class="fix-num">12</div><div><strong>Desktop DOCX : Page de titre avec tableau stats</strong> au lieu de la simple ligne de texte.</div></div>
+<div class="fix-item"><div class="fix-num">13</div><div><strong>Ingestion : Extraire les Filters/Authorize attributes</strong> comme noeuds dans le graph.</div></div>
+<div class="fix-item"><div class="fix-num">14</div><div><strong>Seuil ER diagramme</strong> : passer de >= 2 a >= 1 entite.</div></div>
+<div class="fix-item"><div class="fix-num">15</div><div><strong>Validation format IDs noeud</strong> <code>Type:Name</code> avec fallback gracieux.</div></div>
+<div class="fix-item"><div class="fix-num">16</div><div><strong>Support H5/H6</strong> dans les generateurs DOCX (CLI + Desktop).</div></div>
+</div>
+
+<h3>Sprint 3 — Ameliorations</h3>
+<div class="card">
+<div class="fix-item"><div class="fix-num">17</div><div><strong>Recherche plein-texte dans le DocsViewer</strong></div></div>
+<div class="fix-item"><div class="fix-num">18</div><div><strong>Ingestion : Parser RouteConfig.cs</strong> pour les routes statiques MapRoute.</div></div>
+<div class="fix-item"><div class="fix-num">19</div><div><strong>Ingestion : Parser Web.config</strong> (auth, assembly redirects).</div></div>
+<div class="fix-item"><div class="fix-num">20</div><div><strong>Ingestion : Fusion des classes partielles</strong> par nom de classe.</div></div>
+<div class="fix-item"><div class="fix-num">21</div><div><strong>Ingestion : Detecter @Html.Partial / RenderAction</strong> dans les vues Razor.</div></div>
+<div class="fix-item"><div class="fix-num">22</div><div><strong>Accessibilite</strong> : aria-label sur boutons, alt text sur diagrammes Mermaid.</div></div>
+<div class="fix-item"><div class="fix-num">23</div><div><strong>Extraire les 30+ chaines magiques</strong> en constantes dans generate.rs.</div></div>
+<div class="fix-item"><div class="fix-num">24</div><div><strong>Logging/diagnostics</strong> pendant la generation de docs.</div></div>
+</div>
+
+<div class="section-divider"></div>
+<p style="color: var(--text2); font-size: 12px; text-align: center; margin-top: 24px;">Audit genere par GitNexus-RS Audit Agent — 28/03/2026 — 5 modules, 18 fichiers, ~5 700 lignes analysees</p>
+
+</body>
+</html>

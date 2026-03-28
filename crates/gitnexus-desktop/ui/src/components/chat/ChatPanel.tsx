@@ -70,7 +70,6 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const {
-    filters,
     deepResearchEnabled,
     activeModal,
     closeModal,
@@ -108,9 +107,13 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   }, []);
 
   // ── Smart Ask mutation (uses plan executor for deep research) ─
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
   const askMutation = useMutation({
     mutationFn: async (question: string) => {
-      const history = messages.map((m) => ({
+      // Use ref to get the latest messages (including the user message just added)
+      const history = messagesRef.current.map((m) => ({
         role: m.role,
         content: m.content,
       }));
@@ -231,9 +234,9 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
 
             {/* Suggested questions */}
             <div className="space-y-2">
-              {SUGGESTED_QUESTIONS.map((q, i) => (
+              {SUGGESTED_QUESTIONS.map((q) => (
                 <button
-                  key={i}
+                  key={q}
                   onClick={() => {
                     setInput(q);
                     inputRef.current?.focus();

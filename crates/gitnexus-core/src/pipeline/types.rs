@@ -14,6 +14,8 @@ pub enum PipelinePhase {
     Heritage,
     Communities,
     Processes,
+    /// ASP.NET MVC 5 / EF6 enrichment (controllers, actions, entities, views, .edmx)
+    AspNetMvc,
     Enriching,
     Complete,
     Error,
@@ -31,6 +33,7 @@ impl PipelinePhase {
             Self::Heritage => "heritage",
             Self::Communities => "communities",
             Self::Processes => "processes",
+            Self::AspNetMvc => "aspnet_mvc",
             Self::Enriching => "enriching",
             Self::Complete => "complete",
             Self::Error => "error",

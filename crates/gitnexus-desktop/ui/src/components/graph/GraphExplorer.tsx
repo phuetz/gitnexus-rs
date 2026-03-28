@@ -1,7 +1,7 @@
 import { useCallback, useRef, useEffect, useState } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import type cytoscape from "cytoscape";
-import { AlertCircle, Copy, Eye, EyeOff, Search } from "lucide-react";
+import { AlertCircle, Copy, EyeOff } from "lucide-react";
 import { useGraphData } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { GraphToolbar } from "./GraphToolbar";
@@ -80,6 +80,8 @@ const EDGE_COLORS: Record<string, string> = {
   REFERENCES: "#73daca",
 };
 
+// NOTE: `as any` casts are required — @types/cytoscape is missing many valid CSS properties.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 const stylesheet: cytoscape.StylesheetCSS[] = [
   {
     selector: "node",
@@ -147,6 +149,7 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
     },
   },
 ];
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function GraphExplorer() {
   const { t, tt } = useI18n();
@@ -214,6 +217,7 @@ export function GraphExplorer() {
     const bbox = elements.boundingBox();
     const graphW = bbox.w;
     const graphH = bbox.h;
+    if (graphW === 0 || graphH === 0) return;
     const scale = Math.min(
       canvasW / graphW,
       canvasH / graphH
@@ -276,7 +280,7 @@ export function GraphExplorer() {
     (newLayout: string) => {
       setLayout(newLayout);
       if (!cyRef.current) return;
-      const layoutOpts: any =
+      const layoutOpts: cytoscape.LayoutOptions =
         newLayout === "grid"
           ? { name: "grid", rows: Math.ceil(Math.sqrt(elements.length)), padding: 40 }
           : newLayout === "circle"
@@ -295,7 +299,7 @@ export function GraphExplorer() {
                   randomize: true,
                   componentSpacing: 80,
                   nestingFactor: 1.2,
-                };
+                } as cytoscape.LayoutOptions;
       cyRef.current.layout(layoutOpts).run();
     },
     [elements.length]
@@ -385,6 +389,15 @@ export function GraphExplorer() {
     [setSelectedNodeId, setZoomLevel, drawMinimap]
   );
 
+  // Clean up Cytoscape listeners on unmount
+  useEffect(() => {
+    return () => {
+      if (cyRef.current && !cyRef.current.destroyed()) {
+        cyRef.current.removeAllListeners();
+      }
+    };
+  }, [mountId]);
+
   // Run layout when elements change, then fit to screen
   useEffect(() => {
     if (cyRef.current && elements.length > 0) {
@@ -400,7 +413,7 @@ export function GraphExplorer() {
         });
       });
 
-      const layoutOpts: any =
+      const layoutOpts: cytoscape.LayoutOptions =
         zoomLevel === "package"
           ? { name: "grid", rows: Math.ceil(Math.sqrt(elements.length)), padding: 40 }
           : {
@@ -415,7 +428,7 @@ export function GraphExplorer() {
               randomize: false,
               componentSpacing: 80,
               nestingFactor: 1.2,
-            };
+            } as cytoscape.LayoutOptions;
       const l = cy.layout(layoutOpts);
       l.on("layoutstop", () => {
         cy.fit(undefined, 40);
@@ -429,7 +442,7 @@ export function GraphExplorer() {
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      if (cyRef.current) {
+      if (cyRef.current && !cyRef.current.destroyed()) {
         cyRef.current.resize();
         cyRef.current.fit(undefined, 30);
       }
@@ -631,7 +644,7 @@ export function GraphExplorer() {
                   randomize: true,
                   componentSpacing: 80,
                 }),
-          } as any}
+          } as cytoscape.LayoutOptions}
           cy={handleCyInit}
           style={{ width: "100%", height: "100%" }}
         />

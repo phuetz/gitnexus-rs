@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ZoomLevel } from "../lib/tauri-commands";
 
-export type SidebarTab = "repos" | "search" | "files" | "graph" | "impact" | "docs";
+export type SidebarTab = "repos" | "search" | "files" | "graph" | "impact" | "docs" | "export";
 export type DetailTab = "context" | "code" | "properties";
 
 interface AppState {
@@ -26,6 +26,9 @@ interface AppState {
 
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
+
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
 
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
@@ -59,6 +62,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   searchOpen: false,
   setSearchOpen: (open) => set({ searchOpen: open }),
+
+  searchQuery: "",
+  setSearchQuery: (query) => set({ searchQuery: query }),
 
   settingsOpen: false,
   setSettingsOpen: (open) => set({ settingsOpen: open }),

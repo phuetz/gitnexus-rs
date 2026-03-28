@@ -49,7 +49,7 @@ export function CommandBar() {
                 style={{
                   color: "var(--text-2)",
                   fontWeight: 500,
-                  maxWidth: 120,
+                  maxWidth: "clamp(80px, 15vw, 200px)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",

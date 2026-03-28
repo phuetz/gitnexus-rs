@@ -131,8 +131,8 @@ fn match_ts_pattern<'a>(pattern: &str, import_path: &'a str) -> Option<&'a str> 
         let suffix = &pattern[star_pos + 1..];
         if import_path.starts_with(prefix) && import_path.ends_with(suffix) {
             let end = import_path.len() - suffix.len();
-            if star_pos <= end {
-                return Some(&import_path[star_pos..end]);
+            if prefix.len() <= end {
+                return Some(&import_path[prefix.len()..end]);
             }
         }
     } else if pattern == import_path {

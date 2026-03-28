@@ -13,7 +13,6 @@ import type {
   ChatContextFilter,
   ResearchPlan,
   QueryAnalysis,
-  QueryComplexity,
   FileQuickPick,
   SymbolQuickPick,
   ModuleQuickPick,

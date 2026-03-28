@@ -354,12 +354,15 @@ interface RelationSectionProps {
 }
 
 function RelationSection({
-  title: _title,
+  title,
   items,
   onSelect,
 }: RelationSectionProps) {
   return (
     <div className="space-y-1.5">
+        {title && (
+          <p className="text-[11px] font-medium px-1" style={{ color: "var(--text-3)" }}>{title}</p>
+        )}
         {items.map((item) => (
           <button
             key={item.id}

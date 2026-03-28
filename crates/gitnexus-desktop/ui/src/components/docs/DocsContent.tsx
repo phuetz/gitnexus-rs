@@ -5,17 +5,37 @@
  * with automatic Mermaid diagram rendering for ```mermaid code blocks.
  */
 
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useEffect, useRef, useMemo, useState, useId } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import mermaid from "mermaid";
 import { t as tRaw } from "../../lib/i18n";
 import { useI18n } from "../../hooks/use-i18n";
+// Shiki is imported dynamically inside HighlightedCode component
+
+/** Strip inline event handlers and script elements from SVG to prevent XSS. */
+function sanitizeSvg(svg: string): string {
+  return svg
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, "");
+}
+
+/** Convert text to a URL-safe slug for use as heading IDs. */
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
 
 // Initialize mermaid with dark theme matching Obsidian Observatory
 mermaid.initialize({
   startOnLoad: false,
+  securityLevel: "strict",
   theme: "dark",
   themeVariables: {
     darkMode: true,
@@ -50,6 +70,7 @@ mermaid.initialize({
 interface DocsContentProps {
   content: string;
   title: string;
+  onNavigate?: (path: string) => void;
 }
 
 // ─── Mermaid Block ──────────────────────────────────────────────────
@@ -58,14 +79,15 @@ function MermaidDiagram({ chart }: { chart: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const idRef = useRef(`mermaid-${Math.random().toString(36).slice(2, 9)}`);
+  const reactId = useId();
+  const mermaidId = `mermaid-${reactId.replace(/:/g, "")}`;
 
   useEffect(() => {
     let cancelled = false;
 
     async function render() {
       try {
-        const { svg: rendered } = await mermaid.render(idRef.current, chart.trim());
+        const { svg: rendered } = await mermaid.render(mermaidId, chart.trim());
         if (!cancelled) {
           setSvg(rendered);
           setError(null);
@@ -74,7 +96,7 @@ function MermaidDiagram({ chart }: { chart: string }) {
         if (!cancelled) {
           setError((err as Error).message || "Failed to render diagram");
           // Clean up any failed render elements
-          const errEl = document.getElementById("d" + idRef.current);
+          const errEl = document.getElementById("d" + mermaidId);
           if (errEl) errEl.remove();
         }
       }
@@ -82,7 +104,7 @@ function MermaidDiagram({ chart }: { chart: string }) {
 
     render();
     return () => { cancelled = true; };
-  }, [chart]);
+  }, [chart, mermaidId]);
 
   if (error) {
     return (
@@ -104,9 +126,56 @@ function MermaidDiagram({ chart }: { chart: string }) {
         background: "var(--bg-1)",
         border: "1px solid var(--surface-border)",
       }}
-      dangerouslySetInnerHTML={{ __html: svg }}
+      dangerouslySetInnerHTML={{ __html: sanitizeSvg(svg) }}
     />
   );
+}
+
+// ─── Shiki Code Highlighting ────────────────────────────────────────
+
+function HighlightedCode({ code, lang }: { code: string; lang: string }) {
+  const ref = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!lang || !ref.current) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const shiki = await import("shiki");
+        if (cancelled) return;
+
+        const highlighter = await shiki.createHighlighter({
+          themes: ["github-dark"],
+          langs: [lang],
+        });
+
+        if (cancelled || !ref.current) {
+          highlighter.dispose();
+          return;
+        }
+
+        const html = highlighter.codeToHtml(code, { lang, theme: "github-dark" });
+        const match = html.match(/<code[^>]*>([\s\S]*)<\/code>/);
+        if (match && ref.current) {
+          ref.current.innerHTML = match[1];
+        }
+
+        highlighter.dispose();
+      } catch {
+        if (!cancelled && ref.current) {
+          ref.current.textContent = code;
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [code, lang]);
+
+  return <code ref={ref}>{code}</code>;
 }
 
 // ─── Markdown Components ────────────────────────────────────────────
@@ -114,34 +183,49 @@ function MermaidDiagram({ chart }: { chart: string }) {
 function createMarkdownComponents(onNavigate?: (path: string) => void): Components {
   return {
     // Headings
-    h1: ({ children }) => (
-      <h1
-        className="text-2xl font-bold mt-0 mb-4 pb-3"
-        style={{
-          fontFamily: "var(--font-display)",
-          color: "var(--text-0)",
-          borderBottom: "1px solid var(--surface-border)",
-        }}
-      >
-        {children}
-      </h1>
-    ),
-    h2: ({ children }) => (
-      <h2
-        className="text-lg font-semibold mt-8 mb-3"
-        style={{ fontFamily: "var(--font-display)", color: "var(--text-0)" }}
-      >
-        {children}
-      </h2>
-    ),
-    h3: ({ children }) => (
-      <h3
-        className="text-base font-semibold mt-6 mb-2"
-        style={{ fontFamily: "var(--font-display)", color: "var(--text-0)" }}
-      >
-        {children}
-      </h3>
-    ),
+    h1: ({ children }) => {
+      const text = typeof children === "string" ? children : String(children ?? "");
+      const id = slugify(text);
+      return (
+        <h1
+          id={id}
+          className="text-2xl font-bold mt-0 mb-4 pb-3"
+          style={{
+            fontFamily: "var(--font-display)",
+            color: "var(--text-0)",
+            borderBottom: "1px solid var(--surface-border)",
+          }}
+        >
+          {children}
+        </h1>
+      );
+    },
+    h2: ({ children }) => {
+      const text = typeof children === "string" ? children : String(children ?? "");
+      const id = slugify(text);
+      return (
+        <h2
+          id={id}
+          className="text-lg font-semibold mt-8 mb-3"
+          style={{ fontFamily: "var(--font-display)", color: "var(--text-0)" }}
+        >
+          {children}
+        </h2>
+      );
+    },
+    h3: ({ children }) => {
+      const text = typeof children === "string" ? children : String(children ?? "");
+      const id = slugify(text);
+      return (
+        <h3
+          id={id}
+          className="text-base font-semibold mt-6 mb-2"
+          style={{ fontFamily: "var(--font-display)", color: "var(--text-0)" }}
+        >
+          {children}
+        </h3>
+      );
+    },
 
     // Paragraphs
     p: ({ children }) => (
@@ -170,7 +254,7 @@ function createMarkdownComponents(onNavigate?: (path: string) => void): Componen
       );
     },
 
-    // Code blocks — special handling for mermaid
+    // Code blocks — special handling for mermaid and syntax highlighting
     pre: ({ children }) => {
       // Check if this is a code element with mermaid language
       const child = children as React.ReactElement<{ className?: string; children?: React.ReactNode }>;
@@ -178,6 +262,12 @@ function createMarkdownComponents(onNavigate?: (path: string) => void): Componen
         const code = String(child.props.children ?? "").replace(/\n$/, "");
         return <MermaidDiagram chart={code} />;
       }
+
+      // Extract language and code for syntax highlighting
+      const className = child?.props?.className ?? "";
+      const match = className.match(/language-(\w+)/);
+      const lang = match ? match[1] : "";
+      const code = String(child?.props?.children ?? "").replace(/\n$/, "");
 
       return (
         <pre
@@ -188,7 +278,11 @@ function createMarkdownComponents(onNavigate?: (path: string) => void): Componen
             fontFamily: "var(--font-mono)",
           }}
         >
-          {children}
+          {lang ? (
+            <HighlightedCode code={code} lang={lang} />
+          ) : (
+            <code>{children}</code>
+          )}
         </pre>
       );
     },
@@ -278,13 +372,12 @@ function createMarkdownComponents(onNavigate?: (path: string) => void): Componen
 
 // ─── Main Component ─────────────────────────────────────────────────
 
-export function DocsContent({ content, title: _title }: DocsContentProps) {
+export function DocsContent({ content, title, onNavigate }: DocsContentProps) {
   const { t } = useI18n();
   const contentRef = useRef<HTMLDivElement>(null);
-  const [toc, setToc] = useState<{ id: string; text: string; level: number }[]>([]);
 
-  // Extract table of contents from markdown headings
-  useEffect(() => {
+  // Derive table of contents from markdown headings (pure computation, no useEffect needed)
+  const toc = useMemo(() => {
     const headings: { id: string; text: string; level: number }[] = [];
     const lines = content.split("\n");
     for (const line of lines) {
@@ -292,19 +385,24 @@ export function DocsContent({ content, title: _title }: DocsContentProps) {
       if (match) {
         const level = match[1].length;
         const text = match[2].trim();
-        const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+        const id = slugify(text);
         headings.push({ id, text, level });
       }
     }
-    setToc(headings);
+    return headings;
   }, [content]);
+
+  // Use title for accessibility (document title or aria)
+  useEffect(() => {
+    if (title) document.title = `${title} — GitNexus Docs`;
+  }, [title]);
 
   // Scroll to top when content changes
   useEffect(() => {
     contentRef.current?.scrollTo(0, 0);
   }, [content]);
 
-  const components = useMemo(() => createMarkdownComponents(), []);
+  const components = useMemo(() => createMarkdownComponents(onNavigate), [onNavigate]);
 
   return (
     <div className="flex h-full">

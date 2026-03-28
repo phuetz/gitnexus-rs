@@ -38,7 +38,9 @@ pub async fn read_doc(state: State<'_, AppState>, path: String) -> Result<DocCon
     let canonical = doc_path
         .canonicalize()
         .map_err(|e| format!("Doc not found '{}': {}", path, e))?;
-    let docs_dir = repo_path.join(".gitnexus").join("docs");
+    let docs_dir = repo_path.join(".gitnexus").join("docs")
+        .canonicalize()
+        .map_err(|e| format!("Docs directory not found: {}", e))?;
     if !canonical.starts_with(&docs_dir) {
         return Err("Invalid doc path".to_string());
     }

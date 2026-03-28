@@ -388,13 +388,15 @@ function RepoCard({
   // Close menu on scroll or outside click
   useEffect(() => {
     if (!showMenu) return;
+    let cancelled = false;
     const close = () => setShowMenu(false);
     // Delay adding click listener so the opening click doesn't immediately close it
     const timer = setTimeout(() => {
-      window.addEventListener("click", close);
+      if (!cancelled) window.addEventListener("click", close);
     }, 0);
     window.addEventListener("scroll", close, true);
     return () => {
+      cancelled = true;
       clearTimeout(timer);
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("click", close);

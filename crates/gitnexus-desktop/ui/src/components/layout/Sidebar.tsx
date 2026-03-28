@@ -4,6 +4,7 @@ import {
   Network,
   Zap,
   FileText,
+  Download,
   Settings,
   PanelLeftClose,
   PanelLeft,
@@ -21,6 +22,7 @@ const TOOL_TABS: { id: SidebarTab; icon: typeof Network; labelKey: string }[] = 
   { id: "graph", icon: Network, labelKey: "sidebar.graphExplorer" },
   { id: "impact", icon: Zap, labelKey: "sidebar.impactAnalysis" },
   { id: "docs", icon: FileText, labelKey: "sidebar.documentation" },
+  { id: "export", icon: Download, labelKey: "sidebar.export" },
 ];
 
 export function Sidebar() {

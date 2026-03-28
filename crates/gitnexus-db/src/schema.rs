@@ -44,6 +44,20 @@ pub const NODE_LABELS: &[&str] = &[
     "Route",
     "Tool",
     "Library",
+    // ASP.NET MVC 5 / EF6
+    "Controller",
+    "ControllerAction",
+    "ApiEndpoint",
+    "View",
+    "ViewModel",
+    "DbEntity",
+    "DbContext",
+    "Area",
+    "BasicBlock",
+    "BranchPoint",
+    "LoopHead",
+    "ExitPoint",
+    "Author",
 ];
 
 /// Base columns shared by all node tables.
@@ -89,7 +103,11 @@ pub fn schema_queries() -> Vec<String> {
 
 /// Generate FTS index creation queries for the 5 searchable tables.
 pub fn fts_queries() -> Vec<String> {
-    let fts_tables = ["File", "Function", "Class", "Method", "Interface"];
+    let fts_tables = [
+        "File", "Function", "Class", "Method", "Interface",
+        "Controller", "ControllerAction", "ApiEndpoint", "View",
+        "ViewModel", "DbEntity", "DbContext",
+    ];
     fts_tables
         .iter()
         .map(|table| {
@@ -163,6 +181,45 @@ fn extra_columns_for(label: &str) -> String {
         "Template" => "templateEngine STRING".to_string(),
         "Delegate" => "delegateSignature STRING".to_string(),
         "Union" => "members STRING".to_string(),
+        // ASP.NET MVC 5 / EF6 tables
+        "Controller" => [
+            "areaName STRING",
+            "routeTemplate STRING",
+            "entryPointScore DOUBLE",
+            "entryPointReason STRING",
+        ]
+        .join(", "),
+        "ControllerAction" => [
+            "httpMethod STRING",
+            "routeTemplate STRING",
+            "modelType STRING",
+            "returnType STRING",
+        ]
+        .join(", "),
+        "ApiEndpoint" => [
+            "httpMethod STRING",
+            "routeTemplate STRING",
+            "modelType STRING",
+            "returnType STRING",
+            "responseKeys STRING",
+            "errorKeys STRING",
+        ]
+        .join(", "),
+        "View" => [
+            "viewEngine STRING",
+            "layoutPath STRING",
+            "modelType STRING",
+            "areaName STRING",
+        ]
+        .join(", "),
+        "ViewModel" => "dataAnnotations STRING".to_string(),
+        "DbEntity" => [
+            "dbTableName STRING",
+            "dataAnnotations STRING",
+        ]
+        .join(", "),
+        "DbContext" => "connectionStringName STRING".to_string(),
+        "Area" => "areaName STRING".to_string(),
         _ => String::new(),
     }
 }

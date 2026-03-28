@@ -8,11 +8,21 @@ use anyhow::Result;
 use colored::Colorize;
 use serde_json::{json, Value};
 use chrono;
+use log::{info, debug, warn};
 
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::storage::repo_manager;
 use gitnexus_db::snapshot;
+
+// ─── Constants ──────────────────────────────────────────────────────────
+const TARGET_CONTEXT: &str = "context";
+const TARGET_AGENTS: &str = "agents";
+const TARGET_WIKI: &str = "wiki";
+const TARGET_SKILLS: &str = "skills";
+const TARGET_DOCS: &str = "docs";
+const TARGET_DOCX: &str = "docx";
+const TARGET_ALL: &str = "all";
 
 pub fn run(what: &str, path: Option<&str>) -> Result<()> {
     let repo_path = Path::new(path.unwrap_or(".")).canonicalize()?;
@@ -20,20 +30,53 @@ pub fn run(what: &str, path: Option<&str>) -> Result<()> {
     let snap_path = snapshot::snapshot_path(&storage.storage_path);
     let graph = snapshot::load_snapshot(&snap_path)?;
 
+    info!("Generating {} for {}", what, repo_path.display());
+
     match what {
-        "context" | "agents" => generate_agents_md(&graph, &repo_path)?,
-        "wiki" => generate_wiki(&graph, &repo_path)?,
-        "skills" => generate_skills(&graph, &repo_path)?,
-        "docs" => generate_docs(&graph, &repo_path)?,
-        "all" => {
+        TARGET_CONTEXT | TARGET_AGENTS => generate_agents_md(&graph, &repo_path)?,
+        TARGET_WIKI => generate_wiki(&graph, &repo_path)?,
+        TARGET_SKILLS => generate_skills(&graph, &repo_path)?,
+        TARGET_DOCS => generate_docs(&graph, &repo_path)?,
+        TARGET_DOCX => {
+            // Generate Markdown first, then convert to DOCX
+            generate_docs(&graph, &repo_path)?;
+            let docs_dir = repo_path.join(".gitnexus").join("docs");
+            let output_path = repo_path.join(".gitnexus").join("documentation.docx");
+            let repo_name = repo_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Project");
+            super::export_docx::export_docs_as_docx(&docs_dir, &output_path, repo_name)?;
+            info!("Generated DOCX documentation at {}", output_path.display());
+            println!(
+                "{} Generated DOCX: {}",
+                "OK".green(),
+                output_path.display()
+            );
+        }
+        TARGET_ALL => {
             generate_agents_md(&graph, &repo_path)?;
             generate_wiki(&graph, &repo_path)?;
             generate_skills(&graph, &repo_path)?;
             generate_docs(&graph, &repo_path)?;
+            // Also generate DOCX
+            let docs_dir = repo_path.join(".gitnexus").join("docs");
+            let output_path = repo_path.join(".gitnexus").join("documentation.docx");
+            let repo_name = repo_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Project");
+            super::export_docx::export_docs_as_docx(&docs_dir, &output_path, repo_name)?;
+            info!("Generated DOCX documentation at {}", output_path.display());
+            println!(
+                "{} Generated DOCX: {}",
+                "OK".green(),
+                output_path.display()
+            );
         }
         _ => {
             eprintln!(
-                "Unknown target: {}. Use: context, wiki, skills, docs, all",
+                "Unknown target: {}. Use: context, wiki, skills, docs, docx, all",
                 what
             );
         }
@@ -134,6 +177,19 @@ fn sanitize_filename(name: &str) -> String {
         .to_lowercase()
 }
 
+/// Escape a label for safe use inside Mermaid `["..."]` quoted strings.
+/// Replaces special characters with Mermaid HTML entity syntax to avoid
+/// breaking the diagram parser.
+fn escape_mermaid_label(label: &str) -> String {
+    label
+        .replace('&', "#amp;")
+        .replace('"', "#quot;")
+        .replace('<', "#lt;")
+        .replace('>', "#gt;")
+        .replace('\n', " ")
+        .replace('\r', "")
+}
+
 // ─── AGENTS.md Generator ────────────────────────────────────────────────
 
 fn generate_agents_md(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
@@ -148,6 +204,8 @@ fn generate_agents_md(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
 
     let out_path = repo_path.join("AGENTS.md");
     let mut f = std::fs::File::create(&out_path)?;
+
+    debug!("Processing {} communities for AGENTS.md", communities.len());
 
     // Header
     writeln!(f, "# {repo_name}")?;
@@ -298,6 +356,7 @@ fn generate_agents_md(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         writeln!(f)?;
     }
 
+    info!("Documentation generated: 1 page");
     println!(
         "{} Generated {}",
         "OK".green(),
@@ -328,6 +387,7 @@ fn generate_wiki(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         let out_path = wiki_dir.join(format!("{filename}.md"));
         let mut f = std::fs::File::create(&out_path)?;
 
+        debug!("Processing community: {}", info.label);
         writeln!(f, "# {}", info.label)?;
         writeln!(f)?;
         if let Some(desc) = &info.description {
@@ -432,6 +492,7 @@ fn generate_wiki(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         );
     }
 
+    info!("Documentation generated: {} pages", communities.len());
     println!(
         "{} Generated {} wiki pages in {}",
         "OK".green(),
@@ -471,6 +532,7 @@ fn generate_skills(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         let out_path = skills_dir.join(format!("{filename}.md"));
         let mut f = std::fs::File::create(&out_path)?;
 
+        debug!("Processing module: {}", info.label);
         writeln!(f, "# Skill: {}", info.label)?;
         writeln!(f)?;
 
@@ -623,6 +685,7 @@ fn generate_skills(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         );
     }
 
+    info!("Documentation generated: {} pages", communities.len());
     println!(
         "{} Generated {} skill files in {}",
         "OK".green(),
@@ -661,18 +724,7 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    // 1. Generate _index.json
-    generate_docs_index(
-        &docs_dir,
-        repo_name,
-        file_count,
-        node_count,
-        edge_count,
-        communities.len(),
-        &communities,
-    )?;
-
-    // 2. Generate overview.md
+    // 1. Generate overview.md
     generate_docs_overview(
         &docs_dir,
         repo_name,
@@ -684,7 +736,7 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         graph,
     )?;
 
-    // 3. Generate architecture.md
+    // 2. Generate architecture.md
     generate_docs_architecture(
         &docs_dir,
         &communities,
@@ -695,15 +747,43 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         edge_count,
     )?;
 
-    // 4. Generate getting-started.md
+    // 3. Generate getting-started.md
     generate_docs_getting_started(&docs_dir, repo_name, &communities, graph)?;
 
-    // 5. Generate per-module files
+    // 4. Generate per-module files
     generate_docs_modules(
         &modules_dir,
         &communities,
         graph,
         &edge_map,
+    )?;
+
+    // 5. Generate ASP.NET MVC specific documentation (if applicable)
+    let aspnet_pages = if super::generate_aspnet::has_aspnet_content(graph) {
+        let pages = super::generate_aspnet::generate_aspnet_docs(graph, &docs_dir)?;
+        if !pages.is_empty() {
+            info!("ASP.NET docs generated: {} pages", pages.len());
+            println!(
+                "{} Generated {} ASP.NET documentation pages",
+                "OK".green(),
+                pages.len()
+            );
+        }
+        pages
+    } else {
+        Vec::new()
+    };
+
+    // 6. Generate _index.json LAST so it includes ASP.NET pages
+    generate_docs_index(
+        &docs_dir,
+        repo_name,
+        file_count,
+        node_count,
+        edge_count,
+        communities.len(),
+        &communities,
+        &aspnet_pages,
     )?;
 
     println!(
@@ -715,6 +795,7 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
 }
 
 /// Generate the _index.json navigation file.
+/// `aspnet_pages` contains (id, title, filename) tuples from ASP.NET doc generation.
 fn generate_docs_index(
     docs_dir: &Path,
     repo_name: &str,
@@ -723,6 +804,7 @@ fn generate_docs_index(
     edge_count: usize,
     module_count: usize,
     communities: &BTreeMap<String, CommunityInfo>,
+    aspnet_pages: &[(String, String, String)],
 ) -> Result<()> {
     let now = chrono::Local::now().to_rfc3339();
 
@@ -738,6 +820,72 @@ fn generate_docs_index(
         }));
     }
 
+    // Build ASP.NET children (grouped under an "ASP.NET MVC" section)
+    let aspnet_icon_map: HashMap<&str, &str> = [
+        ("aspnet-controllers", "server"),
+        ("aspnet-routes", "route"),
+        ("aspnet-entities", "table-2"),
+        ("aspnet-views", "layout"),
+        ("aspnet-areas", "layers"),
+        ("aspnet-data-model", "database"),
+        ("aspnet-seq-http", "arrow-right-left"),
+        ("aspnet-seq-data", "hard-drive"),
+    ].into_iter().collect();
+
+    let mut pages_array = vec![
+        json!({
+            "id": "overview",
+            "title": "Overview",
+            "path": "overview.md",
+            "icon": "home"
+        }),
+        json!({
+            "id": "architecture",
+            "title": "Architecture",
+            "path": "architecture.md",
+            "icon": "git-branch"
+        }),
+        json!({
+            "id": "getting-started",
+            "title": "Getting Started",
+            "path": "getting-started.md",
+            "icon": "book-open"
+        }),
+        json!({
+            "id": "modules",
+            "title": "Modules",
+            "icon": "layers",
+            "children": module_children
+        }),
+    ];
+
+    // Add ASP.NET section if pages exist
+    if !aspnet_pages.is_empty() {
+        let aspnet_children: Vec<Value> = aspnet_pages
+            .iter()
+            .map(|(id, title, filename)| {
+                let icon = aspnet_icon_map.get(id.as_str()).unwrap_or(&"file-text");
+                json!({
+                    "id": id,
+                    "title": title,
+                    "path": filename,
+                    "icon": icon
+                })
+            })
+            .collect();
+
+        pages_array.push(json!({
+            "id": "aspnet",
+            "title": "ASP.NET MVC 5 / EF6",
+            "icon": "server",
+            "children": aspnet_children
+        }));
+    }
+
+    if pages_array.is_empty() {
+        warn!("No documentation pages found in _index.json");
+    }
+
     let index = json!({
         "title": repo_name,
         "generatedAt": now,
@@ -747,32 +895,7 @@ fn generate_docs_index(
             "edges": edge_count,
             "modules": module_count
         },
-        "pages": [
-            {
-                "id": "overview",
-                "title": "Overview",
-                "path": "overview.md",
-                "icon": "home"
-            },
-            {
-                "id": "architecture",
-                "title": "Architecture",
-                "path": "architecture.md",
-                "icon": "git-branch"
-            },
-            {
-                "id": "getting-started",
-                "title": "Getting Started",
-                "path": "getting-started.md",
-                "icon": "book-open"
-            },
-            {
-                "id": "modules",
-                "title": "Modules",
-                "icon": "layers",
-                "children": module_children
-            }
-        ]
+        "pages": pages_array
     });
 
     let index_path = docs_dir.join("_index.json");
@@ -847,9 +970,9 @@ fn generate_docs_overview(
 
         writeln!(f, "```mermaid")?;
         writeln!(f, "graph TD")?;
-        for (cid, info) in communities {
+        for (_cid, info) in communities {
             let safe_id = sanitize_filename(&info.label).replace('-', "_");
-            writeln!(f, "    {}[{}]", safe_id, info.label)?;
+            writeln!(f, "    {}[\"{}\"]", safe_id, escape_mermaid_label(&info.label))?;
         }
         for (src, (_count, targets)) in &cross_deps {
             let src_id = sanitize_filename(src).replace('-', "_");
@@ -937,9 +1060,9 @@ fn generate_docs_architecture(
 
         writeln!(f, "```mermaid")?;
         writeln!(f, "graph TD")?;
-        for (cid, info) in communities {
+        for (_cid, info) in communities {
             let safe_id = sanitize_filename(&info.label).replace('-', "_");
-            writeln!(f, "    {}[{}]", safe_id, info.label)?;
+            writeln!(f, "    {}[\"{}\"]", safe_id, escape_mermaid_label(&info.label))?;
         }
         for (src, targets) in &cross_deps {
             let src_id = sanitize_filename(src).replace('-', "_");
@@ -1073,7 +1196,8 @@ fn generate_docs_getting_started(
     let mut folder_info: BTreeMap<String, usize> = BTreeMap::new();
     for node in graph.iter_nodes() {
         if node.label == NodeLabel::File {
-            if let Some(path) = &node.properties.file_path {
+            let path = &node.properties.file_path;
+            if !path.is_empty() {
                 if let Some(parent) = Path::new(path).parent() {
                     let parent_str = parent.to_string_lossy().to_string();
                     *folder_info.entry(parent_str).or_insert(0) += 1;
@@ -1206,13 +1330,13 @@ fn generate_docs_modules(
             writeln!(f, "graph LR")?;
             let mut seen_nodes = HashSet::new();
             for (src, tgt) in &internal_calls {
-                let src_safe = src.replace(' ', "_").replace('-', "_");
-                let tgt_safe = tgt.replace(' ', "_").replace('-', "_");
+                let src_safe = sanitize_filename(src).replace('-', "_");
+                let tgt_safe = sanitize_filename(tgt).replace('-', "_");
                 if seen_nodes.insert(src_safe.clone()) {
-                    writeln!(f, "    {}[{}]", src_safe, src)?;
+                    writeln!(f, "    {}[\"{}\"]", src_safe, escape_mermaid_label(src))?;
                 }
                 if seen_nodes.insert(tgt_safe.clone()) {
-                    writeln!(f, "    {}[{}]", tgt_safe, tgt)?;
+                    writeln!(f, "    {}[\"{}\"]", tgt_safe, escape_mermaid_label(tgt))?;
                 }
                 writeln!(f, "    {} --> {}", src_safe, tgt_safe)?;
             }

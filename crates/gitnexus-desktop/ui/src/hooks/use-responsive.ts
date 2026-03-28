@@ -5,7 +5,7 @@ const BREAKPOINTS = {
   /** Below this, sidebar auto-collapses */
   compact: 900,
   /** Below this, hide detail panel entirely */
-  narrow: 900,
+  narrow: 700,
 };
 
 export interface ResponsiveState {

@@ -46,9 +46,9 @@ export function SourceReferences({
       </div>
 
       <div className="space-y-1.5">
-        {displaySources.map((source, i) => (
+        {displaySources.map((source) => (
           <SourceCard
-            key={`${source.nodeId}-${i}`}
+            key={`${source.nodeId}-${source.symbolName}`}
             source={source}
             onNavigate={onNavigateToNode}
           />

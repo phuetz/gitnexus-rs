@@ -36,6 +36,9 @@ export function CodeSnippetRenderer({
     navigator.clipboard.writeText(code).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      // Clipboard API may fail in some contexts (e.g. non-secure, no focus)
+      console.warn("Failed to copy to clipboard");
     });
   }, [code]);
 

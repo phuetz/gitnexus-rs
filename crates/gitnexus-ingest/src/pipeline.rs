@@ -131,6 +131,34 @@ pub async fn run_pipeline(
     )?;
     send_progress(PipelinePhase::Heritage, 100.0, "Heritage processed");
 
+    // Phase 5b: ASP.NET MVC 5 / EF6 enrichment
+    // Runs after heritage (needs class hierarchy) and before communities
+    send_progress(
+        PipelinePhase::AspNetMvc,
+        0.0,
+        "Detecting ASP.NET MVC patterns...",
+    );
+    let aspnet_stats = phases::aspnet_mvc::enrich_aspnet_mvc(&mut graph, &file_entries)?;
+    if aspnet_stats.controllers > 0 || aspnet_stats.db_entities > 0 {
+        send_progress(
+            PipelinePhase::AspNetMvc,
+            100.0,
+            &format!(
+                "ASP.NET: {} controllers, {} actions, {} entities, {} views",
+                aspnet_stats.controllers,
+                aspnet_stats.actions + aspnet_stats.api_endpoints,
+                aspnet_stats.db_entities,
+                aspnet_stats.views,
+            ),
+        );
+    } else {
+        send_progress(
+            PipelinePhase::AspNetMvc,
+            100.0,
+            "No ASP.NET MVC patterns detected",
+        );
+    }
+
     // Phase 6a: Community detection
     send_progress(
         PipelinePhase::Communities,

@@ -93,7 +93,15 @@ impl AppState {
             fts_index: Arc::new(fts_index),
         };
 
-        self.repos.write().await.insert(name.to_string(), loaded);
+        // Double-check before insert to handle concurrent open_repo() calls
+        {
+            let mut repos = self.repos.write().await;
+            if !repos.contains_key(name) {
+                repos.insert(name.to_string(), loaded);
+            }
+        }
+        // Set active repo — this is safe even if another call raced us,
+        // as the last writer wins with the correct repo name.
         *self.active_repo.write().await = Some(name.to_string());
 
         Ok(())

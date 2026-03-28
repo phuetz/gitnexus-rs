@@ -600,8 +600,6 @@ pub struct GraphIndexes {
     pub incoming: HashMap<String, Vec<(String, RelationshipType)>>,
     /// label -> vec of node IDs
     pub label_index: HashMap<NodeLabel, Vec<String>>,
-    /// lowercase(name) -> vec of node IDs
-    pub name_index: HashMap<String, Vec<String>>,
 }
 
 impl GraphIndexes {
@@ -610,15 +608,10 @@ impl GraphIndexes {
         let mut outgoing: HashMap<String, Vec<(String, RelationshipType)>> = HashMap::new();
         let mut incoming: HashMap<String, Vec<(String, RelationshipType)>> = HashMap::new();
         let mut label_index: HashMap<NodeLabel, Vec<String>> = HashMap::new();
-        let mut name_index: HashMap<String, Vec<String>> = HashMap::new();
 
         for node in graph.iter_nodes() {
             label_index
                 .entry(node.label)
-                .or_default()
-                .push(node.id.clone());
-            name_index
-                .entry(node.properties.name.clone())
                 .or_default()
                 .push(node.id.clone());
         }
@@ -638,7 +631,6 @@ impl GraphIndexes {
             outgoing,
             incoming,
             label_index,
-            name_index,
         }
     }
 }
@@ -784,6 +776,17 @@ fn execute_match(
         bindings.retain(|b| eval_where(where_expr, b, graph));
     }
 
+    // Special case: count aggregation (BEFORE ORDER BY and LIMIT, per SQL semantics)
+    // COUNT(*) should count all matching rows, not limited rows.
+    if mq.return_clause.items.len() == 1 {
+        if let ReturnItem::Count(ref _var) = mq.return_clause.items[0] {
+            let total_count = bindings.len();
+            let mut map = serde_json::Map::new();
+            map.insert("count".to_string(), serde_json::json!(total_count));
+            return Ok(vec![Value::Object(map)]);
+        }
+    }
+
     // Apply ORDER BY
     if let Some((var, field, ascending)) = &mq.order_by {
         bindings.sort_by(|a, b| {
@@ -801,24 +804,13 @@ fn execute_match(
         });
     }
 
-    // Apply LIMIT
+    // Apply LIMIT (after count, after order by)
     if let Some(limit) = mq.limit {
         bindings.truncate(limit);
     }
 
     // Project RETURN clause
     let mut rows: Vec<Value> = Vec::new();
-
-    // Special case: count aggregation
-    if mq.return_clause.items.len() == 1 {
-        if let ReturnItem::Count(ref _var) = mq.return_clause.items[0] {
-            // For count, we need bindings before limit for the count case
-            // Actually, the count should be of the filtered bindings.
-            let mut map = serde_json::Map::new();
-            map.insert("count".to_string(), serde_json::json!(bindings.len()));
-            return Ok(vec![Value::Object(map)]);
-        }
-    }
 
     for binding in &bindings {
         let mut row = serde_json::Map::new();

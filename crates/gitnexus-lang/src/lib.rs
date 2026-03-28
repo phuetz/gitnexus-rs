@@ -10,3 +10,4 @@ pub mod languages;
 pub mod framework_detection;
 pub mod entry_point_scoring;
 pub mod component_detection;
+pub mod route_extractors;

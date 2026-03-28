@@ -174,7 +174,7 @@ fn parse_single_file(file: &FileEntry, lang: SupportedLanguage) -> FileParsed {
         // Collect captures for this match into a map: capture_name -> text
         let mut captures: HashMap<&str, (&str, tree_sitter::Node)> = HashMap::new();
         for capture in m.captures {
-            let name = capture_names[capture.index as usize];
+            let Some(name) = capture_names.get(capture.index as usize) else { continue };
             if let Ok(text) = capture.node.utf8_text(content_bytes) {
                 captures.insert(name, (text, capture.node));
             }
@@ -365,7 +365,7 @@ fn process_razor_extras(
                             let mut captures: HashMap<&str, (&str, tree_sitter::Node)> =
                                 HashMap::new();
                             for capture in m.captures {
-                                let name = capture_names[capture.index as usize];
+                                let Some(name) = capture_names.get(capture.index as usize) else { continue };
                                 if let Ok(text) = capture.node.utf8_text(content_bytes) {
                                     captures.insert(name, (text, capture.node));
                                 }

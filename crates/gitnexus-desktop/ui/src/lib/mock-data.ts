@@ -507,7 +507,6 @@ function mockFileContent(args?: Record<string, unknown>): FileContent {
 }
 
 /** Map of Tauri command names → mock responses (static values or functions that receive args) */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const MOCK_RESPONSES: Record<string, unknown | ((args?: Record<string, unknown>) => unknown)> = {
   list_repos: MOCK_REPOS,
   open_repo: MOCK_REPOS[0],

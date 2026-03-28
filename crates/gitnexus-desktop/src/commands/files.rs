@@ -63,10 +63,11 @@ pub async fn read_file_content(
         (Some(start), Some(end)) => {
             let start = (start as usize).saturating_sub(1);
             let end = end as usize;
+            let take_count = end.saturating_sub(start);
             content
                 .lines()
                 .skip(start)
-                .take(end - start)
+                .take(take_count)
                 .collect::<Vec<_>>()
                 .join("\n")
         }

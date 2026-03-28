@@ -10,7 +10,7 @@
  *  └──────────┴───────────────────────────────┘
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, RefreshCw, Sparkles, MessageSquare } from "lucide-react";
 import { commands, type RepoInfo } from "../../lib/tauri-commands";
@@ -33,7 +33,6 @@ export function DocsViewer() {
   const {
     data: docIndex,
     isLoading: indexLoading,
-    refetch: _refetchIndex,
   } = useQuery({
     queryKey: ["doc-index", activeRepo],
     queryFn: () => commands.getDocIndex(),
@@ -66,18 +65,22 @@ export function DocsViewer() {
     },
   });
 
-  // Auto-select first page when index loads
-  useEffect(() => {
+  // Reset active path when repo changes (render-time state adjustment)
+  const [prevRepo, setPrevRepo] = useState(activeRepo);
+  if (activeRepo !== prevRepo) {
+    setPrevRepo(activeRepo);
+    setActivePath(null);
+  }
+
+  // Auto-select first page when index loads (render-time state adjustment)
+  const [prevDocIndex, setPrevDocIndex] = useState(docIndex);
+  if (docIndex !== prevDocIndex) {
+    setPrevDocIndex(docIndex);
     if (docIndex && !activePath) {
       const firstPage = findFirstPage(docIndex.pages);
       if (firstPage) setActivePath(firstPage);
     }
-  }, [docIndex, activePath]);
-
-  // Reset active path when repo changes
-  useEffect(() => {
-    setActivePath(null);
-  }, [activeRepo]);
+  }
 
   const handleNavigate = useCallback((path: string) => {
     setActivePath(path);
@@ -224,7 +227,7 @@ export function DocsViewer() {
                 </div>
               </div>
             ) : pageContent ? (
-              <DocsContent content={pageContent.content} title={pageContent.title} />
+              <DocsContent content={pageContent.content} title={pageContent.title} onNavigate={handleNavigate} />
             ) : (
               <div className="flex items-center justify-center h-full" style={{ color: "var(--text-3)" }}>
                 {t("docs.selectPage")}

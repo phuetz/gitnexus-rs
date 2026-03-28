@@ -100,7 +100,7 @@ impl FtsIndex {
         }
 
         let avg_doc_len = if doc_count > 0 {
-            total_tokens as f64 / doc_count as f64
+            (total_tokens as f64 / doc_count as f64).max(1.0)
         } else {
             1.0
         };

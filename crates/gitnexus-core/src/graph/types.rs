@@ -49,6 +49,29 @@ pub enum NodeLabel {
     Tool,
     /// External library / UI component library
     Library,
+    // ── ASP.NET MVC 5 / EF6 node types ───────────────────────────
+    /// ASP.NET MVC Controller class (inherits Controller / ApiController)
+    Controller,
+    /// Action method inside a Controller
+    ControllerAction,
+    /// Web API endpoint (ApiController-based)
+    ApiEndpoint,
+    /// Razor view (.cshtml) or ASPX view (.aspx)
+    View,
+    /// ViewModel / DTO class used for model binding
+    ViewModel,
+    /// Entity Framework entity (mapped to a DB table)
+    DbEntity,
+    /// Entity Framework DbContext / ObjectContext class
+    DbContext,
+    /// ASP.NET MVC Area (logical grouping of controllers/views)
+    Area,
+    /// ASP.NET MVC filter attribute (Authorize, ValidateAntiForgeryToken, etc.)
+    Filter,
+    /// Web.config configuration file
+    WebConfig,
+    /// Partial view referenced by @Html.Partial or @Html.RenderPartial
+    PartialView,
 }
 
 impl NodeLabel {
@@ -92,6 +115,17 @@ impl NodeLabel {
             Self::Route => "Route",
             Self::Tool => "Tool",
             Self::Library => "Library",
+            Self::Controller => "Controller",
+            Self::ControllerAction => "ControllerAction",
+            Self::ApiEndpoint => "ApiEndpoint",
+            Self::View => "View",
+            Self::ViewModel => "ViewModel",
+            Self::DbEntity => "DbEntity",
+            Self::DbContext => "DbContext",
+            Self::Area => "Area",
+            Self::Filter => "Filter",
+            Self::WebConfig => "WebConfig",
+            Self::PartialView => "PartialView",
         }
     }
 
@@ -135,6 +169,17 @@ impl NodeLabel {
             "Route" => Some(Self::Route),
             "Tool" => Some(Self::Tool),
             "Library" => Some(Self::Library),
+            "Controller" => Some(Self::Controller),
+            "ControllerAction" => Some(Self::ControllerAction),
+            "ApiEndpoint" => Some(Self::ApiEndpoint),
+            "View" => Some(Self::View),
+            "ViewModel" => Some(Self::ViewModel),
+            "DbEntity" => Some(Self::DbEntity),
+            "DbContext" => Some(Self::DbContext),
+            "Area" => Some(Self::Area),
+            "Filter" => Some(Self::Filter),
+            "WebConfig" => Some(Self::WebConfig),
+            "PartialView" => Some(Self::PartialView),
             _ => None,
         }
     }
@@ -178,6 +223,25 @@ pub enum RelationshipType {
     EntryPointOf,
     /// Function -> Function (middleware wrapper chain) — Reserved: future
     Wraps,
+    // ── ASP.NET MVC 5 / EF6 relationship types ──────────────────
+    /// Controller/ControllerAction -> View (renders this Razor view)
+    RendersView,
+    /// Controller -> Area (belongs to this MVC area)
+    BelongsToArea,
+    /// DbContext -> DbEntity (exposes this entity set)
+    MapsToEntity,
+    /// Controller -> ControllerAction (has this action method)
+    HasAction,
+    /// ControllerAction -> ViewModel/DbEntity (binds this model type)
+    BindsModel,
+    /// DbEntity -> DbEntity (navigation property / FK association)
+    AssociatesWith,
+    /// Controller/ControllerAction -> Filter (has this attribute filter)
+    HasFilter,
+    /// View -> PartialView (renders this partial view)
+    UsesPartial,
+    /// Controller/Area -> WebConfig (configured by this web.config)
+    ConfiguredBy,
 }
 
 impl RelationshipType {
@@ -203,6 +267,15 @@ impl RelationshipType {
             Self::HandlesTool => "HANDLES_TOOL",
             Self::EntryPointOf => "ENTRY_POINT_OF",
             Self::Wraps => "WRAPS",
+            Self::RendersView => "RENDERS_VIEW",
+            Self::BelongsToArea => "BELONGS_TO_AREA",
+            Self::MapsToEntity => "MAPS_TO_ENTITY",
+            Self::HasAction => "HAS_ACTION",
+            Self::BindsModel => "BINDS_MODEL",
+            Self::AssociatesWith => "ASSOCIATES_WITH",
+            Self::HasFilter => "HAS_FILTER",
+            Self::UsesPartial => "USES_PARTIAL",
+            Self::ConfiguredBy => "CONFIGURED_BY",
         }
     }
 
@@ -228,6 +301,15 @@ impl RelationshipType {
             "HANDLES_TOOL" => Some(Self::HandlesTool),
             "ENTRY_POINT_OF" => Some(Self::EntryPointOf),
             "WRAPS" => Some(Self::Wraps),
+            "RENDERS_VIEW" => Some(Self::RendersView),
+            "BELONGS_TO_AREA" => Some(Self::BelongsToArea),
+            "MAPS_TO_ENTITY" => Some(Self::MapsToEntity),
+            "HAS_ACTION" => Some(Self::HasAction),
+            "BINDS_MODEL" => Some(Self::BindsModel),
+            "ASSOCIATES_WITH" => Some(Self::AssociatesWith),
+            "HAS_FILTER" => Some(Self::HasFilter),
+            "USES_PARTIAL" => Some(Self::UsesPartial),
+            "CONFIGURED_BY" => Some(Self::ConfiguredBy),
             _ => None,
         }
     }
@@ -350,6 +432,47 @@ pub struct NodeProperties {
     // Middleware wrapper chain
     #[serde(skip_serializing_if = "Option::is_none")]
     pub middleware: Option<Vec<String>>,
+
+    // ── ASP.NET MVC 5 / EF6 properties ──────────────────────────
+    /// HTTP method for ControllerAction/ApiEndpoint (GET, POST, PUT, DELETE)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_method: Option<String>,
+
+    /// Route template string, e.g. "api/products/{id}" or "{controller}/{action}/{id?}"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route_template: Option<String>,
+
+    /// MVC Area name for controllers/views
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub area_name: Option<String>,
+
+    /// Database table name for DbEntity nodes (from .edmx EntitySet or [Table] attribute)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_table_name: Option<String>,
+
+    /// EF association cardinality, e.g. "1:*", "1:1", "*:*"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ef_cardinality: Option<String>,
+
+    /// View engine type: "razor", "aspx", "partial"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view_engine: Option<String>,
+
+    /// Layout/master page path for views
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layout_path: Option<String>,
+
+    /// Model type bound to a view (@model directive)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<String>,
+
+    /// Data annotations on entity properties, e.g. ["Required", "MaxLength(100)"]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_annotations: Option<Vec<String>>,
+
+    /// Connection string name for DbContext
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection_string_name: Option<String>,
 }
 
 // ─── Graph Node ──────────────────────────────────────────────────────────
@@ -405,7 +528,7 @@ mod tests {
 
     #[test]
     fn test_node_label_all_variants() {
-        // Ensure all 36 variants have a str representation
+        // Ensure all variants have a str representation
         let labels = [
             NodeLabel::Project, NodeLabel::Package, NodeLabel::Module,
             NodeLabel::Folder, NodeLabel::File, NodeLabel::Class,
@@ -419,6 +542,12 @@ mod tests {
             NodeLabel::Property, NodeLabel::Record, NodeLabel::Delegate,
             NodeLabel::Annotation, NodeLabel::Constructor, NodeLabel::Template,
             NodeLabel::Section, NodeLabel::Route, NodeLabel::Tool,
+            NodeLabel::Library,
+            // ASP.NET MVC 5 / EF6
+            NodeLabel::Controller, NodeLabel::ControllerAction, NodeLabel::ApiEndpoint,
+            NodeLabel::View, NodeLabel::ViewModel, NodeLabel::DbEntity,
+            NodeLabel::DbContext, NodeLabel::Area, NodeLabel::Filter,
+            NodeLabel::WebConfig, NodeLabel::PartialView,
         ];
         for label in &labels {
             let s = label.as_str();

@@ -134,14 +134,16 @@ pub async fn run(path: Option<&str>) -> Result<()> {
 
                                 // Save updated snapshot
                                 let g = graph.lock().unwrap();
-                                snapshot::save_snapshot(&g, &snap_path).ok();
+                                match snapshot::save_snapshot(&g, &snap_path) {
+                                    Ok(_) => println!("    {} Snapshot saved", "OK".green()),
+                                    Err(e) => eprintln!("    {} Failed to save snapshot: {}", "!".red(), e),
+                                }
                                 println!(
                                     "    {} Graph: {} nodes, {} edges total",
                                     "=".cyan(),
                                     g.node_count(),
                                     g.relationship_count()
                                 );
-                                println!("    {} Snapshot saved", "OK".green());
                             } else {
                                 println!(
                                     "    {} No effective changes detected",

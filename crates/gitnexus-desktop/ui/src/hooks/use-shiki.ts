@@ -82,12 +82,19 @@ export function useShikiTokens(
   const [tokens, setTokens] = useState<TokenizedLine[] | null>(null);
   const [ready, setReady] = useState(false);
 
-  useEffect(() => {
+  // Handle no-code case via render-time state adjustment (avoids setState in effect)
+  const [prevCode, setPrevCode] = useState(code);
+  if (code !== prevCode) {
+    setPrevCode(code);
     if (!code) {
       setTokens(null);
       setReady(true);
-      return;
     }
+  }
+
+  // Async highlighter load for actual code
+  useEffect(() => {
+    if (!code) return;
 
     let cancelled = false;
     const lang = LANG_MAP[language || ""] || "text";

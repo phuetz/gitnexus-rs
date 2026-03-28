@@ -1,5 +1,11 @@
+import { useMemo } from "react";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
+
+/** Separator — extracted outside StatusBar to satisfy react-hooks/static-components. */
+function Sep() {
+  return <div style={{ width: "1px", height: "12px", background: "var(--surface-border)" }} />;
+}
 
 export function StatusBar() {
   const { t } = useI18n();
@@ -7,21 +13,18 @@ export function StatusBar() {
   const sidebarTab = useAppStore((s) => s.sidebarTab);
   const zoomLevel = useAppStore((s) => s.zoomLevel);
 
-  const TAB_LABELS: Record<string, string> = {
+  const TAB_LABELS: Record<string, string> = useMemo(() => ({
     repos: t("sidebar.repositories"),
     files: t("sidebar.fileExplorer"),
     graph: t("sidebar.graphExplorer"),
     impact: t("sidebar.impactAnalysis"),
     docs: t("sidebar.documentation"),
     search: t("commandBar.tab.search"),
-  };
-
-  const Sep = () => (
-    <div style={{ width: "1px", height: "12px", background: "var(--surface-border)" }} />
-  );
+    export: t("sidebar.export"),
+  }), [t]);
 
   /** Contextual info that changes per page */
-  const contextInfo = () => {
+  const ctxInfo = useMemo(() => {
     if (!activeRepo) return null;
     switch (sidebarTab) {
       case "graph":
@@ -56,10 +59,16 @@ export function StatusBar() {
             <span style={{ fontWeight: 500, color: "var(--text-2)" }}>{t("status.docs")}:</span> {t("status.docsWikiViewer")}
           </span>
         );
+      case "export":
+        return (
+          <span style={{ color: "var(--text-3)" }}>
+            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>Export:</span> DOCX & ASP.NET
+          </span>
+        );
       default:
         return null;
     }
-  };
+  }, [activeRepo, sidebarTab, zoomLevel, t]);
 
   return (
     <div
@@ -99,10 +108,10 @@ export function StatusBar() {
           </span>
 
           {/* Contextual info per page */}
-          {contextInfo() && (
+          {ctxInfo && (
             <>
               <Sep />
-              {contextInfo()}
+              {ctxInfo}
             </>
           )}
         </>

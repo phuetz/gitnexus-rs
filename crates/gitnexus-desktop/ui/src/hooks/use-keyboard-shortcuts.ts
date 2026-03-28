@@ -14,9 +14,7 @@ export function useKeyboardShortcuts() {
   const setSidebarTab = useAppStore((s) => s.setSidebarTab);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const setSearchOpen = useAppStore((s) => s.setSearchOpen);
-  const searchOpen = useAppStore((s) => s.searchOpen);
   const setZoomLevel = useAppStore((s) => s.setZoomLevel);
-  const settingsOpen = useAppStore((s) => s.settingsOpen);
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
 
   useEffect(() => {
@@ -130,9 +128,7 @@ export function useKeyboardShortcuts() {
     setSidebarTab,
     setSelectedNodeId,
     setSearchOpen,
-    searchOpen,
     setZoomLevel,
-    settingsOpen,
     setSettingsOpen,
   ]);
 }

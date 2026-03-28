@@ -184,8 +184,8 @@ function StepRow({ step, compact }: { step: ResearchStep; compact: boolean }) {
           {/* Sources list */}
           {step.result.sources.length > 0 && (
             <div className="mt-1 space-y-0.5">
-              {step.result.sources.slice(0, 5).map((source, i) => (
-                <div key={i} className="flex items-center gap-1.5">
+              {step.result.sources.slice(0, 5).map((source) => (
+                <div key={`${source.nodeId}-${source.symbolName}`} className="flex items-center gap-1.5">
                   <FileCode size={9} style={{ color: "var(--accent)" }} />
                   <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-1)" }}>
                     {source.symbolName}

@@ -31,16 +31,19 @@ export function CodePanel() {
           ],
         });
 
-        if (cancelled) return;
+        if (cancelled) {
+          highlighter.dispose();
+          return;
+        }
 
         const html = highlighter.codeToHtml(fileContent.content, {
           lang: fileContent.language ?? "text",
           theme: "tokyo-night",
         });
 
+        highlighter.dispose();
         if (!cancelled) {
           setHighlightedHtml(html);
-          highlighter.dispose();
         }
       } catch {
         // Fallback: plain text with line numbers

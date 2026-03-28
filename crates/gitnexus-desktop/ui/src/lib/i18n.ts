@@ -23,6 +23,7 @@ const en = {
   "sidebar.graphExplorer": "Graph Explorer",
   "sidebar.impactAnalysis": "Impact Analysis",
   "sidebar.documentation": "Documentation",
+  "sidebar.export": "Export",
   "sidebar.settings": "Settings",
   "sidebar.collapse": { label: "Collapse sidebar", tip: "Toggle the sidebar visibility (Ctrl+B)" },
   "sidebar.expand": { label: "Expand sidebar", tip: "Show the navigation sidebar (Ctrl+B)" },
@@ -188,6 +189,32 @@ const en = {
   "docs.diagramError": "Diagram rendering error",
   "docs.statsFiles": "files",
   "docs.statsModules": "modules",
+  "docs.searchPlaceholder": "Search docs...",
+  "docs.noResults": "No results found",
+
+  // ── Export Panel ──
+  "export.title": "Export & ASP.NET",
+  "export.subtitle": "DOCX documentation and ASP.NET MVC 5 / EF6 statistics",
+  "export.noRepoDesc": "Open a repository from the Repositories tab to access DOCX export and ASP.NET statistics.",
+  "export.refreshStats": "Refresh statistics",
+  "export.docxTitle": "Export as DOCX",
+  "export.docxDesc": "Generates a complete Word document with architecture, controllers, entities, routes, and ER diagrams.",
+  "export.exporting": "Generating...",
+  "export.generateDocx": "Generate DOCX",
+  "export.success": "Export successful",
+  "export.error": "Export error",
+  "export.loading": "Loading...",
+  "export.statsTitle": "ASP.NET MVC 5 / EF6",
+  "export.noAspnet": "No ASP.NET elements detected",
+  "export.noAspnetDesc": "Index an ASP.NET MVC 5 / .NET Framework project to see controllers, entities, and views.",
+  "export.elements": "elements",
+  "export.controllers": "Controllers",
+  "export.actions": "Actions",
+  "export.apiEndpoints": "API Endpoints",
+  "export.razorViews": "Razor Views",
+  "export.efEntities": "EF Entities",
+  "export.dbContexts": "DbContexts",
+  "export.areas": "Areas",
 
   // ── Graph Explorer ──
   "graph.loadingGraph": "Loading graph...",
@@ -213,6 +240,7 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "sidebar.graphExplorer": "Explorateur de graphe",
   "sidebar.impactAnalysis": "Analyse d'impact",
   "sidebar.documentation": "Documentation",
+  "sidebar.export": "Export",
   "sidebar.settings": "Paramètres",
   "sidebar.collapse": { label: "Réduire le panneau", tip: "Afficher/masquer la barre latérale (Ctrl+B)" },
   "sidebar.expand": { label: "Agrandir le panneau", tip: "Afficher la barre de navigation (Ctrl+B)" },
@@ -378,6 +406,32 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "docs.diagramError": "Erreur de rendu du diagramme",
   "docs.statsFiles": "fichiers",
   "docs.statsModules": "modules",
+  "docs.searchPlaceholder": "Rechercher dans la doc…",
+  "docs.noResults": "Aucun résultat",
+
+  // ── Export Panel ──
+  "export.title": "Export & ASP.NET",
+  "export.subtitle": "Documentation DOCX et statistiques ASP.NET MVC 5 / EF6",
+  "export.noRepoDesc": "Ouvrez un dépôt depuis l'onglet Repositories pour accéder à l'export DOCX et aux statistiques ASP.NET.",
+  "export.refreshStats": "Rafraîchir les statistiques",
+  "export.docxTitle": "Exporter en DOCX",
+  "export.docxDesc": "Génère un document Word complet avec l'architecture, les contrôleurs, les entités, les routes et les diagrammes ER.",
+  "export.exporting": "Génération en cours…",
+  "export.generateDocx": "Générer le DOCX",
+  "export.success": "Export réussi",
+  "export.error": "Erreur d'export",
+  "export.loading": "Chargement…",
+  "export.statsTitle": "ASP.NET MVC 5 / EF6",
+  "export.noAspnet": "Aucun élément ASP.NET détecté",
+  "export.noAspnetDesc": "Indexez un projet ASP.NET MVC 5 / .NET Framework pour voir les contrôleurs, entités et vues.",
+  "export.elements": "éléments",
+  "export.controllers": "Contrôleurs",
+  "export.actions": "Actions",
+  "export.apiEndpoints": "API Endpoints",
+  "export.razorViews": "Vues Razor",
+  "export.efEntities": "Entités EF",
+  "export.dbContexts": "DbContexts",
+  "export.areas": "Areas",
 
   // ── Graph Explorer ──
   "graph.loadingGraph": "Chargement du graphe…",
@@ -421,7 +475,13 @@ export function subscribe(fn: () => void) {
 /** Get a translated string (label only). */
 export function t(key: string): string {
   const dict = dictionaries[currentLocale] ?? dictionaries.en;
-  const val = dict[key] ?? dictionaries.en[key] ?? key;
+  const val = dict[key] ?? dictionaries.en[key];
+  if (val === undefined) {
+    if (import.meta.env.DEV) {
+      console.warn(`[i18n] Missing translation key: "${key}" (locale: ${currentLocale})`);
+    }
+    return key;
+  }
   if (typeof val === "string") return val;
   return val.label;
 }

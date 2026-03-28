@@ -94,7 +94,7 @@ export function FilePreview({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto relative">
         {isLoading && (
           <div
             className="flex items-center justify-center"

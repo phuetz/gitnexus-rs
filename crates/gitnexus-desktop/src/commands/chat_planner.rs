@@ -14,6 +14,14 @@ use gitnexus_db::inmemory::fts::FtsIndex;
 use crate::state::AppState;
 use crate::types::*;
 
+// ─── Helpers ────────────────────────────────────────────────────────
+
+/// Sanitize a string for safe interpolation into Cypher query literals.
+/// Escapes single quotes and backslashes to prevent injection.
+fn sanitize_cypher_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
 // ─── Query Analysis ─────────────────────────────────────────────────
 
 /// Analyze a query to determine its complexity and required tools.
@@ -332,24 +340,29 @@ fn build_cypher_for_question(
     let q = question.to_lowercase();
 
     if q.contains("architecture") || q.contains("overview") || q.contains("vue d'ensemble") {
-        Some("MATCH (n) WHERE n.label IN ['Module', 'File', 'Class'] RETURN n.label AS type, COUNT(*) AS count ORDER BY count DESC LIMIT 20".to_string())
+        // Parseur supporte: MATCH (n:Label) RETURN ... — pas de IN ni COUNT(*) AS
+        Some("MATCH (n:Module) RETURN n.name, n.file_path LIMIT 30".to_string())
     } else if q.contains("entry point") || q.contains("point d'entrée") {
-        Some("MATCH (n)-[r:CALLS]->(m) WITH m, COUNT(r) AS incoming WHERE incoming = 0 AND n.label IN ['Function', 'Method'] RETURN n.name, n.file_path LIMIT 20".to_string())
+        // Parseur ne supporte pas IN ni NOT — retourne les fonctions pour tri côté app
+        Some("MATCH (n:Function) RETURN n.name, n.file_path LIMIT 30".to_string())
     } else if q.contains("most called") || q.contains("most used") || q.contains("plus utilisé") {
-        Some("MATCH (n)-[r:CALLS]->(m) RETURN m.name AS symbol, m.file_path AS file, COUNT(r) AS call_count ORDER BY call_count DESC LIMIT 20".to_string())
+        // Parseur ne supporte pas COUNT(r) AS alias — retourne les appels bruts
+        Some("MATCH (n)-[r:CALLS]->(m) RETURN m.name, m.file_path LIMIT 30".to_string())
     } else if q.contains("depend") || q.contains("import") {
         if let Some(keyword) = analysis.keywords.first() {
+            let sanitized = sanitize_cypher_string(keyword);
+            // Parseur ne supporte pas OR — on filtre sur une seule condition
             Some(format!(
-                "MATCH (n)-[r:IMPORTS]->(m) WHERE n.name CONTAINS '{}' OR m.name CONTAINS '{}' RETURN n.name AS source, m.name AS target, n.file_path LIMIT 30",
-                keyword, keyword
+                "MATCH (n)-[r:IMPORTS]->(m) WHERE n.name CONTAINS '{}' RETURN n.name, m.name, n.file_path LIMIT 30",
+                sanitized
             ))
         } else {
-            Some("MATCH (n)-[r:IMPORTS]->(m) RETURN n.name AS source, m.name AS target LIMIT 30".to_string())
+            Some("MATCH (n)-[r:IMPORTS]->(m) RETURN n.name, m.name LIMIT 30".to_string())
         }
     } else if q.contains("class") || q.contains("inherit") || q.contains("héritage") {
-        Some("MATCH (n)-[r:INHERITS]->(m) RETURN n.name AS child, m.name AS parent, n.file_path LIMIT 30".to_string())
+        Some("MATCH (n)-[r:INHERITS]->(m) RETURN n.name, m.name, n.file_path LIMIT 30".to_string())
     } else if !analysis.keywords.is_empty() {
-        let kw = &analysis.keywords[0];
+        let kw = sanitize_cypher_string(&analysis.keywords[0]);
         Some(format!(
             "MATCH (n) WHERE n.name CONTAINS '{}' RETURN n.name, n.label, n.file_path LIMIT 20",
             kw
@@ -586,12 +599,22 @@ fn is_code_symbol(label: &NodeLabel) -> bool {
 
 fn node_to_symbol_pick(node: &gitnexus_core::graph::types::GraphNode, graph: &KnowledgeGraph) -> SymbolQuickPick {
     // Try to find container (class/module containing this symbol)
+    // Contains: source=parent, target=child → look for target_id == node.id
+    // MemberOf: source=member, target=community → look for source_id == node.id
     let container = graph.iter_relationships()
         .find(|r| {
-            (r.rel_type == RelationshipType::Contains || r.rel_type == RelationshipType::MemberOf)
-                && r.source_id == node.id
+            (r.rel_type == RelationshipType::Contains && r.target_id == node.id)
+                || (r.rel_type == RelationshipType::MemberOf && r.source_id == node.id)
         })
-        .and_then(|r| graph.get_node(&r.target_id))
+        .and_then(|r| {
+            // For Contains, the parent is the source; for MemberOf, the community is the target
+            let container_id = if r.rel_type == RelationshipType::Contains {
+                &r.source_id
+            } else {
+                &r.target_id
+            };
+            graph.get_node(container_id)
+        })
         .map(|n| n.properties.name.clone());
 
     SymbolQuickPick {

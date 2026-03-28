@@ -438,4 +438,22 @@ export const commands = {
     invoke<SymbolQuickPick[]>("chat_pick_symbols", { query, fileFilter, limit }),
   chatPickModules: (query: string, limit?: number) =>
     invoke<ModuleQuickPick[]>("chat_pick_modules", { query, limit }),
+
+  // Export
+  exportDocsDocx: () =>
+    invoke<string>("export_docs_docx"),
+  getAspnetStats: () =>
+    invoke<AspNetStats>("get_aspnet_stats"),
 };
+
+// ─── ASP.NET Stats ────────────────────────────────────────────────────
+
+export interface AspNetStats {
+  controllers: number;
+  actions: number;
+  apiEndpoints: number;
+  views: number;
+  entities: number;
+  dbContexts: number;
+  areas: number;
+}

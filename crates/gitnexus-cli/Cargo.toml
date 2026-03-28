@@ -40,3 +40,4 @@ ratatui.workspace = true
 crossterm.workspace = true
 notify.workspace = true
 notify-debouncer-mini.workspace = true
+zip.workspace = true

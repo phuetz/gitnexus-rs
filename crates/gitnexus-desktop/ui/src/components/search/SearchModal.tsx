@@ -25,6 +25,8 @@ export function SearchModal() {
   const { t } = useI18n();
   const isOpen = useAppStore((s) => s.searchOpen);
   const setSearchOpen = useAppStore((s) => s.setSearchOpen);
+  const storeQuery = useAppStore((s) => s.searchQuery);
+  const setStoreQuery = useAppStore((s) => s.setSearchQuery);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const setSidebarTab = useAppStore((s) => s.setSidebarTab);
 
@@ -38,17 +40,41 @@ export function SearchModal() {
     [rawResults, query]
   );
 
+  // Sync query from store and reset on open/close (render-time state adjustment)
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
+    if (isOpen) {
+      setQuery(storeQuery || "");
+      setSelectedIndex(0);
+    } else {
+      setStoreQuery("");
+    }
+  }
+
+  // Also update when storeQuery changes while open
+  const [prevStoreQuery, setPrevStoreQuery] = useState(storeQuery);
+  if (storeQuery !== prevStoreQuery) {
+    setPrevStoreQuery(storeQuery);
+    if (isOpen && storeQuery) {
+      setQuery(storeQuery);
+    }
+  }
+
+  // Focus input after opening
   useEffect(() => {
     if (isOpen) {
-      setQuery("");
-      setSelectedIndex(0);
-      setTimeout(() => inputRef.current?.focus(), 50);
+      const timer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
-  useEffect(() => {
+  // Reset selection on results change (render-time state adjustment)
+  const [prevResults, setPrevResults] = useState(results);
+  if (results !== prevResults) {
+    setPrevResults(results);
     setSelectedIndex(0);
-  }, [results]);
+  }
 
   const selectResult = useCallback(
     (nodeId: string, name?: string) => {

@@ -2,7 +2,7 @@
  * ChatSettings — LLM provider configuration panel.
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { X, Check, Loader2 } from "lucide-react";
 import { commands, type ChatConfig } from "../../lib/tauri-commands";
@@ -62,9 +62,12 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
     maxTokens: 4096,
   });
 
-  useEffect(() => {
+  // Sync form from loaded config (render-time state adjustment)
+  const [prevConfig, setPrevConfig] = useState(config);
+  if (config !== prevConfig) {
+    setPrevConfig(config);
     if (config) setForm(config);
-  }, [config]);
+  }
 
   const saveMutation = useMutation({
     mutationFn: (cfg: ChatConfig) => commands.chatSetConfig(cfg),

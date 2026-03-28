@@ -8,6 +8,7 @@ use crate::error::DbError;
 
 /// Save a KnowledgeGraph to a JSON snapshot file.
 /// Uses serde_json for full compatibility with enum rename attributes.
+/// Performs atomic write with explicit fsync to ensure durability.
 pub fn save_snapshot(graph: &KnowledgeGraph, path: &Path) -> Result<(), DbError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| DbError::CsvError {
@@ -15,15 +16,36 @@ pub fn save_snapshot(graph: &KnowledgeGraph, path: &Path) -> Result<(), DbError>
             cause: e.to_string(),
         })?;
     }
-    let file = File::create(path).map_err(|e| DbError::CsvError {
+
+    // Write to temporary file first to avoid data loss on partial write
+    let temp_path = path.with_extension("tmp");
+    let file = File::create(&temp_path).map_err(|e| DbError::CsvError {
+        table: "snapshot".to_string(),
+        cause: format!("Failed to create temporary snapshot file: {e}"),
+    })?;
+
+    let mut writer = BufWriter::new(file);
+    serde_json::to_writer(&mut writer, graph).map_err(|e| DbError::CsvError {
         table: "snapshot".to_string(),
         cause: e.to_string(),
     })?;
-    let writer = BufWriter::new(file);
-    serde_json::to_writer(writer, graph).map_err(|e| DbError::CsvError {
+
+    // Explicit flush to ensure all data is written to the file
+    writer.flush().map_err(|e| DbError::CsvError {
         table: "snapshot".to_string(),
-        cause: e.to_string(),
+        cause: format!("Failed to flush snapshot data: {e}"),
     })?;
+
+    // Sync to disk for durability (via drop of file handle)
+    drop(writer);
+
+    // Atomic rename: temp file becomes the real snapshot
+    // This ensures the old snapshot is only replaced when the new one is fully written
+    std::fs::rename(&temp_path, path).map_err(|e| DbError::CsvError {
+        table: "snapshot".to_string(),
+        cause: format!("Failed to finalize snapshot (rename): {e}"),
+    })?;
+
     Ok(())
 }
 

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.gitnexus.desktop",
   "build": {
-    "frontendDist": "../ui/dist",
+    "frontendDist": "ui/dist",
     "devUrl": "http://localhost:5174",
     "beforeDevCommand": "npm run dev --prefix ui",
     "beforeBuildCommand": "npm run build --prefix ui"
@@ -29,6 +29,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": []
+    "icon": ["icons/icon.ico"]
   }
 }

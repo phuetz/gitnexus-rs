@@ -3,6 +3,7 @@ import { Zap, ArrowUp, ArrowDown, FileText } from "lucide-react";
 import { useImpactAnalysis, useSearchSymbols } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
+import { AnimatedCounter, StaggerContainer, StaggerItem } from "../shared/motion";
 
 type Direction = "upstream" | "downstream" | "both";
 
@@ -105,26 +106,32 @@ export function ImpactView() {
         {impact && (
           <div className="space-y-4">
             {/* Summary */}
-            <div className="grid grid-cols-3 gap-2">
-              <StatCard
-                label={t("impact.statUpstream")}
-                value={impact.summary.upstreamCount}
-                icon={<ArrowUp size={14} />}
-                color="var(--accent)"
-              />
-              <StatCard
-                label={t("impact.statDownstream")}
-                value={impact.summary.downstreamCount}
-                icon={<ArrowDown size={14} />}
-                color="var(--warning)"
-              />
-              <StatCard
-                label={t("impact.statFiles")}
-                value={impact.summary.affectedFilesCount}
-                icon={<FileText size={14} />}
-                color="var(--success)"
-              />
-            </div>
+            <StaggerContainer className="grid grid-cols-3 gap-2">
+              <StaggerItem>
+                <StatCard
+                  label={t("impact.statUpstream")}
+                  value={impact.summary.upstreamCount}
+                  icon={<ArrowUp size={14} />}
+                  color="var(--accent)"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  label={t("impact.statDownstream")}
+                  value={impact.summary.downstreamCount}
+                  icon={<ArrowDown size={14} />}
+                  color="var(--warning)"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  label={t("impact.statFiles")}
+                  value={impact.summary.affectedFilesCount}
+                  icon={<FileText size={14} />}
+                  color="var(--success)"
+                />
+              </StaggerItem>
+            </StaggerContainer>
 
             {/* Target info */}
             <div className="p-3 rounded border border-[var(--accent)] bg-[var(--accent)]/10">
@@ -201,7 +208,7 @@ function StatCard({
     <div className="p-2 rounded border border-[var(--border)] bg-[var(--bg-secondary)] text-center">
       <div className="flex items-center justify-center gap-1 mb-1" style={{ color }}>
         {icon}
-        <span className="text-lg font-bold">{value}</span>
+        <AnimatedCounter value={value} className="text-lg font-bold" />
       </div>
       <span className="text-[10px] text-[var(--text-muted)]">{label}</span>
     </div>

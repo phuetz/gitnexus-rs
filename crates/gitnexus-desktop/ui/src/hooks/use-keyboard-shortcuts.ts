@@ -22,10 +22,10 @@ export function useKeyboardShortcuts() {
       const target = e.target as HTMLElement;
       const isInput = isInputElement(target);
 
-      // Ctrl+K → open search modal
+      // Ctrl+K → open command palette
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        useAppStore.getState().setSearchOpen(!useAppStore.getState().searchOpen);
+        useAppStore.getState().setCommandPaletteOpen(!useAppStore.getState().commandPaletteOpen);
       }
 
       // Ctrl+\ → toggle detail panel (deselect node)
@@ -70,12 +70,14 @@ export function useKeyboardShortcuts() {
         useAppStore.getState().toggleSidebar();
       }
 
-      // Escape → close chat modals, deselect, close search
+      // Escape → close chat modals, deselect, close search/palette
       if (e.key === "Escape") {
         const chatState = useChatStore.getState();
         const appState = useAppStore.getState();
         if (chatState.activeModal) {
           chatState.closeModal();
+        } else if (appState.commandPaletteOpen) {
+          appState.setCommandPaletteOpen(false);
         } else if (appState.settingsOpen) {
           appState.setSettingsOpen(false);
         } else if (appState.searchOpen) {

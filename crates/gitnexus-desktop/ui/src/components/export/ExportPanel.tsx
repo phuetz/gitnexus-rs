@@ -17,6 +17,8 @@ import {
 import { commands, type AspNetStats } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
+import { AnimatedCounter, StaggerContainer, StaggerItem } from "../shared/motion";
+import { toast } from "sonner";
 
 interface StatCardProps {
   icon: React.ElementType;
@@ -47,12 +49,11 @@ function StatCard({ icon: Icon, label, value, color }: StatCardProps) {
         <Icon size={18} />
       </div>
       <div className="flex flex-col min-w-0">
-        <span
+        <AnimatedCounter
+          value={value}
           className="text-[22px] font-bold leading-tight"
           style={{ color: "var(--text-0)", fontFamily: "var(--font-display)" }}
-        >
-          {value}
-        </span>
+        />
         <span
           className="text-[11px] truncate"
           style={{ color: "var(--text-3)" }}
@@ -135,9 +136,12 @@ export function ExportPanel() {
       const path = await commands.exportDocsDocx();
       setExportPath(path);
       setExportStatus("success");
+      toast.success("DOCX exported successfully");
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMsg(msg);
       setExportStatus("error");
+      toast.error("Export failed: " + msg);
     }
   };
 
@@ -365,53 +369,67 @@ export function ExportPanel() {
               </span>
             </div>
 
-            <div
+            <StaggerContainer
               className="grid gap-3"
               style={{ gridTemplateColumns: "repeat(2, 1fr)" }}
             >
-              <StatCard
-                icon={Server}
-                label={t("export.controllers")}
-                value={stats!.controllers}
-                color="#818cf8"
-              />
-              <StatCard
-                icon={Route}
-                label={t("export.actions")}
-                value={stats!.actions}
-                color="#67e8f9"
-              />
-              <StatCard
-                icon={Globe}
-                label={t("export.apiEndpoints")}
-                value={stats!.apiEndpoints}
-                color="#34d399"
-              />
-              <StatCard
-                icon={Layout}
-                label={t("export.razorViews")}
-                value={stats!.views}
-                color="#f472b6"
-              />
-              <StatCard
-                icon={Table2}
-                label={t("export.efEntities")}
-                value={stats!.entities}
-                color="#fb923c"
-              />
-              <StatCard
-                icon={Database}
-                label={t("export.dbContexts")}
-                value={stats!.dbContexts}
-                color="#fbbf24"
-              />
-              <StatCard
-                icon={Layers}
-                label={t("export.areas")}
-                value={stats!.areas}
-                color="#94a3b8"
-              />
-            </div>
+              <StaggerItem>
+                <StatCard
+                  icon={Server}
+                  label={t("export.controllers")}
+                  value={stats!.controllers}
+                  color="#818cf8"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Route}
+                  label={t("export.actions")}
+                  value={stats!.actions}
+                  color="#67e8f9"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Globe}
+                  label={t("export.apiEndpoints")}
+                  value={stats!.apiEndpoints}
+                  color="#34d399"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Layout}
+                  label={t("export.razorViews")}
+                  value={stats!.views}
+                  color="#f472b6"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Table2}
+                  label={t("export.efEntities")}
+                  value={stats!.entities}
+                  color="#fb923c"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Database}
+                  label={t("export.dbContexts")}
+                  value={stats!.dbContexts}
+                  color="#fbbf24"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Layers}
+                  label={t("export.areas")}
+                  value={stats!.areas}
+                  color="#94a3b8"
+                />
+              </StaggerItem>
+            </StaggerContainer>
           </>
         ) : (
           <div

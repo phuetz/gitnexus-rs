@@ -15,6 +15,8 @@ import { isTauri } from "../../lib/tauri-env";
 import { useI18n } from "../../hooks/use-i18n";
 import { Tooltip } from "../shared/Tooltip";
 import { AnalyzeProgress, AnalyzeButton } from "./AnalyzeProgress";
+import { AnimatedCard, AnimatedCounter } from "../shared/motion";
+import { toast } from "sonner";
 
 /** Strip the Windows \\?\ long-path prefix for display */
 function cleanPath(p: string): string {
@@ -50,6 +52,7 @@ export function RepoManager() {
       await openRepo.mutateAsync(name);
       setActiveRepo(name);
       setSidebarTab("graph");
+      toast.success("Opened " + name);
     } catch (e) {
       console.error("Failed to open repo:", e);
     }
@@ -81,6 +84,7 @@ export function RepoManager() {
         console.error("Analysis failed:", err);
         setIsAnalyzing(false);
         setAnalyzeError(String(err));
+        toast.error("Analysis failed: " + err);
       });
     } catch (e) {
       console.error("Folder selection failed:", e);
@@ -363,14 +367,15 @@ export function RepoManager() {
         )}
 
         {/* Cards */}
-        <div className="grid stagger" style={{ gap: 20 }}>
-          {repos.map((repo) => (
-            <RepoCard
-              key={repo.name}
-              repo={repo}
-              onOpen={() => handleOpen(repo.name)}
-              isOpening={openRepo.isPending}
-            />
+        <div className="grid" style={{ gap: 20 }}>
+          {repos.map((repo, index) => (
+            <AnimatedCard key={repo.name} delay={index * 0.05}>
+              <RepoCard
+                repo={repo}
+                onOpen={() => handleOpen(repo.name)}
+                isOpening={openRepo.isPending}
+              />
+            </AnimatedCard>
           ))}
         </div>
       </div>
@@ -747,7 +752,12 @@ function StatBadge({
         letterSpacing: "0.01em",
       }}
     >
-      {value} {label}
+      {typeof value === "number" ? (
+        <AnimatedCounter value={value} style={{ fontSize: 10, fontWeight: 600 }} />
+      ) : (
+        value
+      )}{" "}
+      {label}
     </span>
   );
 }

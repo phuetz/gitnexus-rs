@@ -15,7 +15,9 @@
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-shell": "^2.3.5",
+    "cmdk": "^1.1.1",
     "cytoscape": "^3.33.1",
+    "framer-motion": "^12.38.0",
     "lucide-react": "^1.7.0",
     "mermaid": "^11.13.0",
     "react": "^19.2.4",
@@ -26,6 +28,7 @@
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "shiki": "^4.0.2",
+    "sonner": "^2.0.7",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

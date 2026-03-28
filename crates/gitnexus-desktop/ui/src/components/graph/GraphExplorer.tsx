@@ -1,7 +1,7 @@
 import { useCallback, useRef, useEffect, useState } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import type cytoscape from "cytoscape";
-import { AlertCircle, Copy, EyeOff } from "lucide-react";
+import { AlertCircle, Copy, EyeOff, Network } from "lucide-react";
 import { useGraphData } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { GraphToolbar } from "./GraphToolbar";
@@ -61,6 +61,7 @@ function buildElements(nodes: CytoNode[], edges: CytoEdge[]) {
         source: edge.source,
         target: edge.target,
         label: edge.relType,
+        color: EDGE_COLORS[edge.relType] || "#3b4261",
       },
     });
   }
@@ -92,11 +93,11 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       color: "#c0caf5",
       "text-valign": "bottom",
       "text-margin-y": 5,
-      width: 34,
-      height: 34,
-      "border-width": 2,
-      "border-color": "transparent" as any,
-      "border-opacity": 0,
+      width: 38,
+      height: 38,
+      "border-width": 1.5,
+      "border-color": "rgba(255,255,255,0.1)" as any,
+      "border-opacity": 1,
       "overlay-padding": 6,
       "text-max-width": "90px" as any,
       "text-wrap": "ellipsis" as any,
@@ -109,8 +110,8 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       "border-width": 3,
       "border-color": "#7aa2f7",
       "border-opacity": 1,
-      width: 46,
-      height: 46,
+      width: 50,
+      height: 50,
       "font-size": 12,
       "font-weight": "bold" as any,
       "z-index": 999,
@@ -130,8 +131,8 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
     selector: "edge",
     css: {
       width: 1.5,
-      "line-color": "#3b4261",
-      "target-arrow-color": "#3b4261",
+      "line-color": "data(color)" as any,
+      "target-arrow-color": "data(color)" as any,
       "target-arrow-shape": "triangle",
       "curve-style": "bezier",
       "arrow-scale": 0.7,
@@ -575,7 +576,18 @@ export function GraphExplorer() {
           className="flex-1 relative flex flex-col items-center justify-center gap-4 overflow-hidden"
           style={{ backgroundColor: "var(--bg-1)", color: "var(--text-3)" }}
         >
-          <div className="text-5xl">📊</div>
+          <div
+            className="flex items-center justify-center"
+            style={{
+              width: "96px",
+              height: "96px",
+              borderRadius: "var(--radius-md)",
+              backgroundColor: "var(--bg-3)",
+              border: "2px dashed var(--surface-border)",
+            }}
+          >
+            <Network size={64} style={{ color: "var(--text-4)" }} />
+          </div>
           <p className="text-lg font-medium">No graph data available</p>
           <p className="text-sm">Analyze a repository first to see the knowledge graph.</p>
         </div>

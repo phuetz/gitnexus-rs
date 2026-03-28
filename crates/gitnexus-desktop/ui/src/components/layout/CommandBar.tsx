@@ -8,7 +8,7 @@ export function CommandBar() {
   const sidebarTab = useAppStore((s) => s.sidebarTab);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const selectedNodeName = useAppStore((s) => s.selectedNodeName);
-  const setSearchOpen = useAppStore((s) => s.setSearchOpen);
+  const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
 
   const tabLabels: Record<string, string> = {
     repos: t("commandBar.tab.repos"),
@@ -117,7 +117,7 @@ export function CommandBar() {
 
       {/* Center: search trigger */}
       <button
-        onClick={() => setSearchOpen(true)}
+        onClick={() => setCommandPaletteOpen(true)}
         aria-label={t("search.ariaLabel")}
         className="flex items-center rounded-lg transition-all shrink-0"
         style={{

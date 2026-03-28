@@ -7,6 +7,7 @@ import { MainView } from "./components/layout/MainView";
 import { DetailPanel } from "./components/layout/DetailPanel";
 import { SearchModal } from "./components/search/SearchModal";
 import { SettingsModal } from "./components/layout/SettingsModal";
+import { CommandPalette } from "./components/layout/CommandPalette";
 import { ErrorBoundary } from "./components/shared/ErrorBoundary";
 import { useAppStore } from "./stores/app-store";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
@@ -122,6 +123,9 @@ function App() {
 
       {/* Settings modal */}
       <SettingsModal />
+
+      {/* Command palette */}
+      <CommandPalette />
     </div>
   );
 }

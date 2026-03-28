@@ -6,13 +6,13 @@
  *  │ DocsNav  │ DocsContent / ChatPanel        │
  *  │ (tree)   │ (Markdown + Mermaid)          │
  *  │          │                               │
- *  │ 💬 Ask  │ [Chat collapsed at bottom]     │
+ *  │  Ask    │ [Chat collapsed at bottom]     │
  *  └──────────┴───────────────────────────────┘
  */
 
 import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, RefreshCw, Sparkles, MessageSquare } from "lucide-react";
+import { BookOpen, RefreshCw, Sparkles, MessageSquare, Package, Link2, FileText as FileTextIcon, MessageCircle } from "lucide-react";
 import { commands, type RepoInfo } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
@@ -115,17 +115,17 @@ export function DocsViewer() {
             style={{ maxWidth: "320px" }}
           >
             {[
-              { icon: "📦", text: t("docs.featureModules") },
-              { icon: "🔗", text: t("docs.featureCrossRef") },
-              { icon: "📖", text: t("docs.featureApiDocs") },
-              { icon: "💬", text: t("docs.featureChat") },
+              { icon: <Package size={14} style={{ color: "var(--accent)", flexShrink: 0 }} />, text: t("docs.featureModules") },
+              { icon: <Link2 size={14} style={{ color: "var(--purple)", flexShrink: 0 }} />, text: t("docs.featureCrossRef") },
+              { icon: <FileTextIcon size={14} style={{ color: "var(--green)", flexShrink: 0 }} />, text: t("docs.featureApiDocs") },
+              { icon: <MessageCircle size={14} style={{ color: "var(--cyan)", flexShrink: 0 }} />, text: t("docs.featureChat") },
             ].map((item) => (
               <div
                 key={item.text}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs"
                 style={{ background: "var(--bg-2)", color: "var(--text-2)" }}
               >
-                <span>{item.icon}</span>
+                {item.icon}
                 <span>{item.text}</span>
               </div>
             ))}

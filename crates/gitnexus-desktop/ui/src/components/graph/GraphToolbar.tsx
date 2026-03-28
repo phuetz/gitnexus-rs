@@ -2,6 +2,7 @@ import { Maximize2, ChevronDown } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 import { Tooltip } from "../shared/Tooltip";
+import { AnimatedCounter } from "../shared/motion";
 import type { GraphStats, ZoomLevel } from "../../lib/tauri-commands";
 import { useState } from "react";
 
@@ -202,7 +203,7 @@ export function GraphToolbar({
               color: "var(--accent)",
             }}
           >
-            {stats.nodeCount} {t("graph.nodesCount")}
+            <AnimatedCounter value={stats.nodeCount} /> {t("graph.nodesCount")}
           </div>
           <div
             className="px-2.5 py-1 rounded-full text-xs font-medium"
@@ -211,7 +212,7 @@ export function GraphToolbar({
               color: "var(--accent)",
             }}
           >
-            {stats.edgeCount} {t("graph.edgesCount")}
+            <AnimatedCounter value={stats.edgeCount} /> {t("graph.edgesCount")}
           </div>
           {stats.truncated && (
             <div

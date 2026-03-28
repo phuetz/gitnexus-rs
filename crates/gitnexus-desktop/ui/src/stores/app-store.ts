@@ -32,6 +32,9 @@ interface AppState {
 
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
+
+  commandPaletteOpen: boolean;
+  setCommandPaletteOpen: (open: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -68,4 +71,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   settingsOpen: false,
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+
+  commandPaletteOpen: false,
+  setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
 }));

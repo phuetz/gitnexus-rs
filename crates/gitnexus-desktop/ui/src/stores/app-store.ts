@@ -3,6 +3,7 @@ import type { ZoomLevel } from "../lib/tauri-commands";
 
 export type SidebarTab = "overview" | "repos" | "search" | "files" | "graph" | "impact" | "docs" | "export";
 export type DetailTab = "context" | "code" | "properties";
+export type ThemeMode = "dark" | "light" | "system";
 
 interface AppState {
   activeRepo: string | null;
@@ -35,6 +36,9 @@ interface AppState {
 
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
+
+  theme: ThemeMode;
+  setTheme: (theme: ThemeMode) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -74,4 +78,11 @@ export const useAppStore = create<AppState>((set) => ({
 
   commandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+
+  theme: (localStorage.getItem("gitnexus-theme") as ThemeMode) || "dark",
+  setTheme: (theme) => {
+    localStorage.setItem("gitnexus-theme", theme);
+    document.documentElement.setAttribute("data-theme", theme);
+    set({ theme });
+  },
 }));

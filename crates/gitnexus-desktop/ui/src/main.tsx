@@ -5,6 +5,10 @@ import App from "./App";
 import { Toaster } from "./components/shared/Toaster";
 import "./index.css";
 
+// Apply saved theme before first render to avoid flash
+const savedTheme = localStorage.getItem("gitnexus-theme") || "dark";
+document.documentElement.setAttribute("data-theme", savedTheme);
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

@@ -1,5 +1,5 @@
-import { X, Info, Globe } from "lucide-react";
-import { useAppStore } from "../../stores/app-store";
+import { X, Info, Globe, Sun, Moon, Monitor } from "lucide-react";
+import { useAppStore, type ThemeMode } from "../../stores/app-store";
 import { useI18n, type Locale } from "../../hooks/use-i18n";
 
 const LANGUAGES: { code: Locale; label: string; flag: string }[] = [
@@ -127,10 +127,12 @@ export function SettingsModal() {
             </div>
           </div>
 
+          {/* ── Theme selector (active) ── */}
+          <ThemeSelector />
+
           {/* ── Preview of future sections ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 20 }}>
             {[
-              { titleKey: "settings.theme", desc: locale === "fr" ? "Thème, taille de police, couleurs du graphe" : "Theme, font size, graph colors" },
               { titleKey: "settings.shortcuts", desc: locale === "fr" ? "Personnaliser les raccourcis clavier" : "Customize key bindings" },
               { titleKey: "", title: "MCP Server", desc: locale === "fr" ? "Transport, port, authentification" : "Transport, port, authentication" },
             ].map((section) => {
@@ -184,6 +186,67 @@ export function SettingsModal() {
             {t("search.close")}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Theme Selector ─────────────────────────────────────────────────
+
+const THEMES: { mode: ThemeMode; icon: typeof Sun; label: string; labelFr: string }[] = [
+  { mode: "dark", icon: Moon, label: "Dark", labelFr: "Sombre" },
+  { mode: "light", icon: Sun, label: "Light", labelFr: "Clair" },
+  { mode: "system", icon: Monitor, label: "System", labelFr: "Système" },
+];
+
+function ThemeSelector() {
+  const theme = useAppStore((s) => s.theme);
+  const setTheme = useAppStore((s) => s.setTheme);
+  const { locale } = useI18n();
+
+  return (
+    <div
+      className="rounded-lg"
+      style={{
+        background: "var(--bg-1)",
+        border: "1px solid var(--surface-border)",
+        padding: "16px 20px",
+        marginBottom: 0,
+      }}
+    >
+      <div className="flex items-center" style={{ gap: 10, marginBottom: 12 }}>
+        <Sun size={16} style={{ color: "var(--amber)" }} />
+        <p className="text-sm font-medium" style={{ color: "var(--text-0)" }}>
+          {locale === "fr" ? "Thème" : "Theme"}
+        </p>
+      </div>
+      <div className="flex" style={{ gap: 8 }}>
+        {THEMES.map((t) => {
+          const isActive = theme === t.mode;
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.mode}
+              onClick={() => setTheme(t.mode)}
+              className="rounded-md text-xs font-medium transition-all"
+              style={{
+                padding: "8px 16px",
+                background: isActive ? "var(--accent)" : "var(--bg-3)",
+                color: isActive ? "#fff" : "var(--text-2)",
+                border: isActive ? "1px solid var(--accent)" : "1px solid var(--surface-border)",
+                cursor: "pointer",
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <Icon size={14} />
+              {locale === "fr" ? t.labelFr : t.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

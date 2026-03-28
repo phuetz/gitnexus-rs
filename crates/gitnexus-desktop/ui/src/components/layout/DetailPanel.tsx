@@ -3,7 +3,8 @@ import { useAppStore, type DetailTab } from "../../stores/app-store";
 import { useSymbolContext } from "../../hooks/use-tauri-query";
 import { useI18n } from "../../hooks/use-i18n";
 import { CodePanel } from "../code/CodePanel";
-import { ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 const TABS: { id: DetailTab; i18nKey: string }[] = [
   { id: "context", i18nKey: "detail.context" },
@@ -129,11 +130,13 @@ function CollapsibleSection({
         className="flex items-center gap-2 w-full text-left mb-2 hover:opacity-80 transition-opacity"
         style={{ padding: "0" }}
       >
-        {isExpanded ? (
-          <ChevronDown size={16} style={{ color: "var(--text-2)", flexShrink: 0 }} />
-        ) : (
-          <ChevronRight size={16} style={{ color: "var(--text-2)", flexShrink: 0 }} />
-        )}
+        <motion.span
+          animate={{ rotate: isExpanded ? 0 : -90 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          style={{ display: "inline-flex", flexShrink: 0 }}
+        >
+          <ChevronDown size={16} style={{ color: "var(--text-2)" }} />
+        </motion.span>
         <h3
           className="text-xs font-semibold uppercase tracking-wider"
           style={{ color: "var(--text-2)" }}
@@ -142,7 +145,19 @@ function CollapsibleSection({
           <span style={{ color: "var(--text-3)" }}>({count})</span>
         </h3>
       </button>
-      {isExpanded && children}
+      <AnimatePresence initial={false}>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            style={{ overflow: "hidden" }}
+          >
+            {children}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

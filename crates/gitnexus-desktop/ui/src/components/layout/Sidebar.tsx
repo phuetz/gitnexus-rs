@@ -1,4 +1,5 @@
 import {
+  LayoutDashboard,
   GitBranch,
   FolderTree,
   Network,
@@ -14,6 +15,7 @@ import { useI18n } from "../../hooks/use-i18n";
 import { Tooltip } from "../shared/Tooltip";
 
 const WORKSPACE_TABS: { id: SidebarTab; icon: typeof GitBranch; labelKey: string }[] = [
+  { id: "overview", icon: LayoutDashboard, labelKey: "sidebar.overview" },
   { id: "repos", icon: GitBranch, labelKey: "sidebar.repositories" },
   { id: "files", icon: FolderTree, labelKey: "sidebar.fileExplorer" },
 ];
@@ -127,7 +129,7 @@ export function Sidebar() {
           }}
         />
 
-        <SectionLabel collapsed={collapsed}>{t("sidebar.explore")}</SectionLabel>
+        <SectionLabel collapsed={collapsed}>{t("sidebar.analysis")}</SectionLabel>
         {TOOL_TABS.map((tab) => (
           <NavItem
             key={tab.id}
@@ -167,9 +169,9 @@ function SectionLabel({ collapsed, children }: { collapsed: boolean; children: R
   if (collapsed) return <div className="h-3" />;
   return (
     <div
-      className="text-[10px] font-semibold uppercase tracking-widest select-none"
+      className="text-[9px] font-semibold uppercase tracking-wider select-none"
       style={{
-        color: "var(--text-3)",
+        color: "var(--text-4)",
         fontFamily: "var(--font-display)",
         paddingLeft: 12,
         paddingRight: 12,

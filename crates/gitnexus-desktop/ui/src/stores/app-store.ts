@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ZoomLevel } from "../lib/tauri-commands";
 
-export type SidebarTab = "repos" | "search" | "files" | "graph" | "impact" | "docs" | "export";
+export type SidebarTab = "overview" | "repos" | "search" | "files" | "graph" | "impact" | "docs" | "export";
 export type DetailTab = "context" | "code" | "properties";
 
 interface AppState {

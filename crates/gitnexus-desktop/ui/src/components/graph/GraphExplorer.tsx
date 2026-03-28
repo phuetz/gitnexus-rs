@@ -5,6 +5,9 @@ import { AlertCircle, Copy, EyeOff, Network } from "lucide-react";
 import { useGraphData } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { GraphToolbar } from "./GraphToolbar";
+import { NodeHoverCard } from "./NodeHoverCard";
+import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
+import { TreemapView } from "./TreemapView";
 import { useI18n } from "../../hooks/use-i18n";
 import { Tooltip } from "../shared/Tooltip";
 import type { GraphFilter, CytoNode, CytoEdge, ZoomLevel } from "../../lib/tauri-commands";
@@ -49,6 +52,8 @@ function buildElements(nodes: CytoNode[], edges: CytoEdge[]) {
         label: node.name,
         nodeLabel: node.label,
         filePath: node.filePath,
+        startLine: node.startLine,
+        endLine: node.endLine,
         color: LABEL_COLORS[node.label] || "#565f89",
       },
     });
@@ -181,8 +186,19 @@ export function GraphExplorer() {
     name: string;
     filePath: string;
   } | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<{
+    id: string;
+    name: string;
+    label: string;
+    filePath: string;
+    startLine?: number;
+    endLine?: number;
+  } | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+  const [hoverDegrees, setHoverDegrees] = useState<{ inDeg: number; outDeg: number }>({ inDeg: 0, outDeg: 0 });
   // Unique key per mount to force layout re-run when navigating back
   const [mountId] = useState(() => Date.now());
+  const [viewMode, setViewMode] = useState<ViewMode>("graph");
 
   const filter: GraphFilter = {
     zoomLevel,
@@ -332,7 +348,7 @@ export function GraphExplorer() {
         }
       });
 
-      // Hover → tooltip
+      // Hover → tooltip + hover card
       cy.on("mouseover", "node", (evt) => {
         const node = evt.target;
         const pos = node.renderedPosition();
@@ -343,10 +359,25 @@ export function GraphExplorer() {
           label: node.data("nodeLabel"),
           filePath: node.data("filePath"),
         });
+        setHoveredNode({
+          id: node.id(),
+          name: node.data("label"),
+          label: node.data("nodeLabel"),
+          filePath: node.data("filePath"),
+          startLine: node.data("startLine"),
+          endLine: node.data("endLine"),
+        });
+        setHoverPos({ x: pos.x, y: pos.y });
+        setHoverDegrees({
+          inDeg: node.indegree(false),
+          outDeg: node.outdegree(false),
+        });
       });
 
       cy.on("mouseout", "node", () => {
         setTooltip(null);
+        setHoveredNode(null);
+        setHoverPos(null);
       });
 
       // Right-click → context menu
@@ -651,12 +682,24 @@ export function GraphExplorer() {
 
   return (
     <div className="h-full flex flex-col">
-      <GraphToolbar
-        stats={data?.stats}
-        layout={layout}
-        onLayoutChange={handleLayoutChange}
-        onFit={handleFit}
-      />
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <GraphToolbar
+            stats={data?.stats}
+            layout={layout}
+            onLayoutChange={handleLayoutChange}
+            onFit={handleFit}
+          />
+        </div>
+        <div style={{ paddingRight: 12 }}>
+          <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+        </div>
+      </div>
+      {viewMode === "treemap" ? (
+        <div className="flex-1 relative">
+          <TreemapView data={data} isLoading={isLoading} />
+        </div>
+      ) : (
       <div ref={containerRef} className="flex-1 relative cytoscape-container">
         <CytoscapeComponent
           key={mountId}
@@ -724,6 +767,26 @@ export function GraphExplorer() {
             </p>
           </div>
         )}
+
+        {/* Node hover card */}
+        <NodeHoverCard
+          node={hoveredNode}
+          position={hoverPos}
+          inDegree={hoverDegrees.inDeg}
+          outDegree={hoverDegrees.outDeg}
+          onViewSource={() => {
+            if (hoveredNode) {
+              setSidebarTab("files");
+              setSelectedNodeId("File:" + hoveredNode.filePath, hoveredNode.name);
+            }
+          }}
+          onImpact={() => {
+            if (hoveredNode) {
+              setSelectedNodeId(hoveredNode.id, hoveredNode.name);
+              setSidebarTab("impact");
+            }
+          }}
+        />
 
         {/* Context menu overlay */}
         {contextMenu && (
@@ -1053,6 +1116,7 @@ export function GraphExplorer() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

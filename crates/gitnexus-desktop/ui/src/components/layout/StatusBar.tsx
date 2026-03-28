@@ -1,6 +1,8 @@
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
+import { commands } from "../../lib/tauri-commands";
 
 /** Separator — extracted outside StatusBar to satisfy react-hooks/static-components. */
 function Sep() {
@@ -22,6 +24,20 @@ export function StatusBar() {
     search: t("commandBar.tab.search"),
     export: t("sidebar.export"),
   }), [t]);
+
+  const { data: chatConfig } = useQuery({
+    queryKey: ["chat-config"],
+    queryFn: () => commands.chatGetConfig(),
+    staleTime: 30_000,
+  });
+
+  const llmConnected = useMemo(() => {
+    if (!chatConfig) return false;
+    if (chatConfig.provider === "ollama") return true;
+    return chatConfig.apiKey.length > 0;
+  }, [chatConfig]);
+
+  const llmModelName = chatConfig?.model || null;
 
   /** Contextual info that changes per page */
   const ctxInfo = useMemo(() => {
@@ -119,10 +135,29 @@ export function StatusBar() {
         <span style={{ color: "var(--text-3)" }}>{t("status.noRepo")}</span>
       )}
 
-      {/* Right: version */}
-      <span style={{ marginLeft: "auto", color: "var(--text-3)" }}>
-        <span style={{ fontWeight: 500, color: "var(--text-2)" }}>GitNexus</span> v0.1.0
-      </span>
+      {/* Right: LLM status + version */}
+      <div className="flex items-center gap-3" style={{ marginLeft: "auto" }}>
+        {/* LLM status indicator */}
+        <div className="flex items-center gap-1.5">
+          <span
+            className="rounded-full shrink-0"
+            style={{
+              width: 7,
+              height: 7,
+              background: llmConnected ? "var(--green)" : "var(--rose)",
+            }}
+          />
+          {llmModelName && (
+            <span style={{ color: "var(--text-3)" }}>{llmModelName}</span>
+          )}
+        </div>
+
+        <Sep />
+
+        <span style={{ color: "var(--text-3)" }}>
+          <span style={{ fontWeight: 500, color: "var(--text-2)" }}>GitNexus</span> v0.1.0
+        </span>
+      </div>
     </div>
   );
 }

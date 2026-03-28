@@ -183,16 +183,15 @@ code, pre, .mono {
 
 /* ── Dot grid background for graph canvas ── */
 .dot-grid {
-  background-image: radial-gradient(circle, var(--bg-4) 1px, transparent 1px);
+  background-image: radial-gradient(circle, var(--bg-3) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
 /* ── Glass surface ── */
 .glass {
-  background: rgba(14, 17, 24, 0.88);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--surface-border);
+  background: color-mix(in srgb, var(--bg-2) 80%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* ── Fade in animation ── */
@@ -315,3 +314,8 @@ pre.shiki code > .line::before {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Health gradient utilities ── */
+.health-good { color: var(--green); }
+.health-warn { color: var(--amber); }
+.health-bad { color: var(--rose); }

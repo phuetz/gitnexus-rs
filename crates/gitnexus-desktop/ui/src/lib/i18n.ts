@@ -18,6 +18,8 @@ const en = {
   // ── Sidebar ──
   "sidebar.workspace": "WORKSPACE",
   "sidebar.explore": "EXPLORE",
+  "sidebar.analysis": "ANALYSIS",
+  "sidebar.overview": "Overview",
   "sidebar.repositories": "Repositories",
   "sidebar.fileExplorer": "File Explorer",
   "sidebar.graphExplorer": "Graph Explorer",
@@ -235,6 +237,8 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   // ── Sidebar ──
   "sidebar.workspace": "ESPACE DE TRAVAIL",
   "sidebar.explore": "EXPLORER",
+  "sidebar.analysis": "ANALYSE",
+  "sidebar.overview": "Vue d'ensemble",
   "sidebar.repositories": "Dépôts",
   "sidebar.fileExplorer": "Explorateur de fichiers",
   "sidebar.graphExplorer": "Explorateur de graphe",

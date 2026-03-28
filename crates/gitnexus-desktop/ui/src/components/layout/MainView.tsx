@@ -8,6 +8,7 @@ import { FilePreview } from "../files/FilePreview";
 import { ImpactView } from "../impact/ImpactView";
 import { DocsViewer } from "../docs/DocsViewer";
 import { ExportPanel } from "../export/ExportPanel";
+import { RepoDashboard } from "../repos/RepoDashboard";
 
 export function MainView() {
   const activeRepo = useAppStore((s) => s.activeRepo);
@@ -22,6 +23,8 @@ export function MainView() {
 
   const renderView = () => {
     switch (sidebarTab) {
+      case "overview":
+        return <RepoDashboard />;
       case "repos":
         return <RepoManager />;
       case "search":

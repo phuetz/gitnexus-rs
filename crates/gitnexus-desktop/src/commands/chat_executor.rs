@@ -3,7 +3,7 @@
 //! Each step runs a specific tool (search, context, impact, cypher, file read)
 //! and collects results that feed into subsequent steps.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
@@ -151,7 +151,7 @@ fn execute_tool(
     dep_results: &[&StepResult],
     graph: &KnowledgeGraph,
     fts_index: &FtsIndex,
-    repo_path: &PathBuf,
+    repo_path: &Path,
 ) -> Result<StepResult, String> {
     match step.tool.as_str() {
         "search_symbols" => execute_search(step, graph, fts_index, repo_path),
@@ -169,7 +169,7 @@ fn execute_search(
     step: &ResearchStep,
     graph: &KnowledgeGraph,
     fts_index: &FtsIndex,
-    repo_path: &PathBuf,
+    repo_path: &Path,
 ) -> Result<StepResult, String> {
     let query = step.params["query"].as_str().unwrap_or("");
     let limit = step.params["limit"].as_u64().unwrap_or(15) as usize;
@@ -354,15 +354,14 @@ fn execute_impact(
                 continue;
             }
             for rel in graph.iter_relationships() {
-                if rel.source_id == current_id && (rel.rel_type == RelationshipType::Calls || rel.rel_type == RelationshipType::Imports) {
-                    if visited.insert(rel.target_id.clone()) {
+                if rel.source_id == current_id && (rel.rel_type == RelationshipType::Calls || rel.rel_type == RelationshipType::Imports)
+                    && visited.insert(rel.target_id.clone()) {
                         if let Some(node) = graph.get_node(&rel.target_id) {
                             affected_files.insert(node.properties.file_path.clone());
                             downstream.push(node.properties.name.clone());
                             queue.push_back((rel.target_id.clone(), depth + 1));
                         }
                     }
-                }
             }
         }
     }
@@ -378,15 +377,14 @@ fn execute_impact(
                 continue;
             }
             for rel in graph.iter_relationships() {
-                if rel.target_id == current_id && (rel.rel_type == RelationshipType::Calls || rel.rel_type == RelationshipType::Imports) {
-                    if visited.insert(rel.source_id.clone()) {
+                if rel.target_id == current_id && (rel.rel_type == RelationshipType::Calls || rel.rel_type == RelationshipType::Imports)
+                    && visited.insert(rel.source_id.clone()) {
                         if let Some(node) = graph.get_node(&rel.source_id) {
                             affected_files.insert(node.properties.file_path.clone());
                             upstream.push(node.properties.name.clone());
                             queue.push_back((rel.source_id.clone(), depth + 1));
                         }
                     }
-                }
             }
         }
     }
@@ -419,8 +417,8 @@ fn execute_impact(
 fn execute_read_file(
     step: &ResearchStep,
     dep_results: &[&StepResult],
-    graph: &KnowledgeGraph,
-    repo_path: &PathBuf,
+    _graph: &KnowledgeGraph,
+    repo_path: &Path,
 ) -> Result<StepResult, String> {
     let max_files = step.params["max_files"].as_u64().unwrap_or(5) as usize;
 
@@ -615,7 +613,7 @@ pub async fn chat_execute_plan(
         // Check all dependencies are completed
         let deps_ok = depends.iter().all(|dep_id| {
             plan.steps.iter().find(|s| s.id == *dep_id)
-                .map_or(false, |s| s.status == StepStatus::Completed)
+                .is_some_and(|s| s.status == StepStatus::Completed)
         });
 
         if !deps_ok && !depends.is_empty() {
@@ -708,7 +706,7 @@ pub async fn chat_execute_plan(
 fn build_sources_from_results(
     results: &[(String, f64)],
     graph: &KnowledgeGraph,
-    repo_path: &PathBuf,
+    repo_path: &Path,
 ) -> Vec<ChatSource> {
     let mut sources = Vec::new();
 
@@ -766,7 +764,7 @@ fn build_sources_from_results(
     sources
 }
 
-fn read_snippet(repo_path: &PathBuf, file_path: &str, start: Option<u32>, end: Option<u32>) -> Option<String> {
+fn read_snippet(repo_path: &Path, file_path: &str, start: Option<u32>, end: Option<u32>) -> Option<String> {
     let full_path = repo_path.join(file_path);
     let content = std::fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
@@ -792,7 +790,7 @@ fn read_snippet(repo_path: &PathBuf, file_path: &str, start: Option<u32>, end: O
     }
 }
 
-fn build_research_prompt(question: &str, sources: &[ChatSource], step_summaries: &[String]) -> String {
+fn build_research_prompt(_question: &str, sources: &[ChatSource], step_summaries: &[String]) -> String {
     let mut prompt = String::from(
         "You are an expert code analyst. You have performed a multi-step research plan to answer the developer's question.\n\n"
     );

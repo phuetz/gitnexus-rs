@@ -7,7 +7,7 @@
 //!   4. Call an OpenAI-compatible LLM API
 //!   5. Return the answer with source citations
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri::State;
 
@@ -192,7 +192,7 @@ fn search_relevant_context(
 fn build_sources(
     results: &[(String, f64)],
     graph: &KnowledgeGraph,
-    repo_path: &PathBuf,
+    repo_path: &Path,
 ) -> Vec<ChatSource> {
     let mut sources = Vec::new();
 
@@ -268,7 +268,7 @@ fn build_sources(
 
 /// Read a code snippet from a source file.
 fn read_code_snippet(
-    repo_path: &PathBuf,
+    repo_path: &Path,
     file_path: &str,
     start_line: Option<u32>,
     end_line: Option<u32>,
@@ -473,9 +473,9 @@ async fn call_llm(
 
 /// Build a response using only graph data (no LLM).
 fn build_graph_only_response(
-    results: &[(String, f64)],
+    _results: &[(String, f64)],
     sources: &[ChatSource],
-    graph: &KnowledgeGraph,
+    _graph: &KnowledgeGraph,
 ) -> ChatResponse {
     let mut answer = String::from("## Relevant Symbols Found\n\n");
     answer.push_str("*No LLM configured — showing graph search results. Configure an API key in Settings to get AI-powered answers.*\n\n");

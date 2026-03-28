@@ -618,7 +618,7 @@ fn expr_to_static_value(expr: &Expr) -> Value {
 fn eval_expr(
     expr: &Expr,
     bindings: &Bindings,
-    graph: &KnowledgeGraph,
+    _graph: &KnowledgeGraph,
 ) -> Result<Value, ExecutionError> {
     match expr {
         Expr::StringLit(s) => Ok(Value::String(s.clone())),
@@ -641,12 +641,12 @@ fn eval_expr(
             }
         }
         Expr::BinaryOp { left, op, right } => {
-            let l = eval_expr(left, bindings, graph)?;
-            let r = eval_expr(right, bindings, graph)?;
+            let l = eval_expr(left, bindings, _graph)?;
+            let r = eval_expr(right, bindings, _graph)?;
             eval_binary_op(&l, *op, &r)
         }
         Expr::Not(inner) => {
-            let val = eval_expr(inner, bindings, graph)?;
+            let val = eval_expr(inner, bindings, _graph)?;
             match val {
                 Value::Bool(b) => Ok(Value::Bool(!b)),
                 _ => Ok(Value::Null),
@@ -655,7 +655,7 @@ fn eval_expr(
         Expr::FunctionCall { name, args } => {
             let arg_vals: Vec<Value> = args
                 .iter()
-                .map(|a| eval_expr(a, bindings, graph))
+                .map(|a| eval_expr(a, bindings, _graph))
                 .collect::<Result<Vec<_>, _>>()?;
             eval_function(name, &arg_vals)
         }
@@ -666,7 +666,7 @@ fn eval_expr(
         Expr::List(items) => {
             let vals: Vec<Value> = items
                 .iter()
-                .map(|item| eval_expr(item, bindings, graph))
+                .map(|item| eval_expr(item, bindings, _graph))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Value::List(vals))
         }

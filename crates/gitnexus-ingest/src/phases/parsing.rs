@@ -937,6 +937,7 @@ fn process_match(
 }
 
 /// Create a definition node and a DEFINES edge from the file to it.
+#[allow(clippy::too_many_arguments)]
 fn create_definition_node(
     label: NodeLabel,
     name: &str,
@@ -952,7 +953,7 @@ fn create_definition_node(
     let node_id = generate_id(label.as_str(), &qualified_name);
 
     // Count parameters if we have params text
-    let parameter_count = params_text.map(|p| count_parameters(p));
+    let parameter_count = params_text.map(count_parameters);
 
     // Check export status using the language provider
     let provider = gitnexus_lang::registry::get_provider(lang);
@@ -1282,7 +1283,7 @@ pub fn detect_csproj_components(
         .build();
 
     for result in walker.flatten() {
-        if !result.file_type().map_or(false, |ft| ft.is_file()) {
+        if !result.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
         let path = result.path();

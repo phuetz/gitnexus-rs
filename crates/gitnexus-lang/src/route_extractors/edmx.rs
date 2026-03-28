@@ -10,7 +10,6 @@
 //! Uses lightweight regex-based parsing to avoid adding an XML dependency.
 //! The EDMX format is well-structured enough for this approach.
 
-use std::collections::HashMap;
 
 // ─── Result Types ────────────────────────────────────────────────────────
 

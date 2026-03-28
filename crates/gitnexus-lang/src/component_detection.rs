@@ -225,7 +225,7 @@ impl ComponentDetector {
                         category: lib.category.clone(),
                         detected_by: pattern.pattern_type,
                         matched_value: matched,
-                        confidence: pattern.confidence.min(1.0).max(0.0),
+                        confidence: pattern.confidence.clamp(0.0, 1.0),
                         detected_version: None,
                     });
                 }
@@ -899,7 +899,7 @@ mod tests {
 </div>
 "#;
         let code = extract_csharp_blocks(content);
-        assert!(code.contains("var message"), "Should extract @{ } inline block");
+        assert!(code.contains("var message"), "Should extract @{{}} inline block");
     }
 
     #[test]

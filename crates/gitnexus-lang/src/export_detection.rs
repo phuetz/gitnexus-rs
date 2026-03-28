@@ -12,7 +12,7 @@ pub fn check_ts_export(node_text: &str, _node_type: &str, ancestors: &[&str]) ->
     if node_text.starts_with("export ") {
         return true;
     }
-    ancestors.iter().any(|a| *a == "export_statement")
+    ancestors.contains(&"export_statement")
 }
 
 // ── Python ───────────────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ pub fn check_go_export(_node_text: &str, _node_type: &str, _ancestors: &[&str]) 
 
 /// Go name-level export check: names starting with an uppercase letter are exported.
 pub fn check_go_export_by_name(name: &str) -> bool {
-    name.chars().next().map_or(false, |c| c.is_uppercase())
+    name.chars().next().is_some_and(|c| c.is_uppercase())
 }
 
 // ── Rust ─────────────────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ pub fn check_rust_export(node_text: &str, _node_type: &str, ancestors: &[&str]) 
         return true;
     }
     // Ancestor might be a visibility_modifier in some tree-sitter grammars
-    ancestors.iter().any(|a| *a == "visibility_modifier")
+    ancestors.contains(&"visibility_modifier")
 }
 
 // ── C / C++ ──────────────────────────────────────────────────────────────────

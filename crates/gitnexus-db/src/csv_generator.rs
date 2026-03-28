@@ -242,7 +242,7 @@ pub fn generate_node_csvs(
                 .to_string();
 
             writer
-                .write_record(&[
+                .write_record([
                     &node.id,
                     &node.properties.name,
                     &node.properties.file_path,
@@ -306,7 +306,7 @@ pub fn generate_relation_csv(
         let step = rel.step.map(|s| s.to_string()).unwrap_or_default();
         let reason = sanitize_utf8(&rel.reason);
 
-        if let Err(e) = writer.write_record(&[
+        if let Err(e) = writer.write_record([
             &rel.source_id,
             &rel.target_id,
             rel.rel_type.as_str(),

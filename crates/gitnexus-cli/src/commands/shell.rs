@@ -1484,109 +1484,90 @@ fn cmd_help() -> anyhow::Result<()> {
     println!();
     println!("  {}", "Search & Explore".bold());
     println!(
-        "    {}  {}",
-        "query, q <text>".yellow(),
-        "Search symbols by name (substring match)"
+        "    {}  Search symbols by name (substring match)",
+        "query, q <text>".yellow()
     );
     println!(
-        "    {}  {}",
-        "find, f <regex>".yellow(),
-        "Find symbols matching a regex pattern"
+        "    {}  Find symbols matching a regex pattern",
+        "find, f <regex>".yellow()
     );
     println!(
-        "    {}  {}",
-        "files [glob]".yellow(),
-        "List File nodes (optionally filter by glob)"
+        "    {}  List File nodes (optionally filter by glob)",
+        "files [glob]".yellow()
     );
     println!();
     println!("  {}", "Analysis".bold());
     println!(
-        "    {}  {}",
-        "context, ctx <sym>".yellow(),
-        "360-degree view of a symbol (callers, callees, etc.)"
+        "    {}  360-degree view of a symbol (callers, callees, etc.)",
+        "context, ctx <sym>".yellow()
     );
     println!(
-        "    {}  {}",
-        "impact <symbol>".yellow(),
-        "Blast radius: BFS through CALLS edges (5 levels)"
+        "    {}  Blast radius: BFS through CALLS edges (5 levels)",
+        "impact <symbol>".yellow()
     );
     println!(
-        "    {}  {}",
-        "neighbors, n <sym> [d]".yellow(),
-        "All connected nodes within N hops (default 2)"
+        "    {}  All connected nodes within N hops (default 2)",
+        "neighbors, n <sym> [d]".yellow()
     );
     println!(
-        "    {}  {}",
-        "path <from> <to>".yellow(),
-        "Shortest path between two symbols"
+        "    {}  Shortest path between two symbols",
+        "path <from> <to>".yellow()
     );
     println!();
     println!("  {}", "Structure".bold());
     println!(
-        "    {}  {}",
-        "community, com [name]".yellow(),
-        "List communities or show community members"
+        "    {}  List communities or show community members",
+        "community, com [name]".yellow()
     );
     println!(
-        "    {}  {}",
-        "process, proc [name]".yellow(),
-        "List processes or show process steps"
+        "    {}  List processes or show process steps",
+        "process, proc [name]".yellow()
     );
     println!(
-        "    {}  {}",
-        "stats".yellow(),
-        "Graph statistics (node/edge counts by type)"
+        "    {}  Graph statistics (node/edge counts by type)",
+        "stats".yellow()
     );
     println!();
     println!("  {}", "Git Analysis".bold());
     println!(
-        "    {}  {}",
-        "hotspots [days]".yellow(),
-        "Show file-level hotspots (default: last 90 days)"
+        "    {}  Show file-level hotspots (default: last 90 days)",
+        "hotspots [days]".yellow()
     );
     println!(
-        "    {}  {}",
-        "coupling [min]".yellow(),
-        "Show temporally coupled file pairs (default: min 3)"
+        "    {}  Show temporally coupled file pairs (default: min 3)",
+        "coupling [min]".yellow()
     );
     println!(
-        "    {}  {}",
-        "ownership".yellow(),
-        "Show file ownership by author"
+        "    {}  Show file ownership by author",
+        "ownership".yellow()
     );
     println!();
     println!("  {}", "Data".bold());
     println!(
-        "    {}  {}",
-        "export [json|dot|csv]".yellow(),
-        "Export graph to file (default: json)"
+        "    {}  Export graph to file (default: json)",
+        "export [json|dot|csv]".yellow()
     );
     println!(
-        "    {}  {}",
-        "cypher <query>".yellow(),
-        "Execute a Cypher query (when engine is available)"
+        "    {}  Execute a Cypher query (when engine is available)",
+        "cypher <query>".yellow()
     );
     println!(
-        "    {}  {}",
-        "reload".yellow(),
-        "Reload graph from snapshot"
+        "    {}  Reload graph from snapshot",
+        "reload".yellow()
     );
     println!(
-        "    {}  {}",
-        "analyze [path]".yellow(),
-        "Hint to re-run pipeline"
+        "    {}  Hint to re-run pipeline",
+        "analyze [path]".yellow()
     );
     println!();
     println!("  {}", "General".bold());
     println!(
-        "    {}  {}",
-        "help, h, ?".yellow(),
-        "Show this help"
+        "    {}  Show this help",
+        "help, h, ?".yellow()
     );
     println!(
-        "    {}  {}",
-        "quit, exit".yellow(),
-        "Exit the shell (or press Ctrl+D)"
+        "    {}  Exit the shell (or press Ctrl+D)",
+        "quit, exit".yellow()
     );
     println!();
 

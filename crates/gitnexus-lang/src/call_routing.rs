@@ -116,7 +116,7 @@ fn extract_constant_args(text: &str) -> Vec<String> {
     let parts: Vec<&str> = text.split_whitespace().collect();
     for part in parts.iter().skip(1) {
         let name = part.trim_matches(|c: char| !c.is_alphanumeric() && c != ':');
-        if !name.is_empty() && name.chars().next().map_or(false, |c| c.is_uppercase()) {
+        if !name.is_empty() && name.chars().next().is_some_and(|c| c.is_uppercase()) {
             results.push(name.to_string());
         }
     }
@@ -139,7 +139,7 @@ fn extract_symbol_args(text: &str) -> Vec<String> {
             for sub in part.split(':') {
                 let name = sub.trim().trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
                 if !name.is_empty()
-                    && name.chars().next().map_or(false, |c| c.is_lowercase())
+                    && name.chars().next().is_some_and(|c| c.is_lowercase())
                     && !["attr_accessor", "attr_reader", "attr_writer"].contains(&name)
                 {
                     results.push(name.to_string());

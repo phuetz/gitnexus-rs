@@ -58,7 +58,7 @@ pub fn analyze_ownership(repo_path: &Path) -> Result<Vec<FileOwnership>, Ownersh
             if let (Some(email_start), Some(email_end)) = (rest.rfind('<'), rest.rfind('>')) {
                 let email = rest[email_start + 1..email_end].trim().to_string();
                 // Author name is between the hash and the email
-                let after_hash = rest.splitn(2, ' ').nth(1).unwrap_or("");
+                let after_hash = rest.split_once(' ').map(|x| x.1).unwrap_or("");
                 let name = after_hash[..after_hash.rfind('<').unwrap_or(after_hash.len())]
                     .trim()
                     .to_string();

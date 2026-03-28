@@ -26,6 +26,12 @@ pub struct StdioTransport {
     framing: Option<StdioFraming>,
 }
 
+impl Default for StdioTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StdioTransport {
     /// Create a new stdio transport.
     pub fn new() -> Self {

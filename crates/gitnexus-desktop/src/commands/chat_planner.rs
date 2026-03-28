@@ -61,7 +61,7 @@ pub fn analyze_query_impl(
     };
 
     // Has active filters => more focused, potentially simpler
-    let has_filters = filters.as_ref().map_or(false, |f| {
+    let has_filters = filters.as_ref().is_some_and(|f| {
         !f.files.is_empty() || !f.symbols.is_empty() || !f.modules.is_empty()
     });
 
@@ -222,7 +222,7 @@ fn build_research_steps(
     analysis: &QueryAnalysis,
     filters: &Option<ChatContextFilter>,
     graph: &KnowledgeGraph,
-    fts_index: &FtsIndex,
+    _fts_index: &FtsIndex,
 ) -> Vec<ResearchStep> {
     let mut steps = Vec::new();
     let mut order = 0u32;

@@ -201,11 +201,7 @@ fn tokenize(text: &str) -> Vec<String> {
 
 /// Extract a table/label filter from FTS table names like `"fts_Function"`.
 pub fn parse_fts_table_filter(table_name: &str) -> Option<String> {
-    if table_name.starts_with("fts_") {
-        Some(table_name[4..].to_string())
-    } else {
-        None
-    }
+    table_name.strip_prefix("fts_").map(|stripped| stripped.to_string())
 }
 
 /// Convert an `FtsResult` to a `serde_json::Value` row.

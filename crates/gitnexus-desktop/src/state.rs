@@ -32,6 +32,12 @@ pub struct AppState {
     active_repo: RwLock<Option<String>>,
 }
 
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppState {
     /// Create a new empty state.
     pub fn new() -> Self {

@@ -147,7 +147,7 @@ fn collect_by_label(graph: &KnowledgeGraph, label: NodeLabel) -> Vec<&GraphNode>
 
 /// Safely extract the name portion from a node ID like "Type:Name".
 /// Returns the full ID if no colon separator is found.
-fn extract_node_name(id: &str) -> &str {
+fn _extract_node_name(id: &str) -> &str {
     id.split_once(':').map_or(id, |(_, name)| name)
 }
 
@@ -424,7 +424,7 @@ fn generate_entities_doc(
 fn generate_views_doc(
     docs_dir: &Path,
     views: &[&GraphNode],
-    controllers: &[&GraphNode],
+    _controllers: &[&GraphNode],
 ) -> Result<()> {
     let path = docs_dir.join("aspnet-views.md");
     let mut f = std::fs::File::create(path)?;
@@ -852,7 +852,7 @@ fn generate_sequence_data_doc(
     docs_dir: &Path,
     controllers: &[&GraphNode],
     db_contexts: &[&GraphNode],
-    entities: &[&GraphNode],
+    _entities: &[&GraphNode],
     graph: &KnowledgeGraph,
 ) -> Result<()> {
     let path = docs_dir.join("aspnet-seq-data.md");

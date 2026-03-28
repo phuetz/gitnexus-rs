@@ -74,7 +74,7 @@ fn wire_swift_implicit_imports(
     }
 
     // For each group, create implicit edges between all pairs
-    for (_dir, files) in &dir_groups {
+    for files in dir_groups.values() {
         if files.len() < 2 || files.len() > 500 {
             continue; // Skip trivially small or pathologically large targets
         }

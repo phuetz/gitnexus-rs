@@ -76,7 +76,7 @@ fn resolve_super_path(
         i += 1;
     }
 
-    let remaining: Vec<&str> = segments[i..].iter().copied().collect();
+    let remaining: Vec<&str> = segments[i..].to_vec();
     let module_path = if remaining.is_empty() {
         dir
     } else if dir.is_empty() {

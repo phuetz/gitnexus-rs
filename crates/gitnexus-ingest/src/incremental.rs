@@ -124,13 +124,10 @@ pub fn incremental_update(
         .iter()
         .filter(|e| {
             affected_files.contains(&e.path)
-                && !matches!(
-                    changes.iter().find(|c| match c {
+                && changes.iter().find(|c| match c {
                         FileChange::Removed(p) => p == &e.path,
                         _ => false,
-                    }),
-                    Some(_)
-                )
+                    }).is_none()
         })
         .collect();
 

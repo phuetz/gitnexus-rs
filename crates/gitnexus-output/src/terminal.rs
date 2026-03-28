@@ -61,7 +61,7 @@ impl OutputFormatter for TerminalFormatter {
         for (i, w) in widths.iter().enumerate() {
             out.push_str(&"\u{2500}".repeat(w + 2));
             if i < col_count - 1 {
-                out.push_str("\u{252C}");
+                out.push('\u{252C}');
             }
         }
         out.push_str("\u{2510}\n");
@@ -74,7 +74,7 @@ impl OutputFormatter for TerminalFormatter {
                 header.bold(),
                 width = widths[i]
             ));
-            out.push_str("\u{2502}");
+            out.push('\u{2502}');
         }
         out.push('\n');
 
@@ -83,7 +83,7 @@ impl OutputFormatter for TerminalFormatter {
         for (i, w) in widths.iter().enumerate() {
             out.push_str(&"\u{2500}".repeat(w + 2));
             if i < col_count - 1 {
-                out.push_str("\u{253C}");
+                out.push('\u{253C}');
             }
         }
         out.push_str("\u{2524}\n");
@@ -94,7 +94,7 @@ impl OutputFormatter for TerminalFormatter {
             for (i, cell) in row.iter().enumerate() {
                 if i < col_count {
                     out.push_str(&format!(" {:<width$} ", cell, width = widths[i]));
-                    out.push_str("\u{2502}");
+                    out.push('\u{2502}');
                 }
             }
             out.push('\n');
@@ -105,7 +105,7 @@ impl OutputFormatter for TerminalFormatter {
         for (i, w) in widths.iter().enumerate() {
             out.push_str(&"\u{2500}".repeat(w + 2));
             if i < col_count - 1 {
-                out.push_str("\u{2534}");
+                out.push('\u{2534}');
             }
         }
         out.push_str("\u{2518}\n");

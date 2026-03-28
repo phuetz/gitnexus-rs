@@ -101,7 +101,7 @@ pub fn score_name(name: &str) -> Option<EntryPointScore> {
         if name_lower.starts_with(prefix) && name_lower.len() > prefix.len() {
             // Verify the character after the prefix is uppercase (camelCase) or _
             let rest = &name[prefix.len()..];
-            if rest.starts_with('_') || rest.chars().next().map_or(false, |c| c.is_uppercase()) {
+            if rest.starts_with('_') || rest.chars().next().is_some_and(|c| c.is_uppercase()) {
                 return Some(EntryPointScore {
                     score,
                     reason: reason.into(),
@@ -114,7 +114,7 @@ pub fn score_name(name: &str) -> Option<EntryPointScore> {
     for &(prefix, score, reason) in UTILITY_PREFIXES {
         if name_lower.starts_with(prefix) && name_lower.len() > prefix.len() {
             let rest = &name[prefix.len()..];
-            if rest.starts_with('_') || rest.chars().next().map_or(false, |c| c.is_uppercase()) {
+            if rest.starts_with('_') || rest.chars().next().is_some_and(|c| c.is_uppercase()) {
                 return Some(EntryPointScore {
                     score,
                     reason: reason.into(),

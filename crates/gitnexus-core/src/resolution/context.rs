@@ -64,9 +64,9 @@ impl<'a> ResolutionContext<'a> {
     ///
     /// Resolution order:
     /// 1. Same-file exact match
-    /// 2a. Named import binding chain walk
-    /// 2a. Import-scoped fuzzy match
-    /// 2b. Package-scoped fuzzy match
+    ///    2a. Named import binding chain walk
+    ///    2a. Import-scoped fuzzy match
+    ///    2b. Package-scoped fuzzy match
     /// 3. Global fuzzy match
     pub fn resolve(&mut self, name: &str, from_file: &str) -> Option<TieredCandidates> {
         // Check cache

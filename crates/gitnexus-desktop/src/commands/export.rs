@@ -46,8 +46,7 @@ pub async fn export_docs_docx(state: State<'_, AppState>) -> Result<String, Stri
 /// Get ASP.NET specific stats for the UI dashboard.
 #[tauri::command]
 pub async fn get_aspnet_stats(state: State<'_, AppState>) -> Result<AspNetStats, String> {
-    let graph = state.graph().await;
-    let graph = graph.read().await;
+    let (graph, _indexes, _fts_index, _repo_path) = state.get_repo(None).await?;
 
     use gitnexus_core::graph::types::NodeLabel;
 
@@ -372,7 +371,7 @@ fn md_to_ooxml(md: &str) -> (String, Vec<(String, String)>) {
         }
 
         // Numbered list
-        if t.len() > 2 && t.chars().next().map_or(false, |c| c.is_ascii_digit()) && t.contains(". ") {
+        if t.len() > 2 && t.chars().next().is_some_and(|c| c.is_ascii_digit()) && t.contains(". ") {
             let dot_pos = t.find(". ").unwrap_or(0);
             let (runs, item_links) = inline_runs(&t[dot_pos + 2..]);
             links.extend(item_links);
@@ -492,8 +491,8 @@ fn table_ooxml(rows: &[&str]) -> (String, Vec<(String, String)>) {
     out.push_str("</w:tr>");
 
     // Data rows
-    for i in data_start..rows.len() {
-        let cells: Vec<String> = rows[i].split('|').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    for (i, row) in rows.iter().enumerate().skip(data_start) {
+        let cells: Vec<String> = row.split('|').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
         let bg = if (i - data_start) % 2 == 0 { "FFFFFF" } else { "F5F7FA" };
         out.push_str("<w:tr>");
         for (j, cell) in cells.iter().enumerate() {
@@ -605,10 +604,7 @@ fn parse_link(chars: &[char], start: usize) -> Option<(String, String, usize)> {
 
 fn find_closing_double(chars: &[char], start: usize, ch: char) -> Option<usize> {
     if chars.len() < 2 { return None; }
-    for i in start..chars.len() - 1 {
-        if chars[i] == ch && chars[i + 1] == ch { return Some(i); }
-    }
-    None
+    (start..chars.len() - 1).find(|&i| chars[i] == ch && chars[i + 1] == ch)
 }
 
 fn xml_escape(s: &str) -> String {

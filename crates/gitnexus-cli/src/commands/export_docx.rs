@@ -242,6 +242,18 @@ fn title_page(project_name: &str, stats: &DocStats) -> String {
 
     // Stats summary table on title page
     if stats.files > 0 || stats.nodes > 0 {
+        let stat_cell = |label: &str, value: usize| -> String {
+            format!(
+                r#"<w:tc><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="F8F9FA"/><w:tcMar><w:top w:w="120" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+                    <w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="0"/></w:pPr>
+                      <w:r><w:rPr><w:b/><w:sz w:val="28"/><w:color w:val="1B3A6B"/></w:rPr><w:t>{}</w:t></w:r>
+                    </w:p>
+                    <w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="0"/></w:pPr>
+                      <w:r><w:rPr><w:sz w:val="18"/><w:color w:val="888888"/></w:rPr><w:t>{}</w:t></w:r>
+                    </w:p></w:tc>"#,
+                value, label
+            )
+        };
         s.push_str(&format!(
             r#"
     <w:p><w:pPr><w:spacing w:before="600"/><w:jc w:val="center"/></w:pPr></w:p>
@@ -256,24 +268,16 @@ fn title_page(project_name: &str, stats: &DocStats) -> String {
       </w:tblPr>
       <w:tblGrid><w:gridCol w:w="1750"/><w:gridCol w:w="1750"/><w:gridCol w:w="1750"/><w:gridCol w:w="1750"/></w:tblGrid>
       <w:tr>
-        {stat_cell("Fichiers", stats.files)}
-        {stat_cell("Noeuds", stats.nodes)}
-        {stat_cell("Relations", stats.edges)}
-        {stat_cell("Modules", stats.modules)}
+        {cell_fichiers}
+        {cell_noeuds}
+        {cell_relations}
+        {cell_modules}
       </w:tr>
     </w:tbl>"#,
-            stat_cell = |label: &str, value: usize| -> String {
-                format!(
-                    r#"<w:tc><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="F8F9FA"/><w:tcMar><w:top w:w="120" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-                    <w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="0"/></w:pPr>
-                      <w:r><w:rPr><w:b/><w:sz w:val="28"/><w:color w:val="1B3A6B"/></w:rPr><w:t>{}</w:t></w:r>
-                    </w:p>
-                    <w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="0"/></w:pPr>
-                      <w:r><w:rPr><w:sz w:val="18"/><w:color w:val="888888"/></w:rPr><w:t>{}</w:t></w:r>
-                    </w:p></w:tc>"#,
-                    value, label
-                )
-            },
+            cell_fichiers = stat_cell("Fichiers", stats.files),
+            cell_noeuds = stat_cell("Noeuds", stats.nodes),
+            cell_relations = stat_cell("Relations", stats.edges),
+            cell_modules = stat_cell("Modules", stats.modules),
         ));
     }
 
@@ -437,7 +441,7 @@ fn markdown_to_ooxml(markdown: &str) -> (String, Vec<(String, String)>) {
 
         // Numbered list
         if trimmed.len() > 2
-            && trimmed.chars().next().map_or(false, |c| c.is_ascii_digit())
+            && trimmed.chars().next().is_some_and(|c| c.is_ascii_digit())
             && trimmed.contains(". ")
         {
             let dot_pos = trimmed.find(". ").unwrap_or(0);
@@ -651,8 +655,8 @@ fn table_to_ooxml(lines: &[&str]) -> (String, Vec<(String, String)>) {
     result.push_str("</w:tr>");
 
     // Data rows with alternating background
-    for i in data_start..lines.len() {
-        let cells = parse_table_row(lines[i]);
+    for (i, line) in lines.iter().enumerate().skip(data_start) {
+        let cells = parse_table_row(line);
         let bg = if (i - data_start) % 2 == 0 {
             "FFFFFF"
         } else {
@@ -829,12 +833,7 @@ fn find_closing_double(chars: &[char], start: usize, ch: char) -> Option<usize> 
     if chars.len() < 2 {
         return None;
     }
-    for i in start..chars.len() - 1 {
-        if chars[i] == ch && chars[i + 1] == ch {
-            return Some(i);
-        }
-    }
-    None
+    (start..chars.len() - 1).find(|&i| chars[i] == ch && chars[i + 1] == ch)
 }
 
 fn xml_escape(s: &str) -> String {

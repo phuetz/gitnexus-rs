@@ -86,7 +86,9 @@ struct App {
     view_mode: ViewMode,
 
     // Pre-built relationship indexes
+    #[allow(clippy::type_complexity)]
     outgoing: HashMap<String, Vec<(String, RelationshipType, f64, Option<u32>)>>,
+    #[allow(clippy::type_complexity)]
     incoming: HashMap<String, Vec<(String, RelationshipType, f64, Option<u32>)>>,
 
     // File tree
@@ -139,8 +141,10 @@ impl App {
         let graph = Arc::new(graph);
 
         // Build relationship indexes
+        #[allow(clippy::type_complexity)]
         let mut outgoing: HashMap<String, Vec<(String, RelationshipType, f64, Option<u32>)>> =
             HashMap::new();
+        #[allow(clippy::type_complexity)]
         let mut incoming: HashMap<String, Vec<(String, RelationshipType, f64, Option<u32>)>> =
             HashMap::new();
 
@@ -441,7 +445,7 @@ impl App {
                     let filtered = self.filtered_symbols();
                     if self.symbol_selected < filtered.len() {
                         // Return from all_symbols at the right index
-                        return Some(&filtered[self.symbol_selected]);
+                        return Some(filtered[self.symbol_selected]);
                     }
                     None
                 } else {

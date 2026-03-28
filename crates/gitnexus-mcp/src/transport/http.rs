@@ -37,7 +37,7 @@ async fn mcp_handler(
     Json(request): Json<JsonRpcRequest>,
 ) -> impl IntoResponse {
     let mut backend_guard = backend.lock().await;
-    let response = handle_request(&request, &mut *backend_guard).await;
+    let response = handle_request(&request, &mut backend_guard).await;
     (StatusCode::OK, Json(response))
 }
 

@@ -112,30 +112,27 @@ pub fn detect_framework_from_path(path: &str) -> Option<FrameworkHint> {
     }
 
     // ── Spring Boot (Java/Kotlin) ────────────────────────────────────────
-    if segments.contains(&"controller") || segments.contains(&"controllers") {
-        if path_lower.ends_with(".java") || path_lower.ends_with(".kt") {
+    if (segments.contains(&"controller") || segments.contains(&"controllers"))
+        && (path_lower.ends_with(".java") || path_lower.ends_with(".kt")) {
             return Some(FrameworkHint {
                 multiplier: 1.8,
                 reason: "Spring controller".into(),
             });
         }
-    }
-    if segments.contains(&"service") || segments.contains(&"services") {
-        if path_lower.ends_with(".java") || path_lower.ends_with(".kt") {
+    if (segments.contains(&"service") || segments.contains(&"services"))
+        && (path_lower.ends_with(".java") || path_lower.ends_with(".kt")) {
             return Some(FrameworkHint {
                 multiplier: 1.3,
                 reason: "Spring service".into(),
             });
         }
-    }
-    if segments.contains(&"repository") || segments.contains(&"repositories") {
-        if path_lower.ends_with(".java") || path_lower.ends_with(".kt") {
+    if (segments.contains(&"repository") || segments.contains(&"repositories"))
+        && (path_lower.ends_with(".java") || path_lower.ends_with(".kt")) {
             return Some(FrameworkHint {
                 multiplier: 1.2,
                 reason: "Spring repository".into(),
             });
         }
-    }
 
     // ── Laravel (PHP) ────────────────────────────────────────────────────
     if segments
@@ -256,14 +253,13 @@ pub fn detect_framework_from_path(path: &str) -> Option<FrameworkHint> {
     }
 
     // ── Go HTTP handlers ─────────────────────────────────────────────────
-    if segments.contains(&"handlers") || segments.contains(&"handler") {
-        if path_lower.ends_with(".go") {
+    if (segments.contains(&"handlers") || segments.contains(&"handler"))
+        && path_lower.ends_with(".go") {
             return Some(FrameworkHint {
                 multiplier: 1.5,
                 reason: "Go HTTP handler".into(),
             });
         }
-    }
 
     // ── Swift / iOS ──────────────────────────────────────────────────────
     if path_lower.ends_with("viewcontroller.swift") {
@@ -280,14 +276,13 @@ pub fn detect_framework_from_path(path: &str) -> Option<FrameworkHint> {
     }
 
     // ── Rust web frameworks (Actix/Axum) ─────────────────────────────────
-    if segments.contains(&"handlers") || segments.contains(&"routes") {
-        if path_lower.ends_with(".rs") {
+    if (segments.contains(&"handlers") || segments.contains(&"routes"))
+        && path_lower.ends_with(".rs") {
             return Some(FrameworkHint {
                 multiplier: 1.5,
                 reason: "Rust web handler/route".into(),
             });
         }
-    }
 
     None
 }

@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn test_fts_queries_count() {
         let queries = fts_queries();
-        assert_eq!(queries.len(), 5);
+        assert_eq!(queries.len(), 12);
     }
 
     #[test]

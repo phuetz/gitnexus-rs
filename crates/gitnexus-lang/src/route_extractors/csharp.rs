@@ -302,11 +302,7 @@ pub fn extract_view_info(file_path: &str, source: &str) -> ViewInfo {
     // Extract @model directive
     let model_type = source.lines().find_map(|line| {
         let trimmed = line.trim();
-        if trimmed.starts_with("@model ") {
-            Some(trimmed[7..].trim().to_string())
-        } else {
-            None
-        }
+        trimmed.strip_prefix("@model ").map(|rest| rest.trim().to_string())
     });
 
     // Extract @{ Layout = "..."; } or @Layout = "..."
@@ -326,7 +322,10 @@ pub fn extract_view_info(file_path: &str, source: &str) -> ViewInfo {
 
     // Infer area from path: Areas/<name>/Views/...
     let area_name = if let Some(areas_idx) = path_lower.find("/areas/") {
-        let after = &file_path[areas_idx + 7..]; // after "/areas/"
+        let after = &file_path[areas_idx + 7..];
+        after.split('/').next().map(|s| s.to_string())
+    } else if path_lower.starts_with("areas/") {
+        let after = &file_path[6..];
         after.split('/').next().map(|s| s.to_string())
     } else {
         None
@@ -358,7 +357,7 @@ struct ClassMatch {
 fn find_class_declaration(lines: &[&str], start: usize) -> Option<ClassMatch> {
     // Collect attributes before the class
     let mut attributes = Vec::new();
-    let mut attr_start = start;
+    let mut _attr_start = start;
 
     // Look backwards from current position for attributes
     if start > 0 {
@@ -371,7 +370,7 @@ fn find_class_declaration(lines: &[&str], start: usize) -> Option<ClassMatch> {
             let trimmed = lines[j].trim();
             if trimmed.starts_with('[') && trimmed.ends_with(']') {
                 attributes.push(trimmed[1..trimmed.len() - 1].to_string());
-                attr_start = j;
+                _attr_start = j;
             } else if trimmed.is_empty() || trimmed.starts_with("//") {
                 continue;
             } else {
@@ -389,7 +388,7 @@ fn find_class_declaration(lines: &[&str], start: usize) -> Option<ClassMatch> {
 
     // Extract class name (before any : or { or < or where)
     let name_end = after_class
-        .find(|c: char| c == ':' || c == '{' || c == '<' || c == ' ')
+        .find([':', '{', '<', ' '])
         .unwrap_or(after_class.len());
     let name = after_class[..name_end].trim().to_string();
 
@@ -402,7 +401,7 @@ fn find_class_declaration(lines: &[&str], start: usize) -> Option<ClassMatch> {
     if let Some(colon_idx) = after_class.find(':') {
         let bases_str = &after_class[colon_idx + 1..];
         let bases_end = bases_str
-            .find(|c: char| c == '{' || c == '\n')
+            .find(['{', '\n'])
             .unwrap_or(bases_str.len());
         for base in bases_str[..bases_end].split(',') {
             let base_name = base.trim();
@@ -593,7 +592,7 @@ fn parse_action_method(
     };
 
     // Check if return type looks like an action result
-    let is_action_method = return_type.as_deref().map_or(false, |rt| {
+    let is_action_method = return_type.as_deref().is_some_and(|rt| {
         rt.contains("Result")
             || rt.contains("Response")
             || rt == "void"
@@ -616,12 +615,12 @@ fn parse_action_method(
     // Extract route template
     let route_template = attributes.iter().find_map(|attr| {
         if attr.starts_with("Route(") || attr.starts_with("Http") {
-            extract_attribute_value(&[attr.clone()], "Route")
+            extract_attribute_value(std::slice::from_ref(attr), "Route")
                 .or_else(|| {
                     // [HttpGet("path")] → extract path
                     for (http_attr, _) in HTTP_ATTRIBUTES {
                         if attr.starts_with(http_attr) {
-                            if let Some(v) = extract_attribute_value(&[attr.clone()], http_attr) {
+                            if let Some(v) = extract_attribute_value(std::slice::from_ref(attr), http_attr) {
                                 if !v.is_empty() {
                                     return Some(v);
                                 }
@@ -653,7 +652,7 @@ fn parse_action_method(
 }
 
 /// Determine HTTP method from attributes.
-fn extract_http_method(attributes: &[String], is_api: bool) -> String {
+fn extract_http_method(attributes: &[String], _is_api: bool) -> String {
     for attr in attributes {
         for (attr_name, method) in HTTP_ATTRIBUTES {
             if attr.starts_with(attr_name) {
@@ -661,8 +660,8 @@ fn extract_http_method(attributes: &[String], is_api: bool) -> String {
             }
         }
     }
-    // Default: GET for MVC, GET for API
-    if is_api { "GET" } else { "GET" }.to_string()
+    // Default: GET for both MVC and API
+    "GET".to_string()
 }
 
 /// Extract model type from method parameters (look for complex types).
@@ -672,7 +671,7 @@ fn extract_model_type_from_params(line: &str) -> Option<String> {
     let params = &line[paren_start + 1..paren_end];
 
     for param in params.split(',') {
-        let parts: Vec<&str> = param.trim().split_whitespace().collect();
+        let parts: Vec<&str> = param.split_whitespace().collect();
         if parts.len() >= 2 {
             let type_name = parts[parts.len() - 2];
             // Skip primitive types and common framework types
@@ -740,8 +739,8 @@ fn extract_connection_string(line: &str) -> Option<String> {
             if let Some(q2) = trimmed[q1 + 1..].find('"') {
                 let value = &trimmed[q1 + 1..q1 + 1 + q2];
                 // Handle "name=X" format
-                if value.starts_with("name=") {
-                    return Some(value[5..].to_string());
+                if let Some(rest) = value.strip_prefix("name=") {
+                    return Some(rest.to_string());
                 }
                 return Some(value.to_string());
             }
@@ -767,8 +766,8 @@ fn extract_entity_properties(
         "Collection<",
     ];
 
-    for i in body_start..=body_end.min(lines.len() - 1) {
-        let trimmed = lines[i].trim();
+    for line in &lines[body_start..=body_end.min(lines.len() - 1)] {
+        let trimmed = line.trim();
 
         // Collect attributes
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
@@ -786,7 +785,7 @@ fn extract_entity_properties(
         // Check for property declaration
         if trimmed.starts_with("public ") && (trimmed.contains("{ get;") || trimmed.contains("{ get ")) {
             // Extract property name
-            let parts: Vec<&str> = trimmed.split('{').next().unwrap_or("").trim().split_whitespace().collect();
+            let parts: Vec<&str> = trimmed.split('{').next().unwrap_or("").split_whitespace().collect();
             if parts.len() >= 3 {
                 let prop_name = parts.last().unwrap_or(&"").to_string();
                 let prop_type = parts[parts.len() - 2];
@@ -815,7 +814,7 @@ fn extract_entity_properties(
                 } else if prop_type.starts_with("virtual ") || trimmed.contains("virtual ") {
                     // Single navigation: public virtual Order Order { get; set; }
                     let clean_type = prop_type.replace("virtual ", "");
-                    if clean_type.chars().next().map_or(false, |c| c.is_uppercase())
+                    if clean_type.chars().next().is_some_and(|c| c.is_uppercase())
                         && !is_primitive_type(&clean_type)
                     {
                         entity.navigation_properties.push(NavigationProperty {

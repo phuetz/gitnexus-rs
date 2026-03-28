@@ -170,7 +170,7 @@ pub fn save_manifest(manifest: &FileManifest, path: &Path) -> io::Result<()> {
         fs::create_dir_all(parent)?;
     }
     let json = serde_json::to_string_pretty(manifest).map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, format!("JSON serialize error: {e}"))
+        io::Error::other(format!("JSON serialize error: {e}"))
     })?;
     fs::write(path, json)
 }
@@ -180,7 +180,7 @@ pub fn load_manifest(path: &Path) -> io::Result<Option<FileManifest>> {
     match fs::read_to_string(path) {
         Ok(json) => {
             let manifest: FileManifest = serde_json::from_str(&json).map_err(|e| {
-                io::Error::new(io::ErrorKind::Other, format!("JSON deserialize error: {e}"))
+                io::Error::other(format!("JSON deserialize error: {e}"))
             })?;
             Ok(Some(manifest))
         }

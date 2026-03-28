@@ -195,7 +195,7 @@ fn build_function_call_graph(
 
     for (source_id, targets) in raw_callees {
         let source_node = graph.get_node(source_id);
-        let is_file = source_node.map_or(false, |n| n.label == NodeLabel::File);
+        let is_file = source_node.is_some_and(|n| n.label == NodeLabel::File);
 
         if is_file {
             // Find functions defined in this file (via DEFINES edges)
@@ -203,7 +203,7 @@ fn build_function_call_graph(
                 .iter_relationships()
                 .filter(|r| r.rel_type == RelationshipType::Defines && r.source_id == *source_id)
                 .filter(|r| {
-                    graph.get_node(&r.target_id).map_or(false, |n| {
+                    graph.get_node(&r.target_id).is_some_and(|n| {
                         matches!(n.label, NodeLabel::Function | NodeLabel::Method | NodeLabel::Constructor)
                     })
                 })
@@ -212,7 +212,7 @@ fn build_function_call_graph(
 
             for func_id in &file_functions {
                 for target in targets {
-                    let is_func_target = graph.get_node(target).map_or(false, |n| {
+                    let is_func_target = graph.get_node(target).is_some_and(|n| {
                         matches!(n.label, NodeLabel::Function | NodeLabel::Method | NodeLabel::Constructor)
                     });
                     if is_func_target && func_id != target {

@@ -69,31 +69,31 @@ mod tests {
     fn test_razor_using_namespace() {
         let bindings = extract("@using MyApp.Models").unwrap();
         assert_eq!(bindings.len(), 1);
-        assert_eq!(bindings[0].local_name, "Models");
+        assert_eq!(bindings[0].local, "Models");
     }
 
     #[test]
     fn test_razor_using_alias() {
         let bindings = extract("@using VM = MyApp.ViewModels.HomeViewModel").unwrap();
         assert_eq!(bindings.len(), 1);
-        assert_eq!(bindings[0].local_name, "VM");
-        assert_eq!(bindings[0].original_name, "HomeViewModel");
+        assert_eq!(bindings[0].local, "VM");
+        assert_eq!(bindings[0].exported, "HomeViewModel");
     }
 
     #[test]
     fn test_razor_inject() {
         let bindings = extract("@inject IWeatherService Weather").unwrap();
         assert_eq!(bindings.len(), 2);
-        assert_eq!(bindings[0].local_name, "Weather");
-        assert_eq!(bindings[0].original_name, "IWeatherService");
-        assert_eq!(bindings[1].local_name, "IWeatherService");
+        assert_eq!(bindings[0].local, "Weather");
+        assert_eq!(bindings[0].exported, "IWeatherService");
+        assert_eq!(bindings[1].local, "IWeatherService");
     }
 
     #[test]
     fn test_razor_inject_qualified() {
         let bindings = extract("@inject MyApp.Services.IAuthService Auth").unwrap();
         assert_eq!(bindings.len(), 2);
-        assert_eq!(bindings[0].local_name, "Auth");
-        assert_eq!(bindings[0].original_name, "IAuthService");
+        assert_eq!(bindings[0].local, "Auth");
+        assert_eq!(bindings[0].exported, "IAuthService");
     }
 }

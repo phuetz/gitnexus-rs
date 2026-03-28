@@ -41,8 +41,7 @@ pub fn extract(import_text: &str) -> Option<Vec<NamedBinding>> {
     }
 
     // `import numpy as np` (module alias)
-    if text.starts_with("import ") {
-        let rest = &text[7..];
+    if let Some(rest) = text.strip_prefix("import ") {
         if let Some(as_pos) = rest.find(" as ") {
             let module = rest[..as_pos].trim();
             let alias = rest[as_pos + 4..].trim();

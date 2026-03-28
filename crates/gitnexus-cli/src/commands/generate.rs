@@ -8,7 +8,7 @@ use anyhow::Result;
 use colored::Colorize;
 use serde_json::{json, Value};
 use chrono;
-use log::{info, debug, warn};
+use tracing::{info, debug, warn};
 
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
@@ -167,8 +167,6 @@ fn sanitize_filename(name: &str) -> String {
         .map(|c| {
             if c.is_alphanumeric() || c == '-' || c == '_' {
                 c
-            } else if c == ' ' || c == '/' || c == '\\' {
-                '_'
             } else {
                 '_'
             }
@@ -228,7 +226,7 @@ fn generate_agents_md(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
     if !communities.is_empty() {
         writeln!(f, "## Modules / Communities")?;
         writeln!(f)?;
-        for (_id, info) in &communities {
+        for info in communities.values() {
             let member_count = info.member_ids.len();
             writeln!(f, "### {}", info.label)?;
             writeln!(f)?;
@@ -326,7 +324,7 @@ fn generate_agents_md(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
 
         // Build set of member->community mappings
         let mut member_to_community: HashMap<String, String> = HashMap::new();
-        for (_cid, info) in &communities {
+        for info in communities.values() {
             for mid in &info.member_ids {
                 member_to_community.insert(mid.clone(), info.label.clone());
             }
@@ -382,7 +380,7 @@ fn generate_wiki(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    for (_cid, info) in &communities {
+    for info in communities.values() {
         let filename = sanitize_filename(&info.label);
         let out_path = wiki_dir.join(format!("{filename}.md"));
         let mut f = std::fs::File::create(&out_path)?;
@@ -486,9 +484,8 @@ fn generate_wiki(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         }
 
         println!(
-            "  {} wiki/{}",
+            "  {} wiki/{filename}.md",
             "OK".green(),
-            format!("{filename}.md")
         );
     }
 
@@ -521,13 +518,13 @@ fn generate_skills(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
 
     // Build member->community label mapping
     let mut member_to_community: HashMap<String, String> = HashMap::new();
-    for (_, info) in &communities {
+    for info in communities.values() {
         for mid in &info.member_ids {
             member_to_community.insert(mid.clone(), info.label.clone());
         }
     }
 
-    for (_cid, info) in &communities {
+    for info in communities.values() {
         let filename = sanitize_filename(&info.label);
         let out_path = skills_dir.join(format!("{filename}.md"));
         let mut f = std::fs::File::create(&out_path)?;
@@ -679,9 +676,8 @@ fn generate_skills(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         }
 
         println!(
-            "  {} skills/{}",
+            "  {} skills/{filename}.md",
             "OK".green(),
-            format!("{filename}.md")
         );
     }
 
@@ -796,6 +792,7 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
 
 /// Generate the _index.json navigation file.
 /// `aspnet_pages` contains (id, title, filename) tuples from ASP.NET doc generation.
+#[allow(clippy::too_many_arguments)]
 fn generate_docs_index(
     docs_dir: &Path,
     repo_name: &str,
@@ -810,7 +807,7 @@ fn generate_docs_index(
 
     // Build module children
     let mut module_children = Vec::new();
-    for (_cid, info) in communities {
+    for info in communities.values() {
         let filename = sanitize_filename(&info.label);
         module_children.push(json!({
             "id": format!("mod-{}", filename),
@@ -900,12 +897,13 @@ fn generate_docs_index(
 
     let index_path = docs_dir.join("_index.json");
     let mut f = std::fs::File::create(&index_path)?;
-    writeln!(f, "{}", index.to_string())?;
+    writeln!(f, "{}", index)?;
     println!("  {} _index.json", "OK".green());
     Ok(())
 }
 
 /// Generate overview.md with architecture diagram.
+#[allow(clippy::too_many_arguments)]
 fn generate_docs_overview(
     docs_dir: &Path,
     repo_name: &str,
@@ -931,7 +929,7 @@ fn generate_docs_overview(
     writeln!(f, "## Language Distribution")?;
     writeln!(f)?;
     let mut lang_vec: Vec<_> = lang_stats.iter().collect();
-    lang_vec.sort_by(|a, b| b.1.cmp(&a.1));
+    lang_vec.sort_by(|a, b| b.1.cmp(a.1));
     for (lang, count) in lang_vec {
         writeln!(f, "- **{}**: {} files", lang, count)?;
     }
@@ -944,7 +942,7 @@ fn generate_docs_overview(
 
         // Build member->community mappings and cross-community calls
         let mut member_to_community: HashMap<String, String> = HashMap::new();
-        for (_cid, info) in communities {
+        for info in communities.values() {
             for mid in &info.member_ids {
                 member_to_community.insert(mid.clone(), info.label.clone());
             }
@@ -970,7 +968,7 @@ fn generate_docs_overview(
 
         writeln!(f, "```mermaid")?;
         writeln!(f, "graph TD")?;
-        for (_cid, info) in communities {
+        for info in communities.values() {
             let safe_id = sanitize_filename(&info.label).replace('-', "_");
             writeln!(f, "    {}[\"{}\"]", safe_id, escape_mermaid_label(&info.label))?;
         }
@@ -988,7 +986,7 @@ fn generate_docs_overview(
     // Modules
     writeln!(f, "## Modules")?;
     writeln!(f)?;
-    for (_cid, info) in communities {
+    for info in communities.values() {
         let filename = sanitize_filename(&info.label);
         writeln!(
             f,
@@ -1010,8 +1008,8 @@ fn generate_docs_architecture(
     docs_dir: &Path,
     communities: &BTreeMap<String, CommunityInfo>,
     graph: &KnowledgeGraph,
-    edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
-    file_count: usize,
+    _edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+    _file_count: usize,
     node_count: usize,
     edge_count: usize,
 ) -> Result<()> {
@@ -1035,7 +1033,7 @@ fn generate_docs_architecture(
         writeln!(f)?;
 
         let mut member_to_community: HashMap<String, String> = HashMap::new();
-        for (_cid, info) in communities {
+        for info in communities.values() {
             for mid in &info.member_ids {
                 member_to_community.insert(mid.clone(), info.label.clone());
             }
@@ -1060,7 +1058,7 @@ fn generate_docs_architecture(
 
         writeln!(f, "```mermaid")?;
         writeln!(f, "graph TD")?;
-        for (_cid, info) in communities {
+        for info in communities.values() {
             let safe_id = sanitize_filename(&info.label).replace('-', "_");
             writeln!(f, "    {}[\"{}\"]", safe_id, escape_mermaid_label(&info.label))?;
         }
@@ -1078,7 +1076,7 @@ fn generate_docs_architecture(
     // Module Details
     writeln!(f, "## Module Details")?;
     writeln!(f)?;
-    for (_cid, info) in communities {
+    for info in communities.values() {
         writeln!(f, "### {}", info.label)?;
         if let Some(desc) = &info.description {
             writeln!(f, "{}", desc)?;
@@ -1245,7 +1243,7 @@ fn generate_docs_getting_started(
     // Module Map
     writeln!(f, "## Module Map")?;
     writeln!(f)?;
-    for (_cid, info) in communities {
+    for info in communities.values() {
         let filename = sanitize_filename(&info.label);
         writeln!(f, "- **[{}](modules/{}.md)** - {} members", info.label, filename, info.member_ids.len())?;
         if let Some(desc) = &info.description {
@@ -1276,13 +1274,13 @@ fn generate_docs_modules(
 ) -> Result<()> {
     // Build member->community mapping
     let mut member_to_community: HashMap<String, String> = HashMap::new();
-    for (_cid, info) in communities {
+    for info in communities.values() {
         for mid in &info.member_ids {
             member_to_community.insert(mid.clone(), info.label.clone());
         }
     }
 
-    for (_cid, info) in communities {
+    for info in communities.values() {
         let filename = sanitize_filename(&info.label);
         let out_path = modules_dir.join(format!("{}.md", filename));
         let mut f = std::fs::File::create(&out_path)?;
@@ -1454,9 +1452,8 @@ fn generate_docs_modules(
         }
 
         println!(
-            "  {} modules/{}",
+            "  {} modules/{filename}.md",
             "OK".green(),
-            format!("{}.md", filename)
         );
     }
 

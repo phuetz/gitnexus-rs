@@ -84,37 +84,42 @@ pub fn enrich_aspnet_mvc(
     // ──────────────────────────────────────────────────────────────────────
     // Pass 1b: Parse Web.config files
     // ──────────────────────────────────────────────────────────────────────
+    let re_auth = Regex::new(r#"<authentication\s+mode="([^"]+)""#).ok();
+    let re_conn = Regex::new(r#"<add\s+name="[^"]+"\s+connectionString="#).ok();
+    let re_appsettings = Regex::new(r#"<appSettings>[\s\S]*?<add\s+key="#).ok();
+    let re_binding = Regex::new(r#"<bindingRedirect\s+oldVersion="#).ok();
+
     for entry in file_entries {
         if entry.path.ends_with("Web.config") || entry.path.ends_with("web.config") {
             let webconfig_id = format!("WebConfig:{}", entry.path);
 
             let mut description_parts = Vec::new();
 
-            if let Some(auth_match) = Regex::new(r#"<authentication\s+mode="([^"]+)""#)
-                .ok()
+            if let Some(auth_match) = re_auth
+                .as_ref()
                 .and_then(|re| re.captures(&entry.content))
             {
                 description_parts.push(format!("auth: {}", &auth_match[1]));
             }
 
-            let conn_string_count = Regex::new(r#"<add\s+name="[^"]+"\s+connectionString="#)
-                .ok()
+            let conn_string_count = re_conn
+                .as_ref()
                 .map(|re| re.find_iter(&entry.content).count())
                 .unwrap_or(0);
             if conn_string_count > 0 {
                 description_parts.push(format!("{} connection strings", conn_string_count));
             }
 
-            let app_settings_count = Regex::new(r#"<appSettings>[\s\S]*?<add\s+key="#)
-                .ok()
+            let app_settings_count = re_appsettings
+                .as_ref()
                 .map(|re| re.find_iter(&entry.content).count())
                 .unwrap_or(0);
             if app_settings_count > 0 {
                 description_parts.push(format!("{} app settings", app_settings_count));
             }
 
-            let binding_redirects = Regex::new(r#"<bindingRedirect\s+oldVersion="#)
-                .ok()
+            let binding_redirects = re_binding
+                .as_ref()
                 .map(|re| re.find_iter(&entry.content).count())
                 .unwrap_or(0);
             if binding_redirects > 0 {
@@ -158,7 +163,7 @@ pub fn enrich_aspnet_mvc(
                 let class_name = &cap[1];
                 partial_classes
                     .entry(class_name.to_string())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(entry.content.clone());
             }
         }
@@ -679,11 +684,16 @@ pub fn enrich_aspnet_mvc(
 /// Infer area name from file path: Areas/<Name>/Controllers/...
 fn infer_area_from_path(path: &str) -> Option<String> {
     let lower = path.to_lowercase().replace('\\', "/");
-    if let Some(idx) = lower.find("/areas/") {
-        let after = &path[idx + 7..]; // Keep original casing
-        return after.split('/').next().map(|s| s.to_string());
-    }
-    None
+    let (idx, offset) = if let Some(idx) = lower.find("/areas/") {
+        (idx, idx + 7)
+    } else if lower.starts_with("areas/") {
+        (0, 6)
+    } else {
+        return None;
+    };
+    let _ = idx;
+    let after = &path[offset..];
+    after.split('/').next().map(|s| s.to_string())
 }
 
 /// Infer controller and action names from view path.

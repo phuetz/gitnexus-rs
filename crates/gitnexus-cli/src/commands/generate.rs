@@ -915,6 +915,10 @@ fn generate_skills(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
 
 fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
     let docs_dir = repo_path.join(".gitnexus").join("docs");
+    // Clean old generated files to avoid stale duplicates
+    if docs_dir.exists() {
+        let _ = std::fs::remove_dir_all(&docs_dir);
+    }
     std::fs::create_dir_all(&docs_dir)?;
     let modules_dir = docs_dir.join("modules");
     std::fs::create_dir_all(&modules_dir)?;

@@ -64,6 +64,8 @@ impl SupportedLanguage {
             ".kt" | ".kts" => Some(Self::Kotlin),
             ".swift" => Some(Self::Swift),
             ".cshtml" | ".razor" => Some(Self::Razor),
+            // Non-code files needed for ASP.NET MVC analysis (EDMX, config)
+            ".edmx" | ".config" => Some(Self::CSharp),
             _ => None,
         }
     }

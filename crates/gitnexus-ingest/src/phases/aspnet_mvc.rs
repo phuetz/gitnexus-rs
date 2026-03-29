@@ -473,11 +473,15 @@ pub fn enrich_aspnet_mvc(
     ].iter().copied().collect();
 
     for (file_path, ctrl) in &all_controllers {
-        if let Ok(content) = std::fs::read_to_string(file_path) {
+        let content = file_entries.iter()
+            .find(|f| f.path == *file_path)
+            .map(|f| f.content.as_str())
+            .unwrap_or("");
+        if !content.is_empty() {
             let mut seen_filters: HashSet<String> = HashSet::new();
 
             // First pass: standard filters (high confidence 0.95)
-            for cap in filter_regex.captures_iter(&content) {
+            for cap in filter_regex.captures_iter(content) {
                 let filter_name = &cap[1];
                 let filter_params = cap.get(2).map_or("", |m| m.as_str());
 
@@ -528,7 +532,7 @@ pub fn enrich_aspnet_mvc(
 
             // Second pass: custom filters matching *Attribute, *Filter, *Action patterns
             // with lower confidence (0.7) for those not in the standard list
-            for cap in RE_CUSTOM_FILTER.captures_iter(&content) {
+            for cap in RE_CUSTOM_FILTER.captures_iter(content) {
                 let filter_name = &cap[1];
 
                 // Skip if already detected as a standard filter

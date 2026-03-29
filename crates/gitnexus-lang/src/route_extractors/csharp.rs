@@ -30,6 +30,9 @@ pub struct ControllerInfo {
     pub authorize: Option<String>,
     /// Actions discovered inside this controller
     pub actions: Vec<ActionInfo>,
+    /// Custom base controller name if not one of the standard base classes
+    /// (Controller, ApiController, AsyncController, ControllerBase, ODataController)
+    pub base_controller: Option<String>,
 }
 
 /// Information about a single controller action method.
@@ -49,6 +52,8 @@ pub struct ActionInfo {
     pub requires_auth: bool,
     /// Start line in source (1-indexed)
     pub start_line: Option<u32>,
+    /// Filter/attribute names applied to this action (e.g., "GridAction", "ValidateAntiForgeryToken")
+    pub filters: Vec<String>,
 }
 
 /// Information about an Entity Framework DbContext.
@@ -161,6 +166,7 @@ const HTTP_ATTRIBUTES: &[(&str, &str)] = &[
     ("HttpHead", "HEAD"),
     ("HttpOptions", "OPTIONS"),
     ("AcceptVerbs", "MIXED"),
+    ("GridAction", "GET"),
 ];
 
 // ─── Controller Detection ────────────────────────────────────────────────
@@ -176,6 +182,14 @@ pub fn extract_controllers(source: &str) -> Vec<ControllerInfo> {
         if let Some(class_match) = find_class_declaration(&lines, i) {
             // Check if it inherits from a controller base class
             if is_controller_class(&class_match.base_classes) {
+                // Determine custom base controller: if the base class is not
+                // one of the standard ones, record it for inheritance tracking
+                let base_controller = class_match.base_classes.iter().find(|b| {
+                    // Must look like a controller (ends with "Controller") but not be standard
+                    !CONTROLLER_BASE_CLASSES.iter().any(|cb| *b == *cb)
+                        && (b.ends_with("Controller") || b.ends_with("ControllerBase"))
+                }).cloned();
+
                 let mut controller = ControllerInfo {
                     class_name: class_match.name.clone(),
                     area_name: extract_attribute_value(&class_match.attributes, "Area"),
@@ -185,6 +199,7 @@ pub fn extract_controllers(source: &str) -> Vec<ControllerInfo> {
                         || class_match.attributes.iter().any(|a| a.starts_with("ApiController")),
                     authorize: extract_attribute_value(&class_match.attributes, "Authorize"),
                     actions: Vec::new(),
+                    base_controller,
                 };
 
                 // Extract actions from the class body
@@ -616,7 +631,7 @@ fn parse_action_method(
             || rt.starts_with("Json")
             || rt.starts_with("View")
     }) || attributes.iter().any(|a| {
-        a.starts_with("Http") || a.starts_with("Route") || a.starts_with("Action")
+        a.starts_with("Http") || a.starts_with("Route") || a.starts_with("Action") || a.starts_with("GridAction")
     });
 
     if !is_action_method {
@@ -654,6 +669,10 @@ fn parse_action_method(
     // Check for [Authorize]
     let requires_auth = attributes.iter().any(|a| a.starts_with("Authorize"));
 
+    // Collect filter/attribute names (anything ending with Attribute, Filter, or Action,
+    // plus standard filter names like Authorize, ValidateAntiForgeryToken, etc.)
+    let filters = extract_action_filters(attributes);
+
     Some(ActionInfo {
         name: method_name,
         http_method,
@@ -662,7 +681,56 @@ fn parse_action_method(
         return_type,
         requires_auth,
         start_line: Some(start_line),
+        filters,
     })
+}
+
+/// Standard filter attribute names recognized at high confidence.
+const STANDARD_FILTERS: &[&str] = &[
+    "Authorize",
+    "ValidateAntiForgeryToken",
+    "OutputCache",
+    "HandleError",
+    "AllowAnonymous",
+    "RequireHttps",
+    "ActionFilter",
+    "ExceptionFilter",
+    "ResultFilter",
+];
+
+/// Extract filter/attribute names from action method attributes.
+///
+/// Recognizes standard ASP.NET filters as well as custom attributes that follow
+/// the naming conventions `*Attribute`, `*Filter`, or `*Action` (e.g.,
+/// `[GridAction]`, `[AuthorizeADAttribute]`, `[VerifActionFilter]`).
+fn extract_action_filters(attributes: &[String]) -> Vec<String> {
+    let mut filters = Vec::new();
+    for attr in attributes {
+        let attr_name = attr.split('(').next().unwrap_or(attr).trim();
+        // Skip HTTP method attributes and Route attributes (those are not filters)
+        if attr_name.starts_with("Http")
+            || attr_name == "Route"
+            || attr_name == "RoutePrefix"
+            || attr_name == "Area"
+            || attr_name == "ApiController"
+            || attr_name == "NonAction"
+        {
+            continue;
+        }
+        // Include standard filters
+        if STANDARD_FILTERS.contains(&attr_name) {
+            filters.push(attr_name.to_string());
+            continue;
+        }
+        // Include custom attributes ending with Attribute, Filter, or Action
+        if attr_name.ends_with("Attribute")
+            || attr_name.ends_with("Filter")
+            || attr_name.ends_with("Action")
+        {
+            filters.push(attr_name.to_string());
+        }
+    }
+    filters
 }
 
 /// Determine HTTP method from attributes.
@@ -902,6 +970,18 @@ static RE_FETCH: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"fetch\s*\(\s*["']([^"']+)["']"#).unwrap()
 });
 
+/// $.getJSON('/Controller/Action', ...)
+static RE_GETJSON: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\$\.getJSON\s*\(\s*['"]/?(\w+)/(\w+)['"]"#)
+        .expect("RE_GETJSON regex must compile")
+});
+
+/// $(...).load('/Controller/Action', ...)
+static RE_LOAD: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\$\([^)]+\)\.load\s*\(\s*['"]/?(\w+)/(\w+)['"]"#)
+        .expect("RE_LOAD regex must compile")
+});
+
 /// Helper: split a URL like "/Controller/Action" or "/api/Controller/Action" into
 /// (Option<controller>, Option<action>).
 fn parse_url_segments(url: &str) -> (Option<String>, Option<String>) {
@@ -1010,6 +1090,44 @@ pub fn extract_ajax_calls(source: &str) -> Vec<AjaxCallInfo> {
                 controller_name: controller,
                 action_name: action,
                 url_pattern: url.to_string(),
+                line_number,
+            });
+            continue;
+        }
+
+        // --- $.getJSON('/Controller/Action', ...) ---
+        if let Some(cap) = RE_GETJSON.captures(line) {
+            let controller = cap.get(1).map(|m| m.as_str().to_string());
+            let action = cap.get(2).map(|m| m.as_str().to_string());
+            let url = format!(
+                "/{}/{}",
+                controller.as_deref().unwrap_or(""),
+                action.as_deref().unwrap_or("")
+            );
+            results.push(AjaxCallInfo {
+                method: "GET".to_string(),
+                controller_name: controller,
+                action_name: action,
+                url_pattern: url,
+                line_number,
+            });
+            continue;
+        }
+
+        // --- $(...).load('/Controller/Action', ...) ---
+        if let Some(cap) = RE_LOAD.captures(line) {
+            let controller = cap.get(1).map(|m| m.as_str().to_string());
+            let action = cap.get(2).map(|m| m.as_str().to_string());
+            let url = format!(
+                "/{}/{}",
+                controller.as_deref().unwrap_or(""),
+                action.as_deref().unwrap_or("")
+            );
+            results.push(AjaxCallInfo {
+                method: "GET".to_string(),
+                controller_name: controller,
+                action_name: action,
+                url_pattern: url,
                 line_number,
             });
         }
@@ -1208,7 +1326,7 @@ fn scan_component_body(
 pub struct ServiceInfo {
     /// Class name (e.g., "ProductService", "OrderRepository")
     pub class_name: String,
-    /// Detected layer type: "Service", "Repository", "Manager", or "Provider"
+    /// Detected layer type: "Service", "Repository", "Manager", "Provider", "UnitOfWork", "Factory", or "Facade"
     pub layer_type: String,
     /// Interface implemented (e.g., "IProductService")
     pub implements_interface: Option<String>,
@@ -1217,9 +1335,11 @@ pub struct ServiceInfo {
 }
 
 /// Pattern: public class FooService : IFooService
+/// Also matches names containing UnitOfWork (e.g., UnitOfWorkAide) since UnitOfWork
+/// classes in legacy codebases often have domain-specific suffixes.
 static RE_SERVICE_CLASS: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"public\s+class\s+(\w+(?:Service|Repository|Manager|Provider))\s*:\s*(I\w+)"#,
+        r#"public\s+class\s+(\w*(?:Service|Repository|Manager|Provider|UnitOfWork|Factory|Facade)\w*)\s*:\s*(I\w+)"#,
     )
     .unwrap()
 });
@@ -1245,6 +1365,12 @@ pub fn extract_services_and_repositories(source: &str) -> Vec<ServiceInfo> {
                 "Service"
             } else if class_name.ends_with("Manager") {
                 "Manager"
+            } else if class_name.contains("UnitOfWork") {
+                "UnitOfWork"
+            } else if class_name.ends_with("Factory") {
+                "Factory"
+            } else if class_name.ends_with("Facade") {
+                "Facade"
             } else {
                 "Provider"
             }
@@ -1291,6 +1417,182 @@ pub fn extract_constructor_dependencies(source: &str, class_name: &str) -> Vec<(
     }
 
     deps
+}
+
+// ─── Dependency Injection Registration Extraction ───────────────────────
+
+/// A DI container registration extracted from C# source.
+#[derive(Debug, Clone)]
+pub struct DiRegistration {
+    /// The concrete implementation type (e.g., "ProductService")
+    pub implementation_type: String,
+    /// The service/interface type (e.g., "IProductService")
+    pub service_type: String,
+    /// The DI framework: "Autofac", "Unity", "Ninject", "Microsoft"
+    pub framework: String,
+    /// Lifetime scope, if detected: "Singleton", "Transient", "Scoped", "PerRequest", etc.
+    pub lifetime: Option<String>,
+}
+
+/// Autofac: builder.RegisterType<ProductService>().As<IProductService>()
+static RE_AUTOFAC: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"RegisterType<(\w+)>\s*\(\s*\)\s*\.As<(\w+)>"#)
+        .expect("RE_AUTOFAC regex must compile")
+});
+
+/// Autofac lifetime: .SingleInstance(), .InstancePerRequest(), .InstancePerLifetimeScope(), .InstancePerDependency()
+static RE_AUTOFAC_LIFETIME: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\.(SingleInstance|InstancePerRequest|InstancePerLifetimeScope|InstancePerDependency)\s*\("#)
+        .expect("RE_AUTOFAC_LIFETIME regex must compile")
+});
+
+/// Unity: container.RegisterType<IProductService, ProductService>()
+static RE_UNITY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"RegisterType<(\w+),\s*(\w+)>"#).unwrap()
+});
+
+/// Ninject: Bind<IProductService>().To<ProductService>()
+static RE_NINJECT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"Bind<(\w+)>\s*\(\s*\)\s*\.To<(\w+)>"#).unwrap()
+});
+
+/// MS DI: services.AddScoped<IProductService, ProductService>()
+static RE_MS_DI: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?:AddScoped|AddTransient|AddSingleton)<(\w+),\s*(\w+)>"#).unwrap()
+});
+
+/// MS DI lifetime from method name
+static RE_MS_DI_LIFETIME: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(AddScoped|AddTransient|AddSingleton)<"#).unwrap()
+});
+
+/// Extract DI container registrations from C# source (Autofac, Unity, Ninject, MS DI).
+pub fn extract_di_registrations(source: &str) -> Vec<DiRegistration> {
+    let mut results = Vec::new();
+
+    for line in source.lines() {
+        // --- Autofac: RegisterType<Impl>().As<IService>() ---
+        if let Some(cap) = RE_AUTOFAC.captures(line) {
+            let impl_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let svc_type = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+
+            let lifetime = RE_AUTOFAC_LIFETIME.captures(line).map(|lc| {
+                let raw = lc.get(1).map(|m| m.as_str()).unwrap_or_default();
+                match raw {
+                    "SingleInstance" => "Singleton".to_string(),
+                    "InstancePerRequest" => "PerRequest".to_string(),
+                    "InstancePerLifetimeScope" => "Scoped".to_string(),
+                    "InstancePerDependency" => "Transient".to_string(),
+                    other => other.to_string(),
+                }
+            });
+
+            results.push(DiRegistration {
+                implementation_type: impl_type,
+                service_type: svc_type,
+                framework: "Autofac".to_string(),
+                lifetime,
+            });
+            continue;
+        }
+
+        // --- Unity: RegisterType<IService, Impl>() ---
+        if let Some(cap) = RE_UNITY.captures(line) {
+            let svc_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let impl_type = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            results.push(DiRegistration {
+                implementation_type: impl_type,
+                service_type: svc_type,
+                framework: "Unity".to_string(),
+                lifetime: None,
+            });
+            continue;
+        }
+
+        // --- Ninject: Bind<IService>().To<Impl>() ---
+        if let Some(cap) = RE_NINJECT.captures(line) {
+            let svc_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let impl_type = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            results.push(DiRegistration {
+                implementation_type: impl_type,
+                service_type: svc_type,
+                framework: "Ninject".to_string(),
+                lifetime: None,
+            });
+            continue;
+        }
+
+        // --- MS DI: AddScoped/AddTransient/AddSingleton<IService, Impl>() ---
+        if let Some(cap) = RE_MS_DI.captures(line) {
+            let svc_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let impl_type = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+
+            let lifetime = RE_MS_DI_LIFETIME.captures(line).map(|lc| {
+                let raw = lc.get(1).map(|m| m.as_str()).unwrap_or_default();
+                match raw {
+                    "AddScoped" => "Scoped".to_string(),
+                    "AddTransient" => "Transient".to_string(),
+                    "AddSingleton" => "Singleton".to_string(),
+                    other => other.to_string(),
+                }
+            });
+
+            results.push(DiRegistration {
+                implementation_type: impl_type,
+                service_type: svc_type,
+                framework: "Microsoft".to_string(),
+                lifetime,
+            });
+        }
+    }
+
+    results
+}
+
+// ─── Razor Form Action Extraction ───────────────────────────────────────
+
+/// Information about an Html.BeginForm() call in a Razor view.
+#[derive(Debug, Clone)]
+pub struct FormActionInfo {
+    /// The action name (first argument)
+    pub action_name: String,
+    /// The controller name (second argument)
+    pub controller_name: String,
+    /// HTTP method from FormMethod enum (defaults to "POST")
+    pub http_method: String,
+    /// Line number where the form was found (1-indexed)
+    pub line_number: u32,
+}
+
+/// Html.BeginForm("Action", "Controller", FormMethod.Post)
+static RE_BEGIN_FORM: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"Html\.BeginForm\s*\(\s*"(\w+)"\s*,\s*"(\w+)"(?:\s*,\s*FormMethod\.(\w+))?"#)
+        .expect("RE_BEGIN_FORM regex must compile")
+});
+
+/// Extract Html.BeginForm() calls from Razor view source.
+pub fn extract_form_actions(source: &str) -> Vec<FormActionInfo> {
+    let mut results = Vec::new();
+
+    for (line_idx, line) in source.lines().enumerate() {
+        if let Some(cap) = RE_BEGIN_FORM.captures(line) {
+            let action_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let controller_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let http_method = cap
+                .get(3)
+                .map(|m| m.as_str().to_uppercase())
+                .unwrap_or_else(|| "POST".to_string());
+
+            results.push(FormActionInfo {
+                action_name,
+                controller_name,
+                http_method,
+                line_number: (line_idx + 1) as u32,
+            });
+        }
+    }
+
+    results
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────
@@ -1745,5 +2047,108 @@ public class InvoiceManager : IInvoiceManager
         assert_eq!(deps.len(), 2);
         assert_eq!(deps[0], ("IOrderService".to_string(), "orderService".to_string()));
         assert_eq!(deps[1], ("IEmailService".to_string(), "emailService".to_string()));
+    }
+
+    // ─── New regression tests (Alise_v2 legacy gaps) ────────────────────
+
+    #[test]
+    fn test_extract_ajax_getjson() {
+        let source = r#"
+$.getJSON('/Dossiers/AfficherAides', { id: dossierId }, function(data) {
+    $('#aides-container').html(data);
+});
+"#;
+        let calls = extract_ajax_calls(source);
+        assert_eq!(calls.len(), 1);
+
+        let call = &calls[0];
+        assert_eq!(call.method, "GET");
+        assert_eq!(call.controller_name.as_deref(), Some("Dossiers"));
+        assert_eq!(call.action_name.as_deref(), Some("AfficherAides"));
+    }
+
+    #[test]
+    fn test_extract_ajax_load() {
+        let source = r#"
+$('#details-panel').load('/Parametrage/GetDetails', { id: paramId });
+"#;
+        let calls = extract_ajax_calls(source);
+        assert_eq!(calls.len(), 1);
+
+        let call = &calls[0];
+        assert_eq!(call.method, "GET");
+        assert_eq!(call.controller_name.as_deref(), Some("Parametrage"));
+        assert_eq!(call.action_name.as_deref(), Some("GetDetails"));
+    }
+
+    #[test]
+    fn test_extract_di_autofac() {
+        let source = r#"
+builder.RegisterType<ParametrageService>().As<IParametrageService>().SingleInstance();
+builder.RegisterType<DossierRepository>().As<IDossierRepository>().InstancePerRequest();
+"#;
+        let regs = extract_di_registrations(source);
+        assert_eq!(regs.len(), 2);
+
+        let first = &regs[0];
+        assert_eq!(first.implementation_type, "ParametrageService");
+        assert_eq!(first.service_type, "IParametrageService");
+        assert_eq!(first.framework, "Autofac");
+        assert_eq!(first.lifetime.as_deref(), Some("Singleton"));
+
+        let second = &regs[1];
+        assert_eq!(second.implementation_type, "DossierRepository");
+        assert_eq!(second.service_type, "IDossierRepository");
+        assert_eq!(second.framework, "Autofac");
+        assert_eq!(second.lifetime.as_deref(), Some("PerRequest"));
+    }
+
+    #[test]
+    fn test_extract_unitofwork() {
+        let source = r#"
+public class UnitOfWorkAide : IUnitOfWork
+{
+    private readonly ApplicationDbContext _context;
+
+    public UnitOfWorkAide(IApplicationDbContext context)
+    {
+        _context = (ApplicationDbContext)context;
+    }
+}
+"#;
+        let services = extract_services_and_repositories(source);
+        assert_eq!(services.len(), 1);
+
+        let uow = &services[0];
+        assert_eq!(uow.class_name, "UnitOfWorkAide");
+        assert_eq!(uow.layer_type, "UnitOfWork");
+        assert_eq!(uow.implements_interface.as_deref(), Some("IUnitOfWork"));
+    }
+
+    #[test]
+    fn test_extract_form_action() {
+        let source = r#"
+@using (Html.BeginForm("LogOff", "Home", FormMethod.Post, new { id = "logoutForm" }))
+{
+    <button type="submit">Log off</button>
+}
+
+@using (Html.BeginForm("Search", "Dossiers"))
+{
+    <input type="text" name="q" />
+}
+"#;
+        let forms = extract_form_actions(source);
+        assert_eq!(forms.len(), 2);
+
+        let logoff = &forms[0];
+        assert_eq!(logoff.action_name, "LogOff");
+        assert_eq!(logoff.controller_name, "Home");
+        assert_eq!(logoff.http_method, "POST");
+
+        let search = &forms[1];
+        assert_eq!(search.action_name, "Search");
+        assert_eq!(search.controller_name, "Dossiers");
+        assert_eq!(search.http_method, "POST"); // default when FormMethod not specified
     }
 }

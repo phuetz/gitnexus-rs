@@ -449,14 +449,30 @@ pub fn enrich_aspnet_mvc(
     // ──────────────────────────────────────────────────────────────────────
     // Pass 5b: Extract filter attributes from controllers
     // ──────────────────────────────────────────────────────────────────────
+
+    // Standard well-known ASP.NET MVC filter attributes
     let filter_regex = Regex::new(
         r"\[(?:(?:System\.Web\.Mvc\.)?)(Authorize|ValidateAntiForgeryToken|OutputCache|HandleError|AllowAnonymous|RequireHttps|ActionFilter|ExceptionFilter|ResultFilter)(?:\(([^)]*)\))?\]"
     ).expect("regex pattern must compile");
+
+    // Match any [SomethingAttribute] or [SomethingFilter] or [SomethingAction] pattern
+    // to catch custom attributes like [AuthorizeADAttribute], [VerifActionFilter], [GridAction]
+    static RE_CUSTOM_FILTER: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"\[(\w+(?:Attribute|Filter|Action))\s*(?:\([^)]*\))?\]"#)
+            .expect("RE_CUSTOM_FILTER regex must compile")
+    });
+
+    // Standard filter names for confidence check
+    let standard_filters: HashSet<&str> = [
+        "Authorize", "ValidateAntiForgeryToken", "OutputCache", "HandleError",
+        "AllowAnonymous", "RequireHttps", "ActionFilter", "ExceptionFilter", "ResultFilter",
+    ].iter().copied().collect();
 
     for (file_path, ctrl) in &all_controllers {
         if let Ok(content) = std::fs::read_to_string(file_path) {
             let mut seen_filters: HashSet<String> = HashSet::new();
 
+            // First pass: standard filters (high confidence 0.95)
             for cap in filter_regex.captures_iter(&content) {
                 let filter_name = &cap[1];
                 let filter_params = cap.get(2).map_or("", |m| m.as_str());
@@ -505,6 +521,90 @@ pub fn enrich_aspnet_mvc(
                     stats.filters += 1;
                 }
             }
+
+            // Second pass: custom filters matching *Attribute, *Filter, *Action patterns
+            // with lower confidence (0.7) for those not in the standard list
+            for cap in RE_CUSTOM_FILTER.captures_iter(&content) {
+                let filter_name = &cap[1];
+
+                // Skip if already detected as a standard filter
+                if standard_filters.contains(filter_name) || seen_filters.contains(filter_name) {
+                    continue;
+                }
+
+                let filter_id = format!("Filter:{}", filter_name);
+
+                if graph.get_node(&filter_id).is_none() {
+                    graph.add_node(GraphNode {
+                        id: filter_id.clone(),
+                        label: NodeLabel::Filter,
+                        properties: NodeProperties {
+                            name: filter_name.to_string(),
+                            file_path: String::new(),
+                            description: Some("custom_filter".to_string()),
+                            ..Default::default()
+                        },
+                    });
+                }
+
+                let ctrl_id = format!("Controller:{}:{}", file_path, ctrl.class_name);
+                graph.add_relationship(GraphRelationship {
+                    id: format!("filter:{}:{}", ctrl.class_name, filter_name),
+                    source_id: ctrl_id,
+                    target_id: filter_id,
+                    rel_type: RelationshipType::HasFilter,
+                    confidence: 0.7,
+                    reason: "custom_attribute".to_string(),
+                    step: None,
+                });
+
+                seen_filters.insert(filter_name.to_string());
+                stats.filters += 1;
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Pass 5c: Base controller inheritance tracking
+    // ──────────────────────────────────────────────────────────────────────
+    for (file_path, ctrl) in &all_controllers {
+        if let Some(base_name) = &ctrl.base_controller {
+            let ctrl_id = format!("Controller:{}:{}", file_path, ctrl.class_name);
+
+            // Create or reference the base controller node
+            let base_ctrl_id = format!("Controller:*:{}", base_name);
+
+            // Check if the base controller already exists as a known controller
+            let resolved_base_id = all_controllers
+                .iter()
+                .find(|(_, c)| c.class_name == *base_name)
+                .map(|(fp, c)| format!("Controller:{}:{}", fp, c.class_name))
+                .unwrap_or_else(|| {
+                    // Create a placeholder node for the base controller if not found
+                    if graph.get_node(&base_ctrl_id).is_none() {
+                        graph.add_node(GraphNode {
+                            id: base_ctrl_id.clone(),
+                            label: NodeLabel::Controller,
+                            properties: NodeProperties {
+                                name: base_name.clone(),
+                                file_path: String::new(),
+                                description: Some("base_controller".to_string()),
+                                ..Default::default()
+                            },
+                        });
+                    }
+                    base_ctrl_id.clone()
+                });
+
+            graph.add_relationship(GraphRelationship {
+                id: format!("inherits:{}:{}", ctrl.class_name, base_name),
+                source_id: ctrl_id,
+                target_id: resolved_base_id,
+                rel_type: RelationshipType::Inherits,
+                confidence: 1.0,
+                reason: format!("extends:{}", base_name),
+                step: None,
+            });
         }
     }
 

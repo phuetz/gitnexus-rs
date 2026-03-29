@@ -1133,9 +1133,24 @@ fn generate_docs_overview(
     let top_files_refs: Vec<&str> = top_files.iter().map(|s| s.as_str()).collect();
     write!(f, "{}", source_files_section(&top_files_refs))?;
 
-    // Description based on detected tech stack
-    let (_languages, _frameworks, _ui_libs, description) = detect_technology_stack(graph, lang_stats);
-    writeln!(f, "> {}", description)?;
+    // Business description — specific to the project type
+    let (_languages, _frameworks, _ui_libs, _auto_desc) = detect_technology_stack(graph, lang_stats);
+    let has_aspnet = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0) > 0;
+    let has_ef = label_counts.get(&NodeLabel::DbContext).copied().unwrap_or(0) > 0;
+    let has_telerik = label_counts.get(&NodeLabel::UiComponent).copied().unwrap_or(0) > 0;
+
+    if has_aspnet && has_ef {
+        writeln!(f, "> **{}** est une application de gestion métier construite en ASP.NET MVC 5 avec Entity Framework 6.", repo_name)?;
+        if has_telerik {
+            writeln!(f, "> L'interface utilise des grilles Telerik pour l'affichage et la saisie des données.")?;
+        }
+        let ext_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
+        if ext_count > 0 {
+            writeln!(f, "> Le système s'intègre avec {} services externes (WebAPI, WCF, LDAP).", ext_count)?;
+        }
+    } else {
+        writeln!(f, "> {}", _auto_desc)?;
+    }
     writeln!(f)?;
 
     // Metrics table
@@ -1161,22 +1176,30 @@ fn generate_docs_overview(
     }
     writeln!(f)?;
 
-    // Technology Stack
+    // Technology Stack as a proper table
     let (languages, frameworks, ui_libs, _desc) = detect_technology_stack(graph, lang_stats);
     writeln!(f, "## Technology Stack")?;
     writeln!(f)?;
+    writeln!(f, "| Category | Technology |")?;
+    writeln!(f, "|----------|-----------|")?;
     if !languages.is_empty() {
-        writeln!(f, "**Languages:** {}", languages.join(", "))?;
-        writeln!(f)?;
+        writeln!(f, "| **Languages** | {} |", languages.join(", "))?;
     }
     if !frameworks.is_empty() {
-        writeln!(f, "**Frameworks:** {}", frameworks.join(", "))?;
-        writeln!(f)?;
+        writeln!(f, "| **Frameworks** | {} |", frameworks.join(", "))?;
     }
     if !ui_libs.is_empty() {
-        writeln!(f, "**UI Libraries:** {}", ui_libs.join(", "))?;
-        writeln!(f)?;
+        writeln!(f, "| **UI Components** | {} |", ui_libs.join(", "))?;
     }
+    let ctx_count = label_counts.get(&NodeLabel::DbContext).copied().unwrap_or(0);
+    if ctx_count > 0 {
+        writeln!(f, "| **ORM** | Entity Framework 6 ({} DbContexts) |", ctx_count)?;
+    }
+    let ext_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
+    if ext_count > 0 {
+        writeln!(f, "| **Integrations** | {} external services (WebAPI, WCF) |", ext_count)?;
+    }
+    writeln!(f)?;
 
     // Key Subsystems
     if !communities.is_empty() {
@@ -1735,25 +1758,33 @@ fn generate_docs_modules(
     page_order.push(("../architecture".to_string(), "Architecture".to_string()));
     page_order.push(("../getting-started".to_string(), "Getting Started".to_string()));
 
-    // Community/module pages
-    let mut used_filenames: HashSet<String> = HashSet::new();
-    let mut community_filenames: Vec<(String, String)> = Vec::new(); // (filename, label)
+    // Community/module pages — DEDUPLICATE by merging communities with same sanitized label
+    let mut merged_communities: BTreeMap<String, CommunityInfo> = BTreeMap::new();
     for info in communities.values() {
         let base = sanitize_filename(&info.label);
-        let filename = if used_filenames.contains(&base) {
-            let mut candidate = base.clone();
-            let mut counter = 2;
-            while used_filenames.contains(&candidate) {
-                candidate = format!("{}_{}", base, counter);
-                counter += 1;
+        let entry = merged_communities.entry(base).or_insert_with(|| CommunityInfo {
+            label: info.label.clone(),
+            description: info.description.clone(),
+            member_ids: Vec::new(),
+            keywords: Vec::new(),
+        });
+        // Merge members from duplicate communities
+        for mid in &info.member_ids {
+            if !entry.member_ids.contains(mid) {
+                entry.member_ids.push(mid.clone());
             }
-            candidate
-        } else {
-            base
-        };
-        used_filenames.insert(filename.clone());
+        }
+        for kw in &info.keywords {
+            if !entry.keywords.contains(kw) {
+                entry.keywords.push(kw.clone());
+            }
+        }
+    }
+
+    let mut community_filenames: Vec<(String, String)> = Vec::new();
+    for (filename, info) in &merged_communities {
         community_filenames.push((filename.clone(), info.label.clone()));
-        page_order.push((filename, info.label.clone()));
+        page_order.push((filename.clone(), info.label.clone()));
     }
 
     // Controller pages
@@ -1839,9 +1870,9 @@ fn generate_docs_modules(
         footer
     }
 
-    // ─── Community / Module pages ──────────────────────────────────────
-    for (comm_idx, info) in communities.values().enumerate() {
-        let (filename, _label) = &community_filenames[comm_idx];
+    // ─── Community / Module pages (deduplicated) ──────────────────────
+    for (comm_idx, (filename, info)) in merged_communities.iter().enumerate() {
+        let _ = comm_idx;
         let out_path = modules_dir.join(format!("{}.md", filename));
         let mut f = std::fs::File::create(&out_path)?;
 

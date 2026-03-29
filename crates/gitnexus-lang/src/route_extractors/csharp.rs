@@ -1159,6 +1159,17 @@ pub struct DataSourceAction {
     pub action_name: String,
 }
 
+/// A column binding extracted from a Telerik Grid `.Columns(...)` block.
+#[derive(Debug, Clone)]
+pub struct GridColumnInfo {
+    /// The property name bound via `columns.Bound(e => e.Property)`
+    pub property_name: String,
+    /// The display title set via `.Title("...")`
+    pub title: Option<String>,
+    /// Whether the column uses `.ClientTemplate(...)`
+    pub has_client_template: bool,
+}
+
 /// Telerik or Kendo UI component extracted from a Razor view.
 #[derive(Debug, Clone)]
 pub struct TelerikComponentInfo {
@@ -1172,6 +1183,8 @@ pub struct TelerikComponentInfo {
     pub data_source_actions: Vec<DataSourceAction>,
     /// Client-side events: (event_name, js_function_name)
     pub client_events: Vec<(String, String)>,
+    /// Grid column bindings extracted from `.Columns(...)` block
+    pub columns: Vec<GridColumnInfo>,
     /// Line number where the component declaration starts (1-indexed)
     pub line_number: u32,
 }
@@ -1184,6 +1197,12 @@ static RE_KENDO: Lazy<Regex> = Lazy::new(|| {
 /// Html.Telerik().Grid() — older Telerik MVC Extensions syntax
 static RE_TELERIK: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"Html\.\s*Telerik\s*\(\s*\)\s*\.\s*(\w+)(?:<(\w+)>)?"#).unwrap()
+});
+
+/// Html.Telerik().DatePickerFor(m => m.Property) — Telerik *For helpers with lambda bindings
+static RE_TELERIK_FOR: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"Html\.\s*Telerik\s*\(\s*\)\s*\.\s*(\w+For)\s*\(\s*\w+\s*=>\s*\w+\.(\w+)"#)
+        .expect("RE_TELERIK_FOR regex must compile")
 });
 
 /// DataSource action: .Read(.Action("GetAll", "Products")) or .Create(... etc.
@@ -1203,6 +1222,18 @@ static RE_CLIENT_EVENT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"\.On(\w+)\s*\(\s*"(\w+)""#).unwrap()
 });
 
+/// Grid column binding: columns.Bound(e => e.PropertyName)
+static RE_COLUMN_BOUND: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"columns\.Bound\(\s*\w+\s*=>\s*\w+\.(\w+)\s*\)"#)
+        .expect("RE_COLUMN_BOUND regex must compile")
+});
+
+/// Grid column title: .Title("Some Title")
+static RE_COLUMN_TITLE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\.Title\(\s*"([^"]+)"\s*\)"#)
+        .expect("RE_COLUMN_TITLE regex must compile")
+});
+
 /// jQuery Kendo widget initialization: .kendoGrid(, .kendoComboBox( etc.
 static RE_KENDO_JQUERY: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"\.\s*kendo(\w+)\s*\("#).unwrap()
@@ -1220,7 +1251,7 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
         if let Some(cap) = RE_KENDO.captures(line) {
             let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
             let model_type = cap.get(2).map(|m| m.as_str().to_string());
-            let (ds_actions, events) = scan_component_body(&lines, line_idx, 50);
+            let (ds_actions, events, columns) = scan_component_body(&lines, line_idx, 50);
 
             results.push(TelerikComponentInfo {
                 component_type,
@@ -1228,6 +1259,27 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
                 model_type,
                 data_source_actions: ds_actions,
                 client_events: events,
+                columns,
+                line_number,
+            });
+            continue;
+        }
+
+        // --- Html.Telerik().DatePickerFor(m => m.Property) etc. ---
+        // Try the more specific *For regex first to capture the bound property name
+        if let Some(cap) = RE_TELERIK_FOR.captures(line) {
+            let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let bound_property = cap.get(2).map(|m| m.as_str().to_string());
+            let (ds_actions, events, columns) = scan_component_body(&lines, line_idx, 50);
+
+            // Store the bound property as the model_type for *For helpers
+            results.push(TelerikComponentInfo {
+                component_type,
+                vendor: "Telerik".to_string(),
+                model_type: bound_property,
+                data_source_actions: ds_actions,
+                client_events: events,
+                columns,
                 line_number,
             });
             continue;
@@ -1237,7 +1289,7 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
         if let Some(cap) = RE_TELERIK.captures(line) {
             let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
             let model_type = cap.get(2).map(|m| m.as_str().to_string());
-            let (ds_actions, events) = scan_component_body(&lines, line_idx, 50);
+            let (ds_actions, events, columns) = scan_component_body(&lines, line_idx, 50);
 
             results.push(TelerikComponentInfo {
                 component_type,
@@ -1245,6 +1297,7 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
                 model_type,
                 data_source_actions: ds_actions,
                 client_events: events,
+                columns,
                 line_number,
             });
             continue;
@@ -1253,7 +1306,7 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
         // --- jQuery: $(...).kendoGrid({ ... }) ---
         if let Some(cap) = RE_KENDO_JQUERY.captures(line) {
             let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let (ds_actions, events) = scan_component_body(&lines, line_idx, 50);
+            let (ds_actions, events, columns) = scan_component_body(&lines, line_idx, 50);
 
             results.push(TelerikComponentInfo {
                 component_type,
@@ -1261,6 +1314,7 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
                 model_type: None,
                 data_source_actions: ds_actions,
                 client_events: events,
+                columns,
                 line_number,
             });
         }
@@ -1269,17 +1323,20 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
     results
 }
 
-/// Scan up to `lookahead` lines after a component declaration for DataSource actions and events.
+/// Scan up to `lookahead` lines after a component declaration for DataSource actions, events, and grid columns.
 fn scan_component_body(
     lines: &[&str],
     start: usize,
     lookahead: usize,
-) -> (Vec<DataSourceAction>, Vec<(String, String)>) {
+) -> (Vec<DataSourceAction>, Vec<(String, String)>, Vec<GridColumnInfo>) {
     let mut ds_actions = Vec::new();
     let mut events = Vec::new();
+    let mut columns = Vec::new();
     let end = (start + lookahead).min(lines.len());
 
-    for &line in &lines[start..end] {
+    for i in start..end {
+        let line = lines[i];
+
         // Kendo syntax: .Read(read => read.Action("Action", "Controller"))
         if let Some(cap) = RE_DS_ACTION.captures(line) {
             let operation = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
@@ -1314,9 +1371,34 @@ fn scan_component_body(
             let handler = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
             events.push((event_name, handler));
         }
+
+        // Grid column bindings: columns.Bound(e => e.Property).Title("...").ClientTemplate(...)
+        if let Some(cap) = RE_COLUMN_BOUND.captures(line) {
+            let property_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+
+            // Check same line and next line for .Title("...") and .ClientTemplate(
+            let context = if i + 1 < end {
+                format!("{} {}", line, lines[i + 1])
+            } else {
+                line.to_string()
+            };
+
+            let title = RE_COLUMN_TITLE
+                .captures(&context)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string());
+
+            let has_client_template = context.contains(".ClientTemplate(");
+
+            columns.push(GridColumnInfo {
+                property_name,
+                title,
+                has_client_template,
+            });
+        }
     }
 
-    (ds_actions, events)
+    (ds_actions, events, columns)
 }
 
 // ─── Service / Repository Extraction ────────────────────────────────────
@@ -1587,6 +1669,51 @@ pub fn extract_form_actions(source: &str) -> Vec<FormActionInfo> {
                 action_name,
                 controller_name,
                 http_method,
+                line_number: (line_idx + 1) as u32,
+            });
+        }
+    }
+
+    results
+}
+
+// ─── Partial View Reference Extraction ─────────────────────────────────
+
+/// A reference to a partial view or child action in a Razor view.
+#[derive(Debug, Clone)]
+pub struct PartialReference {
+    /// The partial view or action name (e.g., "_VuePrestationGrpAide")
+    pub partial_name: String,
+    /// The controller name (for `Html.Action` / `Html.RenderAction`), if specified
+    pub controller_name: Option<String>,
+    /// The helper method type: "Partial", "RenderPartial", "Action", or "RenderAction"
+    pub helper_type: String,
+    /// Line number where the reference was found (1-indexed)
+    pub line_number: u32,
+}
+
+/// Html.Partial("Name"), Html.RenderPartial("Name"), Html.Action("Name", "Controller"),
+/// Html.RenderAction("Name", "Controller")
+static RE_PARTIAL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"Html\.\s*(Partial|RenderPartial|Action|RenderAction)\s*\(\s*"(\w+)"(?:\s*,\s*"(\w+)")?"#)
+        .expect("RE_PARTIAL regex must compile")
+});
+
+/// Extract `@Html.Partial(...)`, `@Html.RenderPartial(...)`, `@Html.Action(...)`,
+/// and `@Html.RenderAction(...)` references from Razor view source.
+pub fn extract_partial_references(source: &str) -> Vec<PartialReference> {
+    let mut results = Vec::new();
+
+    for (line_idx, line) in source.lines().enumerate() {
+        for cap in RE_PARTIAL.captures_iter(line) {
+            let helper_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let partial_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let controller_name = cap.get(3).map(|m| m.as_str().to_string());
+
+            results.push(PartialReference {
+                partial_name,
+                controller_name,
+                helper_type,
                 line_number: (line_idx + 1) as u32,
             });
         }
@@ -2150,5 +2277,65 @@ public class UnitOfWorkAide : IUnitOfWork
         assert_eq!(search.action_name, "Search");
         assert_eq!(search.controller_name, "Dossiers");
         assert_eq!(search.http_method, "POST"); // default when FormMethod not specified
+    }
+
+    // ─── Grid column extraction tests ───────────────────────────────────
+
+    #[test]
+    fn test_extract_grid_columns() {
+        let source = r#"
+@(Html.Telerik().Grid<Export>()
+    .Name("GridExports")
+    .Columns(columns => {
+        columns.Bound(e => e.DateCréation).Title("Date export").Format("{0:dd/MM/yyyy}");
+        columns.Bound(e => e.NomExport).Title("Nom du fichier");
+        columns.Bound(e => e.Etat).Title("État");
+        columns.Bound(e => e.IdExport).ClientTemplate("...").Title("Action");
+    })
+)
+"#;
+        let components = extract_telerik_components(source);
+        assert_eq!(components[0].columns.len(), 4);
+        assert_eq!(components[0].columns[0].property_name, "DateCréation");
+        assert_eq!(components[0].columns[0].title.as_deref(), Some("Date export"));
+        assert!(components[0].columns[3].has_client_template);
+    }
+
+    // ─── Partial reference extraction tests ─────────────────────────────
+
+    #[test]
+    fn test_extract_partial_references() {
+        let source = r#"
+@Html.Partial("_VuePrestationGrpAide")
+@{ Html.RenderPartial("_VueListeDossier"); }
+@Html.Action("GetDetails", "Parametrage")
+"#;
+        let refs = extract_partial_references(source);
+        assert_eq!(refs.len(), 3);
+        assert_eq!(refs[0].partial_name, "_VuePrestationGrpAide");
+        assert_eq!(refs[0].helper_type, "Partial");
+        assert_eq!(refs[2].controller_name.as_deref(), Some("Parametrage"));
+    }
+
+    // ─── Telerik *For helper tests ──────────────────────────────────────
+
+    #[test]
+    fn test_telerik_for_regex() {
+        let line = r#"@(Html.Telerik().DatePickerFor(m => m.DateNaissance)"#;
+        let cap = RE_TELERIK_FOR.captures(line);
+        assert!(cap.is_some(), "RE_TELERIK_FOR should match DatePickerFor");
+        let cap = cap.unwrap();
+        assert_eq!(cap.get(1).unwrap().as_str(), "DatePickerFor");
+        assert_eq!(cap.get(2).unwrap().as_str(), "DateNaissance");
+    }
+
+    #[test]
+    fn test_telerik_dropdownlistfor_regex() {
+        let line = r#"@(Html.Telerik().DropDownListFor(m => m.TypeDossier)"#;
+        let cap = RE_TELERIK_FOR.captures(line);
+        assert!(cap.is_some(), "RE_TELERIK_FOR should match DropDownListFor");
+        let cap = cap.unwrap();
+        assert_eq!(cap.get(1).unwrap().as_str(), "DropDownListFor");
+        assert_eq!(cap.get(2).unwrap().as_str(), "TypeDossier");
     }
 }

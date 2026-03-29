@@ -666,4 +666,60 @@ mod tests {
         };
         assert_eq!(cardinality_str(&assoc), "0..1:*");
     }
+
+    #[test]
+    fn test_parse_entity_with_basetype() {
+        let edmx = r#"<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="3.0" xmlns:edmx="http://schemas.microsoft.com/ado/2009/11/edmx">
+  <edmx:Runtime>
+    <edmx:ConceptualModels>
+      <Schema Namespace="MyApp.Models" Alias="Self" xmlns="http://schemas.microsoft.com/ado/2009/11/edm">
+        <EntityContainer Name="MyAppContext">
+          <EntitySet Name="People" EntityType="Self.PersonEntity" />
+          <EntitySet Name="Employees" EntityType="Self.EmployeeEntity" />
+        </EntityContainer>
+
+        <EntityType Name="PersonEntity">
+          <Key>
+            <PropertyRef Name="PersonId" />
+          </Key>
+          <Property Name="PersonId" Type="Int32" Nullable="false" />
+          <Property Name="Name" Type="String" MaxLength="200" />
+        </EntityType>
+
+        <EntityType Name="EmployeeEntity" BaseType="Self.PersonEntity">
+          <Property Name="EmployeeId" Type="Int32" Nullable="false" />
+          <Property Name="Department" Type="String" MaxLength="100" />
+        </EntityType>
+
+        <EntityType Name="ManagerEntity" BaseType="Self.EmployeeEntity" Abstract="true">
+          <Property Name="Level" Type="Int32" Nullable="false" />
+        </EntityType>
+      </Schema>
+    </edmx:ConceptualModels>
+  </edmx:Runtime>
+</edmx:Edmx>"#;
+
+        let model = parse_edmx(edmx);
+
+        // PersonEntity has no base type
+        let person = model.entity_types.iter().find(|e| e.name == "PersonEntity").unwrap();
+        assert!(person.base_type.is_none());
+        assert!(!person.is_abstract);
+
+        // EmployeeEntity inherits from Self.PersonEntity
+        let employee = model.entity_types.iter().find(|e| e.name == "EmployeeEntity").unwrap();
+        assert_eq!(employee.base_type.as_deref(), Some("Self.PersonEntity"));
+        assert!(!employee.is_abstract);
+        // Should have its own properties (not inherited ones)
+        assert!(employee.properties.iter().any(|p| p.name == "EmployeeId"));
+
+        // ManagerEntity inherits from Self.EmployeeEntity and is abstract
+        let manager = model.entity_types.iter().find(|e| e.name == "ManagerEntity").unwrap();
+        assert_eq!(manager.base_type.as_deref(), Some("Self.EmployeeEntity"));
+        assert!(manager.is_abstract);
+
+        // clean_entity_type_name should strip the namespace prefix
+        assert_eq!(clean_entity_type_name("Self.PersonEntity"), "PersonEntity");
+    }
 }

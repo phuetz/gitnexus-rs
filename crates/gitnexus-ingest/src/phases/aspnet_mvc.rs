@@ -764,16 +764,39 @@ pub fn enrich_aspnet_mvc(
                 step: None,
             });
         }
+
+        // Pass 7b: Create Inherits relationships from EDMX BaseType attributes
+        for et in &model.entity_types {
+            if let Some(base_type_ref) = &et.base_type {
+                let child_name = &et.name;
+                let parent_name = edmx::clean_entity_type_name(base_type_ref);
+
+                let child_id = entity_file_map
+                    .get(child_name)
+                    .cloned()
+                    .unwrap_or_else(|| format!("DbEntity:*:{}", child_name));
+                let parent_id = entity_file_map
+                    .get(parent_name)
+                    .cloned()
+                    .unwrap_or_else(|| format!("DbEntity:*:{}", parent_name));
+
+                graph.add_relationship(GraphRelationship {
+                    id: format!("edmx_inherits:{}:{}", child_name, parent_name),
+                    source_id: child_id,
+                    target_id: parent_id,
+                    rel_type: RelationshipType::Inherits,
+                    confidence: 1.0,
+                    reason: format!("edmx_base_type:{}", base_type_ref),
+                    step: None,
+                });
+            }
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────
     // Pass 8: jQuery/AJAX → Controller Action mapping
     // ──────────────────────────────────────────────────────────────────────
 
-    // Regex for extracting inline <script> blocks
-    static RE_SCRIPT_BLOCK: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?si)<script[^>]*>(.+?)</script>").unwrap()
-    });
     // Regex for extracting <script src="..."> references
     static RE_SCRIPT_SRC: Lazy<Regex> = Lazy::new(|| {
         Regex::new(r#"(?i)<script[^>]+src\s*=\s*["']([^"']+)["']"#).unwrap()
@@ -864,73 +887,106 @@ pub fn enrich_aspnet_mvc(
         }
     }
 
-    // 8b: Process inline <script> blocks in .cshtml view files
+    // Regex for @Url.Action("Action", "Controller") patterns in Razor views
+    static RE_URL_ACTION: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"Url\.Action\s*\(\s*"(\w+)"\s*,\s*"(\w+)""#)
+            .expect("RE_URL_ACTION regex must compile")
+    });
+
+    // 8b: Process .cshtml view files — scan FULL content (not just <script> blocks)
+    // This catches AJAX calls in inline event handlers, Razor blocks, etc.
     for entry in &view_files {
         let view_id = format!("View:{}", entry.path);
 
-        // Extract inline <script>...</script> blocks
-        for script_cap in RE_SCRIPT_BLOCK.captures_iter(&entry.content) {
-            let block = script_cap.get(1).map(|m| m.as_str()).unwrap_or("");
-            let ajax_calls = extract_ajax_calls(block);
+        // Scan the full file content for AJAX calls
+        let ajax_calls = extract_ajax_calls(&entry.content);
+        let mut seen_lines: HashSet<u32> = HashSet::new();
 
-            for call in &ajax_calls {
-                let ajax_id = format!(
-                    "AjaxCall:{}:inline:{}:{}",
-                    entry.path, call.line_number, call.url_pattern
-                );
+        for call in &ajax_calls {
+            // Deduplicate by line number
+            if !seen_lines.insert(call.line_number) {
+                continue;
+            }
 
-                graph.add_node(GraphNode {
-                    id: ajax_id.clone(),
-                    label: NodeLabel::AjaxCall,
-                    properties: NodeProperties {
-                        name: format!(
-                            "{} {}",
-                            call.method,
-                            call.action_name.as_deref().unwrap_or(&call.url_pattern)
+            let ajax_id = format!(
+                "AjaxCall:{}:inline:{}:{}",
+                entry.path, call.line_number, call.url_pattern
+            );
+
+            graph.add_node(GraphNode {
+                id: ajax_id.clone(),
+                label: NodeLabel::AjaxCall,
+                properties: NodeProperties {
+                    name: format!(
+                        "{} {}",
+                        call.method,
+                        call.action_name.as_deref().unwrap_or(&call.url_pattern)
+                    ),
+                    file_path: entry.path.clone(),
+                    start_line: Some(call.line_number),
+                    http_method: Some(call.method.clone()),
+                    ajax_url: Some(call.url_pattern.clone()),
+                    ajax_method: Some(call.method.clone()),
+                    ..Default::default()
+                },
+            });
+
+            // Link View → AjaxCall
+            graph.add_relationship(GraphRelationship {
+                id: format!("view_ajax:{}:{}:{}", entry.path, call.line_number, call.url_pattern),
+                source_id: view_id.clone(),
+                target_id: ajax_id.clone(),
+                rel_type: RelationshipType::CallsAction,
+                confidence: 0.8,
+                reason: "inline_script_ajax".to_string(),
+                step: None,
+            });
+
+            // Try to link AjaxCall → ControllerAction
+            if let (Some(ctrl_name), Some(action_name)) =
+                (&call.controller_name, &call.action_name)
+            {
+                if let Some((action_node_id, confidence)) =
+                    resolve_action_node_id(&all_controllers, ctrl_name, action_name)
+                {
+                    graph.add_relationship(GraphRelationship {
+                        id: format!(
+                            "ajax_action:{}:{}:{}",
+                            entry.path, ctrl_name, action_name
                         ),
-                        file_path: entry.path.clone(),
-                        start_line: Some(call.line_number),
-                        http_method: Some(call.method.clone()),
-                        ajax_url: Some(call.url_pattern.clone()),
-                        ajax_method: Some(call.method.clone()),
-                        ..Default::default()
-                    },
-                });
+                        source_id: ajax_id.clone(),
+                        target_id: action_node_id,
+                        rel_type: RelationshipType::CallsAction,
+                        confidence,
+                        reason: format!("inline_ajax_url:{}", call.url_pattern),
+                        step: None,
+                    });
+                }
+            }
 
-                // Link View → AjaxCall
+            stats.ajax_calls += 1;
+        }
+
+        // 8b-ii: Detect @Url.Action("Action", "Controller") in Razor views
+        for cap in RE_URL_ACTION.captures_iter(&entry.content) {
+            let action_name = &cap[1];
+            let controller_name = &cap[2];
+
+            if let Some((action_node_id, confidence)) =
+                resolve_action_node_id(&all_controllers, controller_name, action_name)
+            {
                 graph.add_relationship(GraphRelationship {
-                    id: format!("view_ajax:{}:{}:{}", entry.path, call.line_number, call.url_pattern),
+                    id: format!(
+                        "url_action:{}:{}:{}",
+                        entry.path, controller_name, action_name
+                    ),
                     source_id: view_id.clone(),
-                    target_id: ajax_id.clone(),
+                    target_id: action_node_id,
                     rel_type: RelationshipType::CallsAction,
-                    confidence: 0.8,
-                    reason: "inline_script_ajax".to_string(),
+                    confidence: confidence * 0.95, // slightly lower than direct AJAX
+                    reason: format!("Url.Action(\"{}\", \"{}\")", action_name, controller_name),
                     step: None,
                 });
-
-                // Try to link AjaxCall → ControllerAction
-                if let (Some(ctrl_name), Some(action_name)) =
-                    (&call.controller_name, &call.action_name)
-                {
-                    if let Some((action_node_id, confidence)) =
-                        resolve_action_node_id(&all_controllers, ctrl_name, action_name)
-                    {
-                        graph.add_relationship(GraphRelationship {
-                            id: format!(
-                                "ajax_action:{}:{}:{}",
-                                entry.path, ctrl_name, action_name
-                            ),
-                            source_id: ajax_id.clone(),
-                            target_id: action_node_id,
-                            rel_type: RelationshipType::CallsAction,
-                            confidence,
-                            reason: format!("inline_ajax_url:{}", call.url_pattern),
-                            step: None,
-                        });
-                    }
-                }
-
-                stats.ajax_calls += 1;
             }
         }
 

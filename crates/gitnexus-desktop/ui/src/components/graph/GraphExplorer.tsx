@@ -223,8 +223,13 @@ export function GraphExplorer() {
     const canvasW = 160;
     const canvasH = 120;
 
-    // Clear canvas
-    ctx.fillStyle = "var(--bg-2)";
+    // Resolve CSS variables via getComputedStyle (canvas 2D context cannot use var())
+    const computedStyle = getComputedStyle(document.documentElement);
+    const bgColor = computedStyle.getPropertyValue("--bg-2").trim() || "#1a1b26";
+    const accentBorder = computedStyle.getPropertyValue("--accent-border").trim() || "#7aa2f7";
+
+    // Clear canvas with resolved background color
+    ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, canvasW, canvasH);
 
     // Get graph bounds
@@ -235,33 +240,35 @@ export function GraphExplorer() {
     const graphW = bbox.w;
     const graphH = bbox.h;
     if (graphW === 0 || graphH === 0) return;
-    const scale = Math.min(
-      canvasW / graphW,
-      canvasH / graphH
-    );
 
-    // Draw nodes as dots
+    // Add padding so dots don't sit on the very edge
+    const padding = 8;
+    const innerW = canvasW - padding * 2;
+    const innerH = canvasH - padding * 2;
+    const scale = Math.min(innerW / graphW, innerH / graphH);
+
+    // Draw nodes as colored dots
     cy.nodes().forEach((node) => {
-      const x = (node.position("x") - bbox.x1) * scale;
-      const y = (node.position("y") - bbox.y1) * scale;
+      const x = padding + (node.position("x") - bbox.x1) * scale;
+      const y = padding + (node.position("y") - bbox.y1) * scale;
       const color = node.data("color") || "#565f89";
 
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+      ctx.arc(x, y, 2, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // Draw viewport rectangle
+    // Draw viewport rectangle showing the current visible area
     const extent = cy.extent();
-    const vpX = (extent.x1 - bbox.x1) * scale;
-    const vpY = (extent.y1 - bbox.y1) * scale;
+    const vpX = padding + (extent.x1 - bbox.x1) * scale;
+    const vpY = padding + (extent.y1 - bbox.y1) * scale;
     const vpW = (extent.x2 - extent.x1) * scale;
     const vpH = (extent.y2 - extent.y1) * scale;
 
-    ctx.strokeStyle = "var(--accent-border)";
-    ctx.lineWidth = 1;
-    ctx.fillStyle = "rgba(122, 162, 247, 0.15)";
+    ctx.strokeStyle = accentBorder;
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = "rgba(122, 162, 247, 0.12)";
     ctx.fillRect(vpX, vpY, vpW, vpH);
     ctx.strokeRect(vpX, vpY, vpW, vpH);
   }, []);
@@ -272,20 +279,21 @@ export function GraphExplorer() {
     if (!canvas || !cy) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
 
     const elements = cy.elements();
+    if (elements.length === 0) return;
     const bbox = elements.boundingBox();
     const canvasW = 160;
     const canvasH = 120;
-    const scale = Math.min(
-      canvasW / bbox.w,
-      canvasH / bbox.h
-    );
+    const padding = 8;
+    const innerW = canvasW - padding * 2;
+    const innerH = canvasH - padding * 2;
+    const scale = Math.min(innerW / bbox.w, innerH / bbox.h);
 
-    const graphX = bbox.x1 + x / scale;
-    const graphY = bbox.y1 + y / scale;
+    const graphX = bbox.x1 + (clickX - padding) / scale;
+    const graphY = bbox.y1 + (clickY - padding) / scale;
 
     cy.pan({
       x: cy.width() / 2 - graphX,
@@ -1028,7 +1036,7 @@ export function GraphExplorer() {
             bottom: "12px",
             right: "12px",
             borderRadius: "var(--radius-md)",
-            backgroundColor: "rgba(14, 17, 24, 0.92)",
+            backgroundColor: "var(--bg-2)",
             backdropFilter: "blur(12px)",
             border: "1px solid var(--surface-border)",
             padding: "8px 12px",
@@ -1074,27 +1082,31 @@ export function GraphExplorer() {
               <div
                 className="space-y-1 max-h-[calc(8*28px)] overflow-y-auto"
                 style={{
-                  maxWidth: "150px",
+                  maxWidth: "180px",
                 }}
               >
                 {data &&
                   data.nodes.length > 0 &&
                   (() => {
-                    const nodeTypes = new Map<string, boolean>();
+                    // Count nodes per label type
+                    const labelCounts = new Map<string, number>();
                     data.nodes.forEach((node) => {
-                      nodeTypes.set(node.label, true);
+                      labelCounts.set(node.label, (labelCounts.get(node.label) || 0) + 1);
                     });
 
-                    const sortedTypes = Array.from(nodeTypes.keys()).sort();
+                    // Sort by count descending, then alphabetically
+                    const sortedEntries = Array.from(labelCounts.entries()).sort(
+                      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+                    );
 
-                    return sortedTypes.map((type) => (
+                    return sortedEntries.map(([type, count]) => (
                       <div
                         key={type}
                         className="flex items-center gap-2"
                         style={{ padding: "4px 0" }}
                       >
                         <span
-                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                           style={{
                             backgroundColor:
                               LABEL_COLORS[type] || "#565f89",
@@ -1103,10 +1115,18 @@ export function GraphExplorer() {
                         <span
                           className="text-[11px] truncate"
                           style={{
-                            color: "var(--text-2)",
+                            color: "var(--text-1)",
                           }}
                         >
                           {type}
+                        </span>
+                        <span
+                          className="text-[10px] ml-auto flex-shrink-0"
+                          style={{
+                            color: "var(--text-3)",
+                          }}
+                        >
+                          {count}
                         </span>
                       </div>
                     ));

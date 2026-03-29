@@ -33,38 +33,74 @@ function slugify(text: string): string {
     .replace(/^-|-$/g, "");
 }
 
-// Initialize mermaid with dark theme matching Obsidian Observatory
-mermaid.initialize({
-  startOnLoad: false,
-  securityLevel: "strict",
-  theme: "dark",
-  themeVariables: {
-    darkMode: true,
-    background: "#0e1118",
-    primaryColor: "#1c2233",
-    primaryTextColor: "#e2e8f0",
-    primaryBorderColor: "#5b9cf6",
-    secondaryColor: "#252b3b",
-    secondaryTextColor: "#c1cad8",
-    tertiaryColor: "#1c212d",
-    lineColor: "#5b9cf6",
-    textColor: "#c1cad8",
-    mainBkg: "#1c2233",
-    nodeBorder: "#5b9cf6",
-    clusterBkg: "#151922",
-    clusterBorder: "rgba(148, 163, 194, 0.15)",
-    titleColor: "#e2e8f0",
-    edgeLabelBackground: "#151922",
-    nodeTextColor: "#e2e8f0",
-  },
-  flowchart: {
-    htmlLabels: true,
-    curve: "basis",
-    padding: 12,
-  },
-  fontFamily: "'DM Sans', system-ui, sans-serif",
-  fontSize: 13,
-});
+/** Return the effective theme ("dark" or "light") by reading the data-theme attribute. */
+function getEffectiveTheme(): "dark" | "light" {
+  const attr = document.documentElement.getAttribute("data-theme");
+  if (attr === "light") return "light";
+  if (attr === "system") {
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  return "dark";
+}
+
+/** (Re-)initialize mermaid for the given colour scheme. */
+function initMermaid(colorScheme: "dark" | "light") {
+  const isDark = colorScheme === "dark";
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    theme: isDark ? "dark" : "default",
+    themeVariables: isDark
+      ? {
+          darkMode: true,
+          background: "#0e1118",
+          primaryColor: "#1c2233",
+          primaryTextColor: "#e2e8f0",
+          primaryBorderColor: "#5b9cf6",
+          secondaryColor: "#252b3b",
+          secondaryTextColor: "#c1cad8",
+          tertiaryColor: "#1c212d",
+          lineColor: "#5b9cf6",
+          textColor: "#c1cad8",
+          mainBkg: "#1c2233",
+          nodeBorder: "#5b9cf6",
+          clusterBkg: "#151922",
+          clusterBorder: "rgba(148, 163, 194, 0.15)",
+          titleColor: "#e2e8f0",
+          edgeLabelBackground: "#151922",
+          nodeTextColor: "#e2e8f0",
+        }
+      : {
+          darkMode: false,
+          background: "#f0f2f7",
+          primaryColor: "#dde1eb",
+          primaryTextColor: "#1a1d26",
+          primaryBorderColor: "#4a85e0",
+          secondaryColor: "#e8ebf2",
+          secondaryTextColor: "#2e3341",
+          tertiaryColor: "#f0f2f7",
+          lineColor: "#4a85e0",
+          textColor: "#2e3341",
+          mainBkg: "#dde1eb",
+          nodeBorder: "#4a85e0",
+          clusterBkg: "#e8ebf2",
+          clusterBorder: "rgba(60, 70, 100, 0.12)",
+          titleColor: "#1a1d26",
+          edgeLabelBackground: "#f0f2f7",
+          nodeTextColor: "#1a1d26",
+        },
+    flowchart: {
+      htmlLabels: true,
+      curve: "basis",
+      padding: 12,
+    },
+    fontFamily: "'DM Sans', system-ui, sans-serif",
+    fontSize: 13,
+  });
+}
+
+// Perform initial mermaid setup
+initMermaid(getEffectiveTheme());
 
 // ─── Props ──────────────────────────────────────────────────────────
 
@@ -88,6 +124,8 @@ function MermaidDiagram({ chart }: { chart: string }) {
 
     async function render() {
       try {
+        // Re-initialize mermaid with the current theme before each render
+        initMermaid(getEffectiveTheme());
         const { svg: rendered } = await mermaid.render(mermaidId, chart.trim());
         if (!cancelled) {
           setSvg(rendered);

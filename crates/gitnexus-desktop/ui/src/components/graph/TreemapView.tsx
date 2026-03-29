@@ -265,8 +265,8 @@ export function TreemapView({ data, isLoading }: TreemapViewProps) {
               overflow: "hidden",
               transition: "opacity 0.12s ease, box-shadow 0.12s ease",
               boxShadow: isHovered
-                ? `0 0 0 2px var(--text-0), inset 0 0 0 1px rgba(255,255,255,0.2)`
-                : "inset 0 0 0 1px rgba(0,0,0,0.15)",
+                ? `0 0 0 2px var(--text-0), inset 0 0 0 1px var(--surface-border)`
+                : "inset 0 0 0 1px var(--surface-border)",
               display: "flex",
               alignItems: "flex-end",
               padding: showLabel ? 4 : 0,
@@ -312,9 +312,9 @@ export function TreemapView({ data, isLoading }: TreemapViewProps) {
                 style={{
                   fontSize: Math.min(11, Math.max(9, w / 12)),
                   lineHeight: 1.2,
-                  color: "rgba(255,255,255,0.92)",
+                  color: "#fff",
                   fontWeight: 500,
-                  textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+                  textShadow: "0 1px 3px rgba(0,0,0,0.5)",
                   maxWidth: "100%",
                   overflow: "hidden",
                   textOverflow: "ellipsis",

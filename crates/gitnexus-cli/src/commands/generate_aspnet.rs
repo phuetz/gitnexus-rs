@@ -170,15 +170,17 @@ fn generate_controllers_doc(
 
     for ctrl in controllers {
         let area = ctrl.properties.area_name.as_deref().unwrap_or("");
-        let route = ctrl.properties.route_template.as_deref().unwrap_or("(convention)");
-
         writeln!(f, "## {}", ctrl.properties.name)?;
         writeln!(f)?;
-        writeln!(f, "- **File:** `{}`", ctrl.properties.file_path)?;
+        writeln!(f, "- **Fichier :** `{}`", ctrl.properties.file_path)?;
         if !area.is_empty() {
-            writeln!(f, "- **Area:** {}", area)?;
+            writeln!(f, "- **Area :** {}", area)?;
         }
-        writeln!(f, "- **Route Prefix:** `{}`", route)?;
+        if let Some(route) = ctrl.properties.route_template.as_deref() {
+            if !route.is_empty() && route != "(convention)" {
+                writeln!(f, "- **Route :** `{}`", route)?;
+            }
+        }
         writeln!(f)?;
 
         // Find actions for this controller

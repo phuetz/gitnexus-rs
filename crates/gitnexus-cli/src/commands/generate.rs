@@ -258,7 +258,7 @@ fn extract_params_linked(params_str: &str, known_types: &HashSet<String>) -> Str
                 let param_name = parts[parts.len() - 1];
                 // Check if the type is a known entity/model → make it a link
                 if known_types.contains(type_name) {
-                    format!("[`{}`](./data-alisev2entities.md) {}", type_name, param_name)
+                    format!("[`{}`](./modules/data-alisev2entities.md) {}", type_name, param_name)
                 } else {
                     format!("`{}` {}", type_name, param_name)
                 }

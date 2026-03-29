@@ -18,6 +18,7 @@ use gitnexus_lang::route_extractors::csharp::{
     extract_ajax_calls, extract_telerik_components,
     extract_services_and_repositories, extract_constructor_dependencies,
     extract_tracing_info, extract_external_service_calls,
+    extract_partial_references, extract_form_actions,
 };
 use gitnexus_lang::route_extractors::edmx;
 
@@ -1045,6 +1046,15 @@ pub fn enrich_aspnet_mvc(
                 entry.path, comp.component_type, comp.line_number
             );
 
+            let col_desc = if comp.columns.is_empty() {
+                None
+            } else {
+                Some(comp.columns.iter().map(|c| {
+                    let title = c.title.as_deref().unwrap_or(&c.property_name);
+                    if c.has_client_template { format!("{}*", title) } else { title.to_string() }
+                }).collect::<Vec<_>>().join(", "))
+            };
+
             graph.add_node(GraphNode {
                 id: comp_id.clone(),
                 label: NodeLabel::UiComponent,
@@ -1054,6 +1064,7 @@ pub fn enrich_aspnet_mvc(
                     start_line: Some(comp.line_number),
                     component_type: Some(format!("{}.{}", comp.vendor, comp.component_type)),
                     bound_model: comp.model_type.clone(),
+                    description: col_desc,
                     ..Default::default()
                 },
             });
@@ -1369,6 +1380,67 @@ pub fn enrich_aspnet_mvc(
             });
         }
     }
+
+    // ─── Pass 13: @Html.Partial / @Html.RenderPartial / @Html.Action references ───
+    let mut partial_refs_count: usize = 0;
+    for entry in &view_files {
+        let refs = extract_partial_references(&entry.content);
+        let view_id = format!("View:{}", entry.path);
+        for pref in &refs {
+            let target_id = if pref.helper_type == "Partial" || pref.helper_type == "RenderPartial" {
+                // Link to partial view file
+                format!("PartialView:{}:{}", entry.path, pref.partial_name)
+            } else if let Some(ctrl) = &pref.controller_name {
+                // Html.Action/RenderAction → controller action
+                format!("ControllerAction:*:{}Controller:{}", ctrl, pref.partial_name)
+            } else {
+                continue;
+            };
+            let rel_type = if pref.helper_type == "Partial" || pref.helper_type == "RenderPartial" {
+                RelationshipType::UsesPartial
+            } else {
+                RelationshipType::CallsAction
+            };
+            graph.add_relationship(GraphRelationship {
+                id: format!("partial_ref:{}:{}:{}", entry.path, pref.partial_name, pref.line_number),
+                source_id: view_id.clone(),
+                target_id,
+                rel_type,
+                confidence: 0.85,
+                reason: format!("razor_{}", pref.helper_type.to_lowercase()),
+                step: None,
+            });
+            partial_refs_count += 1;
+        }
+    }
+    tracing::info!(partial_refs = partial_refs_count, "Pass 13: Partial/RenderAction references");
+
+    // ─── Pass 14: @Html.BeginForm → Controller action links ─────────────
+    let mut form_refs_count: usize = 0;
+    for entry in &view_files {
+        let forms = extract_form_actions(&entry.content);
+        let view_id = format!("View:{}", entry.path);
+        for form in &forms {
+            let target_id = resolve_action_node_id(
+                &all_controllers,
+                &form.controller_name,
+                &form.action_name,
+            );
+            if let Some((action_id, confidence)) = target_id {
+                graph.add_relationship(GraphRelationship {
+                    id: format!("form_action:{}:{}:{}", entry.path, form.action_name, form.line_number),
+                    source_id: view_id.clone(),
+                    target_id: action_id,
+                    rel_type: RelationshipType::CallsAction,
+                    confidence,
+                    reason: format!("html_beginform_{}", form.http_method.to_lowercase()),
+                    step: None,
+                });
+                form_refs_count += 1;
+            }
+        }
+    }
+    tracing::info!(form_refs = form_refs_count, "Pass 14: Html.BeginForm references");
 
     tracing::info!(
         controllers = stats.controllers,

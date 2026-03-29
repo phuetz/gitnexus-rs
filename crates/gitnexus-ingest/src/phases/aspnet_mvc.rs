@@ -408,6 +408,7 @@ pub fn enrich_aspnet_mvc(
                     route_template: Some(full_route),
                     model_type: action.model_type.clone(),
                     return_type: action.return_type.clone(),
+                    description: action.parameters.clone(),
                     ..Default::default()
                 },
             });

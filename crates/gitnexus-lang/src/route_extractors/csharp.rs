@@ -54,6 +54,8 @@ pub struct ActionInfo {
     pub start_line: Option<u32>,
     /// Filter/attribute names applied to this action (e.g., "GridAction", "ValidateAntiForgeryToken")
     pub filters: Vec<String>,
+    /// Method parameter signature (e.g., "string id, int page")
+    pub parameters: Option<String>,
 }
 
 /// Information about an Entity Framework DbContext.
@@ -673,6 +675,14 @@ fn parse_action_method(
     // plus standard filter names like Authorize, ValidateAntiForgeryToken, etc.)
     let filters = extract_action_filters(attributes);
 
+    // Extract full parameter signature from parentheses
+    let parameters = line.find('(').and_then(|start| {
+        line[start..].find(')').map(|end| {
+            let params = line[start + 1..start + end].trim();
+            if params.is_empty() { None } else { Some(params.to_string()) }
+        })
+    }).flatten();
+
     Some(ActionInfo {
         name: method_name,
         http_method,
@@ -682,6 +692,7 @@ fn parse_action_method(
         requires_auth,
         start_line: Some(start_line),
         filters,
+        parameters,
     })
 }
 

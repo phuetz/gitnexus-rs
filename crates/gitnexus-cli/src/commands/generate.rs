@@ -217,6 +217,31 @@ fn source_files_section(files: &[&str]) -> String {
     s
 }
 
+/// Format method parameters from the stored description field.
+/// Input: "string id, int page" (raw from ActionInfo.parameters)
+/// Output: "`string` id, `int` page"
+fn extract_params_from_content(params_str: &str, _method_name: &str) -> String {
+    if params_str.is_empty() {
+        return "-".to_string();
+    }
+
+    let params: Vec<String> = params_str
+        .split(',')
+        .map(|p| {
+            let parts: Vec<&str> = p.trim().split_whitespace().collect();
+            if parts.len() >= 2 {
+                format!("`{}` {}", parts[0], parts[parts.len() - 1])
+            } else if parts.len() == 1 {
+                format!("`{}`", parts[0])
+            } else {
+                p.trim().to_string()
+            }
+        })
+        .collect();
+
+    params.join(", ")
+}
+
 /// Count nodes by label type in the graph.
 fn count_nodes_by_label(graph: &KnowledgeGraph) -> HashMap<NodeLabel, usize> {
     let mut counts: HashMap<NodeLabel, usize> = HashMap::new();
@@ -2168,16 +2193,19 @@ fn generate_docs_modules(
             base_name, action_count, desc
         ));
 
-        // Actions table with enriched columns: #, Action, Method, Params, Returns, Called By
+        // Actions table with method signatures extracted from content
         content.push_str(&format!("## Actions ({})\n\n", action_count));
-        content.push_str("| # | Action | Method | Params | Returns | Called By |\n");
-        content.push_str("|---|--------|--------|--------|---------|----------|\n");
+        content.push_str("| # | Action | Method | Paramètres | Retour | Appelé par |\n");
+        content.push_str("|---|--------|--------|-----------|--------|------------|\n");
         for (i, action) in actions.iter().enumerate() {
             let method = action.properties.http_method.as_deref().unwrap_or("GET");
-            let params = action.properties.parameter_count
-                .map(|c| format!("{} params", c))
-                .unwrap_or_else(|| "-".to_string());
             let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");
+
+            // Extract parameter signature from content (the actual method source code)
+            let params = extract_params_from_content(
+                action.properties.description.as_deref().unwrap_or(""),
+                &action.properties.name,
+            );
 
             // Get callers for this action (up to 3)
             let called_by = action_callers.get(&action.id)
@@ -2190,7 +2218,7 @@ fn generate_docs_modules(
                 })
                 .unwrap_or_else(|| "-".to_string());
 
-            content.push_str(&format!("| {} | {} | {} | {} | {} | {} |\n",
+            content.push_str(&format!("| {} | **{}** | {} | {} | {} | {} |\n",
                 i + 1, action.properties.name, method, params, ret, called_by));
         }
         content.push('\n');
@@ -2281,26 +2309,28 @@ fn generate_docs_modules(
             content.push('\n');
         }
 
-        // Action Details (collapsible signatures)
+        // Action Details (collapsible signatures with full parameter info)
         if !actions.is_empty() {
             content.push_str("## Action Details\n\n");
             for action in &actions {
                 let method = action.properties.http_method.as_deref().unwrap_or("GET");
-                let params = action.properties.parameter_count
-                    .map(|c| format!("{} params", c))
-                    .unwrap_or_else(|| "-".to_string());
+                let params_short = extract_params_from_content(
+                    action.properties.description.as_deref().unwrap_or(""),
+                    &action.properties.name,
+                );
 
-                content.push_str(&format!("<details>\n<summary>{} ({}, {})</summary>\n\n",
-                    action.properties.name, method, params));
+                content.push_str(&format!("<details>\n<summary><strong>{}</strong> ({}) — {}</summary>\n\n",
+                    action.properties.name, method,
+                    if params_short == "-" { "aucun paramètre".to_string() } else { params_short.clone() }));
 
-                content.push_str(&format!("**File:** `{}`", ctrl.properties.file_path));
+                content.push_str(&format!("**Fichier :** `{}`", ctrl.properties.file_path));
                 if let Some(line) = action.properties.start_line {
-                    content.push_str(&format!(" (line {})", line));
+                    content.push_str(&format!(" (ligne {})", line));
                 }
                 content.push('\n');
 
-                if let Some(pc) = action.properties.parameter_count {
-                    content.push_str(&format!("**Parameters:** {}\n", pc));
+                if params_short != "-" {
+                    content.push_str(&format!("**Paramètres :** {}\n", params_short));
                 }
 
                 let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");

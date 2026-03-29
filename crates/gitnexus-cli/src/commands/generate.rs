@@ -2490,7 +2490,7 @@ fn generate_docs_modules(
                 // Source code snippet — find method by name in source file
                 let source_path = repo_path.join(&ctrl.properties.file_path);
                 if let Ok(source) = std::fs::read_to_string(&source_path) {
-                    if let Some(snippet) = extract_method_body(&source, &action.properties.name, 25) {
+                    if let Some(snippet) = extract_method_body(&source, &action.properties.name, 50) {
                         content.push_str("\n```csharp\n");
                         content.push_str(&snippet);
                         content.push_str("```\n");

@@ -431,43 +431,52 @@ fn generate_views_doc(
     let path = docs_dir.join("aspnet-views.md");
     let mut f = std::fs::File::create(path)?;
 
+    // Filter out PackageTmp/obj duplicates — keep only source views
+    let source_views: Vec<&&GraphNode> = views.iter()
+        .filter(|v| {
+            let p = &v.properties.file_path;
+            !p.contains("PackageTmp") && !p.contains("/obj/") && !p.contains("\\obj\\")
+        })
+        .collect();
+
     writeln!(f, "# Views & Templates")?;
     writeln!(f)?;
-    writeln!(f, "Total: **{} views**", views.len())?;
+    writeln!(f, "Total: **{} vues** (hors copies de déploiement)", source_views.len())?;
     writeln!(f)?;
 
-    // Group views by area or folder
-    let mut grouped: BTreeMap<String, Vec<&&GraphNode>> = BTreeMap::new();
-    for view in views {
-        let group = view
-            .properties
-            .area_name
-            .as_deref()
-            .unwrap_or("(Main)")
-            .to_string();
-        grouped.entry(group).or_default().push(view);
+    // Group views by controller folder (extract from path: Views/{Controller}/xxx.cshtml)
+    let mut grouped: BTreeMap<String, Vec<&&&GraphNode>> = BTreeMap::new();
+    for view in &source_views {
+        let path_str = &view.properties.file_path;
+        // Extract folder name from Views/{FolderName}/file.cshtml
+        let folder = if let Some(views_idx) = path_str.to_lowercase().find("views/") {
+            let after = &path_str[views_idx + 6..];
+            after.split(['/', '\\']).next().unwrap_or("Shared")
+        } else if let Some(views_idx) = path_str.to_lowercase().find("views\\") {
+            let after = &path_str[views_idx + 6..];
+            after.split(['/', '\\']).next().unwrap_or("Shared")
+        } else {
+            "Autres"
+        };
+        grouped.entry(folder.to_string()).or_default().push(view);
     }
 
-    for (group, group_views) in &grouped {
-        writeln!(f, "## {}", group)?;
+    for (folder, folder_views) in &grouped {
+        writeln!(f, "## {} ({} vues)", folder, folder_views.len())?;
         writeln!(f)?;
-        writeln!(f, "| View | Model | Engine | Layout |")?;
-        writeln!(f, "|------|-------|--------|--------|")?;
+        writeln!(f, "| Vue | Modèle | Layout |")?;
+        writeln!(f, "|-----|--------|--------|")?;
 
-        for view in group_views {
+        for view in folder_views {
+            // Extract just the filename
+            let filename = view.properties.file_path
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(&view.properties.file_path);
             let model = view.properties.model_type.as_deref().unwrap_or("-");
-            let engine = view.properties.view_engine.as_deref().unwrap_or("razor");
-            let layout = view
-                .properties
-                .layout_path
-                .as_deref()
-                .unwrap_or("-");
+            let layout = view.properties.layout_path.as_deref().unwrap_or("-");
 
-            writeln!(
-                f,
-                "| `{}` | {} | {} | {} |",
-                view.properties.file_path, model, engine, layout
-            )?;
+            writeln!(f, "| `{}` | {} | {} |", filename, model, layout)?;
         }
         writeln!(f)?;
     }

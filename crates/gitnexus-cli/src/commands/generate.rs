@@ -2136,7 +2136,10 @@ fn generate_docs_modules(
                 let short = r.source_id.rsplit(':').next().unwrap_or(&r.source_id).to_string();
                 (short, "Unknown".to_string())
             };
-            action_callers.entry(r.target_id.clone()).or_default().push(short_name);
+            let entry = action_callers.entry(r.target_id.clone()).or_default();
+            if !entry.iter().any(|(n, _)| *n == short_name.0) {
+                entry.push(short_name);
+            }
         }
 
         // Find views rendered by this controller (both direct and through actions)

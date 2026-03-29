@@ -258,7 +258,7 @@ fn extract_params_linked(params_str: &str, known_types: &HashSet<String>) -> Str
                 let param_name = parts[parts.len() - 1];
                 // Check if the type is a known entity/model → make it a link
                 if known_types.contains(type_name) {
-                    format!("[{}](./modules/data-alisev2entities.md) {}", type_name, param_name)
+                    format!("[{}](./modules/data-alisev2entities.md#{}) {}", type_name, type_name, param_name)
                 } else {
                     format!("`{}` {}", type_name, param_name)
                 }
@@ -2496,8 +2496,8 @@ fn generate_docs_modules(
             let rels = entity_rels.get(ename.as_str());
             let rel_count = rels.map_or(0, |v| v.len());
 
-            content.push_str(&format!("<details>\n<summary><strong>{}</strong> — <code>{}</code> ({} relations)</summary>\n\n",
-                ename, entity.properties.file_path, rel_count));
+            content.push_str(&format!("<details id=\"{}\">\n<summary><strong>{}</strong> — <code>{}</code> ({} relations)</summary>\n\n",
+                ename, ename, entity.properties.file_path, rel_count));
 
             // Mini ER diagram showing this entity and its direct relations
             if rel_count > 0 {
@@ -4191,14 +4191,27 @@ fn inline_md(text: &str) -> String {
                 if let Some(paren_end) = after_paren.find(')') {
                     let url = &after_paren[..paren_end];
                     // Transform .md links to JavaScript page navigation for HTML site
-                    let replacement = if url.ends_with(".md") {
-                        // Strip leading ./ and trailing .md to get the page ID
-                        let page_id = url.trim_start_matches("./")
+                    let replacement = if url.contains(".md") {
+                        // Handle anchors: ./modules/file.md#ENTITY → page='modules/file', anchor='ENTITY'
+                        let (md_part, anchor) = if let Some(hash_idx) = url.find('#') {
+                            (&url[..hash_idx], Some(&url[hash_idx + 1..]))
+                        } else {
+                            (url, None)
+                        };
+                        let page_id = md_part.trim_start_matches("./")
                             .trim_end_matches(".md");
-                        format!(
-                            "<a href=\"#\" onclick=\"showPage('{}'); return false;\">{}</a>",
-                            page_id, link_text
-                        )
+                        if let Some(anchor_id) = anchor {
+                            // Navigate to page AND scroll to + open the entity details
+                            format!(
+                                "<a href=\"#\" onclick=\"showPage('{}'); setTimeout(function(){{ var el=document.getElementById('{}'); if(el){{ el.open=true; el.scrollIntoView({{behavior:'smooth'}}); }} }}, 100); return false;\">{}</a>",
+                                page_id, anchor_id, link_text
+                            )
+                        } else {
+                            format!(
+                                "<a href=\"#\" onclick=\"showPage('{}'); return false;\">{}</a>",
+                                page_id, link_text
+                            )
+                        }
                     } else {
                         format!("<a href=\"{}\">{}</a>", url, link_text)
                     };

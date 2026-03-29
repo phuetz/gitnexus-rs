@@ -380,8 +380,22 @@ fn generate_wiki(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         return Ok(());
     }
 
+    let mut used_filenames_wiki: HashSet<String> = HashSet::new();
+
     for info in communities.values() {
-        let filename = sanitize_filename(&info.label);
+        let base = sanitize_filename(&info.label);
+        let filename = if used_filenames_wiki.contains(&base) {
+            let mut candidate = base.clone();
+            let mut counter = 2;
+            while used_filenames_wiki.contains(&candidate) {
+                candidate = format!("{}_{}", base, counter);
+                counter += 1;
+            }
+            candidate
+        } else {
+            base
+        };
+        used_filenames_wiki.insert(filename.clone());
         let out_path = wiki_dir.join(format!("{filename}.md"));
         let mut f = std::fs::File::create(&out_path)?;
 
@@ -524,8 +538,22 @@ fn generate_skills(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         }
     }
 
+    let mut used_filenames_skills: HashSet<String> = HashSet::new();
+
     for info in communities.values() {
-        let filename = sanitize_filename(&info.label);
+        let base = sanitize_filename(&info.label);
+        let filename = if used_filenames_skills.contains(&base) {
+            let mut candidate = base.clone();
+            let mut counter = 2;
+            while used_filenames_skills.contains(&candidate) {
+                candidate = format!("{}_{}", base, counter);
+                counter += 1;
+            }
+            candidate
+        } else {
+            base
+        };
+        used_filenames_skills.insert(filename.clone());
         let out_path = skills_dir.join(format!("{filename}.md"));
         let mut f = std::fs::File::create(&out_path)?;
 
@@ -747,7 +775,7 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
     generate_docs_getting_started(&docs_dir, repo_name, &communities, graph)?;
 
     // 4. Generate per-module files
-    generate_docs_modules(
+    let module_page_count = generate_docs_modules(
         &modules_dir,
         &communities,
         graph,
@@ -769,6 +797,10 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
     } else {
         Vec::new()
     };
+
+    // Total page count: 3 static pages + module pages + ASP.NET pages
+    let total_pages = 3 + module_page_count + aspnet_pages.len();
+    info!("Documentation generated: {} pages total", total_pages);
 
     // 6. Generate _index.json LAST so it includes ASP.NET pages
     generate_docs_index(
@@ -1271,7 +1303,9 @@ fn generate_docs_modules(
     communities: &BTreeMap<String, CommunityInfo>,
     graph: &KnowledgeGraph,
     edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
-) -> Result<()> {
+) -> Result<usize> {
+    let mut page_count: usize = 0;
+
     // Build member->community mapping
     let mut member_to_community: HashMap<String, String> = HashMap::new();
     for info in communities.values() {
@@ -1280,8 +1314,23 @@ fn generate_docs_modules(
         }
     }
 
+    // Track used filenames to avoid collisions
+    let mut used_filenames: HashSet<String> = HashSet::new();
+
     for info in communities.values() {
-        let filename = sanitize_filename(&info.label);
+        let base = sanitize_filename(&info.label);
+        let filename = if used_filenames.contains(&base) {
+            let mut candidate = base.clone();
+            let mut counter = 2;
+            while used_filenames.contains(&candidate) {
+                candidate = format!("{}_{}", base, counter);
+                counter += 1;
+            }
+            candidate
+        } else {
+            base
+        };
+        used_filenames.insert(filename.clone());
         let out_path = modules_dir.join(format!("{}.md", filename));
         let mut f = std::fs::File::create(&out_path)?;
 
@@ -1455,7 +1504,177 @@ fn generate_docs_modules(
             "  {} modules/{filename}.md",
             "OK".green(),
         );
+        page_count += 1;
     }
 
-    Ok(())
+    // ─── Per-Controller pages ──────────────────────────────────────────
+    let controllers: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::Controller)
+        .collect();
+
+    for ctrl in &controllers {
+        let ctrl_name = &ctrl.properties.name;
+        let filename = format!("ctrl-{}", sanitize_filename(ctrl_name));
+        let out_path = modules_dir.join(format!("{filename}.md"));
+
+        // Find actions for this controller
+        let actions: Vec<&GraphNode> = graph.iter_nodes()
+            .filter(|n| n.label == NodeLabel::ControllerAction
+                      && n.properties.file_path == ctrl.properties.file_path)
+            .collect();
+
+        // Find views rendered by this controller
+        let views: Vec<String> = graph.iter_relationships()
+            .filter(|r| r.source_id.contains(&ctrl.properties.name)
+                      && r.rel_type == RelationshipType::RendersView)
+            .map(|r| r.target_id.clone())
+            .collect();
+
+        let mut content = format!("# {}\n\n", ctrl_name);
+        content.push_str(&format!("**File:** `{}`\n\n", ctrl.properties.file_path));
+
+        // Actions table
+        content.push_str("## Actions\n\n");
+        content.push_str("| Action | HTTP Method | Route | Return Type |\n");
+        content.push_str("|--------|------------|-------|-------------|\n");
+        for action in &actions {
+            let method = action.properties.http_method.as_deref().unwrap_or("GET");
+            let route = action.properties.route_template.as_deref().unwrap_or("-");
+            let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");
+            content.push_str(&format!("| {} | {} | {} | {} |\n",
+                action.properties.name, method, route, ret));
+        }
+        content.push('\n');
+
+        // Views section
+        if !views.is_empty() {
+            content.push_str("## Views\n\n");
+            for v in &views {
+                content.push_str(&format!("- `{}`\n", v));
+            }
+            content.push('\n');
+        }
+
+        // Stats
+        content.push_str(&format!("\n---\n*{} actions*\n", actions.len()));
+
+        std::fs::write(&out_path, &content)?;
+        println!("  {} {}", "OK".green(), out_path.display());
+        page_count += 1;
+    }
+
+    // ─── Data Model pages ──────────────────────────────────────────────
+    let db_contexts: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::DbContext)
+        .collect();
+
+    for ctx in &db_contexts {
+        let ctx_name = &ctx.properties.name;
+        let filename = format!("data-{}", sanitize_filename(ctx_name));
+        let out_path = modules_dir.join(format!("{filename}.md"));
+
+        // Find entities mapped to this context
+        let entities: Vec<&GraphNode> = graph.iter_nodes()
+            .filter(|n| n.label == NodeLabel::DbEntity)
+            .collect(); // TODO: filter by context relationship
+
+        let mut content = format!("# Data Model: {}\n\n", ctx_name);
+        content.push_str(&format!("**File:** `{}`\n\n", ctx.properties.file_path));
+        content.push_str(&format!("**Entities:** {}\n\n", entities.len()));
+
+        content.push_str("## Entities\n\n");
+        content.push_str("| Entity | File | Properties |\n");
+        content.push_str("|--------|------|------------|\n");
+        for entity in &entities {
+            let props = entity.properties.description.as_deref().unwrap_or("-");
+            content.push_str(&format!("| {} | `{}` | {} |\n",
+                entity.properties.name, entity.properties.file_path, props));
+        }
+
+        std::fs::write(&out_path, &content)?;
+        println!("  {} {}", "OK".green(), out_path.display());
+        page_count += 1;
+    }
+
+    // ─── Service Layer page ────────────────────────────────────────────
+    let services: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::Service || n.label == NodeLabel::Repository)
+        .collect();
+
+    if !services.is_empty() {
+        let out_path = modules_dir.join("services.md");
+
+        let mut content = String::from("# Service Layer\n\n");
+        content.push_str(&format!("**Total services:** {}\n\n", services.len()));
+
+        content.push_str("## Services\n\n");
+        content.push_str("| Service | Type | Interface | File |\n");
+        content.push_str("|---------|------|-----------|------|\n");
+        for svc in &services {
+            let layer = svc.properties.layer_type.as_deref().unwrap_or("Service");
+            let iface = svc.properties.implements_interface.as_deref().unwrap_or("-");
+            content.push_str(&format!("| {} | {} | {} | `{}` |\n",
+                svc.properties.name, layer, iface, svc.properties.file_path));
+        }
+
+        std::fs::write(&out_path, &content)?;
+        println!("  {} {}", "OK".green(), out_path.display());
+        page_count += 1;
+    }
+
+    // ─── UI Components page ────────────────────────────────────────────
+    let ui_components: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::UiComponent)
+        .collect();
+
+    if !ui_components.is_empty() {
+        let out_path = modules_dir.join("ui-components.md");
+
+        let mut content = String::from("# UI Components (Telerik/Kendo)\n\n");
+        content.push_str(&format!("**Total components:** {}\n\n", ui_components.len()));
+
+        content.push_str("| Component | Type | Model | Columns | File |\n");
+        content.push_str("|-----------|------|-------|---------|------|\n");
+        for comp in &ui_components {
+            let comp_type = comp.properties.component_type.as_deref().unwrap_or("-");
+            let model = comp.properties.bound_model.as_deref().unwrap_or("-");
+            let cols = comp.properties.description.as_deref().unwrap_or("-");
+            // Truncate cols to 40 chars
+            let cols_short: String = cols.chars().take(40).collect();
+            content.push_str(&format!("| {} | {} | {} | {} | `{}` |\n",
+                comp.properties.name, comp_type, model, cols_short, comp.properties.file_path));
+        }
+
+        std::fs::write(&out_path, &content)?;
+        println!("  {} {}", "OK".green(), out_path.display());
+        page_count += 1;
+    }
+
+    // ─── AJAX Endpoints page ───────────────────────────────────────────
+    let ajax_calls: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::AjaxCall)
+        .collect();
+
+    if !ajax_calls.is_empty() {
+        let out_path = modules_dir.join("ajax-endpoints.md");
+
+        let mut content = String::from("# AJAX Endpoints\n\n");
+        content.push_str(&format!("**Total AJAX calls:** {}\n\n", ajax_calls.len()));
+
+        content.push_str("| Method | URL | File | Line |\n");
+        content.push_str("|--------|-----|------|------|\n");
+        for call in ajax_calls.iter().take(100) { // Cap at 100 for readability
+            let method = call.properties.ajax_method.as_deref().unwrap_or("GET");
+            let url = call.properties.ajax_url.as_deref().unwrap_or("-");
+            let line = call.properties.start_line.map(|l| l.to_string()).unwrap_or_default();
+            content.push_str(&format!("| {} | {} | `{}` | {} |\n",
+                method, url, call.properties.file_path, line));
+        }
+
+        std::fs::write(&out_path, &content)?;
+        println!("  {} {}", "OK".green(), out_path.display());
+        page_count += 1;
+    }
+
+    Ok(page_count)
 }

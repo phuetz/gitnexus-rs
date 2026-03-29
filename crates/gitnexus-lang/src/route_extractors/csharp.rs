@@ -1074,6 +1074,12 @@ static RE_DS_ACTION: Lazy<Regex> = Lazy::new(|| {
         .unwrap()
 });
 
+// Legacy Telerik Extensions syntax: .Select("Action", "Controller"), .Insert(...), .Update(...), .Delete(...)
+static RE_DS_LEGACY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\.\s*(Select|Insert|Update|Delete)\s*\(\s*"(\w+)"\s*,\s*"(\w+)""#)
+        .unwrap()
+});
+
 /// Client events: .Events(e => e.OnChange("onGridChange")) or .On("change", "handler")
 static RE_CLIENT_EVENT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"\.On(\w+)\s*\(\s*"(\w+)""#).unwrap()
@@ -1156,8 +1162,26 @@ fn scan_component_body(
     let end = (start + lookahead).min(lines.len());
 
     for &line in &lines[start..end] {
+        // Kendo syntax: .Read(read => read.Action("Action", "Controller"))
         if let Some(cap) = RE_DS_ACTION.captures(line) {
             let operation = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let action_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let controller_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+            ds_actions.push(DataSourceAction {
+                operation,
+                controller_name,
+                action_name,
+            });
+        }
+        // Legacy Telerik syntax: .Select("Action", "Controller")
+        else if let Some(cap) = RE_DS_LEGACY.captures(line) {
+            let raw_op = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+            let operation = match raw_op {
+                "Select" => "Read",
+                "Insert" => "Create",
+                "Delete" => "Destroy",
+                other => other,
+            }.to_string();
             let action_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
             let controller_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
             ds_actions.push(DataSourceAction {
@@ -1575,6 +1599,47 @@ fetch('/api/Products/Search')
         assert_eq!(grid.component_type, "Grid");
         assert_eq!(grid.vendor, "Telerik");
         assert_eq!(grid.model_type.as_deref(), Some("OrderViewModel"));
+        // Legacy .Select("Action", "Controller") should be captured as a Read DataSource action
+        assert_eq!(grid.data_source_actions.len(), 1);
+        assert_eq!(grid.data_source_actions[0].operation, "Read");
+        assert_eq!(grid.data_source_actions[0].action_name, "GetOrders");
+        assert_eq!(grid.data_source_actions[0].controller_name, "Orders");
+    }
+
+    #[test]
+    fn test_extract_telerik_real_world_grid() {
+        // Real-world Telerik Extensions for ASP.NET MVC pattern from a legacy MVC5 app
+        let source = r#"
+@(Html.Telerik().Grid<Export>()
+    .Name("GridExports")
+    .DataBinding(dataBinding => dataBinding.Ajax()
+        .Select("GetExportElodieGrid", "Factures"))
+    .Columns(columns => {
+        columns.Bound(e => e.DateCréation).Title("Date export");
+        columns.Bound(e => e.NomExport).Title("Nom du fichier");
+    })
+    .ClientEvents(events => events
+        .OnDataBinding("onGridDataBinding")
+        .OnDataBound("onGridDataBound")
+        .OnError("onGridError"))
+)
+"#;
+        let components = extract_telerik_components(source);
+        assert_eq!(components.len(), 1, "Should detect one Telerik Grid component");
+
+        let grid = &components[0];
+        assert_eq!(grid.component_type, "Grid");
+        assert_eq!(grid.vendor, "Telerik");
+        assert_eq!(grid.model_type.as_deref(), Some("Export"));
+
+        // DataSource: .Select("GetExportElodieGrid", "Factures") → Read action
+        assert_eq!(grid.data_source_actions.len(), 1);
+        assert_eq!(grid.data_source_actions[0].operation, "Read");
+        assert_eq!(grid.data_source_actions[0].action_name, "GetExportElodieGrid");
+        assert_eq!(grid.data_source_actions[0].controller_name, "Factures");
+
+        // Client events
+        assert!(grid.client_events.len() >= 2, "Should detect at least OnDataBinding and OnDataBound");
     }
 
     #[test]

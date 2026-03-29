@@ -2394,15 +2394,57 @@ fn generate_docs_modules(
         content.push_str(&format!("**File:** `{}`\n\n", ctx.properties.file_path));
         content.push_str(&format!("**Entities:** {}\n\n", entities.len()));
 
-        content.push_str("## Entities\n\n");
-        content.push_str("| Entity | File | Properties |\n");
-        content.push_str("|--------|------|------------|\n");
-        for entity in &entities {
-            let props = entity.properties.description.as_deref().unwrap_or("-");
-            content.push_str(&format!("| {} | `{}` | {} |\n",
-                entity.properties.name, entity.properties.file_path, props));
+        // Build adjacency map for all entities
+        let mut entity_rels: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+        for rel in graph.iter_relationships() {
+            if rel.rel_type == RelationshipType::AssociatesWith {
+                let src = rel.source_id.rsplit(':').next().unwrap_or(&rel.source_id).to_string();
+                let tgt = rel.target_id.rsplit(':').next().unwrap_or(&rel.target_id).to_string();
+                let card = if rel.reason.contains("1:*") { "||--o{" }
+                    else if rel.reason.contains("*:1") { "}o--||" }
+                    else if rel.reason.contains("*:*") { "}o--o{" }
+                    else { "||--||" };
+                entity_rels.entry(src.clone()).or_default().push((tgt.clone(), card.to_string()));
+                entity_rels.entry(tgt).or_default().push((src, card.to_string()));
+            }
         }
-        content.push('\n');
+
+        content.push_str("## Entities\n\n");
+
+        // Per-entity: collapsible section with mini ER diagram
+        for entity in &entities {
+            let ename = &entity.properties.name;
+            let rels = entity_rels.get(ename.as_str());
+            let rel_count = rels.map_or(0, |v| v.len());
+
+            content.push_str(&format!("<details>\n<summary><strong>{}</strong> — <code>{}</code> ({} relations)</summary>\n\n",
+                ename, entity.properties.file_path, rel_count));
+
+            // Mini ER diagram showing this entity and its direct relations
+            if rel_count > 0 {
+                if let Some(rels) = rels {
+                    content.push_str("```mermaid\nerDiagram\n");
+                    content.push_str(&format!("  {} {{}}\n", sanitize_filename(ename)));
+
+                    let mut seen: HashSet<String> = HashSet::new();
+                    for (target, cardinality) in rels.iter().take(10) {
+                        if seen.insert(target.clone()) {
+                            content.push_str(&format!("  {} {{}}\n", sanitize_filename(target)));
+                            content.push_str(&format!("  {} {} {}\n",
+                                sanitize_filename(ename), cardinality, sanitize_filename(target)));
+                        }
+                    }
+                    if rels.len() > 10 {
+                        content.push_str(&format!("  %% ...et {} autres relations\n", rels.len() - 10));
+                    }
+                    content.push_str("```\n\n");
+                }
+            } else {
+                content.push_str("*Aucune relation détectée dans le modèle.*\n\n");
+            }
+
+            content.push_str("</details>\n\n");
+        }
 
         // Navigation footer
         content.push_str(&nav_footer(&page_order, filename));

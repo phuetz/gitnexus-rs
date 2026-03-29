@@ -273,6 +273,83 @@ fn extract_params_linked(params_str: &str, known_types: &HashSet<String>) -> Str
     params.join(", ")
 }
 
+/// Extract method signature (params + return type) from source code.
+fn extract_method_signature(source: &str, method_name: &str) -> (String, String) {
+    // Find the line containing "public ... MethodName("
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if !trimmed.contains(method_name) || !trimmed.contains('(') {
+            continue;
+        }
+        // Must be a method declaration (public/private/protected, contains return type)
+        if !trimmed.starts_with("public") && !trimmed.starts_with("private")
+            && !trimmed.starts_with("protected") && !trimmed.starts_with("async") {
+            continue;
+        }
+        // Skip if it's a call site, not a declaration
+        if trimmed.contains("await ") || trimmed.contains(".GetAwaiter") {
+            continue;
+        }
+
+        // Extract return type (word before method name)
+        let before_name = trimmed.split(method_name).next().unwrap_or("");
+        let words: Vec<&str> = before_name.split_whitespace().collect();
+        let ret_type = if words.len() >= 2 {
+            // Last word before method name is the return type
+            words[words.len() - 1].to_string()
+        } else {
+            "-".to_string()
+        };
+
+        // Clean return type (remove Task< wrapper for readability)
+        let clean_ret = ret_type
+            .replace("System.Threading.Tasks.Task<", "")
+            .replace("System.Collections.Generic.ICollection<", "ICollection<")
+            .trim_end_matches('>')
+            .to_string();
+
+        // Extract parameters
+        if let Some(paren_start) = trimmed.find('(') {
+            let after = &trimmed[paren_start + 1..];
+            if let Some(paren_end) = after.find(')') {
+                let params_raw = after[..paren_end].trim();
+                if params_raw.is_empty() || params_raw == ")" {
+                    return ("-".to_string(), clean_ret);
+                }
+
+                // Format params: simplify System.* types
+                let params: Vec<String> = params_raw.split(',').map(|p| {
+                    let p = p.trim()
+                        .replace("System.Threading.CancellationToken", "CancellationToken")
+                        .replace("System.Threading.Tasks.", "");
+                    let parts: Vec<&str> = p.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        let type_name = parts[0];
+                        let param_name = parts[parts.len() - 1];
+                        format!("`{}` {}", type_name, param_name)
+                    } else {
+                        format!("`{}`", p)
+                    }
+                }).collect();
+
+                // Filter out CancellationToken (internal plumbing)
+                let visible_params: Vec<&String> = params.iter()
+                    .filter(|p| !p.contains("CancellationToken"))
+                    .collect();
+
+                let params_str = if visible_params.is_empty() {
+                    "-".to_string()
+                } else {
+                    visible_params.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                };
+
+                return (params_str, clean_ret);
+            }
+        }
+    }
+    ("-".to_string(), "-".to_string())
+}
+
 /// Count nodes by label type in the graph.
 fn count_nodes_by_label(graph: &KnowledgeGraph) -> HashMap<NodeLabel, usize> {
     let mut counts: HashMap<NodeLabel, usize> = HashMap::new();
@@ -1010,6 +1087,7 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         &communities,
         graph,
         &edge_map,
+        repo_path,
     )?;
 
     // 5. Generate ASP.NET MVC specific documentation (if applicable)
@@ -1801,6 +1879,7 @@ fn generate_docs_modules(
     communities: &BTreeMap<String, CommunityInfo>,
     graph: &KnowledgeGraph,
     edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+    repo_path: &Path,
 ) -> Result<usize> {
     let mut page_count: usize = 0;
 
@@ -2731,6 +2810,23 @@ fn generate_docs_modules(
                 .collect()
         };
 
+        // Helper: find API methods for a service by searching Method nodes
+        // in files containing "WebAPI" or matching the client name pattern
+        let find_methods = |svc: &GraphNode| -> Vec<&GraphNode> {
+            let svc_name = &svc.properties.name;
+            // Look for Method nodes in files containing "WebAPI" or the client name
+            graph.iter_nodes()
+                .filter(|n| n.label == NodeLabel::Method
+                    && (n.properties.file_path.contains("WebAPI")
+                        || n.properties.file_path.contains("WebApi")
+                        || n.properties.file_path.contains(svc_name))
+                    && n.properties.name.ends_with("Async")
+                    && !n.properties.name.starts_with("PrepareRequest")
+                    && !n.properties.name.starts_with("ProcessResponse")
+                    && !n.properties.name.starts_with("ReadObject"))
+                .collect()
+        };
+
         if !webapi_services.is_empty() {
             content.push_str(&format!("## WebAPI Services ({})\n\n", webapi_services.len()));
             content.push_str("| Client | Type | Called From | Purpose |\n");
@@ -2748,6 +2844,73 @@ fn generate_docs_modules(
                     svc.properties.name, stype, called_from, purpose));
             }
             content.push('\n');
+
+            // Collect ALL Async methods from WebAPI files (shared across clients)
+            let all_api_methods: Vec<&GraphNode> = graph.iter_nodes()
+                .filter(|n| n.label == NodeLabel::Method
+                    && (n.properties.file_path.contains("WebAPI")
+                        || n.properties.file_path.contains("WebApi"))
+                    && !n.properties.file_path.contains("Tests")
+                    && n.properties.name.ends_with("Async")
+                    && !n.properties.name.starts_with("PrepareRequest")
+                    && !n.properties.name.starts_with("ProcessResponse")
+                    && !n.properties.name.starts_with("ReadObject"))
+                .collect();
+
+            if !all_api_methods.is_empty() {
+                content.push_str("### API Erable — Méthodes détaillées\n\n");
+                content.push_str("> Point d'accès unique aux données bénéficiaires via l'API REST Erable.\n");
+                content.push_str("> Authentification : HTTP Basic. Toutes les méthodes sont asynchrones.\n\n");
+
+                // Group by file
+                let mut methods_by_file: BTreeMap<String, Vec<&&GraphNode>> = BTreeMap::new();
+                for m in &all_api_methods {
+                    methods_by_file.entry(m.properties.file_path.clone()).or_default().push(m);
+                }
+
+                for (file, methods) in &methods_by_file {
+                    let file_short = file.rsplit(['/', '\\']).next().unwrap_or(file);
+
+                    // Skip LDAP client — not Erable
+                    if file_short.contains("Ldap") {
+                        continue;
+                    }
+
+                    content.push_str(&format!("**Fichier : `{}`**\n\n", file_short));
+
+                    // Try to read the actual source file for signature extraction
+                    let source_path = repo_path.join(file);
+                    let source_content = std::fs::read_to_string(&source_path).unwrap_or_default();
+
+                    content.push_str("| Méthode | Paramètres | Retour |\n");
+                    content.push_str("|---------|-----------|--------|\n");
+
+                    for method in methods {
+                        let method_name = &method.properties.name;
+
+                        // Extract signature from source file
+                        let (params_str, ret_str) = if !source_content.is_empty() {
+                            extract_method_signature(&source_content, method_name)
+                        } else {
+                            ("-".to_string(), "-".to_string())
+                        };
+
+                        content.push_str(&format!("| **{}** | {} | `{}` |\n",
+                            method_name, params_str, ret_str));
+                    }
+                    content.push('\n');
+                }
+
+                // Who calls these clients
+                content.push_str("**Services appelants :**\n\n");
+                for svc in &webapi_services {
+                    let callers = find_callers(svc);
+                    if !callers.is_empty() {
+                        content.push_str(&format!("- **{}** ← {}\n", svc.properties.name, callers.join(", ")));
+                    }
+                }
+                content.push('\n');
+            }
         }
 
         if !wcf_services.is_empty() {

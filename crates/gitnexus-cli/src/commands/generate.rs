@@ -927,6 +927,9 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         graph,
     )?;
 
+    // 1b. Generate functional guide (business-oriented documentation)
+    generate_functional_guide(&docs_dir, repo_name, graph)?;
+
     // 2. Generate architecture.md
     generate_docs_architecture(
         &docs_dir,
@@ -2725,6 +2728,291 @@ fn generate_docs_modules(
     }
 
     Ok(page_count)
+}
+
+// ─── Functional Guide Generator ────────────────────────────────────────
+
+fn generate_functional_guide(
+    docs_dir: &Path,
+    repo_name: &str,
+    graph: &KnowledgeGraph,
+) -> Result<()> {
+    let label_counts = count_nodes_by_label(graph);
+    let has_controllers = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0) > 0;
+
+    // Only generate for ASP.NET MVC projects with controllers
+    if !has_controllers {
+        return Ok(());
+    }
+
+    let out_path = docs_dir.join("functional-guide.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    let ctrl_count = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0);
+    let view_count = label_counts.get(&NodeLabel::View).copied().unwrap_or(0);
+    let action_count = label_counts.get(&NodeLabel::ControllerAction).copied().unwrap_or(0);
+    let entity_count = label_counts.get(&NodeLabel::DbEntity).copied().unwrap_or(0);
+    let svc_count = label_counts.get(&NodeLabel::Service).copied().unwrap_or(0);
+    let ui_count = label_counts.get(&NodeLabel::UiComponent).copied().unwrap_or(0);
+    let ext_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
+
+    // Collect controllers and group actions by controller
+    let controllers: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::Controller)
+        .collect();
+
+    writeln!(f, "# Guide Fonctionnel — {}", repo_name)?;
+    writeln!(f)?;
+
+    // Source files
+    let ctrl_files: Vec<&str> = controllers.iter()
+        .map(|c| c.properties.file_path.as_str())
+        .take(10)
+        .collect();
+    write!(f, "{}", source_files_section(&ctrl_files))?;
+
+    writeln!(f, "> Ce guide décrit les modules fonctionnels de l'application du point de vue métier.")?;
+    writeln!(f, "> Il est destiné aux responsables de service et aux personnes reprenant l'application.")?;
+    writeln!(f)?;
+
+    // Quick stats
+    writeln!(f, "| Métrique | Valeur |")?;
+    writeln!(f, "|----------|--------|")?;
+    writeln!(f, "| Modules fonctionnels | {} controllers |", ctrl_count)?;
+    writeln!(f, "| Fonctionnalités | {} actions |", action_count)?;
+    writeln!(f, "| Écrans | {} vues |", view_count)?;
+    writeln!(f, "| Entités de données | {} |", entity_count)?;
+    writeln!(f, "| Services métier | {} |", svc_count)?;
+    writeln!(f, "| Composants UI | {} grilles Telerik |", ui_count)?;
+    writeln!(f, "| Intégrations externes | {} services |", ext_count)?;
+    writeln!(f)?;
+
+    // Generate module documentation for each controller
+    // Sort by action count descending (most important first)
+    let mut ctrl_with_actions: Vec<(&GraphNode, Vec<&GraphNode>)> = controllers.iter()
+        .map(|ctrl| {
+            let actions: Vec<&GraphNode> = graph.iter_nodes()
+                .filter(|n| n.label == NodeLabel::ControllerAction
+                    && n.properties.file_path == ctrl.properties.file_path)
+                .collect();
+            (*ctrl, actions)
+        })
+        .collect();
+    ctrl_with_actions.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+
+    for (ctrl, actions) in &ctrl_with_actions {
+        let name = ctrl.properties.name
+            .strip_suffix("Controller").unwrap_or(&ctrl.properties.name);
+
+        // Skip RootController (base class, not a real module)
+        if name == "Root" || name == "PdfView" || name == "Print" {
+            continue;
+        }
+
+        writeln!(f, "---")?;
+        writeln!(f)?;
+        writeln!(f, "## {}", name)?;
+        writeln!(f)?;
+
+        // Heuristic business description
+        let desc = describe_controller_fr(&ctrl.properties.name);
+        writeln!(f, "**Finalité métier :** {}", desc)?;
+        writeln!(f)?;
+
+        // Count views for this controller
+        let ctrl_views: Vec<&GraphNode> = graph.iter_nodes()
+            .filter(|n| n.label == NodeLabel::View
+                && n.properties.file_path.contains(name))
+            .collect();
+
+        // Count UI components for this controller
+        let ctrl_ui: Vec<&GraphNode> = graph.iter_nodes()
+            .filter(|n| n.label == NodeLabel::UiComponent
+                && n.properties.file_path.contains(name))
+            .collect();
+
+        writeln!(f, "| | |")?;
+        writeln!(f, "|---|---|")?;
+        writeln!(f, "| **Actions** | {} |", actions.len())?;
+        writeln!(f, "| **Écrans** | {} vues |", ctrl_views.len())?;
+        if !ctrl_ui.is_empty() {
+            writeln!(f, "| **Grilles Telerik** | {} |", ctrl_ui.len())?;
+        }
+        writeln!(f)?;
+
+        // Key actions (group by GET/POST)
+        let get_actions: Vec<&&GraphNode> = actions.iter()
+            .filter(|a| a.properties.http_method.as_deref().unwrap_or("GET") == "GET")
+            .collect();
+        let post_actions: Vec<&&GraphNode> = actions.iter()
+            .filter(|a| a.properties.http_method.as_deref().unwrap_or("GET") == "POST")
+            .collect();
+
+        writeln!(f, "**Processus principaux :**")?;
+        writeln!(f)?;
+
+        // List top actions by name patterns
+        let mut listed = 0;
+        for action in actions.iter().take(15) {
+            let aname = &action.properties.name;
+            let method = action.properties.http_method.as_deref().unwrap_or("GET");
+            let icon = if method == "POST" { "✏️" } else { "📄" };
+            writeln!(f, "- {} **{}** ({})", icon, aname, method)?;
+            listed += 1;
+        }
+        if actions.len() > listed {
+            writeln!(f, "- *...et {} autres actions*", actions.len() - listed)?;
+        }
+        writeln!(f)?;
+
+        // Key grids
+        if !ctrl_ui.is_empty() {
+            writeln!(f, "**Grilles principales :**")?;
+            writeln!(f)?;
+            for comp in ctrl_ui.iter().take(5) {
+                let cols = comp.properties.description.as_deref().unwrap_or("");
+                let model = comp.properties.bound_model.as_deref().unwrap_or("-");
+                writeln!(f, "- **{}** (modèle: `{}`)", comp.properties.name, model)?;
+                if !cols.is_empty() {
+                    writeln!(f, "  - Colonnes : {}", cols)?;
+                }
+            }
+            writeln!(f)?;
+        }
+
+        // Criticality
+        let criticality = if actions.len() > 30 {
+            "🔴 **Très élevé** — Module complexe avec de nombreuses fonctionnalités"
+        } else if actions.len() > 10 {
+            "🟡 **Élevé** — Module important dans le workflow quotidien"
+        } else {
+            "🟢 **Moyen** — Module de support ou consultation"
+        };
+        writeln!(f, "**Niveau de criticité :** {}", criticality)?;
+        writeln!(f)?;
+
+        // Simple flow diagram (only for major controllers)
+        if actions.len() > 5 {
+            writeln!(f, "**Flux principal :**")?;
+            writeln!(f)?;
+            writeln!(f, "```mermaid")?;
+            writeln!(f, "flowchart LR")?;
+
+            // Show: Search → View/Create → Edit → Validate
+            let has_search = actions.iter().any(|a| {
+                let n = a.properties.name.to_lowercase();
+                n.contains("rech") || n.contains("search") || n.contains("list") || n.contains("get")
+            });
+            let has_create = actions.iter().any(|a| {
+                let n = a.properties.name.to_lowercase();
+                n.contains("cre") || n.contains("new") || n.contains("add")
+            });
+            let has_edit = actions.iter().any(|a| {
+                let n = a.properties.name.to_lowercase();
+                n.contains("modif") || n.contains("edit") || n.contains("update")
+            });
+            let has_detail = actions.iter().any(|a| {
+                let n = a.properties.name.to_lowercase();
+                n.contains("detail") || n.contains("view")
+            });
+            let has_export = actions.iter().any(|a| {
+                let n = a.properties.name.to_lowercase();
+                n.contains("export") || n.contains("excel") || n.contains("csv")
+            });
+            let has_delete = actions.iter().any(|a| {
+                let n = a.properties.name.to_lowercase();
+                n.contains("suppr") || n.contains("delete")
+            });
+
+            let mut steps = Vec::new();
+            if has_search { steps.push(("Recherche", "Rechercher")); }
+            if has_detail { steps.push(("Consultation", "Consulter")); }
+            if has_create { steps.push(("Creation", "Créer")); }
+            if has_edit { steps.push(("Modification", "Modifier")); }
+            if has_delete { steps.push(("Suppression", "Supprimer")); }
+            if has_export { steps.push(("Export", "Exporter")); }
+
+            for (id, label) in &steps {
+                writeln!(f, "    {}[\"{}\" ]", id, label)?;
+            }
+            for i in 0..steps.len().saturating_sub(1) {
+                writeln!(f, "    {} --> {}", steps[i].0, steps[i + 1].0)?;
+            }
+
+            writeln!(f, "```")?;
+            writeln!(f)?;
+        }
+    }
+
+    // Synthesis
+    writeln!(f, "---")?;
+    writeln!(f)?;
+    writeln!(f, "## Synthèse : Modules les plus critiques")?;
+    writeln!(f)?;
+
+    // Sort by action count, take top 3
+    let top3: Vec<&(&GraphNode, Vec<&GraphNode>)> = ctrl_with_actions.iter()
+        .filter(|(c, _)| {
+            let n = c.properties.name.as_str();
+            n != "RootController" && n != "PdfViewController" && n != "PrintController"
+        })
+        .take(3)
+        .collect();
+
+    for (i, (ctrl, actions)) in top3.iter().enumerate() {
+        let name = ctrl.properties.name
+            .strip_suffix("Controller").unwrap_or(&ctrl.properties.name);
+        writeln!(f, "### {}. {}", i + 1, name)?;
+        writeln!(f)?;
+        writeln!(f, "**{} actions** — {}", actions.len(), describe_controller_fr(&ctrl.properties.name))?;
+        writeln!(f)?;
+    }
+
+    writeln!(f, "---")?;
+    writeln!(f)?;
+    writeln!(f, "**See also:** [Overview](./overview.md) · [Architecture](./architecture.md)")?;
+    writeln!(f)?;
+    writeln!(f, "[← Previous: Overview](./overview.md) | [Next: Architecture →](./architecture.md)")?;
+
+    println!("  {} {}", "OK".green(), out_path.display());
+
+    Ok(())
+}
+
+/// French business description for a controller based on its name.
+fn describe_controller_fr(name: &str) -> &'static str {
+    let lower = name.to_lowercase();
+    if lower.contains("administration") {
+        "Configurer le référentiel d'aides (groupes, aides, barèmes, plafonds, majorations, tarifs, justificatifs). C'est le socle de paramétrage dont dépend toute l'application."
+    } else if lower.contains("dossier") {
+        "Gérer le cycle de vie complet des dossiers d'aide sociale — de la demande à la clôture, en passant par le calcul des droits via les barèmes et la sélection des aides."
+    } else if lower.contains("facture") {
+        "Gérer la chaîne financière : facturation fournisseurs, paiement bénéficiaires, régularisations, validation et export ELODIE vers la comptabilité centrale."
+    } else if lower.contains("beneficiaire") {
+        "Rechercher et consulter les profils des ouvrants droit (OD) et ayants droit (AD) issus du WebAPI Erable, puis les lier aux dossiers d'aide."
+    } else if lower.contains("courrier") {
+        "Générer des courriers personnalisés aux bénéficiaires — individuellement ou en masse — à partir de modèles avec champs de fusion."
+    } else if lower.contains("statistique") {
+        "Produire les tableaux de bord et rapports réglementaires : suivi budgétaire, comptage dossiers, analyse paiements, restitutions mensuelles."
+    } else if lower.contains("fournisseur") {
+        "Gérer le référentiel des fournisseurs de prestations sociales et leur association aux dossiers."
+    } else if lower.contains("utilisateur") {
+        "Administrer les comptes utilisateurs, les profils d'habilitation et les droits d'accès par CMCAS."
+    } else if lower.contains("profil") {
+        "Gérer les profils d'habilitation et les autorisations fonctionnelles des utilisateurs."
+    } else if lower.contains("intervention") {
+        "Suivre les interventions terrain liées aux dossiers de bénéficiaires."
+    } else if lower.contains("commission") {
+        "Gérer les commissions d'attribution des aides (nationales et locales)."
+    } else if lower.contains("mco") {
+        "Module de maintien en condition opérationnelle — suivi de l'éligibilité et des cas particuliers."
+    } else if lower.contains("archiver") {
+        "Archiver les dossiers clôturés pour libérer l'espace de travail courant."
+    } else if lower.contains("home") {
+        "Page d'accueil avec messages d'information, authentification et navigation principale."
+    } else {
+        "Module fonctionnel de l'application."
+    }
 }
 
 // ─── HTML Site Generator ───────────────────────────────────────────────

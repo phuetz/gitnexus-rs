@@ -242,6 +242,37 @@ fn extract_params_from_content(params_str: &str, _method_name: &str) -> String {
     params.join(", ")
 }
 
+/// Format method parameters with links to known entity types.
+/// "DossierPresta dossier, string id" → "[`DossierPresta`](./data-alisev2entities.md) dossier, `string` id"
+fn extract_params_linked(params_str: &str, known_types: &HashSet<String>) -> String {
+    if params_str.is_empty() {
+        return "-".to_string();
+    }
+
+    let params: Vec<String> = params_str
+        .split(',')
+        .map(|p| {
+            let parts: Vec<&str> = p.trim().split_whitespace().collect();
+            if parts.len() >= 2 {
+                let type_name = parts[0];
+                let param_name = parts[parts.len() - 1];
+                // Check if the type is a known entity/model → make it a link
+                if known_types.contains(type_name) {
+                    format!("[`{}`](./data-alisev2entities.md) {}", type_name, param_name)
+                } else {
+                    format!("`{}` {}", type_name, param_name)
+                }
+            } else if parts.len() == 1 {
+                format!("`{}`", parts[0])
+            } else {
+                p.trim().to_string()
+            }
+        })
+        .collect();
+
+    params.join(", ")
+}
+
 /// Count nodes by label type in the graph.
 fn count_nodes_by_label(graph: &KnowledgeGraph) -> HashMap<NodeLabel, usize> {
     let mut counts: HashMap<NodeLabel, usize> = HashMap::new();
@@ -2225,6 +2256,12 @@ fn generate_docs_modules(
         ));
 
         // Actions table with method signatures extracted from content
+        // Collect known entity/model type names for linking
+        let known_types: HashSet<String> = graph.iter_nodes()
+            .filter(|n| matches!(n.label, NodeLabel::DbEntity | NodeLabel::ViewModel | NodeLabel::Class))
+            .map(|n| n.properties.name.clone())
+            .collect();
+
         content.push_str(&format!("## Actions ({})\n\n", action_count));
         content.push_str("| # | Action | Method | Paramètres | Retour | Appelé par |\n");
         content.push_str("|---|--------|--------|-----------|--------|------------|\n");
@@ -2232,10 +2269,10 @@ fn generate_docs_modules(
             let method = action.properties.http_method.as_deref().unwrap_or("GET");
             let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");
 
-            // Extract parameter signature from content (the actual method source code)
-            let params = extract_params_from_content(
+            // Extract parameter signature and link known types to data model
+            let params = extract_params_linked(
                 action.properties.description.as_deref().unwrap_or(""),
-                &action.properties.name,
+                &known_types,
             );
 
             // Get callers for this action (up to 3)

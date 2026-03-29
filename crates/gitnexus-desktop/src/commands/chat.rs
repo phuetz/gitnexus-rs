@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
@@ -61,6 +61,7 @@ fn save_config(config: &ChatConfig) -> Result<(), String> {
 /// Ask a question about the codebase.
 #[tauri::command]
 pub async fn chat_ask(
+    app: AppHandle,
     state: State<'_, AppState>,
     request: ChatRequest,
 ) -> Result<ChatResponse, String> {
@@ -86,7 +87,7 @@ pub async fn chat_ask(
         return Ok(build_graph_only_response(&search_results, &sources, &graph));
     }
 
-    let answer = call_llm(&config, &messages).await?;
+    let answer = call_llm_streaming(&config, &messages, &app).await?;
 
     Ok(ChatResponse {
         answer,
@@ -419,11 +420,12 @@ fn detect_language(file_path: &str) -> &str {
 
 // ─── LLM API Call ────────────────────────────────────────────────────
 
-/// Call an OpenAI-compatible LLM API.
-async fn call_llm(
+/// Build the common request components for LLM API calls.
+fn build_llm_request(
     config: &ChatConfig,
     messages: &[serde_json::Value],
-) -> Result<String, String> {
+    stream: bool,
+) -> Result<(reqwest::Client, reqwest::RequestBuilder), String> {
     let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
 
     let mut body = serde_json::json!({
@@ -431,7 +433,7 @@ async fn call_llm(
         "messages": messages,
         "max_tokens": config.max_tokens,
         "temperature": 0.3,
-        "stream": false
+        "stream": stream
     });
 
     // Add reasoning_effort for models that support thinking (e.g. Gemini)
@@ -440,16 +442,111 @@ async fn call_llm(
         body["reasoning_effort"] = serde_json::Value::String(effort);
     }
 
+    let timeout_secs = if stream { 300 } else { 120 };
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
     let mut request = client.post(&url).json(&body);
 
     // Add authorization header if API key is provided
     if !config.api_key.is_empty() {
         request = request.header("Authorization", format!("Bearer {}", config.api_key));
     }
+
+    Ok((client, request))
+}
+
+/// Call an OpenAI-compatible LLM API with SSE streaming.
+/// Emits `chat-stream-chunk` events to the frontend as each token arrives.
+async fn call_llm_streaming(
+    config: &ChatConfig,
+    messages: &[serde_json::Value],
+    app_handle: &AppHandle,
+) -> Result<String, String> {
+    let (_client, request) = build_llm_request(config, messages, true)?;
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("LLM API request failed: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("LLM API error ({}): {}", status, error_text));
+    }
+
+    let mut full_text = String::new();
+    let mut stream = response.bytes_stream();
+    // Buffer for incomplete SSE lines spanning multiple chunks
+    let mut line_buffer = String::new();
+
+    use futures_util::StreamExt;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Stream error: {}", e))?;
+        let text = String::from_utf8_lossy(&chunk);
+
+        line_buffer.push_str(&text);
+
+        // Process complete lines from the buffer
+        while let Some(newline_pos) = line_buffer.find('\n') {
+            let line = line_buffer[..newline_pos].trim_end_matches('\r').to_string();
+            line_buffer = line_buffer[newline_pos + 1..].to_string();
+
+            if let Some(data) = line.strip_prefix("data: ") {
+                let data = data.trim();
+                if data == "[DONE]" {
+                    continue;
+                }
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                    if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
+                        if !delta.is_empty() {
+                            full_text.push_str(delta);
+                            let _ = app_handle.emit("chat-stream-chunk", delta);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Process any remaining data in the buffer (last line without trailing newline)
+    if !line_buffer.is_empty() {
+        let line = line_buffer.trim();
+        if let Some(data) = line.strip_prefix("data: ") {
+            let data = data.trim();
+            if data != "[DONE]" {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                    if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
+                        if !delta.is_empty() {
+                            full_text.push_str(delta);
+                            let _ = app_handle.emit("chat-stream-chunk", delta);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Signal stream completion
+    let _ = app_handle.emit("chat-stream-done", ());
+
+    if full_text.is_empty() {
+        return Err("No content received from LLM stream".to_string());
+    }
+
+    Ok(full_text)
+}
+
+/// Call an OpenAI-compatible LLM API (non-streaming, for the executor module).
+async fn call_llm(
+    config: &ChatConfig,
+    messages: &[serde_json::Value],
+) -> Result<String, String> {
+    let (_client, request) = build_llm_request(config, messages, false)?;
 
     let response = request
         .send()

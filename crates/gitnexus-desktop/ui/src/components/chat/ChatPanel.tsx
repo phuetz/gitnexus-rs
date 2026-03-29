@@ -28,6 +28,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
+import { isTauri } from "../../lib/tauri-env";
 import type {
   ChatSource as ChatSourceType,
   ChatSmartResponse,
@@ -67,6 +68,9 @@ interface ChatPanelProps {
 export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [streamingText, setStreamingText] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const streamingMsgIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -81,7 +85,38 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, streamingText]);
+
+  // ── Listen for SSE stream chunks from the backend ───────────
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let cancelled = false;
+    let chunkUnlisten: (() => void) | null = null;
+    let doneUnlisten: (() => void) | null = null;
+
+    import("@tauri-apps/api/event").then((mod) => {
+      mod.listen<string>("chat-stream-chunk", (event) => {
+        if (cancelled) return;
+        setStreamingText((prev) => prev + event.payload);
+      }).then((fn) => {
+        if (cancelled) fn(); else chunkUnlisten = fn;
+      });
+
+      mod.listen<void>("chat-stream-done", () => {
+        // Stream done event fires before the command returns;
+        // cleanup is handled in the mutation's onSuccess/onSettled.
+      }).then((fn) => {
+        if (cancelled) fn(); else doneUnlisten = fn;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      chunkUnlisten?.();
+      doneUnlisten?.();
+    };
+  }, []);
 
   // ── Keyboard shortcuts for filter modals ─────────────────────
   useEffect(() => {
@@ -133,7 +168,11 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         });
       }
 
-      // Standard chat for simple unfiltered queries
+      // Standard chat — reset streaming state and start listening for chunks
+      setStreamingText("");
+      setIsStreaming(true);
+      streamingMsgIdRef.current = `msg-${Date.now()}-stream`;
+
       const response = await commands.chatAsk({ question, history });
       return {
         answer: response.answer,
@@ -143,6 +182,11 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       } as ChatSmartResponse;
     },
     onSuccess: (response) => {
+      // Finalize: stop streaming, add the complete message
+      setIsStreaming(false);
+      setStreamingText("");
+      streamingMsgIdRef.current = null;
+
       const assistantMessage: Message = {
         id: `msg-${Date.now()}`,
         role: "assistant",
@@ -159,6 +203,10 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       }
     },
     onError: (error) => {
+      setIsStreaming(false);
+      setStreamingText("");
+      streamingMsgIdRef.current = null;
+
       const errorMessage: Message = {
         id: `msg-${Date.now()}`,
         role: "assistant",
@@ -295,8 +343,36 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
           />
         ))}
 
-        {/* Streaming/typing indicator */}
-        {askMutation.isPending && (
+        {/* Streaming response — show tokens as they arrive */}
+        {isStreaming && streamingText && (
+          <div className="fade-in">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: "var(--purple)" }}
+              />
+              <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
+                GitNexus
+              </span>
+            </div>
+            <div
+              className="prose-sm text-[13px] leading-relaxed"
+              style={{ color: "var(--text-1)" }}
+            >
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                components={markdownComponents as any}
+              >
+                {streamingText}
+              </ReactMarkdown>
+              <span className="typing-cursor" />
+            </div>
+          </div>
+        )}
+
+        {/* Thinking/loading shimmer — before any tokens arrive */}
+        {askMutation.isPending && !isStreaming && (
           <div className="fade-in">
             <div className="flex items-center gap-1.5 mb-1">
               <span
@@ -318,6 +394,27 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
               <div className="shimmer rounded" style={{ height: 14, width: "80%", background: "var(--bg-3)" }} />
               <div className="shimmer rounded" style={{ height: 14, width: "65%", background: "var(--bg-3)" }} />
               <div className="shimmer rounded" style={{ height: 14, width: "45%", background: "var(--bg-3)" }} />
+            </div>
+          </div>
+        )}
+
+        {/* Waiting for first token — streaming started but no text yet */}
+        {isStreaming && !streamingText && (
+          <div className="fade-in">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: "var(--purple)" }}
+              />
+              <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
+                GitNexus
+              </span>
+              <span className="text-[11px]" style={{ color: "var(--text-3)" }}>
+                generating response...
+              </span>
+            </div>
+            <div className="py-2 px-4">
+              <span className="typing-cursor" />
             </div>
           </div>
         )}

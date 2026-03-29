@@ -24,6 +24,7 @@ tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 thiserror.workspace = true
 reqwest.workspace = true
+futures-util.workspace = true
 chrono.workspace = true
 once_cell.workspace = true
 zip.workspace = true

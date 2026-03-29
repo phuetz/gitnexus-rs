@@ -89,6 +89,35 @@ function filterPages(pages: DocPage[], query: string): DocPage[] {
   return result;
 }
 
+/** Highlight the first occurrence of `query` inside `text` with an accent span. */
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query) return text;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <span style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}>
+        {text.slice(idx, idx + query.length)}
+      </span>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
+/** Count leaf pages (pages without children) in a filtered tree. */
+function countFilteredPages(pages: DocPage[]): number {
+  let count = 0;
+  for (const page of pages) {
+    if (page.children && page.children.length > 0) {
+      count += countFilteredPages(page.children);
+    } else {
+      count++;
+    }
+  }
+  return count;
+}
+
 export function DocsNav({ index, activePath, onNavigate, onRegenerate, isRegenerating }: DocsNavProps) {
   const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState("");
@@ -159,6 +188,16 @@ export function DocsNav({ index, activePath, onNavigate, onRegenerate, isRegener
             </button>
           )}
         </div>
+        {searchQuery && (
+          <div
+            className="text-[11px] mt-1 px-1"
+            style={{ color: "var(--text-3)" }}
+          >
+            {filteredPages.length === 0
+              ? t("docs.noResults")
+              : `${countFilteredPages(filteredPages)} page${countFilteredPages(filteredPages) === 1 ? "" : "s"} found`}
+          </div>
+        )}
       </div>
 
       {/* Separator */}
@@ -174,6 +213,7 @@ export function DocsNav({ index, activePath, onNavigate, onRegenerate, isRegener
               depth={0}
               activePath={activePath}
               onNavigate={onNavigate}
+              searchQuery={searchQuery}
             />
           ))
         ) : (
@@ -196,11 +236,13 @@ function NavItem({
   depth,
   activePath,
   onNavigate,
+  searchQuery = "",
 }: {
   page: DocPage;
   depth: number;
   activePath: string | null;
   onNavigate: (path: string) => void;
+  searchQuery?: string;
 }) {
   const hasChildren = page.children && page.children.length > 0;
   const [expanded, setExpanded] = useState(true); // default expanded
@@ -250,7 +292,9 @@ function NavItem({
         </span>
 
         {/* Label */}
-        <span className="truncate">{page.title}</span>
+        <span className="truncate">
+          {searchQuery ? highlightMatch(page.title, searchQuery) : page.title}
+        </span>
       </button>
 
       {/* Children */}
@@ -263,6 +307,7 @@ function NavItem({
               depth={depth + 1}
               activePath={activePath}
               onNavigate={onNavigate}
+              searchQuery={searchQuery}
             />
           ))}
         </div>

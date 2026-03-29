@@ -1,11 +1,19 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Zap, ArrowUp, ArrowDown, FileText } from "lucide-react";
 import { useImpactAnalysis, useSearchSymbols } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 import { AnimatedCounter, StaggerContainer, StaggerItem } from "../shared/motion";
+import type { ImpactResult, ImpactNode } from "../../lib/tauri-commands";
 
 type Direction = "upstream" | "downstream" | "both";
+
+function getBarColor(depth: number, maxDepth: number): string {
+  const ratio = depth / Math.max(maxDepth, 1);
+  if (ratio < 0.33) return "var(--green)";
+  if (ratio < 0.66) return "var(--amber)";
+  return "var(--rose)";
+}
 
 export function ImpactView() {
   const { t } = useI18n();
@@ -104,91 +112,178 @@ export function ImpactView() {
         )}
 
         {impact && (
-          <div className="space-y-4">
-            {/* Summary */}
-            <StaggerContainer className="grid grid-cols-3 gap-2">
-              <StaggerItem>
-                <StatCard
-                  label={t("impact.statUpstream")}
-                  value={impact.summary.upstreamCount}
-                  icon={<ArrowUp size={14} />}
-                  color="var(--accent)"
-                />
-              </StaggerItem>
-              <StaggerItem>
-                <StatCard
-                  label={t("impact.statDownstream")}
-                  value={impact.summary.downstreamCount}
-                  icon={<ArrowDown size={14} />}
-                  color="var(--warning)"
-                />
-              </StaggerItem>
-              <StaggerItem>
-                <StatCard
-                  label={t("impact.statFiles")}
-                  value={impact.summary.affectedFilesCount}
-                  icon={<FileText size={14} />}
-                  color="var(--success)"
-                />
-              </StaggerItem>
-            </StaggerContainer>
-
-            {/* Target info */}
-            <div className="p-3 rounded border border-[var(--accent)] bg-[var(--accent)]/10">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent)] text-white shrink-0">
-                  {impact.target.label}
-                </span>
-                <span className="font-medium truncate">{impact.target.name}</span>
-              </div>
-              <p className="text-[10px] text-[var(--text-muted)] mt-1">
-                {impact.target.filePath}
-              </p>
-            </div>
-
-            {/* Upstream list */}
-            {impact.upstream.length > 0 && (
-              <ImpactSection
-                title={t("impact.upstream")}
-                nodes={impact.upstream}
-                onSelect={(id, name) => {
-                  setSelectedNodeId(id, name);
-                }}
-              />
-            )}
-
-            {/* Downstream list */}
-            {impact.downstream.length > 0 && (
-              <ImpactSection
-                title={t("impact.downstream")}
-                nodes={impact.downstream}
-                onSelect={(id, name) => {
-                  setSelectedNodeId(id, name);
-                }}
-              />
-            )}
-
-            {/* Affected files */}
-            {impact.affectedFiles.length > 0 && (
-              <div>
-                <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1">
-                  {t("impact.affectedFiles")} ({impact.affectedFiles.length})
-                </h3>
-                <ul className="space-y-0.5 text-xs">
-                  {impact.affectedFiles.map((f) => (
-                    <li
-                      key={f}
-                      className="px-2 py-1 rounded bg-[var(--bg-secondary)] text-[var(--text-muted)] truncate"
-                    >
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
+          <ImpactResults
+            impact={impact}
+            t={t}
+            setSelectedNodeId={setSelectedNodeId}
+          />
         )}
       </div>
+    </div>
+  );
+}
+
+function ImpactResults({
+  impact,
+  t,
+  setSelectedNodeId,
+}: {
+  impact: ImpactResult;
+  t: (key: string) => string;
+  setSelectedNodeId: (id: string, name?: string) => void;
+}) {
+  // Merge upstream + downstream into a single sorted list for the bar chart
+  const { impactNodes, maxDepth } = useMemo(() => {
+    const all: (ImpactNode & { direction: "upstream" | "downstream" })[] = [
+      ...impact.upstream.map((n) => ({ ...n, direction: "upstream" as const })),
+      ...impact.downstream.map((n) => ({ ...n, direction: "downstream" as const })),
+    ];
+    // Sort by depth descending so deepest impacts appear first
+    all.sort((a, b) => b.depth - a.depth);
+    const max = all.reduce((m, n) => Math.max(m, n.depth), 0);
+    return { impactNodes: all, maxDepth: max };
+  }, [impact.upstream, impact.downstream]);
+
+  return (
+    <div className="space-y-4">
+      {/* Summary stats */}
+      <StaggerContainer className="grid grid-cols-3 gap-2">
+        <StaggerItem>
+          <StatCard
+            label={t("impact.statUpstream")}
+            value={impact.summary.upstreamCount}
+            icon={<ArrowUp size={14} />}
+            color="var(--accent)"
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard
+            label={t("impact.statDownstream")}
+            value={impact.summary.downstreamCount}
+            icon={<ArrowDown size={14} />}
+            color="var(--warning)"
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard
+            label={t("impact.statFiles")}
+            value={impact.summary.affectedFilesCount}
+            icon={<FileText size={14} />}
+            color="var(--success)"
+          />
+        </StaggerItem>
+      </StaggerContainer>
+
+      {/* Target info */}
+      <div className="p-3 rounded border border-[var(--accent)] bg-[var(--accent)]/10">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent)] text-white shrink-0">
+            {impact.target.label}
+          </span>
+          <span className="font-medium truncate">{impact.target.name}</span>
+        </div>
+        <p className="text-[10px] text-[var(--text-muted)] mt-1">
+          {impact.target.filePath}
+        </p>
+      </div>
+
+      {/* Impact Distribution bar chart */}
+      {impactNodes.length > 0 && (
+        <div>
+          <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+            Impact Distribution
+          </h3>
+          <div className="space-y-1">
+            {impactNodes.slice(0, 15).map((item) => {
+              const barWidth = Math.max(10, (item.depth / maxDepth) * 100);
+              return (
+                <div
+                  key={item.node.id}
+                  className="flex items-center gap-2 cursor-pointer group"
+                  onClick={() => setSelectedNodeId(item.node.id, item.node.name)}
+                >
+                  <span
+                    className="text-[11px] truncate w-28 shrink-0 group-hover:text-[var(--accent)] transition-colors"
+                    style={{ color: "var(--text-2)" }}
+                  >
+                    {item.node.name}
+                  </span>
+                  <div
+                    className="flex-1 h-5 rounded overflow-hidden"
+                    style={{ background: "var(--bg-3)" }}
+                  >
+                    <div
+                      className="h-full rounded transition-all duration-300"
+                      style={{
+                        width: `${barWidth}%`,
+                        background: getBarColor(item.depth, maxDepth),
+                        opacity: 0.85,
+                      }}
+                    />
+                  </div>
+                  <span
+                    className="text-[11px] w-6 text-right tabular-nums shrink-0"
+                    style={{ color: "var(--text-3)" }}
+                  >
+                    {item.depth}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {impactNodes.length > 15 && (
+            <p className="text-[10px] mt-1" style={{ color: "var(--text-3)" }}>
+              +{impactNodes.length - 15} more
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Affected files badges */}
+      {impact.affectedFiles.length > 0 && (
+        <div>
+          <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+            {t("impact.affectedFiles")} ({impact.affectedFiles.length})
+          </h3>
+          <div className="flex flex-wrap gap-1.5">
+            {impact.affectedFiles.map((file) => (
+              <span
+                key={file}
+                className="text-[11px] px-2 py-0.5 rounded-full"
+                style={{
+                  background: "var(--accent-subtle)",
+                  color: "var(--accent)",
+                }}
+                title={file}
+              >
+                {file.split("/").pop()}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Upstream list */}
+      {impact.upstream.length > 0 && (
+        <ImpactSection
+          title={t("impact.upstream")}
+          nodes={impact.upstream}
+          onSelect={(id, name) => {
+            setSelectedNodeId(id, name);
+          }}
+        />
+      )}
+
+      {/* Downstream list */}
+      {impact.downstream.length > 0 && (
+        <ImpactSection
+          title={t("impact.downstream")}
+          nodes={impact.downstream}
+          onSelect={(id, name) => {
+            setSelectedNodeId(id, name);
+          }}
+        />
+      )}
     </div>
   );
 }

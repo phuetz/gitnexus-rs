@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ChevronRight, ChevronDown, File, Folder } from "lucide-react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { ChevronRight, ChevronDown, File, Folder, Search, X } from "lucide-react";
 import { useFileTree } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
@@ -48,6 +48,55 @@ function countFiles(nodes: FileTreeNode[]): number {
     }
   }
   return count;
+}
+
+/** Recursively filter tree nodes by search query. A folder matches if its name matches or any descendant matches. */
+function filterTree(nodes: FileTreeNode[], query: string): FileTreeNode[] {
+  const q = query.toLowerCase();
+  const result: FileTreeNode[] = [];
+  for (const node of nodes) {
+    const nameMatch = node.name.toLowerCase().includes(q);
+    if (node.isDir) {
+      const childMatches = filterTree(node.children, query);
+      if (nameMatch || childMatches.length > 0) {
+        result.push({ ...node, children: childMatches.length > 0 ? childMatches : node.children });
+      }
+    } else {
+      if (nameMatch) {
+        result.push(node);
+      }
+    }
+  }
+  return result;
+}
+
+/** Count all leaf (file) nodes in a filtered tree. */
+function countFilteredFiles(nodes: FileTreeNode[]): number {
+  let count = 0;
+  for (const node of nodes) {
+    if (!node.isDir) {
+      count++;
+    } else {
+      count += countFilteredFiles(node.children);
+    }
+  }
+  return count;
+}
+
+/** Highlight the first occurrence of `query` inside `text` with an accent span. */
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query) return text;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <span style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}>
+        {text.slice(idx, idx + query.length)}
+      </span>
+      {text.slice(idx + query.length)}
+    </>
+  );
 }
 
 function Breadcrumbs({ selectedNodeId }: { selectedNodeId: string | null }) {
@@ -106,6 +155,48 @@ export function FileTreeView() {
   const { t } = useI18n();
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const { data: tree, isLoading, error } = useFileTree(true);
+
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Debounce search input by 150ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput.trim());
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Pressing "/" anywhere focuses the search input
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === "/" &&
+        !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName)
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    setSearchInput("");
+    setSearchQuery("");
+  }, []);
+
+  const filteredTree = useMemo(() => {
+    if (!tree || !searchQuery) return tree ?? [];
+    return filterTree(tree, searchQuery);
+  }, [tree, searchQuery]);
+
+  const filteredFileCount = useMemo(() => {
+    if (!searchQuery || !filteredTree) return null;
+    return countFilteredFiles(filteredTree);
+  }, [filteredTree, searchQuery]);
 
   if (isLoading) {
     return (
@@ -188,6 +279,53 @@ export function FileTreeView() {
         </span>
       </div>
 
+      {/* Search input */}
+      <div
+        className="px-3 py-2"
+        style={{ borderBottom: "1px solid var(--surface-border)", background: "var(--bg-1)" }}
+      >
+        <div
+          className="flex items-center gap-2 rounded-md"
+          style={{
+            padding: "5px 8px",
+            background: "var(--bg-2)",
+            border: "1px solid var(--surface-border)",
+          }}
+        >
+          <Search size={13} style={{ color: "var(--text-3)", flexShrink: 0 }} />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search files..."
+            className="flex-1 text-[12px] outline-none bg-transparent"
+            style={{ color: "var(--text-1)", minWidth: 0 }}
+            aria-label="Search files"
+          />
+          {searchInput && (
+            <button
+              onClick={clearSearch}
+              className="rounded p-0.5 transition-colors"
+              style={{ color: "var(--text-3)", background: "transparent", border: "none", cursor: "pointer" }}
+              aria-label="Clear search"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+        {searchQuery && (
+          <div
+            className="text-[11px] mt-1 px-1"
+            style={{ color: "var(--text-3)" }}
+          >
+            {filteredFileCount === 0
+              ? "No files found"
+              : `${filteredFileCount} file${filteredFileCount === 1 ? "" : "s"} found`}
+          </div>
+        )}
+      </div>
+
       {/* Breadcrumb */}
       <Breadcrumbs selectedNodeId={selectedNodeId} />
 
@@ -197,8 +335,14 @@ export function FileTreeView() {
         style={{ backgroundColor: "var(--bg-0)" }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "0px" }}>
-          {tree.map((node) => (
-            <TreeNode key={node.path} node={node} depth={0} parentPath="" />
+          {filteredTree.map((node) => (
+            <TreeNode
+              key={node.path}
+              node={node}
+              depth={0}
+              parentPath=""
+              searchQuery={searchQuery}
+            />
           ))}
         </div>
       </div>
@@ -210,10 +354,24 @@ interface TreeNodeProps {
   node: FileTreeNode;
   depth: number;
   parentPath: string;
+  searchQuery?: string;
 }
 
-function TreeNode({ node, depth, parentPath }: TreeNodeProps) {
+function TreeNode({ node, depth, parentPath, searchQuery = "" }: TreeNodeProps) {
+  // Auto-expand when searching, otherwise default expand first level
   const [expanded, setExpanded] = useState(depth < 1);
+  const wasSearching = useRef(false);
+
+  // When search is active, auto-expand all folders; when search clears, collapse back
+  useEffect(() => {
+    if (searchQuery && node.isDir) {
+      setExpanded(true);
+      wasSearching.current = true;
+    } else if (!searchQuery && wasSearching.current) {
+      setExpanded(depth < 1);
+      wasSearching.current = false;
+    }
+  }, [searchQuery, node.isDir, depth]);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const setDetailTab = useAppStore((s) => s.setDetailTab);
@@ -297,7 +455,9 @@ function TreeNode({ node, depth, parentPath }: TreeNodeProps) {
         )}
 
         {/* Name */}
-        <span className="truncate flex-1">{node.name}</span>
+        <span className="truncate flex-1">
+          {searchQuery ? highlightMatch(node.name, searchQuery) : node.name}
+        </span>
 
         {/* Hover background indicator */}
         <div
@@ -320,6 +480,7 @@ function TreeNode({ node, depth, parentPath }: TreeNodeProps) {
               node={child}
               depth={depth + 1}
               parentPath={fullPath}
+              searchQuery={searchQuery}
             />
           ))}
         </div>

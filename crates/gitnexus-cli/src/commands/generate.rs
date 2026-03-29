@@ -273,62 +273,66 @@ fn extract_params_linked(params_str: &str, known_types: &HashSet<String>) -> Str
     params.join(", ")
 }
 
-/// Extract method signature (params + return type) from source code.
-fn extract_method_signature(source: &str, method_name: &str) -> (String, String) {
-    // Find the line containing "public ... MethodName("
+/// Extract ALL method signatures (params + return type) from source code, including overloads.
+fn extract_all_method_signatures(source: &str, method_name: &str) -> Vec<(String, String)> {
+    let mut results = Vec::new();
+
     for line in source.lines() {
         let trimmed = line.trim();
         if !trimmed.contains(method_name) || !trimmed.contains('(') {
             continue;
         }
-        // Must be a method declaration (public/private/protected, contains return type)
         if !trimmed.starts_with("public") && !trimmed.starts_with("private")
             && !trimmed.starts_with("protected") && !trimmed.starts_with("async") {
             continue;
         }
-        // Skip if it's a call site, not a declaration
-        if trimmed.contains("await ") || trimmed.contains(".GetAwaiter") {
+        if trimmed.contains("await ") || trimmed.contains(".GetAwaiter") || trimmed.contains("=>") {
+            continue;
+        }
+        // Must contain the exact method name followed by (
+        let pattern = format!("{}(", method_name);
+        if !trimmed.contains(&pattern) && !trimmed.contains(&format!("{} (", method_name)) {
             continue;
         }
 
-        // Extract return type (word before method name)
         let before_name = trimmed.split(method_name).next().unwrap_or("");
         let words: Vec<&str> = before_name.split_whitespace().collect();
         let ret_type = if words.len() >= 2 {
-            // Last word before method name is the return type
             words[words.len() - 1].to_string()
         } else {
             "-".to_string()
         };
 
-        // Clean return type (remove Task< wrapper for readability)
         let clean_ret = ret_type
             .replace("System.Threading.Tasks.Task<", "")
             .replace("System.Collections.Generic.ICollection<", "ICollection<")
             .trim_end_matches('>')
             .to_string();
 
-        // Extract parameters
         if let Some(paren_start) = trimmed.find('(') {
             let after = &trimmed[paren_start + 1..];
             if let Some(paren_end) = after.find(')') {
                 let params_raw = after[..paren_end].trim();
                 if params_raw.is_empty() || params_raw == ")" {
-                    return ("-".to_string(), clean_ret);
+                    results.push(("-".to_string(), clean_ret));
+                    continue;
                 }
 
                 // Format params: simplify System.* types
                 let params: Vec<String> = params_raw.split(',').map(|p| {
-                    let p = p.trim()
+                    // Strip default values: "string nia = null" → "string nia"
+                    let p_clean = p.split('=').next().unwrap_or(p).trim()
                         .replace("System.Threading.CancellationToken", "CancellationToken")
                         .replace("System.Threading.Tasks.", "");
-                    let parts: Vec<&str> = p.split_whitespace().collect();
+                    let parts: Vec<&str> = p_clean.split_whitespace().collect();
                     if parts.len() >= 2 {
                         let type_name = parts[0];
-                        let param_name = parts[parts.len() - 1];
+                        let param_name = parts[1]; // Name is always the second word
                         format!("`{}` {}", type_name, param_name)
+                    } else if parts.len() == 1 {
+                        format!("`{}`", parts[0])
                     } else {
-                        format!("`{}`", p)
+                        p.trim().to_string()
                     }
                 }).collect();
 
@@ -343,11 +347,22 @@ fn extract_method_signature(source: &str, method_name: &str) -> (String, String)
                     visible_params.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
                 };
 
-                return (params_str, clean_ret);
+                results.push((params_str, clean_ret));
             }
         }
     }
-    ("-".to_string(), "-".to_string())
+    if results.is_empty() {
+        results.push(("-".to_string(), "-".to_string()));
+    }
+    results
+}
+
+/// Extract first method signature (backward compat wrapper).
+fn extract_method_signature(source: &str, method_name: &str) -> (String, String) {
+    extract_all_method_signatures(source, method_name)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| ("-".to_string(), "-".to_string()))
 }
 
 /// Count nodes by label type in the graph.
@@ -2888,15 +2903,23 @@ fn generate_docs_modules(
                     for method in methods {
                         let method_name = &method.properties.name;
 
-                        // Extract signature from source file
-                        let (params_str, ret_str) = if !source_content.is_empty() {
-                            extract_method_signature(&source_content, method_name)
+                        // Extract ALL overload signatures from source file
+                        let signatures = if !source_content.is_empty() {
+                            extract_all_method_signatures(&source_content, method_name)
                         } else {
-                            ("-".to_string(), "-".to_string())
+                            vec![("-".to_string(), "-".to_string())]
                         };
 
-                        content.push_str(&format!("| **{}** | {} | `{}` |\n",
-                            method_name, params_str, ret_str));
+                        for (idx, (params_str, ret_str)) in signatures.iter().enumerate() {
+                            if idx == 0 {
+                                content.push_str(&format!("| **{}** | {} | `{}` |\n",
+                                    method_name, params_str, ret_str));
+                            } else {
+                                // Overload: show with "(surcharge)" label
+                                content.push_str(&format!("| ↳ *surcharge* | {} | `{}` |\n",
+                                    params_str, ret_str));
+                            }
+                        }
                     }
                     content.push('\n');
                 }

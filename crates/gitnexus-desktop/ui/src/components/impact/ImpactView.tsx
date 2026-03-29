@@ -51,6 +51,7 @@ export function ImpactView() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t("impact.placeholder")}
+            aria-label="Search symbol for impact analysis"
             className="w-full px-3 py-1.5 rounded border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder-[var(--text-muted)] text-xs focus:outline-none focus:border-[var(--accent)]"
           />
           {searchResults && searchResults.length > 0 && searchQuery.length >= 2 && (

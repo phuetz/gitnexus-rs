@@ -57,6 +57,9 @@ export function CommandPalette() {
   return (
     <AnimatedModal isOpen={commandPaletteOpen} onClose={close}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
         className="w-[560px] rounded-xl overflow-hidden"
         style={{
           background: "var(--bg-1)",
@@ -78,6 +81,7 @@ export function CommandPalette() {
           >
             <Command.Input
               placeholder="Type a command or search..."
+              aria-label="Type a command or search"
               autoFocus
               style={{
                 width: "100%",

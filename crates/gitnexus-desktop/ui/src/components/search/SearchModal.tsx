@@ -110,6 +110,9 @@ export function SearchModal() {
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Search"
       onClick={() => setSearchOpen(false)}
     >
       {/* Backdrop */}
@@ -135,6 +138,7 @@ export function SearchModal() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t("search.placeholder")}
+            aria-label="Search symbols"
             className="flex-1 bg-transparent outline-none text-[15px]"
             style={{ color: "var(--text-0)", fontFamily: "var(--font-body)" }}
           />
@@ -150,10 +154,12 @@ export function SearchModal() {
         {/* Results */}
         <div className="max-h-[400px] overflow-y-auto py-1">
           {results && results.length > 0 ? (
-            <div>
+            <div role="listbox">
               {results.map((r, i) => (
                 <button
                   key={r.nodeId}
+                  role="option"
+                  aria-selected={selectedIndex === i}
                   data-search-index={i}
                   onClick={() => selectResult(r.nodeId, r.name)}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors"

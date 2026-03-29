@@ -192,7 +192,7 @@ export function ExportPanel() {
           <button
             onClick={loadStats}
             title={t("export.refreshStats")}
-            aria-label={t("export.refreshStats")}
+            aria-label="Refresh statistics"
             className="rounded-md hover-surface"
             style={{
               padding: 8,
@@ -250,7 +250,7 @@ export function ExportPanel() {
           <button
             onClick={handleExport}
             disabled={exportStatus === "exporting"}
-            aria-label={t("export.generateDocx")}
+            aria-label="Export documentation as DOCX"
             className="w-full flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all"
             style={{
               marginTop: 16,

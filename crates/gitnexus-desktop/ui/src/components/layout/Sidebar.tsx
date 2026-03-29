@@ -35,7 +35,9 @@ export function Sidebar() {
   const toggle = useAppStore((s) => s.toggleSidebar);
 
   return (
-    <div
+    <nav
+      role="navigation"
+      aria-label="Main navigation"
       className="flex flex-col h-full border-r transition-all duration-200 ease-out shrink-0"
       style={{
         width: collapsed ? 52 : 220,
@@ -75,7 +77,8 @@ export function Sidebar() {
               <button
                 onClick={toggle}
                 title={toggleText.label}
-                aria-label={toggleText.label}
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-expanded={!collapsed}
                 className="rounded-md transition-colors shrink-0"
                 style={{ marginLeft: "auto", padding: 4, color: "var(--text-3)" }}
                 onMouseEnter={(e) => {
@@ -161,7 +164,7 @@ export function Sidebar() {
           onClick={() => useAppStore.getState().setSettingsOpen(true)}
         />
       </div>
-    </div>
+    </nav>
   );
 }
 
@@ -203,6 +206,7 @@ function NavItem({
     <button
       onClick={onClick}
       title={collapsed ? label : undefined}
+      aria-current={active ? "page" : undefined}
       className="w-full flex items-center rounded-lg transition-all duration-150 group relative overflow-hidden"
       style={{
         gap: 10,

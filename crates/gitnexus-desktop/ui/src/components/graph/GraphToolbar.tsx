@@ -39,6 +39,8 @@ export function GraphToolbar({
 
   return (
     <div
+      role="toolbar"
+      aria-label="Graph controls"
       className="flex items-center gap-4 px-4 py-2.5 border-b flex-wrap"
       style={{
         backgroundColor: "var(--bg-2)",

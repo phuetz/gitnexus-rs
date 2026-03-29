@@ -23,6 +23,7 @@ import {
   Zap,
   Copy,
   Pencil,
+  Trash2,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -35,6 +36,7 @@ import type {
   ResearchPlan,
   QueryComplexity,
 } from "../../lib/tauri-commands";
+import { useAppStore } from "../../stores/app-store";
 import { useChatStore } from "../../stores/chat-store";
 import { ChatContextBar } from "./ChatContextBar";
 import { FileFilterModal } from "./FileFilterModal";
@@ -66,7 +68,17 @@ interface ChatPanelProps {
 // ─── Component ──────────────────────────────────────────────────────
 
 export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const activeRepo = useAppStore((s) => s.activeRepo);
+  const storageKey = `gitnexus-chat-${activeRepo || "global"}`;
+
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [input, setInput] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -81,6 +93,26 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     hasActiveFilters,
     setActivePlan,
   } = useChatStore();
+
+  // Persist messages to localStorage (keep last 100)
+  useEffect(() => {
+    try {
+      const toSave = messages.slice(-100);
+      localStorage.setItem(storageKey, JSON.stringify(toSave));
+    } catch {
+      // localStorage full or unavailable — silently ignore
+    }
+  }, [messages, storageKey]);
+
+  // Reload messages when activeRepo changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      setMessages(saved ? JSON.parse(saved) : []);
+    } catch {
+      setMessages([]);
+    }
+  }, [storageKey]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -330,11 +362,28 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
 
   return (
     <div className="h-full flex flex-col">
-      {/* Context filter bar */}
-      <ChatContextBar />
+      {/* Context filter bar + clear button */}
+      <div className="flex items-center">
+        <div className="flex-1">
+          <ChatContextBar />
+        </div>
+        <button
+          onClick={() => {
+            setMessages([]);
+            localStorage.removeItem(storageKey);
+            toast.success("Conversation cleared");
+          }}
+          className="text-xs hover-surface rounded px-2 py-1 mr-2"
+          style={{ color: "var(--text-3)" }}
+          aria-label="Clear conversation"
+          title="Clear conversation"
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4" aria-live="polite" aria-label="Chat messages">
         {messages.map((msg) => (
           <MessageBubble
             key={msg.id}
@@ -358,6 +407,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
             <div
               className="prose-sm text-[13px] leading-relaxed"
               style={{ color: "var(--text-1)" }}
+              aria-live="assertive"
             >
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -668,6 +718,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={placeholder}
+            aria-label="Ask a question about the code"
             rows={1}
             className="flex-1 bg-transparent resize-none text-[13px] outline-none min-h-[24px] max-h-[200px]"
             style={{

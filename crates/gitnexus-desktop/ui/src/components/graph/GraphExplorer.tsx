@@ -708,7 +708,7 @@ export function GraphExplorer() {
           <TreemapView data={data} isLoading={isLoading} />
         </div>
       ) : (
-      <div ref={containerRef} className="flex-1 relative cytoscape-container">
+      <div ref={containerRef} className="flex-1 relative cytoscape-container" role="img" aria-label="Knowledge graph visualization">
         <CytoscapeComponent
           key={mountId}
           elements={elements}

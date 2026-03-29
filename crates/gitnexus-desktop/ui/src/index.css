@@ -496,3 +496,8 @@ pre.shiki code > .line::before {
   border-color: var(--accent-border) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
 }
+
+/* Screen reader announcements */
+[aria-live="polite"], [aria-live="assertive"] {
+  /* Don't add visual styling — these are for screen readers */
+}

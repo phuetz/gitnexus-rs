@@ -334,7 +334,7 @@ export function FileTreeView() {
         className="flex-1 overflow-y-auto px-3 py-4"
         style={{ backgroundColor: "var(--bg-0)" }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: "0px" }}>
+        <div role="tree" aria-label="File explorer" style={{ display: "flex", flexDirection: "column", gap: "0px" }}>
           {filteredTree.map((node) => (
             <TreeNode
               key={node.path}
@@ -389,7 +389,7 @@ function TreeNode({ node, depth, parentPath, searchQuery = "" }: TreeNodeProps) 
   };
 
   return (
-    <div>
+    <div role="treeitem" aria-expanded={node.isDir ? expanded : undefined}>
       <button
         onClick={handleClick}
         className="flex items-center gap-2 w-full rounded text-left text-[13px] transition-colors relative group"
@@ -473,7 +473,7 @@ function TreeNode({ node, depth, parentPath, searchQuery = "" }: TreeNodeProps) 
 
       {/* Children */}
       {node.isDir && expanded && (
-        <div>
+        <div role="group">
           {node.children.map((child) => (
             <TreeNode
               key={child.path}

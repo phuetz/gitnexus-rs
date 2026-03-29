@@ -2116,19 +2116,35 @@ fn generate_docs_modules(
             let short_name = if let Some(src_node) = graph.get_node(&r.source_id) {
                 let label_str = match src_node.label {
                     NodeLabel::View | NodeLabel::PartialView => {
-                        // Extract just the filename from file_path
+                        src_node.properties.file_path.rsplit(['/', '\\']).next()
+                            .unwrap_or(&src_node.properties.name).to_string()
+                    }
+                    NodeLabel::UiComponent => {
+                        // Show the file containing the grid, not "Telerik.Grid"
+                        let file = src_node.properties.file_path.rsplit(['/', '\\']).next()
+                            .unwrap_or("vue");
+                        let comp = src_node.properties.component_type.as_deref().unwrap_or("Grid");
+                        format!("{} ({})", file, comp)
+                    }
+                    NodeLabel::AjaxCall => {
+                        src_node.properties.file_path.rsplit(['/', '\\']).next()
+                            .unwrap_or(&src_node.properties.name).to_string()
+                    }
+                    NodeLabel::ScriptFile => {
                         src_node.properties.file_path.rsplit(['/', '\\']).next()
                             .unwrap_or(&src_node.properties.name).to_string()
                     }
                     _ => src_node.properties.name.clone(),
                 };
                 let type_str = match src_node.label {
-                    NodeLabel::View => "View".to_string(),
-                    NodeLabel::PartialView => "Partial".to_string(),
+                    NodeLabel::View => "Vue".to_string(),
+                    NodeLabel::PartialView => "Partielle".to_string(),
+                    NodeLabel::UiComponent => "Grille".to_string(),
                     NodeLabel::AjaxCall => {
                         let ajax_method = src_node.properties.ajax_method.as_deref().unwrap_or("AJAX");
-                        format!("Script ({})", ajax_method)
+                        format!("AJAX {}", ajax_method)
                     }
+                    NodeLabel::ScriptFile => "Script".to_string(),
                     _ => format!("{:?}", src_node.label),
                 };
                 (label_str, type_str)
@@ -2423,19 +2439,23 @@ fn generate_docs_modules(
             // Mini ER diagram showing this entity and its direct relations
             if rel_count > 0 {
                 if let Some(rels) = rels {
-                    content.push_str("```mermaid\nerDiagram\n");
-                    content.push_str(&format!("  {} {{}}\n", sanitize_filename(ename)));
+                    // Use graph LR instead of erDiagram for better Mermaid 11.x compatibility
+                    content.push_str("```mermaid\ngraph LR\n");
+                    let eid = sanitize_mermaid_id(ename);
+                    content.push_str(&format!("    {}[\"{}\"]\n", eid, ename));
+                    content.push_str(&format!("    style {} fill:#4a85e0,color:#fff,stroke:#3a73cc\n", eid));
 
                     let mut seen: HashSet<String> = HashSet::new();
-                    for (target, cardinality) in rels.iter().take(10) {
+                    for (target, _cardinality) in rels.iter().take(8) {
                         if seen.insert(target.clone()) {
-                            content.push_str(&format!("  {} {{}}\n", sanitize_filename(target)));
-                            content.push_str(&format!("  {} {} {}\n",
-                                sanitize_filename(ename), cardinality, sanitize_filename(target)));
+                            let tid = sanitize_mermaid_id(target);
+                            content.push_str(&format!("    {}[\"{}\"]\n", tid, target));
+                            content.push_str(&format!("    {} --- {}\n", eid, tid));
                         }
                     }
-                    if rels.len() > 10 {
-                        content.push_str(&format!("  %% ...et {} autres relations\n", rels.len() - 10));
+                    if rels.len() > 8 {
+                        content.push_str(&format!("    more((\"...+{}\"))\n", rels.len() - 8));
+                        content.push_str(&format!("    {} -.- more\n", eid));
                     }
                     content.push_str("```\n\n");
                 }

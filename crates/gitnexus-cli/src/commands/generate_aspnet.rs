@@ -83,7 +83,7 @@ pub fn generate_aspnet_docs(
 
     // 4. Views
     if !views.is_empty() {
-        generate_views_doc(docs_dir, &views, &controllers)?;
+        generate_views_doc(docs_dir, &views, &controllers, graph)?;
         pages.push((
             "aspnet-views".to_string(),
             "Views & Templates".to_string(),
@@ -427,6 +427,7 @@ fn generate_views_doc(
     docs_dir: &Path,
     views: &[&GraphNode],
     _controllers: &[&GraphNode],
+    graph: &KnowledgeGraph,
 ) -> Result<()> {
     let path = docs_dir.join("aspnet-views.md");
     let mut f = std::fs::File::create(path)?;
@@ -439,49 +440,145 @@ fn generate_views_doc(
         })
         .collect();
 
+    // Build sets for cross-referencing
+    let mut views_with_grid: HashSet<String> = HashSet::new();
+    let mut views_with_form: HashSet<String> = HashSet::new();
+
+    // Find views that have Telerik grids (via RendersComponent relationships)
+    for rel in graph.iter_relationships() {
+        if rel.rel_type == RelationshipType::RendersComponent {
+            if let Some(src) = graph.get_node(&rel.source_id) {
+                if src.label == NodeLabel::View || src.label == NodeLabel::PartialView {
+                    views_with_grid.insert(src.properties.file_path.clone());
+                }
+            }
+        }
+        // Find views that have forms (via CallsAction with reason containing "beginform")
+        if rel.rel_type == RelationshipType::CallsAction {
+            if let Some(src) = graph.get_node(&rel.source_id) {
+                if (src.label == NodeLabel::View || src.label == NodeLabel::PartialView)
+                    && rel.reason.contains("beginform") {
+                    views_with_form.insert(src.properties.file_path.clone());
+                }
+            }
+        }
+    }
+
+    // Classify views
+    let partial_views: Vec<&&GraphNode> = source_views.iter()
+        .filter(|v| v.label == NodeLabel::PartialView
+            || v.properties.file_path.rsplit(['/', '\\']).next().unwrap_or("")
+                .starts_with('_'))
+        .copied()
+        .collect();
+    let typed_views: Vec<&&GraphNode> = source_views.iter()
+        .filter(|v| v.properties.model_type.is_some())
+        .copied()
+        .collect();
+    let grid_views: Vec<&&GraphNode> = source_views.iter()
+        .filter(|v| views_with_grid.contains(&v.properties.file_path))
+        .copied()
+        .collect();
+    let form_views: Vec<&&GraphNode> = source_views.iter()
+        .filter(|v| views_with_form.contains(&v.properties.file_path))
+        .copied()
+        .collect();
+
     writeln!(f, "# Views & Templates")?;
     writeln!(f)?;
     writeln!(f, "Total: **{} vues** (hors copies de déploiement)", source_views.len())?;
     writeln!(f)?;
 
-    // Group views by controller folder (extract from path: Views/{Controller}/xxx.cshtml)
+    // Summary stats
+    writeln!(f, "| Catégorie | Nombre |")?;
+    writeln!(f, "|-----------|--------|")?;
+    writeln!(f, "| Vues avec **grille Telerik** | {} |", grid_views.len())?;
+    writeln!(f, "| Vues avec **formulaire** (Html.BeginForm) | {} |", form_views.len())?;
+    writeln!(f, "| Vues avec **modèle typé** (@model) | {} |", typed_views.len())?;
+    writeln!(f, "| **Vues partielles** (_*.cshtml) | {} |", partial_views.len())?;
+    writeln!(f)?;
+
+    // Section 1: Views with Telerik Grids (most important)
+    if !grid_views.is_empty() {
+        writeln!(f, "## Vues avec grille Telerik ({}) ⚡", grid_views.len())?;
+        writeln!(f)?;
+        writeln!(f, "> Ces vues contiennent des grilles de données Telerik — les écrans les plus complexes.")?;
+        writeln!(f)?;
+        writeln!(f, "| Vue | Écran | Modèle |")?;
+        writeln!(f, "|-----|-------|--------|")?;
+        for view in &grid_views {
+            let filename = view.properties.file_path.rsplit(['/', '\\']).next().unwrap_or("");
+            let folder = extract_view_folder(&view.properties.file_path);
+            let model = view.properties.model_type.as_deref().unwrap_or("-");
+            writeln!(f, "| `{}` | {} | {} |", filename, folder, model)?;
+        }
+        writeln!(f)?;
+    }
+
+    // Section 2: Views with Forms
+    if !form_views.is_empty() {
+        writeln!(f, "## Vues avec formulaire ({}) 📝", form_views.len())?;
+        writeln!(f)?;
+        writeln!(f, "> Ces vues contiennent des formulaires de saisie qui envoient des données au serveur.")?;
+        writeln!(f)?;
+        writeln!(f, "| Vue | Écran | Modèle |")?;
+        writeln!(f, "|-----|-------|--------|")?;
+        for view in &form_views {
+            let filename = view.properties.file_path.rsplit(['/', '\\']).next().unwrap_or("");
+            let folder = extract_view_folder(&view.properties.file_path);
+            let model = view.properties.model_type.as_deref().unwrap_or("-");
+            writeln!(f, "| `{}` | {} | {} |", filename, folder, model)?;
+        }
+        writeln!(f)?;
+    }
+
+    // Section 3: All views grouped by screen/controller
+    writeln!(f, "## Toutes les vues par écran")?;
+    writeln!(f)?;
+
     let mut grouped: BTreeMap<String, Vec<&&&GraphNode>> = BTreeMap::new();
     for view in &source_views {
-        let path_str = &view.properties.file_path;
-        // Extract folder name from Views/{FolderName}/file.cshtml
-        let folder = if let Some(views_idx) = path_str.to_lowercase().find("views/") {
-            let after = &path_str[views_idx + 6..];
-            after.split(['/', '\\']).next().unwrap_or("Shared")
-        } else if let Some(views_idx) = path_str.to_lowercase().find("views\\") {
-            let after = &path_str[views_idx + 6..];
-            after.split(['/', '\\']).next().unwrap_or("Shared")
-        } else {
-            "Autres"
-        };
-        grouped.entry(folder.to_string()).or_default().push(view);
+        let folder = extract_view_folder(&view.properties.file_path);
+        grouped.entry(folder).or_default().push(view);
     }
 
     for (folder, folder_views) in &grouped {
-        writeln!(f, "## {} ({} vues)", folder, folder_views.len())?;
+        writeln!(f, "### {} ({} vues)", folder, folder_views.len())?;
         writeln!(f)?;
-        writeln!(f, "| Vue | Modèle | Layout |")?;
-        writeln!(f, "|-----|--------|--------|")?;
+        writeln!(f, "| Vue | Type | Modèle | Layout |")?;
+        writeln!(f, "|-----|------|--------|--------|")?;
 
         for view in folder_views {
-            // Extract just the filename
-            let filename = view.properties.file_path
-                .rsplit(['/', '\\'])
-                .next()
-                .unwrap_or(&view.properties.file_path);
+            let filename = view.properties.file_path.rsplit(['/', '\\']).next().unwrap_or("");
             let model = view.properties.model_type.as_deref().unwrap_or("-");
             let layout = view.properties.layout_path.as_deref().unwrap_or("-");
+            let is_partial = filename.starts_with('_');
+            let has_grid = views_with_grid.contains(&view.properties.file_path);
+            let has_form = views_with_form.contains(&view.properties.file_path);
 
-            writeln!(f, "| `{}` | {} | {} |", filename, model, layout)?;
+            let type_str = if is_partial && has_grid { "Partielle ⚡" }
+                else if is_partial { "Partielle" }
+                else if has_grid && has_form { "⚡📝" }
+                else if has_grid { "⚡ Grille" }
+                else if has_form { "📝 Formulaire" }
+                else { "Vue" };
+
+            writeln!(f, "| `{}` | {} | {} | {} |", filename, type_str, model, layout)?;
         }
         writeln!(f)?;
     }
 
     Ok(())
+}
+
+fn extract_view_folder(file_path: &str) -> String {
+    let lower = file_path.to_lowercase();
+    if let Some(idx) = lower.find("views/").or_else(|| lower.find("views\\")) {
+        let after = &file_path[idx + 6..];
+        after.split(['/', '\\']).next().unwrap_or("Shared").to_string()
+    } else {
+        "Autres".to_string()
+    }
 }
 
 // ─── Areas Documentation ────────────────────────────────────────────────
@@ -608,15 +705,15 @@ fn generate_er_diagram_doc(
 
         writeln!(f, "## {}\n", domain_name)?;
 
-        // Small ER diagram for this domain only
+        // Domain relationship diagram (graph LR for Mermaid 11.x compatibility)
         writeln!(f, "```mermaid")?;
-        writeln!(f, "erDiagram")?;
+        writeln!(f, "graph LR")?;
 
         let domain_set: HashSet<&str> = existing.iter().map(|n| **n).collect();
 
-        // Entity blocks
+        // Entity nodes
         for name in &existing {
-            writeln!(f, "  {} {{}}", sanitize_mermaid(name))?;
+            writeln!(f, "    {}[\"{}\"]", sanitize_mermaid(name), name)?;
         }
 
         // Relationships within this domain
@@ -631,14 +728,14 @@ fn generate_er_diagram_doc(
                             format!("{}:{}", target, name)
                         };
                         if seen_rels.insert(key) {
-                            let mermaid_rel = match card.as_str() {
-                                "1:N" => "||--o{",
-                                "N:1" => "}o--||",
-                                "N:N" => "}o--o{",
-                                _ => "||--||",
+                            let arrow = match card.as_str() {
+                                "1:N" => "-->|1:N|",
+                                "N:1" => "-->|N:1|",
+                                "N:N" => "-->|N:N|",
+                                _ => "---",
                             };
-                            writeln!(f, "  {} {} {}",
-                                sanitize_mermaid(name), mermaid_rel, sanitize_mermaid(target))?;
+                            writeln!(f, "    {} {} {}",
+                                sanitize_mermaid(name), arrow, sanitize_mermaid(target))?;
                         }
                     }
                 }

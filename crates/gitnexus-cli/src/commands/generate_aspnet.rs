@@ -10,7 +10,7 @@
 //! - **seq-http.md** — Sequence diagrams: HTTP request lifecycle per controller
 //! - **seq-data.md** — Sequence diagrams: Data access flow (Controller → DbContext → Entity)
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 use std::path::Path;
 
@@ -223,28 +223,36 @@ fn generate_controllers_doc(
             .filter(|r| r.source_id == ctrl.id || r.target_id == ctrl.id)
             .collect();
 
-        if !rels.is_empty() {
+        // Only show high-level dependencies (Services, DbContexts, ExternalServices)
+        // Skip HAS_ACTION, RENDERS_VIEW, etc. to keep diagrams readable
+        let dep_rels: Vec<&&GraphRelationship> = rels.iter()
+            .filter(|r| matches!(r.rel_type,
+                RelationshipType::DependsOn | RelationshipType::CallsService |
+                RelationshipType::Calls))
+            .filter(|r| {
+                let other_id = if r.source_id == ctrl.id { &r.target_id } else { &r.source_id };
+                graph.get_node(other_id).map_or(false, |n| matches!(n.label,
+                    NodeLabel::Service | NodeLabel::DbContext | NodeLabel::ExternalService))
+            })
+            .collect();
+
+        if !dep_rels.is_empty() {
             writeln!(f, "### Dependencies")?;
             writeln!(f)?;
             writeln!(f, "```mermaid")?;
             writeln!(f, "graph LR")?;
             writeln!(f, "  {}[\"{}\"]", sanitize_mermaid(&ctrl.properties.name), escape_mermaid_label(&ctrl.properties.name))?;
-            for rel in &rels {
-                let other_id = if rel.source_id == ctrl.id {
-                    &rel.target_id
-                } else {
-                    &rel.source_id
-                };
+            let mut seen_targets: HashSet<String> = HashSet::new();
+            for rel in &dep_rels {
+                let other_id = if rel.source_id == ctrl.id { &rel.target_id } else { &rel.source_id };
                 if let Some(other) = graph.get_node(other_id) {
-                    let label = escape_mermaid_label(rel.rel_type.as_str());
-                    writeln!(
-                        f,
-                        "  {} -->|{}| {}[\"{}\"]",
-                        sanitize_mermaid(&ctrl.properties.name),
-                        label,
-                        sanitize_mermaid(&other.properties.name),
-                        escape_mermaid_label(&other.properties.name)
-                    )?;
+                    if seen_targets.insert(other.properties.name.clone()) {
+                        writeln!(f, "  {} --> {}[\"{}\"]",
+                            sanitize_mermaid(&ctrl.properties.name),
+                            sanitize_mermaid(&other.properties.name),
+                            escape_mermaid_label(&other.properties.name)
+                        )?;
+                    }
                 }
             }
             writeln!(f, "```")?;
@@ -669,8 +677,20 @@ fn generate_sequence_http_doc(
         .map(|d| d.properties.name.as_str())
         .unwrap_or("DbContext");
 
-    // Generate one diagram per controller
-    for ctrl in controllers {
+    // Generate diagrams for top 5 controllers (by action count) to keep docs readable
+    let mut sorted_ctrls: Vec<&&GraphNode> = controllers.iter().collect();
+    sorted_ctrls.sort_by(|a, b| {
+        let a_count = ctrl_actions.get(&a.id).map_or(0, |v| v.len());
+        let b_count = ctrl_actions.get(&b.id).map_or(0, |v| v.len());
+        b_count.cmp(&a_count)
+    });
+    let top_ctrls: Vec<&&GraphNode> = sorted_ctrls.into_iter().take(5).collect();
+
+    if controllers.len() > 5 {
+        writeln!(f, "> Showing request flows for the **5 most active controllers** (out of {}). Each diagram shows the typical HTTP request lifecycle.\n", controllers.len())?;
+    }
+
+    for ctrl in top_ctrls {
         let ctrl_name = &ctrl.properties.name;
         let area = ctrl
             .properties
@@ -702,11 +722,17 @@ fn generate_sequence_http_doc(
             escape_mermaid_label(ctrl_name)
         )?;
 
-        // Collect unique views and models for this controller
+        // Show max 3 representative actions to keep diagram readable
+        let sample_actions: Vec<&&GraphNode> = my_actions.iter().take(3).collect();
+        if my_actions.len() > 3 {
+            writeln!(f, "    Note over Client: Showing {}/{} actions", sample_actions.len(), my_actions.len())?;
+        }
+
+        // Collect unique views and models for sampled actions
         let mut view_participants: BTreeMap<String, bool> = BTreeMap::new();
         let mut model_participants: BTreeMap<String, bool> = BTreeMap::new();
 
-        for action in my_actions {
+        for action in &sample_actions {
             if let Some(views_list) = action_views.get(&action.id) {
                 for v in views_list {
                     view_participants.insert(v.properties.name.clone(), true);
@@ -748,8 +774,8 @@ fn generate_sequence_http_doc(
 
         writeln!(f)?;
 
-        // Generate interactions for each action
-        for action in my_actions {
+        // Generate interactions for sampled actions only
+        for action in &sample_actions {
             let action_name = &action.properties.name;
             let http_method = action
                 .properties

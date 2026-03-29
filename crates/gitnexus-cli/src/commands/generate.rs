@@ -2656,10 +2656,15 @@ fn generate_docs_modules(
                 if r.rel_type == RelationshipType::CallsService && r.target_id == ext_svc.id {
                     if let Some(caller) = graph.get_node(&r.source_id) {
                         let caller_short = sanitize_mermaid_id(&caller.properties.name);
+                        // Skip test files to keep diagram readable
+                        if caller.properties.file_path.contains("Test")
+                            || caller.properties.file_path.contains("test") {
+                            continue;
+                        }
                         let subgraph = match caller.label {
                             NodeLabel::Controller => "Controllers",
                             NodeLabel::Service | NodeLabel::Repository => "Services",
-                            _ => "Other",
+                            _ => continue, // Skip non-controller/non-service callers
                         };
                         mermaid_nodes.insert(caller_short.clone(),
                             (caller.properties.name.clone(), subgraph));

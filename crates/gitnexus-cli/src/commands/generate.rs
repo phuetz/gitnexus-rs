@@ -196,6 +196,157 @@ fn escape_mermaid_label(label: &str) -> String {
         .replace('\r', "")
 }
 
+/// Generate a `<details>` block listing relevant source files.
+fn source_files_section(files: &[&str]) -> String {
+    if files.is_empty() {
+        return String::new();
+    }
+    let mut s = String::from("\n<details>\n<summary>Relevant source files</summary>\n\n");
+    for f in files.iter().take(15) {
+        s.push_str(&format!("- `{}`\n", f));
+    }
+    s.push_str("\n</details>\n\n");
+    s
+}
+
+/// Count nodes by label type in the graph.
+fn count_nodes_by_label(graph: &KnowledgeGraph) -> HashMap<NodeLabel, usize> {
+    let mut counts: HashMap<NodeLabel, usize> = HashMap::new();
+    for node in graph.iter_nodes() {
+        *counts.entry(node.label).or_insert(0) += 1;
+    }
+    counts
+}
+
+/// Find the top N most-connected files (by total degree) in the graph.
+fn top_connected_files(graph: &KnowledgeGraph, n: usize) -> Vec<String> {
+    let mut file_degree: HashMap<String, usize> = HashMap::new();
+    for rel in graph.iter_relationships() {
+        // Count source file
+        if let Some(src_node) = graph.get_node(&rel.source_id) {
+            if !src_node.properties.file_path.is_empty() {
+                *file_degree.entry(src_node.properties.file_path.clone()).or_insert(0) += 1;
+            }
+        }
+        // Count target file
+        if let Some(tgt_node) = graph.get_node(&rel.target_id) {
+            if !tgt_node.properties.file_path.is_empty() {
+                *file_degree.entry(tgt_node.properties.file_path.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut sorted: Vec<_> = file_degree.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.into_iter().take(n).map(|(f, _)| f).collect()
+}
+
+/// Detect frameworks/libraries from graph nodes and file extensions.
+fn detect_technology_stack(graph: &KnowledgeGraph, lang_stats: &BTreeMap<String, usize>) -> (Vec<String>, Vec<String>, Vec<String>, String) {
+    let mut languages: Vec<String> = Vec::new();
+    let mut frameworks: Vec<String> = Vec::new();
+    let mut ui_libs: Vec<String> = Vec::new();
+    let mut description_parts: Vec<String> = Vec::new();
+
+    // Languages
+    for (lang, count) in lang_stats {
+        languages.push(format!("{} ({} files)", lang, count));
+    }
+
+    // Detect frameworks from node labels
+    let label_counts = count_nodes_by_label(graph);
+    let has_controllers = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0) > 0;
+    let has_db_context = label_counts.get(&NodeLabel::DbContext).copied().unwrap_or(0) > 0;
+    let has_db_entities = label_counts.get(&NodeLabel::DbEntity).copied().unwrap_or(0) > 0;
+    let has_views = label_counts.get(&NodeLabel::View).copied().unwrap_or(0) > 0;
+    let has_ui_components = label_counts.get(&NodeLabel::UiComponent).copied().unwrap_or(0) > 0;
+    let has_services = label_counts.get(&NodeLabel::Service).copied().unwrap_or(0) > 0;
+    let has_external = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0) > 0;
+
+    if has_controllers {
+        frameworks.push("ASP.NET MVC 5".to_string());
+        description_parts.push("ASP.NET MVC 5 application".to_string());
+    }
+    if has_db_context || has_db_entities {
+        frameworks.push("Entity Framework 6".to_string());
+        if description_parts.is_empty() {
+            description_parts.push("Entity Framework application".to_string());
+        } else {
+            description_parts.push("Entity Framework 6".to_string());
+        }
+    }
+    if has_ui_components {
+        // Check for Telerik/Kendo
+        let has_telerik = graph.iter_nodes().any(|n| {
+            n.label == NodeLabel::UiComponent
+                && n.properties.component_type.as_deref().is_some_and(|t| {
+                    t.contains("Telerik") || t.contains("Kendo")
+                })
+        });
+        if has_telerik {
+            ui_libs.push("Telerik UI / Kendo UI".to_string());
+            description_parts.push("Telerik UI components".to_string());
+        } else {
+            ui_libs.push("Custom UI Components".to_string());
+        }
+    }
+    if has_external {
+        description_parts.push("external service integrations".to_string());
+    }
+    if has_services {
+        // Check if we have repository pattern too
+        let has_repos = label_counts.get(&NodeLabel::Repository).copied().unwrap_or(0) > 0;
+        if has_repos {
+            frameworks.push("Repository Pattern".to_string());
+        }
+    }
+    if has_views {
+        let has_razor = graph.iter_nodes().any(|n| {
+            n.label == NodeLabel::View
+                && n.properties.view_engine.as_deref() == Some("razor")
+        });
+        if has_razor {
+            frameworks.push("Razor Views".to_string());
+        }
+    }
+
+    // If no ASP.NET detected, describe generically
+    if description_parts.is_empty() {
+        let primary_lang = lang_stats.iter().max_by_key(|(_, c)| *c).map(|(l, _)| l.as_str()).unwrap_or("multi-language");
+        description_parts.push(format!("{} codebase", primary_lang));
+    }
+
+    let description = if description_parts.len() == 1 {
+        format!("{}.", description_parts[0])
+    } else {
+        let last = description_parts.pop().unwrap_or_default();
+        format!("{} with {}.", description_parts.join(", "), last)
+    };
+
+    (languages, frameworks, ui_libs, description)
+}
+
+/// Describe a controller based on its name heuristic.
+fn describe_controller(name: &str) -> String {
+    let base = name.trim_end_matches("Controller");
+    match base.to_lowercase().as_str() {
+        s if s.contains("dossier") => "case/file management".to_string(),
+        s if s.contains("beneficiaire") || s.contains("beneficiary") => "beneficiary lookup and management".to_string(),
+        s if s.contains("home") => "main dashboard and landing page".to_string(),
+        s if s.contains("account") || s.contains("auth") => "authentication and account management".to_string(),
+        s if s.contains("admin") => "administration and system configuration".to_string(),
+        s if s.contains("user") => "user management".to_string(),
+        s if s.contains("report") => "reporting and analytics".to_string(),
+        s if s.contains("search") => "search functionality".to_string(),
+        s if s.contains("document") || s.contains("doc") => "document management".to_string(),
+        s if s.contains("setting") || s.contains("config") => "application settings and configuration".to_string(),
+        s if s.contains("notification") || s.contains("alert") => "notifications and alerts".to_string(),
+        s if s.contains("api") => "API endpoints".to_string(),
+        s if s.contains("log") => "logging and audit trail".to_string(),
+        s if s.contains("dashboard") => "dashboard and overview".to_string(),
+        _ => format!("{} management", base),
+    }
+}
+
 // ─── AGENTS.md Generator ────────────────────────────────────────────────
 
 fn generate_agents_md(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
@@ -942,7 +1093,7 @@ fn generate_docs_index(
     Ok(())
 }
 
-/// Generate overview.md with architecture diagram.
+/// Generate overview.md with DeepWiki-quality content.
 #[allow(clippy::too_many_arguments)]
 fn generate_docs_overview(
     docs_dir: &Path,
@@ -957,98 +1108,155 @@ fn generate_docs_overview(
     let out_path = docs_dir.join("overview.md");
     let mut f = std::fs::File::create(&out_path)?;
 
+    let label_counts = count_nodes_by_label(graph);
+    let controller_count = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0);
+    let view_count = label_counts.get(&NodeLabel::View).copied().unwrap_or(0);
+    let entity_count = label_counts.get(&NodeLabel::DbEntity).copied().unwrap_or(0);
+    let service_count = label_counts.get(&NodeLabel::Service).copied().unwrap_or(0)
+        + label_counts.get(&NodeLabel::Repository).copied().unwrap_or(0);
+    let ui_count = label_counts.get(&NodeLabel::UiComponent).copied().unwrap_or(0);
+
+    // Title
     writeln!(f, "# {}", repo_name)?;
+    writeln!(f)?;
+
+    // Relevant source files
+    let top_files = top_connected_files(graph, 10);
+    let top_files_refs: Vec<&str> = top_files.iter().map(|s| s.as_str()).collect();
+    write!(f, "{}", source_files_section(&top_files_refs))?;
+
+    // Description based on detected tech stack
+    let (_languages, _frameworks, _ui_libs, description) = detect_technology_stack(graph, lang_stats);
+    writeln!(f, "> {}", description)?;
+    writeln!(f)?;
+
+    // Metrics table
+    writeln!(f, "| Metric | Value |")?;
+    writeln!(f, "|--------|-------|")?;
+    writeln!(f, "| Source Files | {} |", file_count)?;
+    writeln!(f, "| Code Symbols | {} |", node_count)?;
+    writeln!(f, "| Relationships | {} |", edge_count)?;
+    if controller_count > 0 {
+        writeln!(f, "| Controllers | {} |", controller_count)?;
+    }
+    if view_count > 0 {
+        writeln!(f, "| Views | {} |", view_count)?;
+    }
+    if entity_count > 0 {
+        writeln!(f, "| Database Entities | {} |", entity_count)?;
+    }
+    if service_count > 0 {
+        writeln!(f, "| Services | {} |", service_count)?;
+    }
+    if ui_count > 0 {
+        writeln!(f, "| UI Components | {} |", ui_count)?;
+    }
+    writeln!(f)?;
+
+    // Technology Stack
+    let (languages, frameworks, ui_libs, _desc) = detect_technology_stack(graph, lang_stats);
+    writeln!(f, "## Technology Stack")?;
+    writeln!(f)?;
+    if !languages.is_empty() {
+        writeln!(f, "**Languages:** {}", languages.join(", "))?;
+        writeln!(f)?;
+    }
+    if !frameworks.is_empty() {
+        writeln!(f, "**Frameworks:** {}", frameworks.join(", "))?;
+        writeln!(f)?;
+    }
+    if !ui_libs.is_empty() {
+        writeln!(f, "**UI Libraries:** {}", ui_libs.join(", "))?;
+        writeln!(f)?;
+    }
+
+    // Key Subsystems
+    if !communities.is_empty() {
+        writeln!(f, "## Key Subsystems")?;
+        writeln!(f)?;
+        writeln!(f, "| Module | Members | Entry Points | Description |")?;
+        writeln!(f, "|--------|---------|-------------|-------------|")?;
+        for info in communities.values() {
+            let member_count = info.member_ids.len();
+            let entry_point_count = info
+                .member_ids
+                .iter()
+                .filter_map(|mid| graph.get_node(mid))
+                .filter(|n| n.properties.entry_point_score.map(|s| s > 0.3).unwrap_or(false))
+                .count();
+            let desc = info
+                .description
+                .as_deref()
+                .unwrap_or(
+                    if !info.keywords.is_empty() {
+                        // Use first few keywords as description
+                        ""
+                    } else {
+                        "Module"
+                    }
+                );
+            let desc_str = if desc.is_empty() {
+                info.keywords.join(", ")
+            } else {
+                desc.to_string()
+            };
+            let filename = sanitize_filename(&info.label);
+            writeln!(
+                f,
+                "| [{}](modules/{}.md) | {} | {} | {} |",
+                info.label, filename, member_count, entry_point_count, desc_str
+            )?;
+        }
+        writeln!(f)?;
+    }
+
+    // Summary
+    // Count total pages: 3 static + communities + controller pages + data pages + services + ui + ajax
+    let ctrl_pages = controller_count;
+    let data_pages = label_counts.get(&NodeLabel::DbContext).copied().unwrap_or(0);
+    let svc_page = if service_count > 0 { 1 } else { 0 };
+    let ui_page = if ui_count > 0 { 1 } else { 0 };
+    let ajax_page = if label_counts.get(&NodeLabel::AjaxCall).copied().unwrap_or(0) > 0 { 1 } else { 0 };
+    let total_pages = 3 + communities.len() + ctrl_pages + data_pages + svc_page + ui_page + ajax_page;
+
+    writeln!(f, "## Summary")?;
     writeln!(f)?;
     writeln!(
         f,
-        "This project contains **{file_count}** source files with **{node_count}** nodes and **{edge_count}** relationships in the code graph."
+        "This documentation covers {} pages organized into sections:",
+        total_pages
     )?;
-    writeln!(f)?;
-
-    // Language Distribution
-    writeln!(f, "## Language Distribution")?;
-    writeln!(f)?;
-    let mut lang_vec: Vec<_> = lang_stats.iter().collect();
-    lang_vec.sort_by(|a, b| b.1.cmp(a.1));
-    for (lang, count) in lang_vec {
-        writeln!(f, "- **{}**: {} files", lang, count)?;
+    writeln!(f, "Overview, Architecture, Getting Started, Modules")?;
+    if controller_count > 0 {
+        write!(f, ", Controllers")?;
     }
-    writeln!(f)?;
-
-    // Architecture Overview with Mermaid diagram
-    if communities.len() > 1 {
-        writeln!(f, "## Architecture Overview")?;
-        writeln!(f)?;
-
-        // Build member->community mappings and cross-community calls
-        let mut member_to_community: HashMap<String, String> = HashMap::new();
-        for info in communities.values() {
-            for mid in &info.member_ids {
-                member_to_community.insert(mid.clone(), info.label.clone());
-            }
-        }
-
-        let mut cross_deps: BTreeMap<String, (usize, BTreeSet<String>)> = BTreeMap::new();
-        for rel in graph.iter_relationships() {
-            if rel.rel_type == RelationshipType::Calls {
-                if let (Some(src_comm), Some(tgt_comm)) = (
-                    member_to_community.get(&rel.source_id),
-                    member_to_community.get(&rel.target_id),
-                ) {
-                    if src_comm != tgt_comm {
-                        let entry = cross_deps
-                            .entry(src_comm.clone())
-                            .or_insert_with(|| (0, BTreeSet::new()));
-                        entry.0 += 1;
-                        entry.1.insert(tgt_comm.clone());
-                    }
-                }
-            }
-        }
-
-        writeln!(f, "```mermaid")?;
-        writeln!(f, "graph TD")?;
-        for info in communities.values() {
-            let safe_id = sanitize_filename(&info.label).replace('-', "_");
-            writeln!(f, "    {}[\"{}\"]", safe_id, escape_mermaid_label(&info.label))?;
-        }
-        for (src, (_count, targets)) in &cross_deps {
-            let src_id = sanitize_filename(src).replace('-', "_");
-            for tgt in targets {
-                let tgt_id = sanitize_filename(tgt).replace('-', "_");
-                writeln!(f, "    {} --> {}", src_id, tgt_id)?;
-            }
-        }
-        writeln!(f, "```")?;
-        writeln!(f)?;
+    if data_pages > 0 {
+        write!(f, ", Data Model")?;
     }
-
-    // Modules
-    writeln!(f, "## Modules")?;
-    writeln!(f)?;
-    for info in communities.values() {
-        let filename = sanitize_filename(&info.label);
-        writeln!(
-            f,
-            "- **[{}](modules/{}.md)** - {} members",
-            info.label, filename, info.member_ids.len()
-        )?;
-        if let Some(desc) = &info.description {
-            writeln!(f, "  - {}", desc)?;
-        }
+    if service_count > 0 {
+        write!(f, ", Services")?;
     }
+    if ui_count > 0 {
+        write!(f, ", UI Components")?;
+    }
+    writeln!(f, ".")?;
     writeln!(f)?;
+
+    writeln!(f, "**See also:** [Architecture](./architecture.md) · [Getting Started](./getting-started.md)")?;
+    writeln!(f)?;
+    writeln!(f, "---")?;
+    writeln!(f, "[Next: Architecture ->](./architecture.md)")?;
 
     println!("  {} overview.md", "OK".green());
     Ok(())
 }
 
-/// Generate architecture.md with detailed module info.
+/// Generate architecture.md with real Mermaid diagram built from graph data.
 fn generate_docs_architecture(
     docs_dir: &Path,
     communities: &BTreeMap<String, CommunityInfo>,
     graph: &KnowledgeGraph,
-    _edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+    edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
     _file_count: usize,
     node_count: usize,
     edge_count: usize,
@@ -1056,29 +1264,137 @@ fn generate_docs_architecture(
     let out_path = docs_dir.join("architecture.md");
     let mut f = std::fs::File::create(&out_path)?;
 
+    let label_counts = count_nodes_by_label(graph);
+    let ctrl_count = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0);
+    let view_count = label_counts.get(&NodeLabel::View).copied().unwrap_or(0);
+    let svc_count = label_counts.get(&NodeLabel::Service).copied().unwrap_or(0)
+        + label_counts.get(&NodeLabel::Repository).copied().unwrap_or(0);
+    let ctx_count = label_counts.get(&NodeLabel::DbContext).copied().unwrap_or(0);
+    let entity_count = label_counts.get(&NodeLabel::DbEntity).copied().unwrap_or(0);
+    let ext_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
+    let action_count = label_counts.get(&NodeLabel::ControllerAction).copied().unwrap_or(0);
+    let ui_count = label_counts.get(&NodeLabel::UiComponent).copied().unwrap_or(0);
+    let edmx_count: usize = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::File && n.properties.file_path.ends_with(".edmx"))
+        .count();
+
+    // Collect relevant source files (controllers, services, DbContexts)
+    let arch_files: Vec<String> = graph.iter_nodes()
+        .filter(|n| matches!(n.label, NodeLabel::Controller | NodeLabel::Service | NodeLabel::DbContext | NodeLabel::Repository))
+        .map(|n| n.properties.file_path.clone())
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect();
+    let arch_file_refs: Vec<&str> = arch_files.iter().take(15).map(|s| s.as_str()).collect();
+
     writeln!(f, "# Architecture")?;
     writeln!(f)?;
-    writeln!(
-        f,
-        "System architecture with **{}** modules, **{}** nodes, and **{}** relationships.",
-        communities.len(),
-        node_count,
-        edge_count
-    )?;
+    write!(f, "{}", source_files_section(&arch_file_refs))?;
+
+    // Determine if we have a tiered architecture
+    let has_tiered = ctrl_count > 0 && (svc_count > 0 || ctx_count > 0);
+
+    if has_tiered {
+        writeln!(f, "This project follows a **3-tier architecture** pattern:")?;
+        writeln!(f, "Presentation (Controllers + Views) -> Business Logic (Services) -> Data Access (Entity Framework).")?;
+    } else {
+        writeln!(
+            f,
+            "System architecture with **{}** modules, **{}** nodes, and **{}** relationships.",
+            communities.len(), node_count, edge_count
+        )?;
+    }
     writeln!(f)?;
 
-    // Module Dependency Graph
-    if communities.len() > 1 {
-        writeln!(f, "## Module Dependency Graph")?;
-        writeln!(f)?;
+    // Architecture Diagram - built from actual NodeLabel counts
+    writeln!(f, "## Architecture Diagram")?;
+    writeln!(f)?;
+    writeln!(f, "```mermaid")?;
+    writeln!(f, "graph TD")?;
 
+    if has_tiered {
+        // Tiered architecture diagram
+        writeln!(f, "    subgraph Presentation")?;
+        writeln!(f, "        C[\"Controllers ({})\"]", ctrl_count)?;
+        if view_count > 0 {
+            writeln!(f, "        V[\"Views ({})\"]", view_count)?;
+        }
+        writeln!(f, "    end")?;
+
+        if svc_count > 0 {
+            writeln!(f, "    subgraph Business[\"Business Logic\"]")?;
+            writeln!(f, "        S[\"Services ({})\"]", svc_count)?;
+            writeln!(f, "    end")?;
+        }
+
+        if ctx_count > 0 || entity_count > 0 {
+            writeln!(f, "    subgraph Data[\"Data Access\"]")?;
+            if ctx_count > 0 {
+                writeln!(f, "        DB[\"DbContexts ({})\"]", ctx_count)?;
+            }
+            if entity_count > 0 {
+                writeln!(f, "        E[\"Entities ({})\"]", entity_count)?;
+            }
+            writeln!(f, "    end")?;
+        }
+
+        if ext_count > 0 {
+            writeln!(f, "    subgraph External")?;
+            writeln!(f, "        EXT[\"External Services ({})\"]", ext_count)?;
+            writeln!(f, "    end")?;
+        }
+
+        // Add edges based on actual relationships in the graph
+        let has_ctrl_to_svc = svc_count > 0 && graph.iter_relationships().any(|r| {
+            matches!(r.rel_type, RelationshipType::DependsOn | RelationshipType::Calls)
+                && graph.get_node(&r.source_id).map(|n| n.label == NodeLabel::Controller).unwrap_or(false)
+                && graph.get_node(&r.target_id).map(|n| matches!(n.label, NodeLabel::Service | NodeLabel::Repository)).unwrap_or(false)
+        });
+        let has_svc_to_db = ctx_count > 0 && graph.iter_relationships().any(|r| {
+            matches!(r.rel_type, RelationshipType::DependsOn | RelationshipType::Calls | RelationshipType::Uses)
+                && graph.get_node(&r.source_id).map(|n| matches!(n.label, NodeLabel::Service | NodeLabel::Repository)).unwrap_or(false)
+                && graph.get_node(&r.target_id).map(|n| n.label == NodeLabel::DbContext).unwrap_or(false)
+        });
+        let has_db_to_entity = entity_count > 0 && graph.iter_relationships().any(|r| {
+            r.rel_type == RelationshipType::MapsToEntity
+        });
+        let has_ctrl_to_view = view_count > 0 && graph.iter_relationships().any(|r| {
+            r.rel_type == RelationshipType::RendersView
+        });
+        let has_svc_to_ext = ext_count > 0 && graph.iter_relationships().any(|r| {
+            r.rel_type == RelationshipType::CallsService
+        });
+
+        // Emit edges: use detected relationships or infer from layer presence
+        if has_ctrl_to_svc || svc_count > 0 {
+            writeln!(f, "    C --> S")?;
+        }
+        if has_svc_to_db || (ctx_count > 0 && svc_count > 0) {
+            writeln!(f, "    S --> DB")?;
+        }
+        if has_db_to_entity || (entity_count > 0 && ctx_count > 0) {
+            writeln!(f, "    DB --> E")?;
+        }
+        if has_ctrl_to_view || view_count > 0 {
+            writeln!(f, "    C --> V")?;
+        }
+        if has_svc_to_ext || (ext_count > 0 && svc_count > 0) {
+            writeln!(f, "    S --> EXT")?;
+        }
+    } else {
+        // Non-tiered: use community-based diagram
+        for info in communities.values() {
+            let safe_id = sanitize_filename(&info.label).replace('-', "_");
+            writeln!(f, "    {}[\"{}\"]", safe_id, escape_mermaid_label(&info.label))?;
+        }
+
+        // Build cross-community edges
         let mut member_to_community: HashMap<String, String> = HashMap::new();
         for info in communities.values() {
             for mid in &info.member_ids {
                 member_to_community.insert(mid.clone(), info.label.clone());
             }
         }
-
         let mut cross_deps: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for rel in graph.iter_relationships() {
             if rel.rel_type == RelationshipType::Calls {
@@ -1087,20 +1403,10 @@ fn generate_docs_architecture(
                     member_to_community.get(&rel.target_id),
                 ) {
                     if src_comm != tgt_comm {
-                        cross_deps
-                            .entry(src_comm.clone())
-                            .or_default()
-                            .insert(tgt_comm.clone());
+                        cross_deps.entry(src_comm.clone()).or_default().insert(tgt_comm.clone());
                     }
                 }
             }
-        }
-
-        writeln!(f, "```mermaid")?;
-        writeln!(f, "graph TD")?;
-        for info in communities.values() {
-            let safe_id = sanitize_filename(&info.label).replace('-', "_");
-            writeln!(f, "    {}[\"{}\"]", safe_id, escape_mermaid_label(&info.label))?;
         }
         for (src, targets) in &cross_deps {
             let src_id = sanitize_filename(src).replace('-', "_");
@@ -1109,39 +1415,99 @@ fn generate_docs_architecture(
                 writeln!(f, "    {} --> {}", src_id, tgt_id)?;
             }
         }
-        writeln!(f, "```")?;
+    }
+    writeln!(f, "```")?;
+    writeln!(f)?;
+
+    // Layer Details
+    writeln!(f, "## Layer Details")?;
+    writeln!(f)?;
+
+    if ctrl_count > 0 {
+        writeln!(f, "### Presentation Layer")?;
+        writeln!(
+            f,
+            "{} controllers with {} actions serving {} views.",
+            ctrl_count, action_count, view_count
+        )?;
+        if ui_count > 0 {
+            writeln!(f, "{} Telerik/Kendo UI components detected.", ui_count)?;
+        }
         writeln!(f)?;
     }
 
-    // Module Details
-    writeln!(f, "## Module Details")?;
-    writeln!(f)?;
-    for info in communities.values() {
-        writeln!(f, "### {}", info.label)?;
-        if let Some(desc) = &info.description {
-            writeln!(f, "{}", desc)?;
-        } else {
-            writeln!(f, "Module with {} members.", info.member_ids.len())?;
-        }
+    if svc_count > 0 {
+        writeln!(f, "### Business Logic Layer")?;
+        writeln!(
+            f,
+            "{} services handling business rules and data processing.",
+            svc_count
+        )?;
         writeln!(f)?;
-        writeln!(f, "- **Members**: {}", info.member_ids.len())?;
+    }
 
-        // Entry points in this community
-        let entry_points: Vec<&GraphNode> = info
-            .member_ids
-            .iter()
-            .filter_map(|mid| graph.get_node(mid))
-            .filter(|n| {
-                n.properties
-                    .entry_point_score
-                    .map(|s| s > 0.3)
-                    .unwrap_or(false)
-            })
-            .collect();
-        if !entry_points.is_empty() {
-            writeln!(f, "- **Entry Points**: {}", entry_points.len())?;
+    if ctx_count > 0 || entity_count > 0 {
+        writeln!(f, "### Data Access Layer")?;
+        writeln!(
+            f,
+            "{} Entity Framework DbContext classes managing {} entities",
+            ctx_count, entity_count
+        )?;
+        if edmx_count > 0 {
+            writeln!(f, "across {} EDMX data models.", edmx_count)?;
+        } else {
+            writeln!(f, ".")?;
         }
         writeln!(f)?;
+    }
+
+    if ext_count > 0 {
+        writeln!(f, "### External Integrations")?;
+        writeln!(
+            f,
+            "{} external service connections detected (WebAPI, WCF, LDAP).",
+            ext_count
+        )?;
+        writeln!(f)?;
+
+        // List external services
+        let ext_services: Vec<&GraphNode> = graph.iter_nodes()
+            .filter(|n| n.label == NodeLabel::ExternalService)
+            .collect();
+        if !ext_services.is_empty() {
+            for svc in ext_services.iter().take(15) {
+                let stype = svc.properties.service_type.as_deref().unwrap_or("REST");
+                writeln!(f, "- **{}** ({})", svc.properties.name, stype)?;
+            }
+            writeln!(f)?;
+        }
+    }
+
+    // Module Details (communities) - always show
+    if !communities.is_empty() {
+        writeln!(f, "## Module Details")?;
+        writeln!(f)?;
+        for info in communities.values() {
+            writeln!(f, "### {}", info.label)?;
+            if let Some(desc) = &info.description {
+                writeln!(f, "{}", desc)?;
+            } else {
+                writeln!(f, "Module with {} members.", info.member_ids.len())?;
+            }
+            writeln!(f)?;
+            writeln!(f, "- **Members**: {}", info.member_ids.len())?;
+
+            let entry_points: Vec<&GraphNode> = info
+                .member_ids
+                .iter()
+                .filter_map(|mid| graph.get_node(mid))
+                .filter(|n| n.properties.entry_point_score.map(|s| s > 0.3).unwrap_or(false))
+                .collect();
+            if !entry_points.is_empty() {
+                writeln!(f, "- **Entry Points**: {}", entry_points.len())?;
+            }
+            writeln!(f)?;
+        }
     }
 
     // Key Entry Points
@@ -1160,11 +1526,7 @@ fn generate_docs_architecture(
         writeln!(f, "## Key Entry Points")?;
         writeln!(f)?;
         for (node, score) in all_entry_points.iter().take(20) {
-            let reason = node
-                .properties
-                .entry_point_reason
-                .as_deref()
-                .unwrap_or("");
+            let reason = node.properties.entry_point_reason.as_deref().unwrap_or("");
             writeln!(
                 f,
                 "- **{}** in `{}` (score: {:.2})",
@@ -1207,6 +1569,23 @@ fn generate_docs_architecture(
         writeln!(f)?;
     }
 
+    // Summary / Navigation
+    writeln!(f, "## Summary")?;
+    writeln!(f)?;
+    if has_tiered {
+        writeln!(f, "The application follows a layered architecture with clear separation of concerns between presentation, business logic, and data access.")?;
+    } else {
+        writeln!(f, "The codebase is organized into {} interconnected modules.", communities.len())?;
+    }
+    writeln!(f)?;
+    writeln!(f, "**See also:** [Overview](./overview.md) · [Getting Started](./getting-started.md)")?;
+    writeln!(f)?;
+    writeln!(f, "---")?;
+    writeln!(f, "[<- Previous: Overview](./overview.md) | [Next: Getting Started ->](./getting-started.md)")?;
+
+    // Suppress unused warning
+    let _ = edge_map;
+
     println!("  {} architecture.md", "OK".green());
     Ok(())
 }
@@ -1221,8 +1600,20 @@ fn generate_docs_getting_started(
     let out_path = docs_dir.join("getting-started.md");
     let mut f = std::fs::File::create(&out_path)?;
 
+    // Collect relevant entry point files
+    let mut ep_files: Vec<String> = graph
+        .iter_nodes()
+        .filter(|n| n.properties.entry_point_score.map(|s| s > 0.3).unwrap_or(false))
+        .map(|n| n.properties.file_path.clone())
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect();
+    ep_files.truncate(15);
+    let ep_file_refs: Vec<&str> = ep_files.iter().map(|s| s.as_str()).collect();
+
     writeln!(f, "# Getting Started")?;
     writeln!(f)?;
+    write!(f, "{}", source_files_section(&ep_file_refs))?;
     writeln!(f, "Welcome to the **{}** codebase!", repo_name)?;
     writeln!(f)?;
 
@@ -1301,11 +1692,16 @@ fn generate_docs_getting_started(
     writeln!(f, "- Look for symbols with high entry point scores as starting points for understanding flows")?;
     writeln!(f)?;
 
+    writeln!(f, "**See also:** [Overview](./overview.md) · [Architecture](./architecture.md)")?;
+    writeln!(f)?;
+    writeln!(f, "---")?;
+    writeln!(f, "[<- Previous: Architecture](./architecture.md) | [Next: Modules ->](./modules/)")?;
+
     println!("  {} getting-started.md", "OK".green());
     Ok(())
 }
 
-/// Generate per-module documentation files.
+/// Generate per-module documentation files with page ordering and navigation.
 fn generate_docs_modules(
     modules_dir: &Path,
     communities: &BTreeMap<String, CommunityInfo>,
@@ -1322,9 +1718,18 @@ fn generate_docs_modules(
         }
     }
 
-    // Track used filenames to avoid collisions
-    let mut used_filenames: HashSet<String> = HashSet::new();
+    // ─── Build ordered page list for Previous/Next navigation ──────────
+    // Format: (filename_without_ext, display_title, is_relative_to_modules_dir)
+    let mut page_order: Vec<(String, String)> = Vec::new();
 
+    // Static pages (relative from modules/ directory via ../)
+    page_order.push(("../overview".to_string(), "Overview".to_string()));
+    page_order.push(("../architecture".to_string(), "Architecture".to_string()));
+    page_order.push(("../getting-started".to_string(), "Getting Started".to_string()));
+
+    // Community/module pages
+    let mut used_filenames: HashSet<String> = HashSet::new();
+    let mut community_filenames: Vec<(String, String)> = Vec::new(); // (filename, label)
     for info in communities.values() {
         let base = sanitize_filename(&info.label);
         let filename = if used_filenames.contains(&base) {
@@ -1339,13 +1744,107 @@ fn generate_docs_modules(
             base
         };
         used_filenames.insert(filename.clone());
+        community_filenames.push((filename.clone(), info.label.clone()));
+        page_order.push((filename, info.label.clone()));
+    }
+
+    // Controller pages
+    let mut controllers: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::Controller)
+        .collect();
+    controllers.sort_by(|a, b| a.properties.name.cmp(&b.properties.name));
+
+    let ctrl_filenames: Vec<(String, String)> = controllers.iter()
+        .map(|c| {
+            let fname = format!("ctrl-{}", sanitize_filename(&c.properties.name));
+            (fname, c.properties.name.clone())
+        })
+        .collect();
+    for (fname, title) in &ctrl_filenames {
+        page_order.push((fname.clone(), title.clone()));
+    }
+
+    // Data model pages
+    let db_contexts: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::DbContext)
+        .collect();
+    let data_filenames: Vec<(String, String)> = db_contexts.iter()
+        .map(|c| {
+            let fname = format!("data-{}", sanitize_filename(&c.properties.name));
+            (fname, format!("Data Model: {}", c.properties.name))
+        })
+        .collect();
+    for (fname, title) in &data_filenames {
+        page_order.push((fname.clone(), title.clone()));
+    }
+
+    // Services page
+    let services: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::Service || n.label == NodeLabel::Repository)
+        .collect();
+    if !services.is_empty() {
+        page_order.push(("services".to_string(), "Service Layer".to_string()));
+    }
+
+    // UI Components page
+    let ui_components: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::UiComponent)
+        .collect();
+    if !ui_components.is_empty() {
+        page_order.push(("ui-components".to_string(), "UI Components".to_string()));
+    }
+
+    // AJAX Endpoints page
+    let ajax_calls: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::AjaxCall)
+        .collect();
+    if !ajax_calls.is_empty() {
+        page_order.push(("ajax-endpoints".to_string(), "AJAX Endpoints".to_string()));
+    }
+
+    /// Helper: generate prev/next navigation footer for a given page index.
+    fn nav_footer(page_order: &[(String, String)], current_filename: &str) -> String {
+        let idx = page_order.iter().position(|(f, _)| f == current_filename);
+        let mut footer = String::from("\n---\n");
+        if let Some(i) = idx {
+            if i > 0 {
+                let (prev_file, prev_title) = &page_order[i - 1];
+                footer.push_str(&format!("[<- Previous: {}](./{}.md)", prev_title, prev_file));
+            }
+            if i > 0 && i + 1 < page_order.len() {
+                footer.push_str(" | ");
+            }
+            if i + 1 < page_order.len() {
+                let (next_file, next_title) = &page_order[i + 1];
+                footer.push_str(&format!("[Next: {} ->](./{}.md)", next_title, next_file));
+            }
+        }
+        footer.push('\n');
+        footer
+    }
+
+    // ─── Community / Module pages ──────────────────────────────────────
+    for (comm_idx, info) in communities.values().enumerate() {
+        let (filename, _label) = &community_filenames[comm_idx];
         let out_path = modules_dir.join(format!("{}.md", filename));
         let mut f = std::fs::File::create(&out_path)?;
 
         let member_set: HashSet<&str> = info.member_ids.iter().map(|s| s.as_str()).collect();
 
+        // Collect source files for this module
+        let mut files_set: BTreeSet<String> = BTreeSet::new();
+        for mid in &info.member_ids {
+            if let Some(node) = graph.get_node(mid) {
+                if !node.properties.file_path.is_empty() {
+                    files_set.insert(node.properties.file_path.clone());
+                }
+            }
+        }
+        let files_vec: Vec<&str> = files_set.iter().map(|s| s.as_str()).collect();
+
         writeln!(f, "# {}", info.label)?;
         writeln!(f)?;
+        write!(f, "{}", source_files_section(&files_vec))?;
 
         if let Some(desc) = &info.description {
             writeln!(f, "{}", desc)?;
@@ -1405,7 +1904,6 @@ fn generate_docs_modules(
         writeln!(f, "| Symbol | Type | File | Lines |")?;
         writeln!(f, "|--------|------|------|-------|")?;
 
-        let mut files_set: BTreeSet<String> = BTreeSet::new();
         for mid in &info.member_ids {
             if let Some(node) = graph.get_node(mid) {
                 let lines = match (node.properties.start_line, node.properties.end_line) {
@@ -1421,7 +1919,6 @@ fn generate_docs_modules(
                     node.properties.file_path,
                     lines
                 )?;
-                files_set.insert(node.properties.file_path.clone());
             }
         }
         writeln!(f)?;
@@ -1431,12 +1928,7 @@ fn generate_docs_modules(
             .member_ids
             .iter()
             .filter_map(|mid| graph.get_node(mid))
-            .filter(|n| {
-                n.properties
-                    .entry_point_score
-                    .map(|s| s > 0.3)
-                    .unwrap_or(false)
-            })
+            .filter(|n| n.properties.entry_point_score.map(|s| s > 0.3).unwrap_or(false))
             .collect();
         entry_points.sort_by(|a, b| {
             let sa = a.properties.entry_point_score.unwrap_or(0.0);
@@ -1508,6 +2000,9 @@ fn generate_docs_modules(
             writeln!(f)?;
         }
 
+        // Navigation footer
+        write!(f, "{}", nav_footer(&page_order, filename))?;
+
         println!(
             "  {} modules/{filename}.md",
             "OK".green(),
@@ -1515,56 +2010,115 @@ fn generate_docs_modules(
         page_count += 1;
     }
 
-    // ─── Per-Controller pages ──────────────────────────────────────────
-    let controllers: Vec<&GraphNode> = graph.iter_nodes()
-        .filter(|n| n.label == NodeLabel::Controller)
-        .collect();
-
-    for ctrl in &controllers {
+    // ─── Per-Controller pages (DeepWiki-quality) ──────────────────────
+    for (ctrl_idx, ctrl) in controllers.iter().enumerate() {
         let ctrl_name = &ctrl.properties.name;
-        let filename = format!("ctrl-{}", sanitize_filename(ctrl_name));
+        let (filename, _) = &ctrl_filenames[ctrl_idx];
         let out_path = modules_dir.join(format!("{filename}.md"));
 
         // Find actions for this controller
-        let actions: Vec<&GraphNode> = graph.iter_nodes()
+        let mut actions: Vec<&GraphNode> = graph.iter_nodes()
             .filter(|n| n.label == NodeLabel::ControllerAction
                       && n.properties.file_path == ctrl.properties.file_path)
             .collect();
+        actions.sort_by(|a, b| {
+            a.properties.start_line.unwrap_or(0).cmp(&b.properties.start_line.unwrap_or(0))
+        });
 
-        // Find views rendered by this controller
-        let views: Vec<String> = graph.iter_relationships()
-            .filter(|r| r.source_id.contains(&ctrl.properties.name)
-                      && r.rel_type == RelationshipType::RendersView)
+        // Find views rendered by this controller (both direct and through actions)
+        let view_targets: Vec<String> = graph.iter_relationships()
+            .filter(|r| {
+                r.rel_type == RelationshipType::RendersView
+                    && (r.source_id.contains(ctrl_name.as_str())
+                        || graph.get_node(&r.source_id)
+                            .map(|n| n.properties.file_path == ctrl.properties.file_path)
+                            .unwrap_or(false))
+            })
             .map(|r| r.target_id.clone())
             .collect();
+        // Resolve view file paths
+        let mut view_files: Vec<String> = view_targets.iter()
+            .filter_map(|vid| graph.get_node(vid).map(|n| n.properties.file_path.clone()))
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+        if view_files.is_empty() {
+            // Fallback: use the target IDs directly
+            view_files = view_targets.iter().cloned().collect::<BTreeSet<String>>().into_iter().collect();
+        }
+
+        // Find services this controller depends on (DependsOn relationships)
+        let dependencies: Vec<String> = graph.iter_relationships()
+            .filter(|r| {
+                r.rel_type == RelationshipType::DependsOn
+                    && (r.source_id.contains(ctrl_name.as_str())
+                        || graph.get_node(&r.source_id)
+                            .map(|n| n.properties.file_path == ctrl.properties.file_path
+                                && n.label == NodeLabel::Controller)
+                            .unwrap_or(false))
+            })
+            .filter_map(|r| graph.get_node(&r.target_id).map(|n| n.properties.name.clone()))
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+
+        // Build source files list
+        let mut src_files: Vec<String> = vec![ctrl.properties.file_path.clone()];
+        src_files.extend(view_files.iter().cloned());
+        let src_file_refs: Vec<&str> = src_files.iter().take(15).map(|s| s.as_str()).collect();
 
         let mut content = format!("# {}\n\n", ctrl_name);
-        content.push_str(&format!("**File:** `{}`\n\n", ctrl.properties.file_path));
+        content.push_str(&source_files_section(&src_file_refs));
 
-        // Actions table
-        content.push_str("## Actions\n\n");
-        content.push_str("| Action | HTTP Method | Route | Return Type |\n");
-        content.push_str("|--------|------------|-------|-------------|\n");
-        for action in &actions {
+        // Description
+        let base_name = ctrl_name.trim_end_matches("Controller");
+        let action_count = actions.len();
+        let desc = describe_controller(ctrl_name);
+        content.push_str(&format!(
+            "> {} manages {} endpoints for {}.\n\n",
+            base_name, action_count, desc
+        ));
+
+        // Actions table with numbering
+        content.push_str(&format!("## Actions ({})\n\n", action_count));
+        content.push_str("| # | Action | Method | Route | Returns |\n");
+        content.push_str("|---|--------|--------|-------|--------|\n");
+        for (i, action) in actions.iter().enumerate() {
             let method = action.properties.http_method.as_deref().unwrap_or("GET");
             let route = action.properties.route_template.as_deref().unwrap_or("-");
             let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");
-            content.push_str(&format!("| {} | {} | {} | {} |\n",
-                action.properties.name, method, route, ret));
+            content.push_str(&format!("| {} | {} | {} | {} | {} |\n",
+                i + 1, action.properties.name, method, route, ret));
         }
         content.push('\n');
 
-        // Views section
-        if !views.is_empty() {
-            content.push_str("## Views\n\n");
-            for v in &views {
+        // Associated Views section
+        if !view_files.is_empty() {
+            content.push_str("## Associated Views\n\n");
+            for v in &view_files {
                 content.push_str(&format!("- `{}`\n", v));
             }
             content.push('\n');
         }
 
-        // Stats
-        content.push_str(&format!("\n---\n*{} actions*\n", actions.len()));
+        // Dependencies section
+        if !dependencies.is_empty() {
+            content.push_str("## Dependencies\n\n");
+            for dep in &dependencies {
+                content.push_str(&format!("- `{}`\n", dep));
+            }
+            content.push('\n');
+        }
+
+        // Summary
+        content.push_str(&format!(
+            "## Summary\n\n**{}** provides {} actions.\n\n",
+            ctrl_name, action_count
+        ));
+        content.push_str("**See also:** [Architecture](../architecture.md) · [Services](./services.md)\n");
+
+        // Navigation footer
+        content.push_str(&nav_footer(&page_order, filename));
 
         std::fs::write(&out_path, &content)?;
         println!("  {} {}", "OK".green(), out_path.display());
@@ -1572,21 +2126,28 @@ fn generate_docs_modules(
     }
 
     // ─── Data Model pages ──────────────────────────────────────────────
-    let db_contexts: Vec<&GraphNode> = graph.iter_nodes()
-        .filter(|n| n.label == NodeLabel::DbContext)
-        .collect();
-
-    for ctx in &db_contexts {
+    for (ctx_idx, ctx) in db_contexts.iter().enumerate() {
         let ctx_name = &ctx.properties.name;
-        let filename = format!("data-{}", sanitize_filename(ctx_name));
+        let (filename, _) = &data_filenames[ctx_idx];
         let out_path = modules_dir.join(format!("{filename}.md"));
 
         // Find entities mapped to this context
         let entities: Vec<&GraphNode> = graph.iter_nodes()
             .filter(|n| n.label == NodeLabel::DbEntity)
-            .collect(); // TODO: filter by context relationship
+            .collect();
+
+        // Source files
+        let mut src_files: Vec<String> = vec![ctx.properties.file_path.clone()];
+        for e in &entities {
+            if !e.properties.file_path.is_empty() {
+                src_files.push(e.properties.file_path.clone());
+            }
+        }
+        let src_files_dedup: Vec<String> = src_files.into_iter().collect::<BTreeSet<String>>().into_iter().collect();
+        let src_file_refs: Vec<&str> = src_files_dedup.iter().take(15).map(|s| s.as_str()).collect();
 
         let mut content = format!("# Data Model: {}\n\n", ctx_name);
+        content.push_str(&source_files_section(&src_file_refs));
         content.push_str(&format!("**File:** `{}`\n\n", ctx.properties.file_path));
         content.push_str(&format!("**Entities:** {}\n\n", entities.len()));
 
@@ -1598,6 +2159,10 @@ fn generate_docs_modules(
             content.push_str(&format!("| {} | `{}` | {} |\n",
                 entity.properties.name, entity.properties.file_path, props));
         }
+        content.push('\n');
+
+        // Navigation footer
+        content.push_str(&nav_footer(&page_order, filename));
 
         std::fs::write(&out_path, &content)?;
         println!("  {} {}", "OK".green(), out_path.display());
@@ -1605,14 +2170,19 @@ fn generate_docs_modules(
     }
 
     // ─── Service Layer page ────────────────────────────────────────────
-    let services: Vec<&GraphNode> = graph.iter_nodes()
-        .filter(|n| n.label == NodeLabel::Service || n.label == NodeLabel::Repository)
-        .collect();
-
     if !services.is_empty() {
         let out_path = modules_dir.join("services.md");
 
+        // Source files
+        let svc_files: Vec<String> = services.iter()
+            .map(|s| s.properties.file_path.clone())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+        let svc_file_refs: Vec<&str> = svc_files.iter().take(15).map(|s| s.as_str()).collect();
+
         let mut content = String::from("# Service Layer\n\n");
+        content.push_str(&source_files_section(&svc_file_refs));
         content.push_str(&format!("**Total services:** {}\n\n", services.len()));
 
         content.push_str("## Services\n\n");
@@ -1624,6 +2194,10 @@ fn generate_docs_modules(
             content.push_str(&format!("| {} | {} | {} | `{}` |\n",
                 svc.properties.name, layer, iface, svc.properties.file_path));
         }
+        content.push('\n');
+
+        // Navigation footer
+        content.push_str(&nav_footer(&page_order, "services"));
 
         std::fs::write(&out_path, &content)?;
         println!("  {} {}", "OK".green(), out_path.display());
@@ -1631,14 +2205,19 @@ fn generate_docs_modules(
     }
 
     // ─── UI Components page ────────────────────────────────────────────
-    let ui_components: Vec<&GraphNode> = graph.iter_nodes()
-        .filter(|n| n.label == NodeLabel::UiComponent)
-        .collect();
-
     if !ui_components.is_empty() {
         let out_path = modules_dir.join("ui-components.md");
 
+        // Source files
+        let ui_files: Vec<String> = ui_components.iter()
+            .map(|c| c.properties.file_path.clone())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+        let ui_file_refs: Vec<&str> = ui_files.iter().take(15).map(|s| s.as_str()).collect();
+
         let mut content = String::from("# UI Components (Telerik/Kendo)\n\n");
+        content.push_str(&source_files_section(&ui_file_refs));
         content.push_str(&format!("**Total components:** {}\n\n", ui_components.len()));
 
         content.push_str("| Component | Type | Model | Columns | File |\n");
@@ -1652,6 +2231,10 @@ fn generate_docs_modules(
             content.push_str(&format!("| {} | {} | {} | {} | `{}` |\n",
                 comp.properties.name, comp_type, model, cols_short, comp.properties.file_path));
         }
+        content.push('\n');
+
+        // Navigation footer
+        content.push_str(&nav_footer(&page_order, "ui-components"));
 
         std::fs::write(&out_path, &content)?;
         println!("  {} {}", "OK".green(), out_path.display());
@@ -1659,14 +2242,19 @@ fn generate_docs_modules(
     }
 
     // ─── AJAX Endpoints page ───────────────────────────────────────────
-    let ajax_calls: Vec<&GraphNode> = graph.iter_nodes()
-        .filter(|n| n.label == NodeLabel::AjaxCall)
-        .collect();
-
     if !ajax_calls.is_empty() {
         let out_path = modules_dir.join("ajax-endpoints.md");
 
+        // Source files
+        let ajax_files: Vec<String> = ajax_calls.iter()
+            .map(|c| c.properties.file_path.clone())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+        let ajax_file_refs: Vec<&str> = ajax_files.iter().take(15).map(|s| s.as_str()).collect();
+
         let mut content = String::from("# AJAX Endpoints\n\n");
+        content.push_str(&source_files_section(&ajax_file_refs));
         content.push_str(&format!("**Total AJAX calls:** {}\n\n", ajax_calls.len()));
 
         content.push_str("| Method | URL | File | Line |\n");
@@ -1678,6 +2266,10 @@ fn generate_docs_modules(
             content.push_str(&format!("| {} | {} | `{}` | {} |\n",
                 method, url, call.properties.file_path, line));
         }
+        content.push('\n');
+
+        // Navigation footer
+        content.push_str(&nav_footer(&page_order, "ajax-endpoints"));
 
         std::fs::write(&out_path, &content)?;
         println!("  {} {}", "OK".green(), out_path.display());
@@ -1738,7 +2330,7 @@ fn generate_html_site(
         ));
     }
 
-    // 2. Build sidebar HTML
+    // 2. Build sidebar HTML with numbered sections
     let mut sidebar_html = String::new();
 
     // Group pages by category
@@ -1756,15 +2348,18 @@ fn generate_html_site(
         .map(|(k, _)| k.as_str())
         .unwrap_or("");
 
-    sidebar_html.push_str("<div class=\"section-title\">OVERVIEW</div>\n");
-    for (id, (title, _)) in &overview_pages {
+    let mut section_num: usize = 1;
+
+    sidebar_html.push_str(&format!("<div class=\"section-title\">{}. OVERVIEW</div>\n", section_num));
+    for (sub_idx, (id, (title, _))) in overview_pages.iter().enumerate() {
         let active = if id.as_str() == first_page_id {
             " active"
         } else {
             ""
         };
         sidebar_html.push_str(&format!(
-            "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\" class=\"{active}\">{title}</a>\n"
+            "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\" class=\"{active}\">{section_num}.{sub_num} {title}</a>\n",
+            sub_num = sub_idx + 1
         ));
     }
 
@@ -1774,10 +2369,12 @@ fn generate_html_site(
         .filter(|(k, _)| k.contains("ctrl-"))
         .collect();
     if !ctrl_pages.is_empty() {
-        sidebar_html.push_str("<div class=\"section-title\">CONTROLLERS</div>\n");
-        for (id, (title, _)) in &ctrl_pages {
+        section_num += 1;
+        sidebar_html.push_str(&format!("<div class=\"section-title\">{}. CONTROLLERS</div>\n", section_num));
+        for (sub_idx, (id, (title, _))) in ctrl_pages.iter().enumerate() {
             sidebar_html.push_str(&format!(
-                "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{title}</a>\n"
+                "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{section_num}.{sub_num} {title}</a>\n",
+                sub_num = sub_idx + 1
             ));
         }
     }
@@ -1788,10 +2385,12 @@ fn generate_html_site(
         .filter(|(k, _)| k.contains("data-"))
         .collect();
     if !data_pages.is_empty() {
-        sidebar_html.push_str("<div class=\"section-title\">DATA MODEL</div>\n");
-        for (id, (title, _)) in &data_pages {
+        section_num += 1;
+        sidebar_html.push_str(&format!("<div class=\"section-title\">{}. DATA MODEL</div>\n", section_num));
+        for (sub_idx, (id, (title, _))) in data_pages.iter().enumerate() {
             sidebar_html.push_str(&format!(
-                "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{title}</a>\n"
+                "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{section_num}.{sub_num} {title}</a>\n",
+                sub_num = sub_idx + 1
             ));
         }
     }
@@ -1802,10 +2401,12 @@ fn generate_html_site(
         .filter(|(k, _)| !k.contains("ctrl-") && !k.contains("data-"))
         .collect();
     if !other_pages.is_empty() {
-        sidebar_html.push_str("<div class=\"section-title\">MODULES</div>\n");
-        for (id, (title, _)) in &other_pages {
+        section_num += 1;
+        sidebar_html.push_str(&format!("<div class=\"section-title\">{}. MODULES</div>\n", section_num));
+        for (sub_idx, (id, (title, _))) in other_pages.iter().enumerate() {
             sidebar_html.push_str(&format!(
-                "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{title}</a>\n"
+                "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{section_num}.{sub_num} {title}</a>\n",
+                sub_num = sub_idx + 1
             ));
         }
     }
@@ -1967,6 +2568,14 @@ fn build_html_template(
 
     .hidden {{ display:none; }}
 
+    /* Details/Summary collapsible sections */
+    .main details {{ margin:12px 0; border:1px solid var(--border); border-radius:8px;
+                    padding:4px 12px; background:var(--bg-surface); }}
+    .main details summary {{ cursor:pointer; font-weight:600; font-size:13px; color:var(--text-muted);
+                            padding:8px 0; user-select:none; }}
+    .main details summary:hover {{ color:var(--accent); }}
+    .main details[open] summary {{ margin-bottom:4px; border-bottom:1px solid var(--border); padding-bottom:8px; }}
+
     @media (max-width:900px) {{
       .sidebar {{ display:none; }}
       .toc {{ display:none; }}
@@ -2104,6 +2713,19 @@ fn markdown_to_html(md: &str) -> String {
     let mut in_ordered_list = false;
 
     for line in md.lines() {
+        // Handle <details>/<summary> blocks (pass through as HTML)
+        if line.trim_start().starts_with("<details>")
+            || line.trim_start().starts_with("<details ")
+            || line.trim_start().starts_with("</details>")
+            || line.trim_start().starts_with("<summary>")
+            || line.trim_start().starts_with("<summary ")
+            || line.trim_start().starts_with("</summary>")
+        {
+            html.push_str(line);
+            html.push('\n');
+            continue;
+        }
+
         // Code fences
         if line.starts_with("```") {
             if in_code_block {

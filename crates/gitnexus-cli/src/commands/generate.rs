@@ -3464,19 +3464,6 @@ fn generate_deployment_guide(
     writeln!(f, "- Node.js (pour les scripts de build frontend)")?;
     writeln!(f)?;
 
-    // Environments detected from WebConfig nodes
-    let web_configs: Vec<&GraphNode> = graph.iter_nodes()
-        .filter(|n| n.label == NodeLabel::WebConfig)
-        .collect();
-    writeln!(f, "## Environnements détectés")?;
-    writeln!(f)?;
-    if web_configs.is_empty() {
-        writeln!(f, "Aucune transformation Web.config détectée dans le graphe.")?;
-    } else {
-        for cfg in &web_configs {
-            writeln!(f, "- `{}`", cfg.properties.name)?;
-        }
-    }
     writeln!(f)?;
 
     // Databases from DbContext nodes

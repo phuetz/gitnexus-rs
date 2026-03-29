@@ -59,6 +59,7 @@ pub const NODE_LABELS: &[&str] = &[
     "UiComponent",
     "Service",
     "Repository",
+    "ExternalService",
     "BasicBlock",
     "BranchPoint",
     "LoopHead",
@@ -114,6 +115,7 @@ pub fn fts_queries() -> Vec<String> {
         "Controller", "ControllerAction", "ApiEndpoint", "View",
         "ViewModel", "DbEntity", "DbContext",
         "ScriptFile", "UiComponent", "Service", "Repository",
+        "ExternalService",
     ];
     fts_tables
         .iter()
@@ -230,6 +232,7 @@ fn extra_columns_for(label: &str) -> String {
         "AjaxCall" => "ajaxMethod STRING, ajaxUrl STRING".to_string(),
         "UiComponent" => "componentType STRING, boundModel STRING".to_string(),
         "Service" | "Repository" => "layerType STRING, implementsInterface STRING".to_string(),
+        "ExternalService" => "serviceType STRING".to_string(),
         // ScriptFile uses base columns only
         _ => String::new(),
     }
@@ -259,7 +262,7 @@ mod tests {
     #[test]
     fn test_fts_queries_count() {
         let queries = fts_queries();
-        assert_eq!(queries.len(), 16);
+        assert_eq!(queries.len(), 17);
     }
 
     #[test]

@@ -1722,6 +1722,193 @@ pub fn extract_partial_references(source: &str) -> Vec<PartialReference> {
     results
 }
 
+// ─── StackLogger Tracing Detection ─────────────────────────────────────
+
+/// Information about tracing/logging instrumentation in a C# file.
+#[derive(Debug, Clone)]
+pub struct TracingInfo {
+    /// Whether this file has any StackLogger/tracing calls
+    pub is_traced: bool,
+    /// Number of StackLogger method calls (Info, Error, Warning, etc. — NOT BeginMethodScope)
+    pub call_count: u32,
+    /// Methods with BeginMethodScope (fully traced methods)
+    pub traced_methods: Vec<String>,
+    /// Tracing methods used (Info, Error, Warning, etc.)
+    pub log_levels_used: Vec<String>,
+}
+
+/// StackLogger.BeginMethodScope() — marks a fully traced method
+static RE_STACKLOGGER_SCOPE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"StackLogger\.BeginMethodScope\s*\("#).expect("regex")
+});
+
+/// StackLogger.Info/Error/Warning/TraceMethod/LogVariables/PrintParam/Log/DumpStackTrace
+static RE_STACKLOGGER_CALL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"StackLogger\.\s*(Info|Error|Warning|TraceMethod|LogVariables|PrintParam|Log|DumpStackTrace)\s*\("#)
+        .expect("regex")
+});
+
+/// Method declaration pattern for looking backwards from a BeginMethodScope line
+static RE_METHOD_DECL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?:public|private|protected|internal)\s+(?:static\s+|virtual\s+|override\s+|async\s+|sealed\s+)*\w+(?:<[^>]*>)?\s+(\w+)\s*\("#)
+        .expect("regex")
+});
+
+/// Extract tracing/logging instrumentation info from a C# source file.
+///
+/// Scans for StackLogger calls, identifies which methods have `BeginMethodScope`
+/// (fully traced), and counts logging call sites.
+pub fn extract_tracing_info(source: &str) -> TracingInfo {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut call_count: u32 = 0;
+    let mut traced_methods: Vec<String> = Vec::new();
+    let mut log_levels: Vec<String> = Vec::new();
+    let mut seen_levels: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for (line_idx, &line) in lines.iter().enumerate() {
+        // Count StackLogger.Info/Error/Warning/etc. calls
+        for cap in RE_STACKLOGGER_CALL.captures_iter(line) {
+            call_count += 1;
+            let level = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            if seen_levels.insert(level.clone()) {
+                log_levels.push(level);
+            }
+        }
+
+        // Detect BeginMethodScope and look backwards for method name
+        if RE_STACKLOGGER_SCOPE.is_match(line) {
+            // Look backwards for the nearest method declaration
+            let search_start = line_idx.saturating_sub(15);
+            for j in (search_start..line_idx).rev() {
+                if let Some(cap) = RE_METHOD_DECL.captures(lines[j]) {
+                    let method_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    if !method_name.is_empty() && !traced_methods.contains(&method_name) {
+                        traced_methods.push(method_name);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    let is_traced = call_count > 0 || !traced_methods.is_empty();
+
+    TracingInfo {
+        is_traced,
+        call_count,
+        traced_methods,
+        log_levels_used: log_levels,
+    }
+}
+
+// ─── External Service Call Detection ───────────────────────────────────
+
+/// External API/service call site detected in C# source.
+#[derive(Debug, Clone)]
+pub struct ExternalServiceCall {
+    /// Service type: "WebAPI", "WCF", "HttpClient"
+    pub service_type: String,
+    /// Client class name (e.g., "CMCASClient", "FoyerClient")
+    pub client_class: String,
+    /// Method called (e.g., "OuvrantsDroitGetAsync")
+    pub method_name: Option<String>,
+    /// Line number (1-indexed)
+    pub line_number: u32,
+}
+
+/// new XxxClient(httpClient) — WebAPI client instantiation
+static RE_WEBAPI_CLIENT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"new\s+(\w+Client)\s*\("#).expect("regex")
+});
+
+/// client.XxxAsync(...).GetAwaiter — async WebAPI method call with GetAwaiter pattern
+static RE_CLIENT_METHOD_GETAWAITER: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(\w+)\.\s*(\w+Async)\s*\([^)]*\)\s*\.GetAwaiter"#).expect("regex")
+});
+
+/// WCF service reference calls: new XxxSvc() or new XxxService() or new XxxWS()
+static RE_WCF_CALL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"new\s+(\w+(?:Svc|WS))\s*\("#).expect("regex")
+});
+
+/// Detect external service calls (WebAPI auto-generated clients, WCF service references)
+/// from C# source code.
+pub fn extract_external_service_calls(source: &str) -> Vec<ExternalServiceCall> {
+    let mut results = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for (line_idx, line) in source.lines().enumerate() {
+        let line_number = (line_idx + 1) as u32;
+
+        // --- WebAPI client instantiation: new CMCASClient(httpClient) ---
+        for cap in RE_WEBAPI_CLIENT.captures_iter(line) {
+            let client_class = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            // Skip generic "HttpClient" — that's the transport, not an API client
+            if client_class == "HttpClient" || client_class == "WebClient" {
+                continue;
+            }
+            let key = format!("WebAPI:{}:{}", client_class, line_number);
+            if seen.insert(key) {
+                results.push(ExternalServiceCall {
+                    service_type: "WebAPI".to_string(),
+                    client_class,
+                    method_name: None,
+                    line_number,
+                });
+            }
+        }
+
+        // --- Async method call with GetAwaiter: variable.XxxAsync(...).GetAwaiter ---
+        for cap in RE_CLIENT_METHOD_GETAWAITER.captures_iter(line) {
+            let _variable = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+            let method_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            // Try to find the client class from the variable name by looking backwards
+            // (or infer from the method name pattern)
+            let key = format!("WebAPI_call:{}:{}", method_name, line_number);
+            if seen.insert(key) {
+                // Try to find a client class from a `new XxxClient` in nearby context
+                let search_start = line_idx.saturating_sub(30);
+                let context: String = source
+                    .lines()
+                    .skip(search_start)
+                    .take(line_idx - search_start + 1)
+                    .collect::<Vec<&str>>()
+                    .join("\n");
+
+                let client_class = RE_WEBAPI_CLIENT
+                    .captures_iter(&context)
+                    .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
+                    .filter(|name| name != "HttpClient" && name != "WebClient")
+                    .last()
+                    .unwrap_or_else(|| "UnknownClient".to_string());
+
+                results.push(ExternalServiceCall {
+                    service_type: "WebAPI".to_string(),
+                    client_class,
+                    method_name: Some(method_name),
+                    line_number,
+                });
+            }
+        }
+
+        // --- WCF service calls: new BarnabeSvc(), new ExploitationWS() ---
+        for cap in RE_WCF_CALL.captures_iter(line) {
+            let client_class = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let key = format!("WCF:{}:{}", client_class, line_number);
+            if seen.insert(key) {
+                results.push(ExternalServiceCall {
+                    service_type: "WCF".to_string(),
+                    client_class,
+                    method_name: None,
+                    line_number,
+                });
+            }
+        }
+    }
+
+    results
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -2337,5 +2524,114 @@ public class UnitOfWorkAide : IUnitOfWork
         let cap = cap.unwrap();
         assert_eq!(cap.get(1).unwrap().as_str(), "DropDownListFor");
         assert_eq!(cap.get(2).unwrap().as_str(), "TypeDossier");
+    }
+
+    // ─── StackLogger tracing detection tests ───────────────────────────
+
+    #[test]
+    fn test_extract_tracing_info() {
+        let source = r#"
+public class DossierService {
+    public void ProcessDossier(int id) {
+        using (StackLogger.BeginMethodScope()) {
+            StackLogger.Info("Processing dossier");
+            StackLogger.TraceMethod();
+            StackLogger.LogVariables(new VariableInfo("id", id));
+            // business logic
+        }
+    }
+    public void SimpleMethod() {
+        // no tracing
+    }
+}
+"#;
+        let info = extract_tracing_info(source);
+        assert!(info.is_traced);
+        assert_eq!(info.call_count, 3); // Info, TraceMethod, LogVariables
+        assert_eq!(info.traced_methods.len(), 1); // ProcessDossier
+        assert_eq!(info.traced_methods[0], "ProcessDossier");
+        assert!(info.log_levels_used.contains(&"Info".to_string()));
+        assert!(info.log_levels_used.contains(&"TraceMethod".to_string()));
+        assert!(info.log_levels_used.contains(&"LogVariables".to_string()));
+    }
+
+    #[test]
+    fn test_extract_tracing_info_untraced() {
+        let source = r#"
+public class PlainService {
+    public void DoWork() {
+        // no StackLogger at all
+    }
+}
+"#;
+        let info = extract_tracing_info(source);
+        assert!(!info.is_traced);
+        assert_eq!(info.call_count, 0);
+        assert!(info.traced_methods.is_empty());
+        assert!(info.log_levels_used.is_empty());
+    }
+
+    #[test]
+    fn test_extract_tracing_info_error_level() {
+        let source = r#"
+public class ErrorHandler {
+    public void HandleError(Exception ex) {
+        using (StackLogger.BeginMethodScope()) {
+            StackLogger.Error("Something failed");
+            StackLogger.DumpStackTrace();
+        }
+    }
+}
+"#;
+        let info = extract_tracing_info(source);
+        assert!(info.is_traced);
+        assert_eq!(info.call_count, 2); // Error, DumpStackTrace
+        assert_eq!(info.traced_methods.len(), 1);
+        assert_eq!(info.traced_methods[0], "HandleError");
+        assert!(info.log_levels_used.contains(&"Error".to_string()));
+        assert!(info.log_levels_used.contains(&"DumpStackTrace".to_string()));
+    }
+
+    // ─── External service call detection tests ─────────────────────────
+
+    #[test]
+    fn test_extract_external_service_calls() {
+        let source = r#"
+var cmcasClient = new CMCASClient(httpClient);
+var result = cmcasClient.OuvrantsDroitGetAsync(cmcas, nia, token).GetAwaiter().GetResult();
+var foyerClient = new FoyerClient(httpClient);
+var foyer = foyerClient.MembresduFoyerGetAsync(nia).GetAwaiter().GetResult();
+"#;
+        let calls = extract_external_service_calls(source);
+        assert!(calls.len() >= 2, "Expected at least 2 external service calls, got {}", calls.len());
+        assert!(calls.iter().any(|c| c.client_class == "CMCASClient"));
+        assert!(calls.iter().any(|c| c.client_class == "FoyerClient"));
+    }
+
+    #[test]
+    fn test_extract_wcf_service_calls() {
+        let source = r#"
+var svc = new BarnabeSvc();
+var ws = new ExploitationWS();
+"#;
+        let calls = extract_external_service_calls(source);
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().any(|c| c.client_class == "BarnabeSvc" && c.service_type == "WCF"));
+        assert!(calls.iter().any(|c| c.client_class == "ExploitationWS" && c.service_type == "WCF"));
+    }
+
+    #[test]
+    fn test_extract_no_external_calls() {
+        let source = r#"
+public class PlainService {
+    private readonly HttpClient _httpClient;
+    public void DoWork() {
+        var client = new HttpClient();
+    }
+}
+"#;
+        let calls = extract_external_service_calls(source);
+        // HttpClient itself should NOT be detected as an external service
+        assert!(calls.iter().all(|c| c.client_class != "HttpClient"));
     }
 }

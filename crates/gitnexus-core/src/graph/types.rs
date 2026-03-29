@@ -82,6 +82,8 @@ pub enum NodeLabel {
     Service,
     /// Data access repository class
     Repository,
+    /// External service/API endpoint (REST, SOAP, WCF)
+    ExternalService,
 }
 
 impl NodeLabel {
@@ -141,6 +143,7 @@ impl NodeLabel {
             Self::UiComponent => "UiComponent",
             Self::Service => "Service",
             Self::Repository => "Repository",
+            Self::ExternalService => "ExternalService",
         }
     }
 
@@ -200,6 +203,7 @@ impl NodeLabel {
             "UiComponent" => Some(Self::UiComponent),
             "Service" => Some(Self::Service),
             "Repository" => Some(Self::Repository),
+            "ExternalService" => Some(Self::ExternalService),
             _ => None,
         }
     }
@@ -270,6 +274,8 @@ pub enum RelationshipType {
     RendersComponent,
     /// Controller/Service depends on another service/repository (DI)
     DependsOn,
+    /// Code calls an external service (WebAPI, WCF, REST)
+    CallsService,
 }
 
 impl RelationshipType {
@@ -308,6 +314,7 @@ impl RelationshipType {
             Self::IncludesScript => "INCLUDES_SCRIPT",
             Self::RendersComponent => "RENDERS_COMPONENT",
             Self::DependsOn => "DEPENDS_ON",
+            Self::CallsService => "CALLS_SERVICE",
         }
     }
 
@@ -346,6 +353,7 @@ impl RelationshipType {
             "INCLUDES_SCRIPT" => Some(Self::IncludesScript),
             "RENDERS_COMPONENT" => Some(Self::RendersComponent),
             "DEPENDS_ON" => Some(Self::DependsOn),
+            "CALLS_SERVICE" => Some(Self::CallsService),
             _ => None,
         }
     }
@@ -533,6 +541,18 @@ pub struct NodeProperties {
     /// Interface that a service/repository implements
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub implements_interface: Option<String>,
+
+    /// Whether this code file/method is instrumented with tracing (e.g. StackLogger)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_traced: Option<bool>,
+
+    /// Number of tracing/logging calls in this scope
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_call_count: Option<u32>,
+
+    /// External service type (WebAPI, WCF, REST)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_type: Option<String>,
 }
 
 // ─── Graph Node ──────────────────────────────────────────────────────────
@@ -611,6 +631,7 @@ mod tests {
             // Extended ASP.NET types
             NodeLabel::ScriptFile, NodeLabel::AjaxCall, NodeLabel::UiComponent,
             NodeLabel::Service, NodeLabel::Repository,
+            NodeLabel::ExternalService,
         ];
         for label in &labels {
             let s = label.as_str();

@@ -17,6 +17,7 @@ use gitnexus_lang::route_extractors::csharp::{
     self, ControllerInfo, DbContextInfo,
     extract_ajax_calls, extract_telerik_components,
     extract_services_and_repositories, extract_constructor_dependencies,
+    extract_tracing_info, extract_external_service_calls,
 };
 use gitnexus_lang::route_extractors::edmx;
 
@@ -44,6 +45,9 @@ pub struct AspNetMvcStats {
     pub ui_components: usize,
     pub services: usize,
     pub repositories: usize,
+    pub traced_files: usize,
+    pub trace_calls: usize,
+    pub external_services: usize,
 }
 
 /// Run the ASP.NET MVC enrichment phase.
@@ -1272,6 +1276,96 @@ pub fn enrich_aspnet_mvc(
         }
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // Pass 11: StackLogger tracing coverage detection
+    // ──────────────────────────────────────────────────────────────────────
+
+    let mut total_cs_files: usize = 0;
+
+    for entry in &cs_files {
+        total_cs_files += 1;
+        let tracing_info = extract_tracing_info(&entry.content);
+
+        if tracing_info.is_traced {
+            stats.traced_files += 1;
+            stats.trace_calls += tracing_info.call_count as usize;
+
+            // Find the File node for this .cs file and annotate it with tracing metadata
+            let file_node_id = format!("File:{}", entry.path);
+            if let Some(node) = graph.get_node_mut(&file_node_id) {
+                node.properties.is_traced = Some(true);
+                node.properties.trace_call_count = Some(tracing_info.call_count);
+            }
+        }
+    }
+
+    if total_cs_files > 0 && stats.traced_files > 0 {
+        let coverage_pct = (stats.traced_files as f64 / total_cs_files as f64) * 100.0;
+        tracing::info!(
+            traced_files = stats.traced_files,
+            total_files = total_cs_files,
+            trace_calls = stats.trace_calls,
+            coverage_pct = format!("{:.1}%", coverage_pct),
+            "StackLogger tracing coverage"
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Pass 12: External service calls (WebAPI + WCF)
+    // ──────────────────────────────────────────────────────────────────────
+
+    let mut service_nodes: HashMap<String, String> = HashMap::new(); // client_class → node ID
+
+    for entry in &cs_files {
+        let ext_calls = extract_external_service_calls(&entry.content);
+
+        for call in &ext_calls {
+            // Create or reuse ExternalService node
+            let svc_id = format!("ExternalService:{}", call.client_class);
+
+            if !service_nodes.contains_key(&call.client_class) {
+                graph.add_node(GraphNode {
+                    id: svc_id.clone(),
+                    label: NodeLabel::ExternalService,
+                    properties: NodeProperties {
+                        name: call.client_class.clone(),
+                        file_path: String::new(),
+                        service_type: Some(call.service_type.clone()),
+                        ..Default::default()
+                    },
+                });
+                service_nodes.insert(call.client_class.clone(), svc_id.clone());
+                stats.external_services += 1;
+            }
+
+            let target_id = service_nodes
+                .get(&call.client_class)
+                .cloned()
+                .unwrap_or(svc_id);
+
+            // Create CallsService relationship from the file to the service
+            let source_id = format!("File:{}", entry.path);
+            let rel_id = format!(
+                "calls_svc:{}:{}:{}",
+                entry.path, call.client_class, call.line_number
+            );
+
+            graph.add_relationship(GraphRelationship {
+                id: rel_id,
+                source_id,
+                target_id,
+                rel_type: RelationshipType::CallsService,
+                confidence: 0.9,
+                reason: format!(
+                    "{}:{}",
+                    call.service_type,
+                    call.method_name.as_deref().unwrap_or("instantiation")
+                ),
+                step: None,
+            });
+        }
+    }
+
     tracing::info!(
         controllers = stats.controllers,
         actions = stats.actions,
@@ -1289,6 +1383,9 @@ pub fn enrich_aspnet_mvc(
         ui_components = stats.ui_components,
         services = stats.services,
         repositories = stats.repositories,
+        traced_files = stats.traced_files,
+        trace_calls = stats.trace_calls,
+        external_services = stats.external_services,
         "ASP.NET MVC enrichment complete"
     );
 

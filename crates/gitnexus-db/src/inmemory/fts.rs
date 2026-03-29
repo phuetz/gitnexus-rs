@@ -32,6 +32,7 @@ const FTS_LABELS: &[NodeLabel] = &[
     NodeLabel::UiComponent,
     NodeLabel::Service,
     NodeLabel::Repository,
+    NodeLabel::ExternalService,
 ];
 
 /// A single FTS search result.

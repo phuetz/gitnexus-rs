@@ -22,6 +22,7 @@ const TARGET_WIKI: &str = "wiki";
 const TARGET_SKILLS: &str = "skills";
 const TARGET_DOCS: &str = "docs";
 const TARGET_DOCX: &str = "docx";
+const TARGET_HTML: &str = "html";
 const TARGET_ALL: &str = "all";
 
 pub fn run(what: &str, path: Option<&str>) -> Result<()> {
@@ -54,6 +55,11 @@ pub fn run(what: &str, path: Option<&str>) -> Result<()> {
                 output_path.display()
             );
         }
+        TARGET_HTML => {
+            // Generate Markdown first, then convert to HTML site
+            generate_docs(&graph, &repo_path)?;
+            generate_html_site(&graph, &repo_path)?;
+        }
         TARGET_ALL => {
             generate_agents_md(&graph, &repo_path)?;
             generate_wiki(&graph, &repo_path)?;
@@ -73,10 +79,12 @@ pub fn run(what: &str, path: Option<&str>) -> Result<()> {
                 "OK".green(),
                 output_path.display()
             );
+            // Also generate HTML site
+            generate_html_site(&graph, &repo_path)?;
         }
         _ => {
             eprintln!(
-                "Unknown target: {}. Use: context, wiki, skills, docs, docx, all",
+                "Unknown target: {}. Use: context, wiki, skills, docs, docx, html, all",
                 what
             );
         }
@@ -1677,4 +1685,754 @@ fn generate_docs_modules(
     }
 
     Ok(page_count)
+}
+
+// ─── HTML Site Generator ───────────────────────────────────────────────
+
+fn generate_html_site(
+    graph: &KnowledgeGraph,
+    repo_path: &Path,
+) -> Result<()> {
+    let docs_dir = repo_path.join(".gitnexus").join("docs");
+    if !docs_dir.exists() {
+        return Err(anyhow::anyhow!(
+            "No docs found. Run 'generate docs' first."
+        ));
+    }
+
+    // 1. Collect all .md files from docs/
+    let mut pages: BTreeMap<String, (String, String)> = BTreeMap::new(); // id -> (title, html_content)
+
+    for entry in std::fs::read_dir(&docs_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().map_or(false, |e| e == "md") {
+            let content = std::fs::read_to_string(&path)?;
+            let filename = path.file_stem().unwrap().to_string_lossy().to_string();
+            let title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());
+            let html = markdown_to_html(&content);
+            pages.insert(filename, (title, html));
+        }
+    }
+
+    // Also read modules/ subdirectory
+    let modules_dir = docs_dir.join("modules");
+    if modules_dir.exists() {
+        for entry in std::fs::read_dir(&modules_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "md") {
+                let content = std::fs::read_to_string(&path)?;
+                let filename = path.file_stem().unwrap().to_string_lossy().to_string();
+                let title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());
+                let html = markdown_to_html(&content);
+                pages.insert(format!("modules/{}", filename), (title, html));
+            }
+        }
+    }
+
+    if pages.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No .md pages found in {}",
+            docs_dir.display()
+        ));
+    }
+
+    // 2. Build sidebar HTML
+    let mut sidebar_html = String::new();
+
+    // Group pages by category
+    let overview_pages: Vec<_> = pages
+        .iter()
+        .filter(|(k, _)| !k.starts_with("modules/"))
+        .collect();
+    let module_pages: Vec<_> = pages
+        .iter()
+        .filter(|(k, _)| k.starts_with("modules/"))
+        .collect();
+
+    let first_page_id = overview_pages
+        .first()
+        .map(|(k, _)| k.as_str())
+        .unwrap_or("");
+
+    sidebar_html.push_str("<div class=\"section-title\">OVERVIEW</div>\n");
+    for (id, (title, _)) in &overview_pages {
+        let active = if id.as_str() == first_page_id {
+            " active"
+        } else {
+            ""
+        };
+        sidebar_html.push_str(&format!(
+            "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\" class=\"{active}\">{title}</a>\n"
+        ));
+    }
+
+    // Controllers
+    let ctrl_pages: Vec<_> = module_pages
+        .iter()
+        .filter(|(k, _)| k.contains("ctrl-"))
+        .collect();
+    if !ctrl_pages.is_empty() {
+        sidebar_html.push_str("<div class=\"section-title\">CONTROLLERS</div>\n");
+        for (id, (title, _)) in &ctrl_pages {
+            sidebar_html.push_str(&format!(
+                "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{title}</a>\n"
+            ));
+        }
+    }
+
+    // Data Model
+    let data_pages: Vec<_> = module_pages
+        .iter()
+        .filter(|(k, _)| k.contains("data-"))
+        .collect();
+    if !data_pages.is_empty() {
+        sidebar_html.push_str("<div class=\"section-title\">DATA MODEL</div>\n");
+        for (id, (title, _)) in &data_pages {
+            sidebar_html.push_str(&format!(
+                "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{title}</a>\n"
+            ));
+        }
+    }
+
+    // Remaining module pages (services, UI, AJAX, etc.)
+    let other_pages: Vec<_> = module_pages
+        .iter()
+        .filter(|(k, _)| !k.contains("ctrl-") && !k.contains("data-"))
+        .collect();
+    if !other_pages.is_empty() {
+        sidebar_html.push_str("<div class=\"section-title\">MODULES</div>\n");
+        for (id, (title, _)) in &other_pages {
+            sidebar_html.push_str(&format!(
+                "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{title}</a>\n"
+            ));
+        }
+    }
+
+    // 3. Build pages JSON
+    let pages_json: BTreeMap<String, serde_json::Value> = pages
+        .iter()
+        .map(|(id, (title, html))| {
+            (
+                id.clone(),
+                serde_json::json!({
+                    "title": title,
+                    "html": html
+                }),
+            )
+        })
+        .collect();
+
+    // 4. Get project stats
+    let node_count = graph.node_count();
+    let edge_count = graph.relationship_count();
+    let project_name = repo_path
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    let stats_str = format!(
+        "{} nodes &middot; {} relations &middot; {} pages",
+        node_count,
+        edge_count,
+        pages.len()
+    );
+
+    // 5. Get first page content
+    let first_page_html = pages
+        .values()
+        .next()
+        .map(|(_, html)| html.as_str())
+        .unwrap_or("<h1>Documentation</h1><p>No pages generated yet.</p>");
+
+    // 6. Assemble HTML from template
+    let pages_json_str = serde_json::to_string(&pages_json)?;
+    let final_html = build_html_template(
+        &project_name,
+        &stats_str,
+        &sidebar_html,
+        first_page_html,
+        &pages_json_str,
+    );
+
+    // 7. Write output
+    let out_path = docs_dir.join("index.html");
+    std::fs::write(&out_path, &final_html)?;
+    info!("Generated HTML documentation at {}", out_path.display());
+    println!(
+        "{} Generated HTML documentation: {}",
+        "OK".green(),
+        out_path.display()
+    );
+
+    Ok(())
+}
+
+/// Build the complete self-contained HTML template.
+fn build_html_template(
+    project_name: &str,
+    stats: &str,
+    sidebar_nav: &str,
+    first_page_content: &str,
+    pages_json: &str,
+) -> String {
+    format!(
+        r##"<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{project_name} — Documentation</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <style>
+    :root {{
+      --bg: #0f1117; --bg-surface: #161822; --bg-sidebar: #12141e;
+      --text: #e8ecf4; --text-muted: #8690a5; --accent: #6aa1f8;
+      --border: rgba(255,255,255,0.08);
+    }}
+    [data-theme="light"] {{
+      --bg: #f8f9fc; --bg-surface: #ffffff; --bg-sidebar: #f0f2f7;
+      --text: #1a1d26; --text-muted: #5a6275; --accent: #4a85e0;
+      --border: rgba(0,0,0,0.08);
+    }}
+    * {{ margin:0; padding:0; box-sizing:border-box; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           background: var(--bg); color: var(--text); display:flex; height:100vh; }}
+
+    /* Header bar */
+    .header {{ position:fixed; top:0; left:0; right:0; height:48px; background:var(--bg-sidebar);
+              border-bottom:1px solid var(--border); display:flex; align-items:center;
+              padding:0 20px; z-index:50; }}
+    .header h1 {{ font-size:15px; color:var(--accent); }}
+    .header .stats {{ margin-left:auto; font-size:11px; color:var(--text-muted); margin-right:80px; }}
+    body {{ padding-top:48px; }}
+
+    /* Sidebar */
+    .sidebar {{ width:280px; background:var(--bg-sidebar); border-right:1px solid var(--border);
+               overflow-y:auto; padding:16px 0; flex-shrink:0; margin-top:48px; height:calc(100vh - 48px); }}
+    .sidebar h2 {{ font-size:14px; padding:8px 20px; color:var(--accent); }}
+    .sidebar a {{ display:block; padding:6px 20px; color:var(--text-muted); text-decoration:none;
+                 font-size:13px; border-left:3px solid transparent; transition: all 0.15s; }}
+    .sidebar a:hover {{ color:var(--text); background:rgba(255,255,255,0.03); }}
+    .sidebar a.active {{ color:var(--accent); border-left-color:var(--accent);
+                        background:rgba(106,161,248,0.08); }}
+    .sidebar .section-title {{ font-size:10px; text-transform:uppercase; letter-spacing:0.05em;
+                              color:var(--text-muted); padding:16px 20px 4px; }}
+
+    /* Main content */
+    .main {{ flex:1; overflow-y:auto; padding:40px 60px; max-width:900px; }}
+    .main h1 {{ font-size:28px; margin-bottom:8px; }}
+    .main h2 {{ font-size:20px; margin:32px 0 12px; padding-bottom:8px;
+               border-bottom:1px solid var(--border); }}
+    .main h3 {{ font-size:16px; margin:24px 0 8px; }}
+    .main p {{ line-height:1.7; margin:8px 0; }}
+    .main table {{ width:100%; border-collapse:collapse; margin:16px 0; font-size:13px; }}
+    .main th, .main td {{ padding:8px 12px; border:1px solid var(--border); text-align:left; }}
+    .main th {{ background:var(--bg-sidebar); font-weight:600; }}
+    .main code {{ background:var(--bg-sidebar); padding:2px 6px; border-radius:4px; font-size:12px;
+                 font-family:'JetBrains Mono',monospace; }}
+    .main pre {{ background:var(--bg-sidebar); padding:16px; border-radius:8px; overflow-x:auto;
+                margin:12px 0; border:1px solid var(--border); }}
+    .main pre code {{ background:none; padding:0; }}
+    .main ul, .main ol {{ padding-left:24px; margin:8px 0; }}
+    .main li {{ line-height:1.7; }}
+    .main blockquote {{ border-left:3px solid var(--accent); padding:8px 16px; margin:12px 0;
+                       color:var(--text-muted); background:rgba(106,161,248,0.05); border-radius:0 8px 8px 0; }}
+
+    /* TOC right sidebar */
+    .toc {{ width:220px; padding:20px 16px; border-left:1px solid var(--border);
+           overflow-y:auto; flex-shrink:0; position:sticky; top:0; margin-top:48px; height:calc(100vh - 48px); }}
+    .toc h3 {{ font-size:11px; text-transform:uppercase; letter-spacing:0.05em;
+              color:var(--text-muted); margin-bottom:12px; }}
+    .toc a {{ display:block; font-size:12px; color:var(--text-muted); text-decoration:none;
+             padding:3px 0; border-left:2px solid transparent; padding-left:8px; }}
+    .toc a:hover {{ color:var(--accent); }}
+    .toc a.depth-3 {{ padding-left:20px; }}
+
+    /* Theme toggle */
+    .theme-toggle {{ position:fixed; top:12px; right:16px; background:var(--bg-surface);
+                    border:1px solid var(--border); border-radius:8px; padding:6px 12px;
+                    color:var(--text-muted); cursor:pointer; font-size:12px; z-index:100; }}
+
+    /* Mermaid */
+    .mermaid {{ background:var(--bg-surface); border-radius:8px; padding:16px; margin:16px 0;
+               border:1px solid var(--border); text-align:center; }}
+
+    /* Search */
+    .search {{ padding:8px 16px; }}
+    .search input {{ width:100%; padding:6px 10px; background:var(--bg); border:1px solid var(--border);
+                    border-radius:6px; color:var(--text); font-size:12px; outline:none; }}
+    .search input:focus {{ border-color:var(--accent); }}
+
+    .hidden {{ display:none; }}
+
+    @media (max-width:900px) {{
+      .sidebar {{ display:none; }}
+      .toc {{ display:none; }}
+      .main {{ padding:20px; }}
+    }}
+  </style>
+</head>
+<body>
+  <header class="header">
+    <h1>{project_name}</h1>
+    <span class="stats">{stats}</span>
+    <button class="theme-toggle" onclick="toggleTheme()">Theme</button>
+  </header>
+
+  <nav class="sidebar">
+    <div class="search">
+      <input type="text" placeholder="Search pages..." oninput="filterPages(this.value)">
+    </div>
+    {sidebar_nav}
+  </nav>
+
+  <main class="main" id="content">
+    {first_page_content}
+  </main>
+
+  <aside class="toc" id="toc">
+    <h3>On this page</h3>
+    <div id="toc-links"></div>
+  </aside>
+
+  <script>
+    // Page data embedded as JSON
+    const PAGES = {pages_json};
+
+    // Navigation
+    function showPage(id) {{
+      const page = PAGES[id];
+      if (!page) return;
+      document.getElementById('content').innerHTML = page.html;
+
+      // Update active sidebar link
+      document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
+      const link = document.querySelector('.sidebar a[data-page="' + id + '"]');
+      if (link) link.classList.add('active');
+
+      // Build TOC
+      buildToc();
+
+      // Render Mermaid diagrams
+      renderMermaid();
+
+      // Scroll to top
+      document.getElementById('content').scrollTop = 0;
+    }}
+
+    // TOC builder
+    function buildToc() {{
+      const headings = document.querySelectorAll('.main h2, .main h3');
+      const toc = document.getElementById('toc-links');
+      toc.innerHTML = '';
+      headings.forEach((h, i) => {{
+        h.id = 'heading-' + i;
+        const a = document.createElement('a');
+        a.textContent = h.textContent;
+        a.href = '#heading-' + i;
+        a.className = h.tagName === 'H3' ? 'depth-3' : '';
+        a.onclick = (e) => {{ e.preventDefault(); h.scrollIntoView({{behavior:'smooth'}}); }};
+        toc.appendChild(a);
+      }});
+    }}
+
+    // Mermaid rendering
+    function renderMermaid() {{
+      document.querySelectorAll('pre code.language-mermaid').forEach(block => {{
+        const div = document.createElement('div');
+        div.className = 'mermaid';
+        div.textContent = block.textContent;
+        block.parentElement.replaceWith(div);
+      }});
+      if (typeof mermaid !== 'undefined') {{
+        mermaid.init(undefined, '.mermaid');
+      }}
+    }}
+
+    // Theme toggle
+    function toggleTheme() {{
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      if (typeof mermaid !== 'undefined') {{
+        mermaid.initialize({{ theme: next === 'dark' ? 'dark' : 'default', startOnLoad: false }});
+        renderMermaid();
+      }}
+    }}
+
+    // Search filter
+    function filterPages(query) {{
+      const q = query.toLowerCase();
+      document.querySelectorAll('.sidebar a[data-page]').forEach(a => {{
+        const text = a.textContent.toLowerCase();
+        a.style.display = text.includes(q) ? '' : 'none';
+      }});
+    }}
+
+    // Init
+    document.addEventListener('DOMContentLoaded', () => {{
+      const saved = localStorage.getItem('theme');
+      if (saved) document.documentElement.setAttribute('data-theme', saved);
+      if (typeof mermaid !== 'undefined') {{
+        const theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'default' : 'dark';
+        mermaid.initialize({{ theme, startOnLoad: false, securityLevel: 'loose' }});
+      }}
+      buildToc();
+      renderMermaid();
+    }});
+  </script>
+</body>
+</html>"##
+    )
+}
+
+// ─── Markdown to HTML Converter ────────────────────────────────────────
+
+/// Convert Markdown content to HTML (basic, no external dependencies).
+fn markdown_to_html(md: &str) -> String {
+    let mut html = String::new();
+    let mut in_code_block = false;
+    let mut code_lang = String::new();
+    let mut code_content = String::new();
+    let mut in_table = false;
+    let mut table_has_body = false;
+    let mut in_list = false;
+    let mut in_ordered_list = false;
+
+    for line in md.lines() {
+        // Code fences
+        if line.starts_with("```") {
+            if in_code_block {
+                // Close code block
+                if code_lang == "mermaid" {
+                    html.push_str(&format!(
+                        "<pre><code class=\"language-mermaid\">{}</code></pre>\n",
+                        html_escape(&code_content)
+                    ));
+                } else {
+                    html.push_str(&format!(
+                        "<pre><code class=\"language-{}\">{}</code></pre>\n",
+                        code_lang,
+                        html_escape(&code_content)
+                    ));
+                }
+                code_content.clear();
+                in_code_block = false;
+            } else {
+                // Close any open list before a code block
+                if in_list {
+                    html.push_str("</ul>\n");
+                    in_list = false;
+                }
+                if in_ordered_list {
+                    html.push_str("</ol>\n");
+                    in_ordered_list = false;
+                }
+                code_lang = line.trim_start_matches('`').trim().to_string();
+                in_code_block = true;
+            }
+            continue;
+        }
+
+        if in_code_block {
+            code_content.push_str(line);
+            code_content.push('\n');
+            continue;
+        }
+
+        // Tables
+        if line.contains('|') && line.trim().starts_with('|') {
+            // Separator row (e.g., |---|---|)
+            if line.replace('|', "").replace('-', "").replace(' ', "").replace(':', "").is_empty() {
+                // Mark that we should switch from thead to tbody
+                if in_table {
+                    html.push_str("</thead><tbody>\n");
+                    table_has_body = true;
+                }
+                continue;
+            }
+            if !in_table {
+                // Close any open list
+                if in_list {
+                    html.push_str("</ul>\n");
+                    in_list = false;
+                }
+                if in_ordered_list {
+                    html.push_str("</ol>\n");
+                    in_ordered_list = false;
+                }
+                html.push_str("<table>\n<thead>\n");
+                in_table = true;
+                table_has_body = false;
+            }
+            let cells: Vec<&str> = line
+                .split('|')
+                .filter(|s| !s.trim().is_empty())
+                .collect();
+            let tag = if table_has_body { "td" } else { "th" };
+            html.push_str("<tr>");
+            for cell in cells {
+                html.push_str(&format!(
+                    "<{tag}>{}</{tag}>",
+                    inline_md(cell.trim())
+                ));
+            }
+            html.push_str("</tr>\n");
+            continue;
+        } else if in_table {
+            if table_has_body {
+                html.push_str("</tbody></table>\n");
+            } else {
+                html.push_str("</thead></table>\n");
+            }
+            in_table = false;
+            table_has_body = false;
+        }
+
+        // Headings
+        if line.starts_with("### ") {
+            if in_list { html.push_str("</ul>\n"); in_list = false; }
+            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            html.push_str(&format!("<h3>{}</h3>\n", inline_md(&line[4..])));
+            continue;
+        }
+        if line.starts_with("## ") {
+            if in_list { html.push_str("</ul>\n"); in_list = false; }
+            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            html.push_str(&format!("<h2>{}</h2>\n", inline_md(&line[3..])));
+            continue;
+        }
+        if line.starts_with("# ") {
+            if in_list { html.push_str("</ul>\n"); in_list = false; }
+            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            html.push_str(&format!("<h1>{}</h1>\n", inline_md(&line[2..])));
+            continue;
+        }
+
+        // Horizontal rule
+        let trimmed = line.trim();
+        if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+            if in_list { html.push_str("</ul>\n"); in_list = false; }
+            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            html.push_str("<hr>\n");
+            continue;
+        }
+
+        // Unordered lists
+        if line.starts_with("- ") || line.starts_with("* ") {
+            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            if !in_list {
+                html.push_str("<ul>\n");
+                in_list = true;
+            }
+            html.push_str(&format!("<li>{}</li>\n", inline_md(&line[2..])));
+            continue;
+        }
+        // Indented sub-items (2 or 4 spaces + dash)
+        if (line.starts_with("  - ") || line.starts_with("    - ")) && in_list {
+            let content = line.trim_start().trim_start_matches("- ");
+            html.push_str(&format!("<li style=\"margin-left:16px\">{}</li>\n", inline_md(content)));
+            continue;
+        }
+
+        // Ordered lists
+        if !line.is_empty() {
+            let maybe_ol = trimmed.split_once(". ");
+            if let Some((num_part, rest)) = maybe_ol {
+                if num_part.chars().all(|c| c.is_ascii_digit()) {
+                    if in_list { html.push_str("</ul>\n"); in_list = false; }
+                    if !in_ordered_list {
+                        html.push_str("<ol>\n");
+                        in_ordered_list = true;
+                    }
+                    html.push_str(&format!("<li>{}</li>\n", inline_md(rest)));
+                    continue;
+                }
+            }
+        }
+
+        // Blockquotes
+        if line.starts_with("> ") {
+            if in_list { html.push_str("</ul>\n"); in_list = false; }
+            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            html.push_str(&format!(
+                "<blockquote>{}</blockquote>\n",
+                inline_md(&line[2..])
+            ));
+            continue;
+        }
+
+        // Empty lines close lists
+        if line.trim().is_empty() {
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
+            if in_ordered_list {
+                html.push_str("</ol>\n");
+                in_ordered_list = false;
+            }
+            continue;
+        }
+
+        // Paragraph (default)
+        if in_list { html.push_str("</ul>\n"); in_list = false; }
+        if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+        html.push_str(&format!("<p>{}</p>\n", inline_md(line)));
+    }
+
+    // Close any open blocks
+    if in_table {
+        if table_has_body {
+            html.push_str("</tbody></table>\n");
+        } else {
+            html.push_str("</thead></table>\n");
+        }
+    }
+    if in_list {
+        html.push_str("</ul>\n");
+    }
+    if in_ordered_list {
+        html.push_str("</ol>\n");
+    }
+
+    html
+}
+
+/// Process inline Markdown formatting: bold, italic, code, links.
+fn inline_md(text: &str) -> String {
+    let mut s = html_escape(text);
+
+    // Bold: **text**
+    loop {
+        if let Some(start) = s.find("**") {
+            if let Some(end) = s[start + 2..].find("**") {
+                let bold_text = s[start + 2..start + 2 + end].to_string();
+                s = format!(
+                    "{}<strong>{}</strong>{}",
+                    &s[..start],
+                    bold_text,
+                    &s[start + 2 + end + 2..]
+                );
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Italic: *text* (but not inside <strong> tags already processed)
+    // Simple approach: match single * not preceded/followed by *
+    loop {
+        // Find a lone * that is not part of **
+        let bytes = s.as_bytes();
+        let mut start_pos = None;
+        for i in 0..bytes.len() {
+            if bytes[i] == b'*' {
+                let prev_star = i > 0 && bytes[i - 1] == b'*';
+                let next_star = i + 1 < bytes.len() && bytes[i + 1] == b'*';
+                if !prev_star && !next_star {
+                    start_pos = Some(i);
+                    break;
+                }
+            }
+        }
+        if let Some(start) = start_pos {
+            // Find matching closing *
+            let rest = &s[start + 1..];
+            let mut end_pos = None;
+            let rest_bytes = rest.as_bytes();
+            for i in 0..rest_bytes.len() {
+                if rest_bytes[i] == b'*' {
+                    let prev_star = i > 0 && rest_bytes[i - 1] == b'*';
+                    let next_star = i + 1 < rest_bytes.len() && rest_bytes[i + 1] == b'*';
+                    if !prev_star && !next_star {
+                        end_pos = Some(i);
+                        break;
+                    }
+                }
+            }
+            if let Some(end) = end_pos {
+                let italic_text = s[start + 1..start + 1 + end].to_string();
+                s = format!(
+                    "{}<em>{}</em>{}",
+                    &s[..start],
+                    italic_text,
+                    &s[start + 1 + end + 1..]
+                );
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Inline code: `text`
+    loop {
+        if let Some(start) = s.find('`') {
+            if let Some(end) = s[start + 1..].find('`') {
+                let code_text = s[start + 1..start + 1 + end].to_string();
+                s = format!(
+                    "{}<code>{}</code>{}",
+                    &s[..start],
+                    code_text,
+                    &s[start + 1 + end + 1..]
+                );
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Links: [text](url) - after HTML escaping, parens are still literal
+    // We need to match the pattern carefully
+    loop {
+        if let Some(bracket_start) = s.find('[') {
+            if let Some(bracket_end) = s[bracket_start..].find("](") {
+                let abs_bracket_end = bracket_start + bracket_end;
+                let link_text = &s[bracket_start + 1..abs_bracket_end];
+                let after_paren = &s[abs_bracket_end + 2..];
+                if let Some(paren_end) = after_paren.find(')') {
+                    let url = &after_paren[..paren_end];
+                    let replacement = format!("<a href=\"{}\">{}</a>", url, link_text);
+                    s = format!(
+                        "{}{}{}",
+                        &s[..bracket_start],
+                        replacement,
+                        &after_paren[paren_end + 1..]
+                    );
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+
+    s
+}
+
+/// Escape HTML special characters.
+fn html_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Extract the first `# Title` from Markdown content.
+fn extract_title_from_md(content: &str) -> Option<String> {
+    for line in content.lines() {
+        if line.starts_with("# ") {
+            return Some(line[2..].trim().to_string());
+        }
+    }
+    None
 }

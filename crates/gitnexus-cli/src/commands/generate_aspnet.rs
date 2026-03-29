@@ -540,61 +540,119 @@ fn generate_er_diagram_doc(
     let path = docs_dir.join("aspnet-data-model.md");
     let mut f = std::fs::File::create(path)?;
 
-    writeln!(f, "# Entity Relationship Diagram")?;
+    writeln!(f, "# Modèle de Données")?;
     writeln!(f)?;
-    writeln!(f, "```mermaid")?;
-    writeln!(f, "erDiagram")?;
+    writeln!(f, "> {} entités détectées dans le modèle Entity Framework.", entities.len())?;
+    writeln!(f)?;
 
-    // Entity definitions
+    // Build adjacency map for entities
+    let entity_names: HashSet<String> = entities.iter()
+        .map(|e| e.properties.name.clone())
+        .collect();
+
+    let mut adjacency: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new(); // entity -> [(related, cardinality)]
+    for rel in graph.iter_relationships() {
+        if rel.rel_type == RelationshipType::AssociatesWith {
+            let source = rel.source_id.rsplit(':').next().unwrap_or(&rel.source_id).to_string();
+            let target = rel.target_id.rsplit(':').next().unwrap_or(&rel.target_id).to_string();
+            let card = if rel.reason.contains("1:*") { "1:N" }
+                else if rel.reason.contains("*:1") { "N:1" }
+                else if rel.reason.contains("*:*") { "N:N" }
+                else { "1:1" };
+            adjacency.entry(source.clone()).or_default().push((target.clone(), card.to_string()));
+            adjacency.entry(target).or_default().push((source, card.to_string()));
+        }
+    }
+
+    // Group entities by business domain (heuristic based on name)
+    let domains: Vec<(&str, Vec<&str>)> = vec![
+        ("Aides & Barèmes", vec!["AIDEFINANCE", "GROUPEAIDE", "BAREME", "TRANCHEBAREME", "TARIFBASE_AIDE", "PARAMAIDE", "PARAMAIDJUST", "MAJOAIDE", "PLAFOND", "PLAFOND_DOSSIER", "REF_UNITETAR", "REF_UNITEMAJ", "REFFOND", "BUDGET"]),
+        ("Dossiers & Prestations", vec!["DOSSIERPRESTA", "DOSSIERELIGIBLE", "ODDEMANDEUR", "BENEFPRESTA", "DSTRGTPOSSIBLE", "JUSTIFICATIFS", "STATDOSSIER"]),
+        ("Paiements & Factures", vec!["REGLEMENT", "REGLEMENTLIGNE", "REGULLIGNE", "REF_STATREG"]),
+        ("Utilisateurs & Habilitations", vec!["UTILISATEUR", "PROFILS", "HABILITATION", "AUTORISATION", "CMCASUTILPROF", "CMCAS", "CMCASPARAM", "PARAMCMCAS", "REF_FONCTION"]),
+        ("Référentiels", vec!["REFTYPEBENEF", "REFTYPEDST", "REFTYPEODAD", "REFTYPEPENSION", "REFTYPEMDLCOUR", "REFPUBLIC", "PARAMPUBLIC", "REFFORMAT", "REFMESSAGE", "REF_UNITE", "REF_CONFIG", "REF_NUM", "REF_STATUTS"]),
+        ("Courriers & Documents", vec!["MODELECOURRIER", "MODCOURAIDE", "MODCOURGRP", "DOCUMENT", "EXPORT"]),
+        ("Audit", vec!["AUDIT", "Audit", "Auditligne"]),
+    ];
+
+    // Entity table with file paths
+    writeln!(f, "## Liste des entités\n")?;
+    writeln!(f, "| Entité | Fichier | Relations |")?;
+    writeln!(f, "|--------|---------|-----------|")?;
     for entity in entities {
-        writeln!(f, "  {} {{", sanitize_mermaid(&entity.properties.name))?;
-        // Add key properties from annotations
-        if let Some(annotations) = &entity.properties.data_annotations {
-            for ann in annotations {
-                if ann.starts_with("Key") {
-                    writeln!(f, "    int id PK")?;
+        let rel_count = adjacency.get(&entity.properties.name).map_or(0, |v| v.len());
+        writeln!(f, "| **{}** | `{}` | {} |",
+            entity.properties.name, entity.properties.file_path, rel_count)?;
+    }
+    writeln!(f)?;
+
+    // Per-domain diagrams
+    for (domain_name, domain_entities) in &domains {
+        // Filter to entities that actually exist in the graph
+        let existing: Vec<&&str> = domain_entities.iter()
+            .filter(|name| entity_names.contains(**name))
+            .collect();
+
+        if existing.is_empty() {
+            continue;
+        }
+
+        writeln!(f, "## {}\n", domain_name)?;
+
+        // Small ER diagram for this domain only
+        writeln!(f, "```mermaid")?;
+        writeln!(f, "erDiagram")?;
+
+        let domain_set: HashSet<&str> = existing.iter().map(|n| **n).collect();
+
+        // Entity blocks
+        for name in &existing {
+            writeln!(f, "  {} {{}}", sanitize_mermaid(name))?;
+        }
+
+        // Relationships within this domain
+        let mut seen_rels: HashSet<String> = HashSet::new();
+        for name in &existing {
+            if let Some(rels) = adjacency.get(**name) {
+                for (target, card) in rels {
+                    if domain_set.contains(target.as_str()) {
+                        let key = if **name < target.as_str() {
+                            format!("{}:{}", name, target)
+                        } else {
+                            format!("{}:{}", target, name)
+                        };
+                        if seen_rels.insert(key) {
+                            let mermaid_rel = match card.as_str() {
+                                "1:N" => "||--o{",
+                                "N:1" => "}o--||",
+                                "N:N" => "}o--o{",
+                                _ => "||--||",
+                            };
+                            writeln!(f, "  {} {} {}",
+                                sanitize_mermaid(name), mermaid_rel, sanitize_mermaid(target))?;
+                        }
+                    }
                 }
             }
         }
-        writeln!(f, "  }}")?;
+
+        writeln!(f, "```\n")?;
     }
 
-    // Relationships from graph
-    let mut seen = std::collections::HashSet::new();
-    for rel in graph.iter_relationships() {
-        if rel.rel_type == RelationshipType::AssociatesWith {
-            let source = rel.source_id.rsplit(':').next().unwrap_or(&rel.source_id);
-            let target = rel.target_id.rsplit(':').next().unwrap_or(&rel.target_id);
-            let key = format!("{}:{}", source, target);
+    // Entities not in any domain
+    let all_domain_entities: HashSet<&str> = domains.iter()
+        .flat_map(|(_, ents)| ents.iter().copied())
+        .collect();
+    let unclassified: Vec<&&GraphNode> = entities.iter()
+        .filter(|e| !all_domain_entities.contains(e.properties.name.as_str()))
+        .collect();
 
-            if seen.contains(&key) {
-                continue;
-            }
-            seen.insert(key);
-
-            // Parse cardinality from reason
-            let mermaid_rel = if rel.reason.contains("1:*") || rel.reason.contains("1:many") {
-                "||--o{"
-            } else if rel.reason.contains("*:1") || rel.reason.contains("many:1") {
-                "}o--||"
-            } else if rel.reason.contains("*:*") || rel.reason.contains("many:many") {
-                "}o--o{"
-            } else if rel.reason.contains("1:1") {
-                "||--||"
-            } else {
-                "||--o{"
-            };
-
-            let reason_label = rel.reason.split(':').next().unwrap_or("");
-            writeln!(
-                f,
-                "  {} {} {} : \"{}\"",
-                sanitize_mermaid(source),
-                mermaid_rel,
-                sanitize_mermaid(target),
-                escape_mermaid_label(reason_label)
-            )?;
+    if !unclassified.is_empty() {
+        writeln!(f, "## Autres entités\n")?;
+        for entity in &unclassified {
+            writeln!(f, "- **{}** (`{}`)", entity.properties.name, entity.properties.file_path)?;
         }
+        writeln!(f)?;
     }
 
     writeln!(f, "```")?;

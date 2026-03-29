@@ -196,6 +196,14 @@ fn escape_mermaid_label(label: &str) -> String {
         .replace('\r', "")
 }
 
+/// Sanitize a string for use as a Mermaid node ID.
+/// Keeps only alphanumeric characters and underscores.
+fn sanitize_mermaid_id(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .collect()
+}
+
 /// Generate a `<details>` block listing relevant source files.
 fn source_files_section(files: &[&str]) -> String {
     if files.is_empty() {
@@ -1802,6 +1810,14 @@ fn generate_docs_modules(
         page_order.push(("ajax-endpoints".to_string(), "AJAX Endpoints".to_string()));
     }
 
+    // External Services page
+    let ext_services: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::ExternalService)
+        .collect();
+    if !ext_services.is_empty() {
+        page_order.push(("external-services".to_string(), "External Services".to_string()));
+    }
+
     /// Helper: generate prev/next navigation footer for a given page index.
     fn nav_footer(page_order: &[(String, String)], current_filename: &str) -> String {
         let idx = page_order.iter().position(|(f, _)| f == current_filename);
@@ -2025,6 +2041,45 @@ fn generate_docs_modules(
             a.properties.start_line.unwrap_or(0).cmp(&b.properties.start_line.unwrap_or(0))
         });
 
+        // Build action ID set for caller lookup
+        let action_ids: HashSet<String> = actions.iter().map(|a| a.id.clone()).collect();
+
+        // Find all callers targeting any action of this controller
+        let caller_rels: Vec<&GraphRelationship> = graph.iter_relationships()
+            .filter(|r| action_ids.contains(&r.target_id)
+                    && (r.rel_type == RelationshipType::CallsAction
+                        || r.rel_type == RelationshipType::Calls))
+            .collect();
+
+        // Build per-action caller map: action_id -> Vec<(short_name, source_label)>
+        let mut action_callers: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        for r in &caller_rels {
+            let short_name = if let Some(src_node) = graph.get_node(&r.source_id) {
+                let label_str = match src_node.label {
+                    NodeLabel::View | NodeLabel::PartialView => {
+                        // Extract just the filename from file_path
+                        src_node.properties.file_path.rsplit(['/', '\\']).next()
+                            .unwrap_or(&src_node.properties.name).to_string()
+                    }
+                    _ => src_node.properties.name.clone(),
+                };
+                let type_str = match src_node.label {
+                    NodeLabel::View => "View".to_string(),
+                    NodeLabel::PartialView => "Partial".to_string(),
+                    NodeLabel::AjaxCall => {
+                        let ajax_method = src_node.properties.ajax_method.as_deref().unwrap_or("AJAX");
+                        format!("Script ({})", ajax_method)
+                    }
+                    _ => format!("{:?}", src_node.label),
+                };
+                (label_str, type_str)
+            } else {
+                let short = r.source_id.rsplit(':').next().unwrap_or(&r.source_id).to_string();
+                (short, "Unknown".to_string())
+            };
+            action_callers.entry(r.target_id.clone()).or_default().push(short_name);
+        }
+
         // Find views rendered by this controller (both direct and through actions)
         let view_targets: Vec<String> = graph.iter_relationships()
             .filter(|r| {
@@ -2079,18 +2134,100 @@ fn generate_docs_modules(
             base_name, action_count, desc
         ));
 
-        // Actions table with numbering
+        // Actions table with enriched columns: #, Action, Method, Params, Returns, Called By
         content.push_str(&format!("## Actions ({})\n\n", action_count));
-        content.push_str("| # | Action | Method | Route | Returns |\n");
-        content.push_str("|---|--------|--------|-------|--------|\n");
+        content.push_str("| # | Action | Method | Params | Returns | Called By |\n");
+        content.push_str("|---|--------|--------|--------|---------|----------|\n");
         for (i, action) in actions.iter().enumerate() {
             let method = action.properties.http_method.as_deref().unwrap_or("GET");
-            let route = action.properties.route_template.as_deref().unwrap_or("-");
+            let params = action.properties.parameter_count
+                .map(|c| format!("{} params", c))
+                .unwrap_or_else(|| "-".to_string());
             let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");
-            content.push_str(&format!("| {} | {} | {} | {} | {} |\n",
-                i + 1, action.properties.name, method, route, ret));
+
+            // Get callers for this action (up to 3)
+            let called_by = action_callers.get(&action.id)
+                .map(|callers| {
+                    callers.iter()
+                        .take(3)
+                        .map(|(name, _)| name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_else(|| "-".to_string());
+
+            content.push_str(&format!("| {} | {} | {} | {} | {} | {} |\n",
+                i + 1, action.properties.name, method, params, ret, called_by));
         }
         content.push('\n');
+
+        // Callers section: all callers targeting actions of this controller
+        if !caller_rels.is_empty() {
+            // Build a deduplicated callers table
+            let mut caller_rows: Vec<(String, String, String, String)> = Vec::new(); // (source, type, action, method)
+            let mut seen_callers: HashSet<(String, String)> = HashSet::new();
+            for r in &caller_rels {
+                let (source_name, source_type) = if let Some(src_node) = graph.get_node(&r.source_id) {
+                    let name = match src_node.label {
+                        NodeLabel::View | NodeLabel::PartialView => {
+                            src_node.properties.file_path.rsplit(['/', '\\']).next()
+                                .unwrap_or(&src_node.properties.name).to_string()
+                        }
+                        _ => src_node.properties.name.clone(),
+                    };
+                    let stype = match src_node.label {
+                        NodeLabel::View => {
+                            // Check if it's a form submission
+                            if r.reason.contains("form") || r.reason.contains("Form") {
+                                "View (Form)".to_string()
+                            } else {
+                                "View".to_string()
+                            }
+                        }
+                        NodeLabel::PartialView => "Partial View".to_string(),
+                        NodeLabel::AjaxCall => {
+                            let ajax_type = src_node.properties.ajax_method.as_deref().unwrap_or("AJAX");
+                            if src_node.properties.ajax_url.as_deref().map(|u| u.contains("getJSON")).unwrap_or(false) {
+                                "Script ($.getJSON)".to_string()
+                            } else {
+                                format!("Script ({})", ajax_type)
+                            }
+                        }
+                        _ => format!("{:?}", src_node.label),
+                    };
+                    (name, stype)
+                } else {
+                    let short = r.source_id.rsplit(':').next().unwrap_or(&r.source_id).to_string();
+                    (short, "Unknown".to_string())
+                };
+
+                let target_action = graph.get_node(&r.target_id)
+                    .map(|n| n.properties.name.clone())
+                    .unwrap_or_else(|| r.target_id.rsplit(':').next().unwrap_or(&r.target_id).to_string());
+
+                let method = graph.get_node(&r.target_id)
+                    .and_then(|n| n.properties.http_method.as_ref())
+                    .cloned()
+                    .unwrap_or_else(|| "-".to_string());
+
+                let key = (source_name.clone(), target_action.clone());
+                if seen_callers.insert(key) {
+                    caller_rows.push((source_name, source_type, target_action, method));
+                }
+            }
+
+            if !caller_rows.is_empty() {
+                content.push_str("## Callers\n\n");
+                content.push_str("This controller is called from:\n\n");
+                content.push_str("| Source | Type | Action | Method |\n");
+                content.push_str("|--------|------|--------|--------|\n");
+                for (source, stype, action, method) in &caller_rows {
+                    content.push_str(&format!("| {} | {} | {} | {} |\n",
+                        source, stype, action, method));
+                }
+                content.push('\n');
+            }
+        }
 
         // Associated Views section
         if !view_files.is_empty() {
@@ -2108,6 +2245,45 @@ fn generate_docs_modules(
                 content.push_str(&format!("- `{}`\n", dep));
             }
             content.push('\n');
+        }
+
+        // Action Details (collapsible signatures)
+        if !actions.is_empty() {
+            content.push_str("## Action Details\n\n");
+            for action in &actions {
+                let method = action.properties.http_method.as_deref().unwrap_or("GET");
+                let params = action.properties.parameter_count
+                    .map(|c| format!("{} params", c))
+                    .unwrap_or_else(|| "-".to_string());
+
+                content.push_str(&format!("<details>\n<summary>{} ({}, {})</summary>\n\n",
+                    action.properties.name, method, params));
+
+                content.push_str(&format!("**File:** `{}`", ctrl.properties.file_path));
+                if let Some(line) = action.properties.start_line {
+                    content.push_str(&format!(" (line {})", line));
+                }
+                content.push('\n');
+
+                if let Some(pc) = action.properties.parameter_count {
+                    content.push_str(&format!("**Parameters:** {}\n", pc));
+                }
+
+                let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");
+                content.push_str(&format!("**Returns:** {}\n", ret));
+
+                // Callers for this specific action
+                if let Some(callers) = action_callers.get(&action.id) {
+                    let caller_strs: Vec<String> = callers.iter()
+                        .map(|(name, stype)| format!("{} ({})", name, stype))
+                        .collect();
+                    if !caller_strs.is_empty() {
+                        content.push_str(&format!("**Called by:** {}\n", caller_strs.join(", ")));
+                    }
+                }
+
+                content.push_str("\n</details>\n\n");
+            }
         }
 
         // Summary
@@ -2185,14 +2361,42 @@ fn generate_docs_modules(
         content.push_str(&source_files_section(&svc_file_refs));
         content.push_str(&format!("**Total services:** {}\n\n", services.len()));
 
+        // Build service "Used By" lookup: find controllers that depend on each service
+        let mut service_used_by: HashMap<String, Vec<String>> = HashMap::new();
+        for svc in &services {
+            let users: Vec<String> = graph.iter_relationships()
+                .filter(|r| {
+                    r.rel_type == RelationshipType::DependsOn
+                        && r.target_id == svc.id
+                })
+                .filter_map(|r| {
+                    graph.get_node(&r.source_id)
+                        .filter(|n| n.label == NodeLabel::Controller)
+                        .map(|n| n.properties.name.clone())
+                })
+                .collect::<BTreeSet<String>>()
+                .into_iter()
+                .collect();
+            service_used_by.insert(svc.id.clone(), users);
+        }
+
         content.push_str("## Services\n\n");
-        content.push_str("| Service | Type | Interface | File |\n");
-        content.push_str("|---------|------|-----------|------|\n");
+        content.push_str("| Service | Type | Interface | Used By | File |\n");
+        content.push_str("|---------|------|-----------|---------|------|\n");
         for svc in &services {
             let layer = svc.properties.layer_type.as_deref().unwrap_or("Service");
             let iface = svc.properties.implements_interface.as_deref().unwrap_or("-");
-            content.push_str(&format!("| {} | {} | {} | `{}` |\n",
-                svc.properties.name, layer, iface, svc.properties.file_path));
+            let used_by = service_used_by.get(&svc.id)
+                .map(|users| {
+                    if users.is_empty() {
+                        "-".to_string()
+                    } else {
+                        users.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                    }
+                })
+                .unwrap_or_else(|| "-".to_string());
+            content.push_str(&format!("| {} | {} | {} | {} | `{}` |\n",
+                svc.properties.name, layer, iface, used_by, svc.properties.file_path));
         }
         content.push('\n');
 
@@ -2270,6 +2474,214 @@ fn generate_docs_modules(
 
         // Navigation footer
         content.push_str(&nav_footer(&page_order, "ajax-endpoints"));
+
+        std::fs::write(&out_path, &content)?;
+        println!("  {} {}", "OK".green(), out_path.display());
+        page_count += 1;
+    }
+
+    // ─── External Services page ────────────────────────────────────────
+    if !ext_services.is_empty() {
+        let out_path = modules_dir.join("external-services.md");
+
+        // Source files: files that contain or call external services
+        let ext_files: Vec<String> = ext_services.iter()
+            .map(|s| s.properties.file_path.clone())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+
+        // Also find files that call these services
+        let mut calling_files: BTreeSet<String> = BTreeSet::new();
+        for svc in &ext_services {
+            for r in graph.iter_relationships() {
+                if r.rel_type == RelationshipType::CallsService && r.target_id == svc.id {
+                    if let Some(src) = graph.get_node(&r.source_id) {
+                        if !src.properties.file_path.is_empty() {
+                            calling_files.insert(src.properties.file_path.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut all_src_files: Vec<String> = ext_files.iter().cloned()
+            .chain(calling_files.iter().cloned())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+        all_src_files.truncate(15);
+        let src_file_refs: Vec<&str> = all_src_files.iter().map(|s| s.as_str()).collect();
+
+        let mut content = String::from("# External Services & Integrations\n\n");
+        content.push_str(&source_files_section(&src_file_refs));
+        content.push_str(&format!(
+            "> This project integrates with {} external services via WebAPI (REST) and WCF (SOAP).\n\n",
+            ext_services.len()
+        ));
+
+        // Partition by service_type
+        let webapi_services: Vec<&&GraphNode> = ext_services.iter()
+            .filter(|s| {
+                let stype = s.properties.service_type.as_deref().unwrap_or("");
+                stype.eq_ignore_ascii_case("webapi") || stype.eq_ignore_ascii_case("rest")
+                    || stype.eq_ignore_ascii_case("http")
+            })
+            .collect();
+
+        let wcf_services: Vec<&&GraphNode> = ext_services.iter()
+            .filter(|s| {
+                let stype = s.properties.service_type.as_deref().unwrap_or("");
+                stype.eq_ignore_ascii_case("wcf") || stype.eq_ignore_ascii_case("soap")
+            })
+            .collect();
+
+        let other_services: Vec<&&GraphNode> = ext_services.iter()
+            .filter(|s| {
+                let stype = s.properties.service_type.as_deref().unwrap_or("").to_lowercase();
+                !["webapi", "rest", "http", "wcf", "soap"].contains(&stype.as_str())
+            })
+            .collect();
+
+        // Helper closure: find callers of a given external service
+        let find_callers = |svc: &GraphNode| -> Vec<String> {
+            graph.iter_relationships()
+                .filter(|r| r.rel_type == RelationshipType::CallsService && r.target_id == svc.id)
+                .filter_map(|r| graph.get_node(&r.source_id).map(|n| n.properties.name.clone()))
+                .collect::<BTreeSet<String>>()
+                .into_iter()
+                .collect()
+        };
+
+        if !webapi_services.is_empty() {
+            content.push_str(&format!("## WebAPI Services ({})\n\n", webapi_services.len()));
+            content.push_str("| Client | Type | Called From | Purpose |\n");
+            content.push_str("|--------|------|------------|--------|\n");
+            for svc in &webapi_services {
+                let stype = svc.properties.service_type.as_deref().unwrap_or("WebAPI");
+                let callers = find_callers(svc);
+                let called_from = if callers.is_empty() {
+                    "-".to_string()
+                } else {
+                    callers.join(", ")
+                };
+                let purpose = svc.properties.description.as_deref().unwrap_or("-");
+                content.push_str(&format!("| {} | {} | {} | {} |\n",
+                    svc.properties.name, stype, called_from, purpose));
+            }
+            content.push('\n');
+        }
+
+        if !wcf_services.is_empty() {
+            content.push_str(&format!("## WCF Services (SOAP) ({})\n\n", wcf_services.len()));
+            content.push_str("| Client | Type | Called From | Purpose |\n");
+            content.push_str("|--------|------|------------|--------|\n");
+            for svc in &wcf_services {
+                let stype = svc.properties.service_type.as_deref().unwrap_or("WCF");
+                let callers = find_callers(svc);
+                let called_from = if callers.is_empty() {
+                    "-".to_string()
+                } else {
+                    callers.join(", ")
+                };
+                let purpose = svc.properties.description.as_deref().unwrap_or("-");
+                content.push_str(&format!("| {} | {} | {} | {} |\n",
+                    svc.properties.name, stype, called_from, purpose));
+            }
+            content.push('\n');
+        }
+
+        if !other_services.is_empty() {
+            content.push_str(&format!("## Other Services ({})\n\n", other_services.len()));
+            content.push_str("| Client | Type | Called From | Purpose |\n");
+            content.push_str("|--------|------|------------|--------|\n");
+            for svc in &other_services {
+                let stype = svc.properties.service_type.as_deref().unwrap_or("External");
+                let callers = find_callers(svc);
+                let called_from = if callers.is_empty() {
+                    "-".to_string()
+                } else {
+                    callers.join(", ")
+                };
+                let purpose = svc.properties.description.as_deref().unwrap_or("-");
+                content.push_str(&format!("| {} | {} | {} | {} |\n",
+                    svc.properties.name, stype, called_from, purpose));
+            }
+            content.push('\n');
+        }
+
+        // Service Call Flow (Mermaid diagram)
+        // Build a flow: Controller -> Service -> ExternalService
+        let mut mermaid_edges: Vec<(String, String)> = Vec::new();
+        let mut mermaid_nodes: BTreeMap<String, (String, &str)> = BTreeMap::new(); // id -> (label, subgraph)
+
+        for ext_svc in &ext_services {
+            let ext_short = sanitize_mermaid_id(&ext_svc.properties.name);
+            mermaid_nodes.insert(ext_short.clone(),
+                (ext_svc.properties.name.clone(), "External"));
+
+            // Find what calls this external service
+            for r in graph.iter_relationships() {
+                if r.rel_type == RelationshipType::CallsService && r.target_id == ext_svc.id {
+                    if let Some(caller) = graph.get_node(&r.source_id) {
+                        let caller_short = sanitize_mermaid_id(&caller.properties.name);
+                        let subgraph = match caller.label {
+                            NodeLabel::Controller => "Controllers",
+                            NodeLabel::Service | NodeLabel::Repository => "Services",
+                            _ => "Other",
+                        };
+                        mermaid_nodes.insert(caller_short.clone(),
+                            (caller.properties.name.clone(), subgraph));
+                        mermaid_edges.push((caller_short.clone(), ext_short.clone()));
+
+                        // Also find what calls this intermediate service (for Controller -> Service -> External flow)
+                        if caller.label == NodeLabel::Service || caller.label == NodeLabel::Repository {
+                            for r2 in graph.iter_relationships() {
+                                if r2.rel_type == RelationshipType::DependsOn && r2.target_id == caller.id {
+                                    if let Some(ctrl) = graph.get_node(&r2.source_id) {
+                                        if ctrl.label == NodeLabel::Controller {
+                                            let ctrl_short = sanitize_mermaid_id(&ctrl.properties.name);
+                                            mermaid_nodes.insert(ctrl_short.clone(),
+                                                (ctrl.properties.name.clone(), "Controllers"));
+                                            mermaid_edges.push((ctrl_short, caller_short.clone()));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if !mermaid_edges.is_empty() {
+            content.push_str("## Service Call Flow\n\n");
+            content.push_str("```mermaid\ngraph LR\n");
+
+            // Group nodes by subgraph
+            let mut subgraphs: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
+            for (id, (label, sg)) in &mermaid_nodes {
+                subgraphs.entry(sg).or_default().push((id.clone(), label.clone()));
+            }
+
+            for (sg_name, nodes) in &subgraphs {
+                content.push_str(&format!("    subgraph {}[\"{}\"]\n", sanitize_mermaid_id(sg_name), sg_name));
+                for (id, label) in nodes {
+                    content.push_str(&format!("        {}[\"{}\"]\n", id, label));
+                }
+                content.push_str("    end\n");
+            }
+
+            // Deduplicate edges
+            let unique_edges: BTreeSet<(String, String)> = mermaid_edges.into_iter().collect();
+            for (from, to) in &unique_edges {
+                content.push_str(&format!("    {} --> {}\n", from, to));
+            }
+            content.push_str("```\n\n");
+        }
+
+        // Navigation footer
+        content.push_str(&nav_footer(&page_order, "external-services"));
 
         std::fs::write(&out_path, &content)?;
         println!("  {} {}", "OK".green(), out_path.display());

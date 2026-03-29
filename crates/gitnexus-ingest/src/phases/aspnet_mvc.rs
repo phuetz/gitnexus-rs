@@ -15,11 +15,14 @@ use gitnexus_core::graph::types::{
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_lang::route_extractors::csharp::{
     self, ControllerInfo, DbContextInfo,
+    extract_ajax_calls, extract_telerik_components,
+    extract_services_and_repositories, extract_constructor_dependencies,
 };
 use gitnexus_lang::route_extractors::edmx;
 
 use super::structure::FileEntry;
 use std::collections::{HashMap, HashSet};
+use once_cell::sync::Lazy;
 use regex::Regex;
 
 /// Result statistics from the ASP.NET MVC enrichment phase.
@@ -36,6 +39,11 @@ pub struct AspNetMvcStats {
     pub filters: usize,
     pub webconfigs: usize,
     pub partial_views: usize,
+    pub ajax_calls: usize,
+    pub script_files: usize,
+    pub ui_components: usize,
+    pub services: usize,
+    pub repositories: usize,
 }
 
 /// Run the ASP.NET MVC enrichment phase.
@@ -658,6 +666,476 @@ pub fn enrich_aspnet_mvc(
         }
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // Pass 8: jQuery/AJAX → Controller Action mapping
+    // ──────────────────────────────────────────────────────────────────────
+
+    // Regex for extracting inline <script> blocks
+    static RE_SCRIPT_BLOCK: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?si)<script[^>]*>(.+?)</script>").unwrap()
+    });
+    // Regex for extracting <script src="..."> references
+    static RE_SCRIPT_SRC: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"(?i)<script[^>]+src\s*=\s*["']([^"']+)["']"#).unwrap()
+    });
+
+    // 8a: Process standalone .js files
+    let js_files: Vec<&FileEntry> = file_entries
+        .iter()
+        .filter(|f| f.path.ends_with(".js"))
+        .collect();
+
+    for entry in &js_files {
+        let script_id = format!("ScriptFile:{}", entry.path);
+
+        graph.add_node(GraphNode {
+            id: script_id.clone(),
+            label: NodeLabel::ScriptFile,
+            properties: NodeProperties {
+                name: entry
+                    .path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&entry.path)
+                    .to_string(),
+                file_path: entry.path.clone(),
+                ..Default::default()
+            },
+        });
+
+        stats.script_files += 1;
+
+        let ajax_calls = extract_ajax_calls(&entry.content);
+        for call in &ajax_calls {
+            let ajax_id = format!(
+                "AjaxCall:{}:{}:{}",
+                entry.path, call.line_number, call.url_pattern
+            );
+
+            graph.add_node(GraphNode {
+                id: ajax_id.clone(),
+                label: NodeLabel::AjaxCall,
+                properties: NodeProperties {
+                    name: format!(
+                        "{} {}",
+                        call.method,
+                        call.action_name.as_deref().unwrap_or(&call.url_pattern)
+                    ),
+                    file_path: entry.path.clone(),
+                    start_line: Some(call.line_number),
+                    http_method: Some(call.method.clone()),
+                    ajax_url: Some(call.url_pattern.clone()),
+                    ajax_method: Some(call.method.clone()),
+                    ..Default::default()
+                },
+            });
+
+            // Link ScriptFile → AjaxCall
+            graph.add_relationship(GraphRelationship {
+                id: format!("script_ajax:{}:{}", entry.path, call.line_number),
+                source_id: script_id.clone(),
+                target_id: ajax_id.clone(),
+                rel_type: RelationshipType::CallsAction,
+                confidence: 0.7,
+                reason: "script_ajax_call".to_string(),
+                step: None,
+            });
+
+            // Try to link AjaxCall → ControllerAction
+            if let (Some(ctrl_name), Some(action_name)) =
+                (&call.controller_name, &call.action_name)
+            {
+                if let Some((action_node_id, confidence)) =
+                    resolve_action_node_id(&all_controllers, ctrl_name, action_name)
+                {
+                    graph.add_relationship(GraphRelationship {
+                        id: format!("ajax_action:{}:{}:{}", entry.path, ctrl_name, action_name),
+                        source_id: ajax_id.clone(),
+                        target_id: action_node_id,
+                        rel_type: RelationshipType::CallsAction,
+                        confidence,
+                        reason: format!("ajax_url:{}", call.url_pattern),
+                        step: None,
+                    });
+                }
+            }
+
+            stats.ajax_calls += 1;
+        }
+    }
+
+    // 8b: Process inline <script> blocks in .cshtml view files
+    for entry in &view_files {
+        let view_id = format!("View:{}", entry.path);
+
+        // Extract inline <script>...</script> blocks
+        for script_cap in RE_SCRIPT_BLOCK.captures_iter(&entry.content) {
+            let block = script_cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            let ajax_calls = extract_ajax_calls(block);
+
+            for call in &ajax_calls {
+                let ajax_id = format!(
+                    "AjaxCall:{}:inline:{}:{}",
+                    entry.path, call.line_number, call.url_pattern
+                );
+
+                graph.add_node(GraphNode {
+                    id: ajax_id.clone(),
+                    label: NodeLabel::AjaxCall,
+                    properties: NodeProperties {
+                        name: format!(
+                            "{} {}",
+                            call.method,
+                            call.action_name.as_deref().unwrap_or(&call.url_pattern)
+                        ),
+                        file_path: entry.path.clone(),
+                        start_line: Some(call.line_number),
+                        http_method: Some(call.method.clone()),
+                        ajax_url: Some(call.url_pattern.clone()),
+                        ajax_method: Some(call.method.clone()),
+                        ..Default::default()
+                    },
+                });
+
+                // Link View → AjaxCall
+                graph.add_relationship(GraphRelationship {
+                    id: format!("view_ajax:{}:{}:{}", entry.path, call.line_number, call.url_pattern),
+                    source_id: view_id.clone(),
+                    target_id: ajax_id.clone(),
+                    rel_type: RelationshipType::CallsAction,
+                    confidence: 0.8,
+                    reason: "inline_script_ajax".to_string(),
+                    step: None,
+                });
+
+                // Try to link AjaxCall → ControllerAction
+                if let (Some(ctrl_name), Some(action_name)) =
+                    (&call.controller_name, &call.action_name)
+                {
+                    if let Some((action_node_id, confidence)) =
+                        resolve_action_node_id(&all_controllers, ctrl_name, action_name)
+                    {
+                        graph.add_relationship(GraphRelationship {
+                            id: format!(
+                                "ajax_action:{}:{}:{}",
+                                entry.path, ctrl_name, action_name
+                            ),
+                            source_id: ajax_id.clone(),
+                            target_id: action_node_id,
+                            rel_type: RelationshipType::CallsAction,
+                            confidence,
+                            reason: format!("inline_ajax_url:{}", call.url_pattern),
+                            step: None,
+                        });
+                    }
+                }
+
+                stats.ajax_calls += 1;
+            }
+        }
+
+        // 8c: Scan for <script src="..."> references → IncludesScript relationship
+        for src_cap in RE_SCRIPT_SRC.captures_iter(&entry.content) {
+            let script_src = src_cap.get(1).map(|m| m.as_str()).unwrap_or("");
+
+            // Try to resolve the src path to a known ScriptFile node
+            let script_node_id = js_files
+                .iter()
+                .find(|f| {
+                    // Match on filename or relative path suffix
+                    f.path.ends_with(script_src.trim_start_matches('~').trim_start_matches('/'))
+                        || f.path
+                            .rsplit('/')
+                            .next()
+                            .is_some_and(|name| script_src.ends_with(name))
+                })
+                .map(|f| format!("ScriptFile:{}", f.path));
+
+            let target_id =
+                script_node_id.unwrap_or_else(|| format!("ScriptFile:external:{}", script_src));
+
+            graph.add_relationship(GraphRelationship {
+                id: format!("includes_script:{}:{}", entry.path, script_src),
+                source_id: view_id.clone(),
+                target_id,
+                rel_type: RelationshipType::IncludesScript,
+                confidence: 0.9,
+                reason: format!("script_src:{}", script_src),
+                step: None,
+            });
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Pass 9: Telerik/Kendo UI components
+    // ──────────────────────────────────────────────────────────────────────
+
+    // 9a: Extract from .cshtml view files
+    for entry in &view_files {
+        let view_id = format!("View:{}", entry.path);
+        let components = extract_telerik_components(&entry.content);
+
+        for comp in &components {
+            let comp_id = format!(
+                "UiComponent:{}:{}:{}",
+                entry.path, comp.component_type, comp.line_number
+            );
+
+            graph.add_node(GraphNode {
+                id: comp_id.clone(),
+                label: NodeLabel::UiComponent,
+                properties: NodeProperties {
+                    name: format!("{}.{}", comp.vendor, comp.component_type),
+                    file_path: entry.path.clone(),
+                    start_line: Some(comp.line_number),
+                    component_type: Some(format!("{}.{}", comp.vendor, comp.component_type)),
+                    bound_model: comp.model_type.clone(),
+                    ..Default::default()
+                },
+            });
+
+            // View → RendersComponent → UiComponent
+            graph.add_relationship(GraphRelationship {
+                id: format!(
+                    "renders_comp:{}:{}:{}",
+                    entry.path, comp.component_type, comp.line_number
+                ),
+                source_id: view_id.clone(),
+                target_id: comp_id.clone(),
+                rel_type: RelationshipType::RendersComponent,
+                confidence: 1.0,
+                reason: format!("{}_{}", comp.vendor.to_lowercase(), comp.component_type),
+                step: None,
+            });
+
+            // DataSource actions → link UiComponent → ControllerAction
+            for ds_action in &comp.data_source_actions {
+                if let Some((action_node_id, confidence)) = resolve_action_node_id(
+                    &all_controllers,
+                    &ds_action.controller_name,
+                    &ds_action.action_name,
+                ) {
+                    graph.add_relationship(GraphRelationship {
+                        id: format!(
+                            "ds_action:{}:{}:{}:{}",
+                            entry.path,
+                            comp.component_type,
+                            ds_action.controller_name,
+                            ds_action.action_name
+                        ),
+                        source_id: comp_id.clone(),
+                        target_id: action_node_id,
+                        rel_type: RelationshipType::CallsAction,
+                        confidence,
+                        reason: format!("datasource_{}", ds_action.operation.to_lowercase()),
+                        step: None,
+                    });
+                }
+            }
+
+            stats.ui_components += 1;
+        }
+    }
+
+    // 9b: Extract Kendo jQuery widgets from .js files
+    for entry in &js_files {
+        let script_id = format!("ScriptFile:{}", entry.path);
+        let components = extract_telerik_components(&entry.content);
+
+        for comp in &components {
+            let comp_id = format!(
+                "UiComponent:{}:{}:{}",
+                entry.path, comp.component_type, comp.line_number
+            );
+
+            graph.add_node(GraphNode {
+                id: comp_id.clone(),
+                label: NodeLabel::UiComponent,
+                properties: NodeProperties {
+                    name: format!("{}.{}", comp.vendor, comp.component_type),
+                    file_path: entry.path.clone(),
+                    start_line: Some(comp.line_number),
+                    component_type: Some(format!("{}.{}", comp.vendor, comp.component_type)),
+                    bound_model: comp.model_type.clone(),
+                    ..Default::default()
+                },
+            });
+
+            // ScriptFile → RendersComponent → UiComponent
+            graph.add_relationship(GraphRelationship {
+                id: format!(
+                    "renders_comp:{}:{}:{}",
+                    entry.path, comp.component_type, comp.line_number
+                ),
+                source_id: script_id.clone(),
+                target_id: comp_id.clone(),
+                rel_type: RelationshipType::RendersComponent,
+                confidence: 1.0,
+                reason: format!("jquery_{}", comp.component_type.to_lowercase()),
+                step: None,
+            });
+
+            // DataSource actions → link UiComponent → ControllerAction
+            for ds_action in &comp.data_source_actions {
+                if let Some((action_node_id, confidence)) = resolve_action_node_id(
+                    &all_controllers,
+                    &ds_action.controller_name,
+                    &ds_action.action_name,
+                ) {
+                    graph.add_relationship(GraphRelationship {
+                        id: format!(
+                            "ds_action:{}:{}:{}:{}",
+                            entry.path,
+                            comp.component_type,
+                            ds_action.controller_name,
+                            ds_action.action_name
+                        ),
+                        source_id: comp_id.clone(),
+                        target_id: action_node_id,
+                        rel_type: RelationshipType::CallsAction,
+                        confidence,
+                        reason: format!("datasource_{}", ds_action.operation.to_lowercase()),
+                        step: None,
+                    });
+                }
+            }
+
+            stats.ui_components += 1;
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Pass 10: Service/Repository layer detection
+    // ──────────────────────────────────────────────────────────────────────
+
+    // Map from class name → node ID for services/repositories for dependency linking
+    let mut service_map: HashMap<String, String> = HashMap::new();
+    // Map from interface name → node ID for interface → service resolution
+    let mut interface_to_service: HashMap<String, String> = HashMap::new();
+
+    // 10a: Extract services and repositories from all .cs files
+    for entry in &cs_files {
+        let services = extract_services_and_repositories(&entry.content);
+
+        for svc in &services {
+            let label = if svc.layer_type == "Repository" {
+                NodeLabel::Repository
+            } else {
+                NodeLabel::Service
+            };
+
+            let svc_id = format!("{}:{}:{}", svc.layer_type, entry.path, svc.class_name);
+
+            graph.add_node(GraphNode {
+                id: svc_id.clone(),
+                label,
+                properties: NodeProperties {
+                    name: svc.class_name.clone(),
+                    file_path: entry.path.clone(),
+                    layer_type: Some(svc.layer_type.clone()),
+                    implements_interface: svc.implements_interface.clone(),
+                    ..Default::default()
+                },
+            });
+
+            service_map.insert(svc.class_name.clone(), svc_id.clone());
+
+            // Create Interface node and Implements relationship if an interface is present
+            if let Some(iface_name) = &svc.implements_interface {
+                let iface_id = format!("Interface:{}:{}", entry.path, iface_name);
+
+                if graph.get_node(&iface_id).is_none() {
+                    graph.add_node(GraphNode {
+                        id: iface_id.clone(),
+                        label: NodeLabel::Interface,
+                        properties: NodeProperties {
+                            name: iface_name.clone(),
+                            file_path: entry.path.clone(),
+                            ..Default::default()
+                        },
+                    });
+                }
+
+                graph.add_relationship(GraphRelationship {
+                    id: format!("implements:{}:{}", svc.class_name, iface_name),
+                    source_id: svc_id.clone(),
+                    target_id: iface_id.clone(),
+                    rel_type: RelationshipType::Implements,
+                    confidence: 1.0,
+                    reason: "class_implements".to_string(),
+                    step: None,
+                });
+
+                interface_to_service.insert(iface_name.clone(), svc_id.clone());
+            }
+
+            if svc.layer_type == "Repository" {
+                stats.repositories += 1;
+            } else {
+                stats.services += 1;
+            }
+        }
+    }
+
+    // 10b: Detect constructor dependencies in controllers → DependsOn services/repositories
+    for (file_path, ctrl) in &all_controllers {
+        let ctrl_id = format!("Controller:{}:{}", file_path, ctrl.class_name);
+
+        let content = file_entries
+            .iter()
+            .find(|f| f.path == *file_path)
+            .map(|f| f.content.as_str())
+            .unwrap_or("");
+        let deps = extract_constructor_dependencies(content, &ctrl.class_name);
+
+        for (iface_type, _param_name) in &deps {
+            // Try to resolve via interface → service mapping, then by class name
+            let target_id = interface_to_service
+                .get(iface_type)
+                .cloned()
+                .or_else(|| {
+                    // Try stripping leading 'I' to find matching service by name
+                    let concrete_name = iface_type.strip_prefix('I').unwrap_or(iface_type);
+                    service_map.get(concrete_name).cloned()
+                });
+
+            if let Some(target_id) = target_id {
+                graph.add_relationship(GraphRelationship {
+                    id: format!(
+                        "depends:{}:{}:{}",
+                        ctrl.class_name, iface_type, target_id
+                    ),
+                    source_id: ctrl_id.clone(),
+                    target_id,
+                    rel_type: RelationshipType::DependsOn,
+                    confidence: 0.95,
+                    reason: format!("constructor_injection:{}", iface_type),
+                    step: None,
+                });
+            }
+        }
+    }
+
+    tracing::info!(
+        controllers = stats.controllers,
+        actions = stats.actions,
+        api_endpoints = stats.api_endpoints,
+        views = stats.views,
+        db_contexts = stats.db_contexts,
+        db_entities = stats.db_entities,
+        areas = stats.areas,
+        edmx_models = stats.edmx_models,
+        filters = stats.filters,
+        webconfigs = stats.webconfigs,
+        partial_views = stats.partial_views,
+        ajax_calls = stats.ajax_calls,
+        script_files = stats.script_files,
+        ui_components = stats.ui_components,
+        services = stats.services,
+        repositories = stats.repositories,
+        "ASP.NET MVC enrichment complete"
+    );
+
     Ok(stats)
 }
 
@@ -701,6 +1179,65 @@ fn infer_controller_from_view_path(path: &str) -> Option<(String, String)> {
             return Some((controller, action));
         }
     }
+    None
+}
+
+/// Resolve a controller/action pair to the corresponding graph node ID.
+///
+/// Searches `all_controllers` for a class whose name matches `controller_name`
+/// (with or without the "Controller" suffix) and an action whose name matches
+/// `action_name`. Returns `(node_id, confidence)`.
+fn resolve_action_node_id(
+    all_controllers: &[(String, ControllerInfo)],
+    controller_name: &str,
+    action_name: &str,
+) -> Option<(String, f64)> {
+    // Normalize: accept both "Products" and "ProductsController"
+    let with_suffix = if controller_name.ends_with("Controller") {
+        controller_name.to_string()
+    } else {
+        format!("{}Controller", controller_name)
+    };
+    let without_suffix = with_suffix
+        .strip_suffix("Controller")
+        .unwrap_or(&with_suffix)
+        .to_string();
+
+    for (file_path, ctrl) in all_controllers {
+        let ctrl_base = ctrl
+            .class_name
+            .strip_suffix("Controller")
+            .unwrap_or(&ctrl.class_name);
+
+        let name_matches = ctrl.class_name.eq_ignore_ascii_case(&with_suffix)
+            || ctrl_base.eq_ignore_ascii_case(&without_suffix);
+
+        if !name_matches {
+            continue;
+        }
+
+        for action in &ctrl.actions {
+            if action.name.eq_ignore_ascii_case(action_name) {
+                let prefix = if ctrl.is_api_controller {
+                    "ApiEndpoint"
+                } else {
+                    "ControllerAction"
+                };
+                let node_id =
+                    format!("{}:{}:{}:{}", prefix, file_path, ctrl.class_name, action.name);
+
+                // Exact match (case matches) → 0.95; case-insensitive match → 0.85
+                let confidence = if ctrl_base == without_suffix && action.name == action_name {
+                    0.95
+                } else {
+                    0.85
+                };
+
+                return Some((node_id, confidence));
+            }
+        }
+    }
+
     None
 }
 

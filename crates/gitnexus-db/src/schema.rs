@@ -53,6 +53,12 @@ pub const NODE_LABELS: &[&str] = &[
     "DbEntity",
     "DbContext",
     "Area",
+    // ASP.NET additional node types
+    "ScriptFile",
+    "AjaxCall",
+    "UiComponent",
+    "Service",
+    "Repository",
     "BasicBlock",
     "BranchPoint",
     "LoopHead",
@@ -107,6 +113,7 @@ pub fn fts_queries() -> Vec<String> {
         "File", "Function", "Class", "Method", "Interface",
         "Controller", "ControllerAction", "ApiEndpoint", "View",
         "ViewModel", "DbEntity", "DbContext",
+        "ScriptFile", "UiComponent", "Service", "Repository",
     ];
     fts_tables
         .iter()
@@ -220,6 +227,10 @@ fn extra_columns_for(label: &str) -> String {
         .join(", "),
         "DbContext" => "connectionStringName STRING".to_string(),
         "Area" => "areaName STRING".to_string(),
+        "AjaxCall" => "ajaxMethod STRING, ajaxUrl STRING".to_string(),
+        "UiComponent" => "componentType STRING, boundModel STRING".to_string(),
+        "Service" | "Repository" => "layerType STRING, implementsInterface STRING".to_string(),
+        // ScriptFile uses base columns only
         _ => String::new(),
     }
 }
@@ -248,7 +259,7 @@ mod tests {
     #[test]
     fn test_fts_queries_count() {
         let queries = fts_queries();
-        assert_eq!(queries.len(), 12);
+        assert_eq!(queries.len(), 16);
     }
 
     #[test]

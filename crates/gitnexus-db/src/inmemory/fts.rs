@@ -24,6 +24,14 @@ const FTS_LABELS: &[NodeLabel] = &[
     NodeLabel::Module,
     NodeLabel::Route,
     NodeLabel::Tool,
+    // ASP.NET MVC searchable labels
+    NodeLabel::Controller,
+    NodeLabel::ControllerAction,
+    NodeLabel::View,
+    NodeLabel::ScriptFile,
+    NodeLabel::UiComponent,
+    NodeLabel::Service,
+    NodeLabel::Repository,
 ];
 
 /// A single FTS search result.

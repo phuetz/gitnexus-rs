@@ -72,6 +72,16 @@ pub enum NodeLabel {
     WebConfig,
     /// Partial view referenced by @Html.Partial or @Html.RenderPartial
     PartialView,
+    /// JavaScript file included in views or layouts
+    ScriptFile,
+    /// AJAX call site ($.ajax, $.post, $.get, fetch) targeting a controller action
+    AjaxCall,
+    /// UI component instance (Telerik Grid, Kendo DatePicker, etc.)
+    UiComponent,
+    /// Business logic service class
+    Service,
+    /// Data access repository class
+    Repository,
 }
 
 impl NodeLabel {
@@ -126,6 +136,11 @@ impl NodeLabel {
             Self::Filter => "Filter",
             Self::WebConfig => "WebConfig",
             Self::PartialView => "PartialView",
+            Self::ScriptFile => "ScriptFile",
+            Self::AjaxCall => "AjaxCall",
+            Self::UiComponent => "UiComponent",
+            Self::Service => "Service",
+            Self::Repository => "Repository",
         }
     }
 
@@ -180,6 +195,11 @@ impl NodeLabel {
             "Filter" => Some(Self::Filter),
             "WebConfig" => Some(Self::WebConfig),
             "PartialView" => Some(Self::PartialView),
+            "ScriptFile" => Some(Self::ScriptFile),
+            "AjaxCall" => Some(Self::AjaxCall),
+            "UiComponent" => Some(Self::UiComponent),
+            "Service" => Some(Self::Service),
+            "Repository" => Some(Self::Repository),
             _ => None,
         }
     }
@@ -242,6 +262,14 @@ pub enum RelationshipType {
     UsesPartial,
     /// Controller/Area -> WebConfig (configured by this web.config)
     ConfiguredBy,
+    /// AJAX/Script calls a controller action
+    CallsAction,
+    /// View/Layout includes a script file
+    IncludesScript,
+    /// View renders a UI component
+    RendersComponent,
+    /// Controller/Service depends on another service/repository (DI)
+    DependsOn,
 }
 
 impl RelationshipType {
@@ -276,6 +304,10 @@ impl RelationshipType {
             Self::HasFilter => "HAS_FILTER",
             Self::UsesPartial => "USES_PARTIAL",
             Self::ConfiguredBy => "CONFIGURED_BY",
+            Self::CallsAction => "CALLS_ACTION",
+            Self::IncludesScript => "INCLUDES_SCRIPT",
+            Self::RendersComponent => "RENDERS_COMPONENT",
+            Self::DependsOn => "DEPENDS_ON",
         }
     }
 
@@ -310,6 +342,10 @@ impl RelationshipType {
             "HAS_FILTER" => Some(Self::HasFilter),
             "USES_PARTIAL" => Some(Self::UsesPartial),
             "CONFIGURED_BY" => Some(Self::ConfiguredBy),
+            "CALLS_ACTION" => Some(Self::CallsAction),
+            "INCLUDES_SCRIPT" => Some(Self::IncludesScript),
+            "RENDERS_COMPONENT" => Some(Self::RendersComponent),
+            "DEPENDS_ON" => Some(Self::DependsOn),
             _ => None,
         }
     }
@@ -473,6 +509,30 @@ pub struct NodeProperties {
     /// Connection string name for DbContext
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connection_string_name: Option<String>,
+
+    /// AJAX HTTP method (GET, POST, PUT, DELETE)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ajax_method: Option<String>,
+
+    /// URL pattern in AJAX call
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ajax_url: Option<String>,
+
+    /// UI component type (e.g., "Kendo.Grid", "Telerik.ComboBox")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component_type: Option<String>,
+
+    /// Model type bound to a UI component
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_model: Option<String>,
+
+    /// Service/Repository layer classification
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_type: Option<String>,
+
+    /// Interface that a service/repository implements
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub implements_interface: Option<String>,
 }
 
 // ─── Graph Node ──────────────────────────────────────────────────────────
@@ -548,6 +608,9 @@ mod tests {
             NodeLabel::View, NodeLabel::ViewModel, NodeLabel::DbEntity,
             NodeLabel::DbContext, NodeLabel::Area, NodeLabel::Filter,
             NodeLabel::WebConfig, NodeLabel::PartialView,
+            // Extended ASP.NET types
+            NodeLabel::ScriptFile, NodeLabel::AjaxCall, NodeLabel::UiComponent,
+            NodeLabel::Service, NodeLabel::Repository,
         ];
         for label in &labels {
             let s = label.as_str();

@@ -1755,6 +1755,7 @@ dependencies = [
  "gitnexus-lang",
  "ignore",
  "lru",
+ "once_cell",
  "petgraph",
  "rayon",
  "regex",

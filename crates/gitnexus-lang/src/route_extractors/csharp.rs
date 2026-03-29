@@ -10,6 +10,9 @@
 
 use std::collections::HashMap;
 
+use once_cell::sync::Lazy;
+use regex::Regex;
+
 // ─── Result Types ────────────────────────────────────────────────────────
 
 /// Information extracted from a C# class that may be an ASP.NET controller.
@@ -845,6 +848,427 @@ fn extract_entity_properties(
     }
 }
 
+// ─── AJAX Call Extraction ───────────────────────────────────────────────
+
+/// AJAX call targeting a controller action.
+#[derive(Debug, Clone)]
+pub struct AjaxCallInfo {
+    /// HTTP method (GET, POST, etc.)
+    pub method: String,
+    /// Controller name extracted from the URL, if any
+    pub controller_name: Option<String>,
+    /// Action name extracted from the URL, if any
+    pub action_name: Option<String>,
+    /// The raw URL pattern matched
+    pub url_pattern: String,
+    /// Line number where the call was found (1-indexed)
+    pub line_number: u32,
+}
+
+// Compiled regexes for AJAX patterns.
+
+/// $.ajax({...type: "POST"...url: '/Controller/Action'...}) or similar
+static RE_AJAX_CALL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\$\.\s*ajax\s*\("#).unwrap()
+});
+
+/// type/method inside $.ajax options: type: "POST" or method: "GET"
+static RE_AJAX_TYPE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?:type|method)\s*:\s*["'](\w+)["']"#).unwrap()
+});
+
+/// url inside $.ajax options: url: '/Controller/Action' or url: "/Controller/Action"
+static RE_AJAX_URL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"url\s*:\s*["']([^"']+)["']"#).unwrap()
+});
+
+/// $.post('/Controller/Action', ...)
+static RE_JQUERY_POST: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\$\.\s*post\s*\(\s*["']([^"']+)["']"#).unwrap()
+});
+
+/// $.get('/Controller/Action', ...)
+static RE_JQUERY_GET: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\$\.\s*get\s*\(\s*["']([^"']+)["']"#).unwrap()
+});
+
+/// @Url.Action("Action", "Controller")
+static RE_URL_ACTION: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"@?Url\.Action\s*\(\s*"(\w+)"\s*,\s*"(\w+)""#).unwrap()
+});
+
+/// fetch('/Controller/Action') or fetch("/Controller/Action")
+static RE_FETCH: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"fetch\s*\(\s*["']([^"']+)["']"#).unwrap()
+});
+
+/// Helper: split a URL like "/Controller/Action" or "/api/Controller/Action" into
+/// (Option<controller>, Option<action>).
+fn parse_url_segments(url: &str) -> (Option<String>, Option<String>) {
+    let trimmed = url.trim_start_matches('/');
+    let segments: Vec<&str> = trimmed.split('/').filter(|s| !s.is_empty()).collect();
+
+    match segments.len() {
+        0 => (None, None),
+        1 => (Some(segments[0].to_string()), None),
+        2 => (Some(segments[0].to_string()), Some(segments[1].to_string())),
+        _ => {
+            // Skip leading segments like "api" — take last two meaningful segments
+            // e.g. /api/Products/GetAll → controller=Products, action=GetAll
+            let controller = segments[segments.len() - 2].to_string();
+            let action = segments[segments.len() - 1].to_string();
+            (Some(controller), Some(action))
+        }
+    }
+}
+
+/// Extract AJAX / fetch calls from C# / Razor / JavaScript source that target controller actions.
+pub fn extract_ajax_calls(source: &str) -> Vec<AjaxCallInfo> {
+    let mut results = Vec::new();
+
+    for (line_idx, line) in source.lines().enumerate() {
+        let line_number = (line_idx + 1) as u32;
+
+        // --- $.ajax({...}) ---
+        if RE_AJAX_CALL.is_match(line) {
+            // Gather context: look ahead up to 15 lines for url and type within the ajax block
+            let context = gather_context(source, line_idx, 15);
+
+            let method = RE_AJAX_TYPE
+                .captures(&context)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_uppercase())
+                .unwrap_or_else(|| "GET".to_string());
+
+            if let Some(url_cap) = RE_AJAX_URL.captures(&context) {
+                let url = url_cap.get(1).map(|m| m.as_str()).unwrap_or("");
+                let (controller, action) = parse_url_segments(url);
+                results.push(AjaxCallInfo {
+                    method,
+                    controller_name: controller,
+                    action_name: action,
+                    url_pattern: url.to_string(),
+                    line_number,
+                });
+            }
+            continue;
+        }
+
+        // --- $.post(...) ---
+        if let Some(cap) = RE_JQUERY_POST.captures(line) {
+            let url = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            let (controller, action) = parse_url_segments(url);
+            results.push(AjaxCallInfo {
+                method: "POST".to_string(),
+                controller_name: controller,
+                action_name: action,
+                url_pattern: url.to_string(),
+                line_number,
+            });
+            continue;
+        }
+
+        // --- $.get(...) ---
+        if let Some(cap) = RE_JQUERY_GET.captures(line) {
+            let url = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            let (controller, action) = parse_url_segments(url);
+            results.push(AjaxCallInfo {
+                method: "GET".to_string(),
+                controller_name: controller,
+                action_name: action,
+                url_pattern: url.to_string(),
+                line_number,
+            });
+            continue;
+        }
+
+        // --- @Url.Action("Action", "Controller") ---
+        if let Some(cap) = RE_URL_ACTION.captures(line) {
+            let action_name = cap.get(1).map(|m| m.as_str().to_string());
+            let controller_name = cap.get(2).map(|m| m.as_str().to_string());
+            let url = format!(
+                "/{}/{}",
+                controller_name.as_deref().unwrap_or(""),
+                action_name.as_deref().unwrap_or("")
+            );
+            results.push(AjaxCallInfo {
+                method: "GET".to_string(),
+                controller_name,
+                action_name,
+                url_pattern: url,
+                line_number,
+            });
+            continue;
+        }
+
+        // --- fetch('/Controller/Action') ---
+        if let Some(cap) = RE_FETCH.captures(line) {
+            let url = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            let (controller, action) = parse_url_segments(url);
+            results.push(AjaxCallInfo {
+                method: "GET".to_string(),
+                controller_name: controller,
+                action_name: action,
+                url_pattern: url.to_string(),
+                line_number,
+            });
+        }
+    }
+
+    results
+}
+
+/// Gather a context window of lines starting at `start` for up to `lookahead` additional lines.
+fn gather_context(source: &str, start: usize, lookahead: usize) -> String {
+    source
+        .lines()
+        .skip(start)
+        .take(lookahead + 1)
+        .collect::<Vec<&str>>()
+        .join("\n")
+}
+
+// ─── Telerik / Kendo Component Extraction ───────────────────────────────
+
+/// An action in a DataSource transport configuration.
+#[derive(Debug, Clone)]
+pub struct DataSourceAction {
+    /// CRUD operation: "Read", "Create", "Update", "Destroy"
+    pub operation: String,
+    /// Controller name
+    pub controller_name: String,
+    /// Action name
+    pub action_name: String,
+}
+
+/// Telerik or Kendo UI component extracted from a Razor view.
+#[derive(Debug, Clone)]
+pub struct TelerikComponentInfo {
+    /// Component type (e.g., "Grid", "ComboBox", "DropDownList")
+    pub component_type: String,
+    /// Vendor identifier: "Kendo" or "Telerik"
+    pub vendor: String,
+    /// Generic model type, if any (e.g., "ProductViewModel")
+    pub model_type: Option<String>,
+    /// DataSource transport actions found nearby
+    pub data_source_actions: Vec<DataSourceAction>,
+    /// Client-side events: (event_name, js_function_name)
+    pub client_events: Vec<(String, String)>,
+    /// Line number where the component declaration starts (1-indexed)
+    pub line_number: u32,
+}
+
+/// Html.Kendo().Grid<Model>() or Html.Kendo().ComboBox()
+static RE_KENDO: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"Html\.\s*Kendo\s*\(\s*\)\s*\.\s*(\w+)(?:<(\w+)>)?"#).unwrap()
+});
+
+/// Html.Telerik().Grid() — older Telerik MVC Extensions syntax
+static RE_TELERIK: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"Html\.\s*Telerik\s*\(\s*\)\s*\.\s*(\w+)(?:<(\w+)>)?"#).unwrap()
+});
+
+/// DataSource action: .Read(.Action("GetAll", "Products")) or .Create(... etc.
+static RE_DS_ACTION: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\.\s*(Read|Create|Update|Destroy)\s*\(.*?\.Action\s*\(\s*"(\w+)"\s*,\s*"(\w+)""#)
+        .unwrap()
+});
+
+/// Client events: .Events(e => e.OnChange("onGridChange")) or .On("change", "handler")
+static RE_CLIENT_EVENT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\.On(\w+)\s*\(\s*"(\w+)""#).unwrap()
+});
+
+/// jQuery Kendo widget initialization: .kendoGrid(, .kendoComboBox( etc.
+static RE_KENDO_JQUERY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\.\s*kendo(\w+)\s*\("#).unwrap()
+});
+
+/// Extract Telerik / Kendo UI component declarations from Razor or JavaScript source.
+pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
+    let mut results = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+
+    for (line_idx, &line) in lines.iter().enumerate() {
+        let line_number = (line_idx + 1) as u32;
+
+        // --- Html.Kendo().Widget<T>() ---
+        if let Some(cap) = RE_KENDO.captures(line) {
+            let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let model_type = cap.get(2).map(|m| m.as_str().to_string());
+            let (ds_actions, events) = scan_component_body(&lines, line_idx, 50);
+
+            results.push(TelerikComponentInfo {
+                component_type,
+                vendor: "Kendo".to_string(),
+                model_type,
+                data_source_actions: ds_actions,
+                client_events: events,
+                line_number,
+            });
+            continue;
+        }
+
+        // --- Html.Telerik().Widget() ---
+        if let Some(cap) = RE_TELERIK.captures(line) {
+            let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let model_type = cap.get(2).map(|m| m.as_str().to_string());
+            let (ds_actions, events) = scan_component_body(&lines, line_idx, 50);
+
+            results.push(TelerikComponentInfo {
+                component_type,
+                vendor: "Telerik".to_string(),
+                model_type,
+                data_source_actions: ds_actions,
+                client_events: events,
+                line_number,
+            });
+            continue;
+        }
+
+        // --- jQuery: $(...).kendoGrid({ ... }) ---
+        if let Some(cap) = RE_KENDO_JQUERY.captures(line) {
+            let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let (ds_actions, events) = scan_component_body(&lines, line_idx, 50);
+
+            results.push(TelerikComponentInfo {
+                component_type,
+                vendor: "Kendo".to_string(),
+                model_type: None,
+                data_source_actions: ds_actions,
+                client_events: events,
+                line_number,
+            });
+        }
+    }
+
+    results
+}
+
+/// Scan up to `lookahead` lines after a component declaration for DataSource actions and events.
+fn scan_component_body(
+    lines: &[&str],
+    start: usize,
+    lookahead: usize,
+) -> (Vec<DataSourceAction>, Vec<(String, String)>) {
+    let mut ds_actions = Vec::new();
+    let mut events = Vec::new();
+    let end = (start + lookahead).min(lines.len());
+
+    for &line in &lines[start..end] {
+        if let Some(cap) = RE_DS_ACTION.captures(line) {
+            let operation = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let action_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let controller_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+            ds_actions.push(DataSourceAction {
+                operation,
+                controller_name,
+                action_name,
+            });
+        }
+
+        if let Some(cap) = RE_CLIENT_EVENT.captures(line) {
+            let event_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let handler = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            events.push((event_name, handler));
+        }
+    }
+
+    (ds_actions, events)
+}
+
+// ─── Service / Repository Extraction ────────────────────────────────────
+
+/// A service or repository class detected via naming conventions and DI patterns.
+#[derive(Debug, Clone)]
+pub struct ServiceInfo {
+    /// Class name (e.g., "ProductService", "OrderRepository")
+    pub class_name: String,
+    /// Detected layer type: "Service", "Repository", "Manager", or "Provider"
+    pub layer_type: String,
+    /// Interface implemented (e.g., "IProductService")
+    pub implements_interface: Option<String>,
+    /// Constructor-injected dependencies: (interface_type, parameter_name)
+    pub dependencies: Vec<(String, String)>,
+}
+
+/// Pattern: public class FooService : IFooService
+static RE_SERVICE_CLASS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r#"public\s+class\s+(\w+(?:Service|Repository|Manager|Provider))\s*:\s*(I\w+)"#,
+    )
+    .unwrap()
+});
+
+/// Constructor parameter matching an interface: ISomeService someService
+static RE_CTOR_PARAM: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(I[A-Z]\w+)\s+(\w+)"#).unwrap()
+});
+
+/// Extract service / repository / manager / provider classes from C# source.
+pub fn extract_services_and_repositories(source: &str) -> Vec<ServiceInfo> {
+    let mut results = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+
+    for (line_idx, &line) in lines.iter().enumerate() {
+        if let Some(cap) = RE_SERVICE_CLASS.captures(line) {
+            let class_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let interface_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+
+            let layer_type = if class_name.ends_with("Repository") {
+                "Repository"
+            } else if class_name.ends_with("Service") {
+                "Service"
+            } else if class_name.ends_with("Manager") {
+                "Manager"
+            } else {
+                "Provider"
+            }
+            .to_string();
+
+            let dependencies = extract_constructor_dependencies(source, &class_name);
+
+            results.push(ServiceInfo {
+                class_name: class_name.clone(),
+                layer_type,
+                implements_interface: Some(interface_name),
+                dependencies,
+            });
+
+            // Skip past the class body to avoid re-matching inner classes
+            if let Some(body_end) = find_brace_bounds(&lines, line_idx).1 {
+                // We can't mutate the iterator, but duplicates are prevented by the
+                // regex requiring "public class" which won't match again inside the body
+                let _ = body_end;
+            }
+        }
+    }
+
+    results
+}
+
+/// Extract constructor-injected dependencies for a specific class.
+///
+/// Finds `public ClassName(IFoo foo, IBar bar)` and returns `[(IFoo, foo), (IBar, bar)]`.
+pub fn extract_constructor_dependencies(source: &str, class_name: &str) -> Vec<(String, String)> {
+    // Build a regex for this specific constructor: public ClassName(...)
+    let pattern = format!(r"public\s+{}\s*\(([^)]*)\)", regex::escape(class_name));
+    let re = Regex::new(&pattern).unwrap();
+
+    let mut deps = Vec::new();
+
+    if let Some(cap) = re.captures(source) {
+        let params = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+        for param_cap in RE_CTOR_PARAM.captures_iter(params) {
+            let iface = param_cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let name = param_cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            deps.push((iface, name));
+        }
+    }
+
+    deps
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1032,5 +1456,229 @@ public class Product
             extract_connection_string("        : base(\"name=MyDb\")"),
             Some("MyDb".to_string())
         );
+    }
+
+    // ─── AJAX extraction tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_extract_ajax_calls_jquery() {
+        let source = r#"
+<script>
+    $.ajax({
+        url: '/Products/GetAll',
+        type: 'GET',
+        success: function(data) { }
+    });
+</script>
+"#;
+        let calls = extract_ajax_calls(source);
+        assert_eq!(calls.len(), 1);
+        let call = &calls[0];
+        assert_eq!(call.method, "GET");
+        assert_eq!(call.controller_name.as_deref(), Some("Products"));
+        assert_eq!(call.action_name.as_deref(), Some("GetAll"));
+        assert_eq!(call.url_pattern, "/Products/GetAll");
+    }
+
+    #[test]
+    fn test_extract_ajax_calls_post_get() {
+        let source = r#"
+$.post('/Orders/Create', data, function(result) { });
+$.get('/Orders/Details', { id: 5 }, function(result) { });
+"#;
+        let calls = extract_ajax_calls(source);
+        assert_eq!(calls.len(), 2);
+
+        let post = calls.iter().find(|c| c.method == "POST").unwrap();
+        assert_eq!(post.controller_name.as_deref(), Some("Orders"));
+        assert_eq!(post.action_name.as_deref(), Some("Create"));
+
+        let get = calls.iter().find(|c| c.method == "GET").unwrap();
+        assert_eq!(get.controller_name.as_deref(), Some("Orders"));
+        assert_eq!(get.action_name.as_deref(), Some("Details"));
+    }
+
+    #[test]
+    fn test_extract_ajax_calls_url_action() {
+        let source = r#"
+var url = @Url.Action("Delete", "Products");
+"#;
+        let calls = extract_ajax_calls(source);
+        assert_eq!(calls.len(), 1);
+        let call = &calls[0];
+        assert_eq!(call.controller_name.as_deref(), Some("Products"));
+        assert_eq!(call.action_name.as_deref(), Some("Delete"));
+    }
+
+    #[test]
+    fn test_extract_ajax_calls_fetch() {
+        let source = r#"
+fetch('/api/Products/Search')
+    .then(r => r.json());
+"#;
+        let calls = extract_ajax_calls(source);
+        assert_eq!(calls.len(), 1);
+        let call = &calls[0];
+        assert_eq!(call.controller_name.as_deref(), Some("Products"));
+        assert_eq!(call.action_name.as_deref(), Some("Search"));
+    }
+
+    // ─── Telerik / Kendo extraction tests ───────────────────────────────
+
+    #[test]
+    fn test_extract_telerik_kendo_grid() {
+        let source = r#"
+@(Html.Kendo().Grid<ProductViewModel>()
+    .Name("productsGrid")
+    .Columns(columns => {
+        columns.Bound(p => p.Name);
+        columns.Bound(p => p.Price);
+    })
+    .DataSource(ds => ds
+        .Ajax()
+        .Read(read => read.Action("GetProducts", "Products"))
+        .Create(create => create.Action("CreateProduct", "Products"))
+        .Update(update => update.Action("UpdateProduct", "Products"))
+        .Destroy(destroy => destroy.Action("DeleteProduct", "Products"))
+    )
+)
+"#;
+        let components = extract_telerik_components(source);
+        assert_eq!(components.len(), 1);
+
+        let grid = &components[0];
+        assert_eq!(grid.component_type, "Grid");
+        assert_eq!(grid.vendor, "Kendo");
+        assert_eq!(grid.model_type.as_deref(), Some("ProductViewModel"));
+        assert_eq!(grid.data_source_actions.len(), 4);
+
+        let read = grid.data_source_actions.iter().find(|a| a.operation == "Read").unwrap();
+        assert_eq!(read.action_name, "GetProducts");
+        assert_eq!(read.controller_name, "Products");
+    }
+
+    #[test]
+    fn test_extract_telerik_legacy() {
+        let source = r#"
+@(Html.Telerik().Grid<OrderViewModel>()
+    .Name("ordersGrid")
+    .DataBinding(db => db
+        .Ajax()
+        .Select("GetOrders", "Orders")
+    )
+)
+"#;
+        let components = extract_telerik_components(source);
+        assert_eq!(components.len(), 1);
+
+        let grid = &components[0];
+        assert_eq!(grid.component_type, "Grid");
+        assert_eq!(grid.vendor, "Telerik");
+        assert_eq!(grid.model_type.as_deref(), Some("OrderViewModel"));
+    }
+
+    #[test]
+    fn test_extract_telerik_kendo_jquery() {
+        let source = r##"
+<script>
+    $("#grid").kendoGrid({
+        dataSource: { transport: { read: "/api/data" } }
+    });
+</script>
+"##;
+        let components = extract_telerik_components(source);
+        assert_eq!(components.len(), 1);
+        assert_eq!(components[0].component_type, "Grid");
+        assert_eq!(components[0].vendor, "Kendo");
+    }
+
+    #[test]
+    fn test_extract_telerik_client_events() {
+        let source = r#"
+@(Html.Kendo().Grid<ProductViewModel>()
+    .Name("grid")
+    .Events(e => e
+        .OnChange("onGridChange")
+        .OnDataBound("onDataBound")
+    )
+)
+"#;
+        let components = extract_telerik_components(source);
+        assert_eq!(components.len(), 1);
+
+        let grid = &components[0];
+        assert_eq!(grid.client_events.len(), 2);
+        assert!(grid.client_events.iter().any(|(e, h)| e == "Change" && h == "onGridChange"));
+        assert!(grid.client_events.iter().any(|(e, h)| e == "DataBound" && h == "onDataBound"));
+    }
+
+    // ─── Service / Repository extraction tests ──────────────────────────
+
+    #[test]
+    fn test_extract_service_class() {
+        let source = r#"
+public class ProductService : IProductService
+{
+    private readonly IProductRepository _repo;
+
+    public ProductService(IProductRepository repo)
+    {
+        _repo = repo;
+    }
+
+    public Product GetById(int id) => _repo.GetById(id);
+}
+"#;
+        let services = extract_services_and_repositories(source);
+        assert_eq!(services.len(), 1);
+
+        let svc = &services[0];
+        assert_eq!(svc.class_name, "ProductService");
+        assert_eq!(svc.layer_type, "Service");
+        assert_eq!(svc.implements_interface.as_deref(), Some("IProductService"));
+        assert_eq!(svc.dependencies.len(), 1);
+        assert_eq!(svc.dependencies[0].0, "IProductRepository");
+        assert_eq!(svc.dependencies[0].1, "repo");
+    }
+
+    #[test]
+    fn test_extract_repository_class() {
+        let source = r#"
+public class OrderRepository : IOrderRepository
+{
+    private readonly ApplicationDbContext _context;
+
+    public OrderRepository(IUnitOfWork unitOfWork, ILogger logger)
+    {
+        _context = unitOfWork.Context;
+    }
+}
+"#;
+        let services = extract_services_and_repositories(source);
+        assert_eq!(services.len(), 1);
+
+        let repo = &services[0];
+        assert_eq!(repo.class_name, "OrderRepository");
+        assert_eq!(repo.layer_type, "Repository");
+        assert_eq!(repo.implements_interface.as_deref(), Some("IOrderRepository"));
+        assert_eq!(repo.dependencies.len(), 2);
+        assert!(repo.dependencies.iter().any(|(t, _)| t == "IUnitOfWork"));
+        assert!(repo.dependencies.iter().any(|(t, _)| t == "ILogger"));
+    }
+
+    #[test]
+    fn test_extract_constructor_deps() {
+        let source = r#"
+public class InvoiceManager : IInvoiceManager
+{
+    public InvoiceManager(IOrderService orderService, IEmailService emailService)
+    {
+    }
+}
+"#;
+        let deps = extract_constructor_dependencies(source, "InvoiceManager");
+        assert_eq!(deps.len(), 2);
+        assert_eq!(deps[0], ("IOrderService".to_string(), "orderService".to_string()));
+        assert_eq!(deps[1], ("IEmailService".to_string(), "emailService".to_string()));
     }
 }

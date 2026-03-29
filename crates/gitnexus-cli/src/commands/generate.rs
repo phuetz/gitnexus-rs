@@ -1105,7 +1105,10 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         repo_path,
     )?;
 
-    // 5. Generate ASP.NET MVC specific documentation (if applicable)
+    // 5b. Generate deployment guide
+    generate_deployment_guide(&docs_dir, repo_name, &graph)?;
+
+    // 5c. Generate ASP.NET MVC specific documentation (if applicable)
     let aspnet_pages = if super::generate_aspnet::has_aspnet_content(graph) {
         let pages = super::generate_aspnet::generate_aspnet_docs(graph, &docs_dir)?;
         if !pages.is_empty() {
@@ -1121,8 +1124,8 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         Vec::new()
     };
 
-    // Total page count: 3 static pages + module pages + ASP.NET pages
-    let total_pages = 3 + module_page_count + aspnet_pages.len();
+    // Total page count: 4 static pages (overview, architecture, getting-started, deployment) + module pages + ASP.NET pages
+    let total_pages = 5 + module_page_count + aspnet_pages.len();
     info!("Documentation generated: {} pages total", total_pages);
 
     // 6. Generate _index.json LAST so it includes ASP.NET pages
@@ -1202,6 +1205,12 @@ fn generate_docs_index(
             "title": "Getting Started",
             "path": "getting-started.md",
             "icon": "book-open"
+        }),
+        json!({
+            "id": "deployment",
+            "title": "Environnement & Déploiement",
+            "path": "deployment.md",
+            "icon": "cloud"
         }),
         json!({
             "id": "modules",
@@ -1404,7 +1413,7 @@ fn generate_docs_overview(
     let svc_page = if service_count > 0 { 1 } else { 0 };
     let ui_page = if ui_count > 0 { 1 } else { 0 };
     let ajax_page = if label_counts.get(&NodeLabel::AjaxCall).copied().unwrap_or(0) > 0 { 1 } else { 0 };
-    let total_pages = 3 + communities.len() + ctrl_pages + data_pages + svc_page + ui_page + ajax_page;
+    let total_pages = 4 + communities.len() + ctrl_pages + data_pages + svc_page + ui_page + ajax_page; // 4 = overview + architecture + getting-started + deployment
 
     writeln!(f, "## Summary")?;
     writeln!(f)?;
@@ -1413,7 +1422,7 @@ fn generate_docs_overview(
         "This documentation covers {} pages organized into sections:",
         total_pages
     )?;
-    writeln!(f, "Overview, Architecture, Getting Started, Modules")?;
+    writeln!(f, "Overview, Architecture, Getting Started, Déploiement, Modules")?;
     if controller_count > 0 {
         write!(f, ", Controllers")?;
     }
@@ -1804,32 +1813,36 @@ fn generate_docs_getting_started(
     writeln!(f, "Welcome to the **{}** codebase!", repo_name)?;
     writeln!(f)?;
 
-    // Project Structure
-    writeln!(f, "## Project Structure")?;
+    // Project Structure — group files by top-level project directory
+    writeln!(f, "## Structure des Projets")?;
     writeln!(f)?;
 
-    // Infer folder structure from module file paths
-    let mut folder_info: BTreeMap<String, usize> = BTreeMap::new();
+    // Detect projects by grouping files by their top-level directory (project folder)
+    let mut project_files: BTreeMap<String, usize> = BTreeMap::new();
     for node in graph.iter_nodes() {
         if node.label == NodeLabel::File {
             let path = &node.properties.file_path;
-            if !path.is_empty() {
-                if let Some(parent) = Path::new(path).parent() {
-                    let parent_str = parent.to_string_lossy().to_string();
-                    *folder_info.entry(parent_str).or_insert(0) += 1;
-                }
+            if !path.is_empty() && !path.contains("PackageTmp") && !path.contains("/obj/") {
+                // First directory component = project name
+                let project = path.split(['/', '\\']).next().unwrap_or("Other");
+                *project_files.entry(project.to_string()).or_insert(0) += 1;
             }
         }
     }
 
-    writeln!(f, "The codebase is organized as follows:")?;
-    writeln!(f)?;
-    let mut folders: Vec<_> = folder_info.iter().collect();
-    folders.sort();
-    for (folder, count) in folders.iter().take(10) {
-        writeln!(f, "- `{}` - {} files", folder, count)?;
+    if !project_files.is_empty() {
+        writeln!(f, "La solution contient **{} projets** :", project_files.len())?;
+        writeln!(f)?;
+        writeln!(f, "| Projet | Fichiers | Rôle |")?;
+        writeln!(f, "|--------|----------|------|")?;
+        let mut projects: Vec<_> = project_files.iter().collect();
+        projects.sort_by(|a, b| b.1.cmp(a.1));
+        for (project, count) in &projects {
+            let role = describe_project_fr(project);
+            writeln!(f, "| `{}` | {} | {} |", project, count, role)?;
+        }
+        writeln!(f)?;
     }
-    writeln!(f)?;
 
     // Key Entry Points
     let mut entry_points: Vec<(&GraphNode, f64)> = graph
@@ -1858,25 +1871,13 @@ fn generate_docs_getting_started(
         writeln!(f)?;
     }
 
-    // Module Map
-    writeln!(f, "## Module Map")?;
+    // Navigation
+    writeln!(f, "## Pour aller plus loin")?;
     writeln!(f)?;
-    for info in communities.values() {
-        let filename = sanitize_filename(&info.label);
-        writeln!(f, "- **[{}](modules/{}.md)** - {} members", info.label, filename, info.member_ids.len())?;
-        if let Some(desc) = &info.description {
-            writeln!(f, "  - {}", desc)?;
-        }
-    }
-    writeln!(f)?;
-
-    // Navigation Tips
-    writeln!(f, "## Navigation Tips")?;
-    writeln!(f)?;
-    writeln!(f, "- Use the **Modules** section in the navigation to explore specific components")?;
-    writeln!(f, "- Check the **Architecture** page to understand module dependencies")?;
-    writeln!(f, "- Each module page shows entry points, call graphs, and file locations")?;
-    writeln!(f, "- Look for symbols with high entry point scores as starting points for understanding flows")?;
+    writeln!(f, "- Consultez l'**Architecture** pour comprendre les couches du système")?;
+    writeln!(f, "- Explorez les **Controllers** pour voir les fonctionnalités par écran")?;
+    writeln!(f, "- Le **Guide Fonctionnel** décrit chaque module du point de vue métier")?;
+    writeln!(f, "- Les **Services Externes** détaillent les intégrations (Erable, WCF)")?;
     writeln!(f)?;
 
     writeln!(f, "**See also:** [Overview](./overview.md) · [Architecture](./architecture.md)")?;
@@ -2228,6 +2229,11 @@ fn generate_docs_modules(
         actions.sort_by(|a, b| {
             a.properties.start_line.unwrap_or(0).cmp(&b.properties.start_line.unwrap_or(0))
         });
+
+        // Skip trivial controllers with fewer than 3 actions (Root, PdfView, Print, Home)
+        if actions.len() < 3 {
+            continue;
+        }
 
         // Build action ID set for caller lookup
         let action_ids: HashSet<String> = actions.iter().map(|a| a.id.clone()).collect();
@@ -2653,8 +2659,8 @@ fn generate_docs_modules(
         }
 
         content.push_str("## Services\n\n");
-        content.push_str("| Service | Type | Interface | Used By | File |\n");
-        content.push_str("|---------|------|-----------|---------|------|\n");
+        content.push_str("| Service | Type | Interface | Used By | Purpose | File |\n");
+        content.push_str("|---------|------|-----------|---------|---------|------|\n");
         for svc in &services {
             let layer = svc.properties.layer_type.as_deref().unwrap_or("Service");
             let iface = svc.properties.implements_interface.as_deref().unwrap_or("-");
@@ -2667,8 +2673,9 @@ fn generate_docs_modules(
                     }
                 })
                 .unwrap_or_else(|| "-".to_string());
-            content.push_str(&format!("| {} | {} | {} | {} | `{}` |\n",
-                svc.properties.name, layer, iface, used_by, svc.properties.file_path));
+            let purpose = describe_service_fr(&svc.properties.name);
+            content.push_str(&format!("| {} | {} | {} | {} | {} | `{}` |\n",
+                svc.properties.name, layer, iface, used_by, purpose, svc.properties.file_path));
         }
         content.push('\n');
 
@@ -3274,6 +3281,75 @@ fn generate_functional_guide(
         }
     }
 
+    // Sequence diagrams for critical flows
+    writeln!(f, "---")?;
+    writeln!(f)?;
+    writeln!(f, "## Flux critiques")?;
+    writeln!(f)?;
+
+    writeln!(f, "### Recherche Bénéficiaire")?;
+    writeln!(f)?;
+    writeln!(f, "```mermaid")?;
+    writeln!(f, "sequenceDiagram")?;
+    writeln!(f, "    participant U as Utilisateur")?;
+    writeln!(f, "    participant C as BeneficiaireController")?;
+    writeln!(f, "    participant S as BenefService")?;
+    writeln!(f, "    participant API as Erable API")?;
+    writeln!(f, "    U->>C: Recherche (NIA ou Nom)")?;
+    writeln!(f, "    C->>S: RechercheOuvrantDroit(filtre)")?;
+    writeln!(f, "    S->>API: CMCASClient.OuvrantsDroitGetAsync()")?;
+    writeln!(f, "    API-->>S: FicheODLite[]")?;
+    writeln!(f, "    S->>API: FoyerClient.MembresduFoyerGetAsync()")?;
+    writeln!(f, "    API-->>S: Foyer (composition familiale)")?;
+    writeln!(f, "    S-->>C: Liste bénéficiaires")?;
+    writeln!(f, "    C-->>U: Grille Telerik avec résultats")?;
+    writeln!(f, "```")?;
+    writeln!(f)?;
+
+    writeln!(f, "### Création Dossier")?;
+    writeln!(f)?;
+    writeln!(f, "```mermaid")?;
+    writeln!(f, "sequenceDiagram")?;
+    writeln!(f, "    participant U as Utilisateur")?;
+    writeln!(f, "    participant C as DossiersController")?;
+    writeln!(f, "    participant S as DossierService")?;
+    writeln!(f, "    participant DB as Entity Framework")?;
+    writeln!(f, "    U->>C: Sélection Domaine + Groupe Aide")?;
+    writeln!(f, "    C->>S: AfficherAides(idGrpAide)")?;
+    writeln!(f, "    S-->>C: Liste Aides disponibles")?;
+    writeln!(f, "    U->>C: Choix Aides + Dates")?;
+    writeln!(f, "    C->>S: CreerDossier(DossierPresta)")?;
+    writeln!(f, "    S->>S: Calcul Barème + Plafonds")?;
+    writeln!(f, "    S->>DB: Insert Dossier + Prestations")?;
+    writeln!(f, "    DB-->>S: OK")?;
+    writeln!(f, "    S-->>C: Dossier créé")?;
+    writeln!(f, "    C-->>U: Page détails dossier")?;
+    writeln!(f, "```")?;
+    writeln!(f)?;
+
+    writeln!(f, "### Export ELODIE")?;
+    writeln!(f)?;
+    writeln!(f, "```mermaid")?;
+    writeln!(f, "sequenceDiagram")?;
+    writeln!(f, "    participant U as Utilisateur")?;
+    writeln!(f, "    participant C as FacturesController")?;
+    writeln!(f, "    participant S as FactureService")?;
+    writeln!(f, "    participant DB as Entity Framework")?;
+    writeln!(f, "    U->>C: Validation paiements")?;
+    writeln!(f, "    C->>S: ValidationPaiement()")?;
+    writeln!(f, "    S->>S: Vérification montants + plafonds")?;
+    writeln!(f, "    S->>DB: Mise à jour statuts")?;
+    writeln!(f, "    U->>C: Générer bordereau")?;
+    writeln!(f, "    C->>S: GenerBordereau()")?;
+    writeln!(f, "    S->>DB: Création bordereaux")?;
+    writeln!(f, "    U->>C: Export ELODIE")?;
+    writeln!(f, "    C->>S: ExportElodie()")?;
+    writeln!(f, "    S->>S: Formatage Flux3")?;
+    writeln!(f, "    S-->>C: Fichier ELODIE")?;
+    writeln!(f, "    C-->>U: Téléchargement fichier")?;
+    writeln!(f, "```")?;
+    writeln!(f)?;
+
     // Synthesis
     writeln!(f, "---")?;
     writeln!(f)?;
@@ -3310,6 +3386,24 @@ fn generate_functional_guide(
 }
 
 /// French business description for a controller based on its name.
+fn describe_project_fr(name: &str) -> &'static str {
+    let lower = name.to_lowercase();
+    if lower.contains("ihm") && !lower.contains("test") { "Application web ASP.NET MVC (Présentation)" }
+    else if lower.contains("bal") && !lower.contains("test") { "Couche métier (Business Logic)" }
+    else if lower.contains("dal") && !lower.contains("test") { "Couche d'accès aux données (Entity Framework)" }
+    else if lower.contains("entities") { "Entités / objets métier partagés" }
+    else if lower.contains("commun") { "Utilitaires et attributs communs" }
+    else if lower.contains("courrier") && !lower.contains("test") { "Génération de courriers (mail merge)" }
+    else if lower.contains("erable") || lower.contains("webapi") { "Client API REST Erable (bénéficiaires)" }
+    else if lower.contains("ldap") { "Client LDAP / Active Directory" }
+    else if lower.contains("pdf") { "Génération de rapports PDF" }
+    else if lower.contains("ressource") { "Fichiers de ressources (localisation)" }
+    else if lower.contains("traitement") || lower.contains("batch") { "Traitement batch / planifié" }
+    else if lower.contains("console") { "Application console" }
+    else if lower.contains("test") { "Tests unitaires / intégration" }
+    else { "Projet" }
+}
+
 fn describe_controller_fr(name: &str) -> &'static str {
     let lower = name.to_lowercase();
     if lower.contains("administration") {
@@ -3343,6 +3437,111 @@ fn describe_controller_fr(name: &str) -> &'static str {
     } else {
         "Module fonctionnel de l'application."
     }
+}
+
+// ─── Glossary Generator ───────────────────────────────────────────────
+
+// ─── Deployment Guide Generator ───────────────────────────────────────
+
+fn generate_deployment_guide(
+    docs_dir: &Path,
+    _repo_name: &str,
+    graph: &KnowledgeGraph,
+) -> Result<()> {
+    let out_path = docs_dir.join("deployment.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    writeln!(f, "# Guide Environnement & Déploiement")?;
+    writeln!(f)?;
+    writeln!(f, "> Informations techniques pour configurer et déployer l'application.")?;
+    writeln!(f)?;
+
+    writeln!(f, "## Prérequis")?;
+    writeln!(f, "- .NET Framework 4.8")?;
+    writeln!(f, "- Visual Studio 2019/2022")?;
+    writeln!(f, "- SQL Server 2012+")?;
+    writeln!(f, "- IIS / IIS Express")?;
+    writeln!(f, "- Node.js (pour les scripts de build frontend)")?;
+    writeln!(f)?;
+
+    // Environments detected from WebConfig nodes
+    let web_configs: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::WebConfig)
+        .collect();
+    writeln!(f, "## Environnements détectés")?;
+    writeln!(f)?;
+    if web_configs.is_empty() {
+        writeln!(f, "Aucune transformation Web.config détectée dans le graphe.")?;
+    } else {
+        for cfg in &web_configs {
+            writeln!(f, "- `{}`", cfg.properties.name)?;
+        }
+    }
+    writeln!(f)?;
+
+    // Databases from DbContext nodes
+    let db_contexts: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::DbContext)
+        .collect();
+    writeln!(f, "## Bases de données")?;
+    writeln!(f)?;
+    if db_contexts.is_empty() {
+        writeln!(f, "Aucun DbContext détecté.")?;
+    } else {
+        for ctx in &db_contexts {
+            writeln!(f, "- **{}** (`{}`)", ctx.properties.name, ctx.properties.file_path)?;
+        }
+    }
+    writeln!(f)?;
+
+    // External services
+    let ext_services: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::ExternalService)
+        .collect();
+    writeln!(f, "## Services externes")?;
+    writeln!(f)?;
+    if ext_services.is_empty() {
+        writeln!(f, "Aucun service externe détecté.")?;
+    } else {
+        for svc in &ext_services {
+            let stype = svc.properties.service_type.as_deref().unwrap_or("REST");
+            writeln!(f, "- **{}** ({})", svc.properties.name, stype)?;
+        }
+    }
+    writeln!(f)?;
+
+    writeln!(f, "## Configuration")?;
+    writeln!(f)?;
+    writeln!(f, "Les fichiers Web.config contiennent les paramètres par environnement.")?;
+    writeln!(f, "Chaque environnement a sa propre transformation Web.{{env}}.config.")?;
+    writeln!(f)?;
+
+    println!("  {} deployment.md", "OK".green());
+    Ok(())
+}
+
+// ─── Service Description Helper ───────────────────────────────────────
+
+fn describe_service_fr(name: &str) -> &'static str {
+    let lower = name.to_lowercase();
+    if lower.contains("aide") { "Gestion des aides financières et paramétrage" }
+    else if lower.contains("bareme") { "Calcul des barèmes et tranches de revenus" }
+    else if lower.contains("dossier") { "Création et suivi des dossiers d'aide" }
+    else if lower.contains("facture") { "Facturation fournisseurs et paiements" }
+    else if lower.contains("benef") { "Recherche et gestion des bénéficiaires" }
+    else if lower.contains("courrier") { "Génération et envoi de courriers" }
+    else if lower.contains("profil") { "Gestion des profils et habilitations" }
+    else if lower.contains("utilisateur") { "Administration des comptes utilisateurs" }
+    else if lower.contains("statistique") { "Tableaux de bord et restitutions" }
+    else if lower.contains("parametr") { "Configuration et paramètres système" }
+    else if lower.contains("message") { "Gestion des messages d'erreur et d'accueil" }
+    else if lower.contains("grpaide") { "Gestion des groupes d'aides" }
+    else if lower.contains("cmcas") { "Données et paramètres CMCAS" }
+    else if lower.contains("background") { "Traitement asynchrone (Hangfire)" }
+    else if lower.contains("elodie") { "Export comptable vers ELODIE" }
+    else if lower.contains("numcommi") { "Numérotation des commissions" }
+    else if lower.contains("unitofwork") { "Gestion transactionnelle des données" }
+    else { "Service métier" }
 }
 
 // ─── HTML Site Generator ───────────────────────────────────────────────
@@ -4090,7 +4289,18 @@ fn inline_md(text: &str) -> String {
                 let after_paren = &s[abs_bracket_end + 2..];
                 if let Some(paren_end) = after_paren.find(')') {
                     let url = &after_paren[..paren_end];
-                    let replacement = format!("<a href=\"{}\">{}</a>", url, link_text);
+                    // Transform .md links to JavaScript page navigation for HTML site
+                    let replacement = if url.ends_with(".md") {
+                        // Strip leading ./ and trailing .md to get the page ID
+                        let page_id = url.trim_start_matches("./")
+                            .trim_end_matches(".md");
+                        format!(
+                            "<a href=\"#\" onclick=\"showPage('{}'); return false;\">{}</a>",
+                            page_id, link_text
+                        )
+                    } else {
+                        format!("<a href=\"{}\">{}</a>", url, link_text)
+                    };
                     s = format!(
                         "{}{}{}",
                         &s[..bracket_start],

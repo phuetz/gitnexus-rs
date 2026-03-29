@@ -2124,11 +2124,19 @@ fn generate_docs_modules(
                             .unwrap_or(&src_node.properties.name).to_string()
                     }
                     NodeLabel::UiComponent => {
-                        // Show the file containing the grid, not "Telerik.Grid"
+                        // Show: vue + model + columns summary
                         let file = src_node.properties.file_path.rsplit(['/', '\\']).next()
                             .unwrap_or("vue");
-                        let comp = src_node.properties.component_type.as_deref().unwrap_or("Grid");
-                        format!("{} ({})", file, comp)
+                        let model = src_node.properties.bound_model.as_deref().unwrap_or("");
+                        let cols = src_node.properties.description.as_deref().unwrap_or("");
+                        if !model.is_empty() && !cols.is_empty() {
+                            let short_cols: String = cols.chars().take(30).collect();
+                            format!("{} Grid<{}> [{}]", file, model, short_cols)
+                        } else if !model.is_empty() {
+                            format!("{} Grid<{}>", file, model)
+                        } else {
+                            format!("{} (Grille)", file)
+                        }
                     }
                     NodeLabel::AjaxCall => {
                         src_node.properties.file_path.rsplit(['/', '\\']).next()

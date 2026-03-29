@@ -365,6 +365,65 @@ fn extract_method_signature(source: &str, method_name: &str) -> (String, String)
         .unwrap_or_else(|| ("-".to_string(), "-".to_string()))
 }
 
+/// Extract a method body from source code by finding the method declaration and reading until its closing brace.
+fn extract_method_body(source: &str, method_name: &str, max_lines: usize) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let pattern = format!(" {}(", method_name);
+
+    // Find the method declaration line
+    let start_idx = lines.iter().position(|line| {
+        let trimmed = line.trim();
+        trimmed.contains(&pattern)
+            && (trimmed.starts_with("public") || trimmed.starts_with("private")
+                || trimmed.starts_with("protected") || trimmed.starts_with("["))
+            && !trimmed.contains("await ")
+            && !trimmed.contains(".GetAwaiter")
+    })?;
+
+    // Count braces to find the method end
+    let mut brace_count = 0;
+    let mut found_open = false;
+    let mut end_idx = start_idx;
+
+    for (i, line) in lines[start_idx..].iter().enumerate() {
+        for ch in line.chars() {
+            if ch == '{' {
+                brace_count += 1;
+                found_open = true;
+            } else if ch == '}' {
+                brace_count -= 1;
+            }
+        }
+        end_idx = start_idx + i;
+        if found_open && brace_count == 0 {
+            break;
+        }
+        // Safety: don't go past max_lines
+        if i >= max_lines {
+            break;
+        }
+    }
+
+    let actual_end = (end_idx + 1).min(lines.len());
+    let snippet_lines = &lines[start_idx..actual_end];
+
+    if snippet_lines.is_empty() {
+        return None;
+    }
+
+    let mut result = String::new();
+    for line in snippet_lines {
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    if !found_open || brace_count > 0 {
+        result.push_str("// ... (méthode tronquée)\n");
+    }
+
+    Some(result)
+}
+
 /// Count nodes by label type in the graph.
 fn count_nodes_by_label(graph: &KnowledgeGraph) -> HashMap<NodeLabel, usize> {
     let mut counts: HashMap<NodeLabel, usize> = HashMap::new();
@@ -2424,7 +2483,17 @@ fn generate_docs_modules(
                         .map(|(name, stype)| format!("{} ({})", name, stype))
                         .collect();
                     if !caller_strs.is_empty() {
-                        content.push_str(&format!("**Called by:** {}\n", caller_strs.join(", ")));
+                        content.push_str(&format!("**Appelé par :** {}\n", caller_strs.join(", ")));
+                    }
+                }
+
+                // Source code snippet — find method by name in source file
+                let source_path = repo_path.join(&ctrl.properties.file_path);
+                if let Ok(source) = std::fs::read_to_string(&source_path) {
+                    if let Some(snippet) = extract_method_body(&source, &action.properties.name, 25) {
+                        content.push_str("\n```csharp\n");
+                        content.push_str(&snippet);
+                        content.push_str("```\n");
                     }
                 }
 

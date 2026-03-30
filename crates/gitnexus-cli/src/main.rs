@@ -101,10 +101,10 @@ enum Commands {
         /// Path to the repository (defaults to current directory)
         path: Option<String>,
     },
-    /// Generate AI context files (AGENTS.md, wiki/, skills/) from the knowledge graph
+    /// Generate documentation from the knowledge graph
     Generate {
-        /// What to generate: context, wiki, skills, all
-        #[arg(help = "What to generate: context, wiki, skills, all")]
+        /// Target: context, agents, wiki, skills, docs, docx, html, all
+        #[arg(help = "Target: context | agents | wiki | skills | docs | docx | html | all")]
         what: String,
         /// Path to the repository (defaults to current directory)
         #[arg(short, long)]

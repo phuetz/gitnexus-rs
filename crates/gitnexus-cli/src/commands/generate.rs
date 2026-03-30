@@ -3660,6 +3660,23 @@ fn generate_html_site(
         })
         .collect();
 
+    // 3b. Build PAGE_ORDER (ordered list of page IDs for prev/next navigation)
+    let page_order: Vec<&String> = pages.keys().collect();
+    let page_order_json = serde_json::to_string(&page_order)?;
+
+    // 3c. Build SEARCH_INDEX (stripped text for full-text search)
+    let search_index: Vec<serde_json::Value> = pages
+        .iter()
+        .map(|(id, (title, html))| {
+            json!({
+                "id": id,
+                "title": title,
+                "text": strip_html_tags(html)
+            })
+        })
+        .collect();
+    let search_index_json = serde_json::to_string(&search_index)?;
+
     // 4. Get project stats
     let node_count = graph.node_count();
     let edge_count = graph.relationship_count();
@@ -3690,9 +3707,17 @@ fn generate_html_site(
         &sidebar_html,
         first_page_html,
         &pages_json_str,
+        &page_order_json,
+        &search_index_json,
     );
 
-    // 7. Write output
+    // 7. Check for local mermaid.min.js (offline support)
+    let mermaid_path = docs_dir.join("mermaid.min.js");
+    if !mermaid_path.exists() {
+        println!("  {} For offline diagrams, download mermaid.min.js to {}", "TIP".cyan(), docs_dir.display());
+    }
+
+    // 8. Write output
     let out_path = docs_dir.join("index.html");
     std::fs::write(&out_path, &final_html)?;
     info!("Generated HTML documentation at {}", out_path.display());
@@ -3705,6 +3730,19 @@ fn generate_html_site(
     Ok(())
 }
 
+/// Strip HTML tags from content, returning plain text for search indexing.
+fn strip_html_tags(html: &str) -> String {
+    let mut result = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        if c == '<' { in_tag = true; continue; }
+        if c == '>' { in_tag = false; result.push(' '); continue; }
+        if !in_tag { result.push(c); }
+    }
+    // Collapse whitespace
+    result.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Build the complete self-contained HTML template.
 fn build_html_template(
     project_name: &str,
@@ -3712,6 +3750,8 @@ fn build_html_template(
     sidebar_nav: &str,
     first_page_content: &str,
     pages_json: &str,
+    page_order_json: &str,
+    search_index_json: &str,
 ) -> String {
     format!(
         r##"<!DOCTYPE html>
@@ -3720,7 +3760,7 @@ fn build_html_template(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{project_name} — Documentation</title>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <script src="mermaid.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js'"></script>
   <style>
     :root {{
       --bg: #0f1117; --bg-surface: #161822; --bg-sidebar: #12141e;
@@ -3757,7 +3797,8 @@ fn build_html_template(
                               color:var(--text-muted); padding:16px 20px 4px; }}
 
     /* Main content */
-    .main {{ flex:1; overflow-y:auto; padding:40px 60px; max-width:900px; }}
+    .main {{ flex:1; overflow-y:auto; padding:40px 60px; max-width:900px;
+            transition: opacity 0.12s ease-out; }}
     .main h1 {{ font-size:28px; margin-bottom:8px; }}
     .main h2 {{ font-size:20px; margin:32px 0 12px; padding-bottom:8px;
                border-bottom:1px solid var(--border); }}
@@ -3785,6 +3826,11 @@ fn build_html_template(
              padding:3px 0; border-left:2px solid transparent; padding-left:8px; }}
     .toc a:hover {{ color:var(--accent); }}
     .toc a.depth-3 {{ padding-left:20px; }}
+    .toc a.toc-active {{
+      color: var(--accent);
+      border-left-color: var(--accent);
+      font-weight: 600;
+    }}
 
     /* Theme toggle */
     .theme-toggle {{ position:fixed; top:12px; right:16px; background:var(--bg-surface);
@@ -3795,13 +3841,13 @@ fn build_html_template(
     .mermaid {{ background:var(--bg-surface); border-radius:8px; padding:16px; margin:16px 0;
                border:1px solid var(--border); text-align:center; }}
 
-    /* Search */
+    /* Sidebar filter search */
     .search {{ padding:8px 16px; }}
     .search input {{ width:100%; padding:6px 10px; background:var(--bg); border:1px solid var(--border);
                     border-radius:6px; color:var(--text); font-size:12px; outline:none; }}
     .search input:focus {{ border-color:var(--accent); }}
 
-    .hidden {{ display:none; }}
+    .hidden {{ display:none !important; }}
 
     /* Details/Summary collapsible sections */
     .main details {{ margin:12px 0; border:1px solid var(--border); border-radius:8px;
@@ -3811,14 +3857,132 @@ fn build_html_template(
     .main details summary:hover {{ color:var(--accent); }}
     .main details[open] summary {{ margin-bottom:4px; border-bottom:1px solid var(--border); padding-bottom:8px; }}
 
+    /* Syntax highlighting (dark theme) */
+    .hljs-keyword {{ color: #c678dd; font-weight: 600; }}
+    .hljs-string {{ color: #98c379; }}
+    .hljs-comment {{ color: #7f848e; font-style: italic; }}
+    .hljs-number {{ color: #d19a66; }}
+    .hljs-function .hljs-title {{ color: #61afef; }}
+    .hljs-built_in {{ color: #e5c07b; }}
+    .hljs-type {{ color: #e5c07b; }}
+    [data-theme="light"] .hljs-keyword {{ color: #8b3dba; }}
+    [data-theme="light"] .hljs-string {{ color: #2e7d32; }}
+    [data-theme="light"] .hljs-comment {{ color: #9e9e9e; }}
+    [data-theme="light"] .hljs-number {{ color: #b5651d; }}
+    [data-theme="light"] .hljs-function .hljs-title {{ color: #1565c0; }}
+
+    /* Copy button on code blocks */
+    .code-wrapper {{ position: relative; }}
+    .copy-btn {{
+      position: absolute; top: 8px; right: 8px;
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 8px; cursor: pointer;
+      font-size: 11px; color: var(--text-muted);
+      opacity: 0; transition: opacity 0.15s;
+    }}
+    .code-wrapper:hover .copy-btn {{ opacity: 1; }}
+    .copy-btn.copied {{ color: var(--accent); }}
+
+    /* Callout / admonition blocks */
+    .callout {{
+      border-radius: 8px; padding: 12px 16px; margin: 16px 0;
+      border-left: 4px solid; display: flex; gap: 10px;
+    }}
+    .callout-icon {{ font-size: 16px; flex-shrink: 0; margin-top: 2px; }}
+    .callout-content {{ flex: 1; }}
+    .callout-content p {{ margin: 0; }}
+    .callout-note {{ background: rgba(106,161,248,0.08); border-color: var(--accent); }}
+    .callout-tip {{ background: rgba(74,222,128,0.08); border-color: #4ade80; }}
+    .callout-warning {{ background: rgba(251,191,36,0.08); border-color: #fbbf24; }}
+    .callout-danger {{ background: rgba(248,113,113,0.08); border-color: #f87171; }}
+
+    /* Breadcrumb */
+    .breadcrumb {{
+      font-size: 12px; color: var(--text-muted); margin-bottom: 16px;
+      display: flex; gap: 6px; align-items: center;
+    }}
+    .breadcrumb a {{ color: var(--text-muted); text-decoration: none; }}
+    .breadcrumb a:hover {{ color: var(--accent); }}
+    .breadcrumb .sep {{ color: var(--border); }}
+
+    /* Prev/Next footer navigation */
+    .page-nav {{
+      display: flex; justify-content: space-between; padding: 24px 0;
+      margin-top: 32px; border-top: 1px solid var(--border);
+    }}
+    .page-nav a {{
+      display: flex; flex-direction: column; gap: 4px;
+      text-decoration: none; color: var(--text-muted); font-size: 13px;
+      padding: 8px 12px; border-radius: 8px; transition: background 0.15s;
+      max-width: 45%;
+    }}
+    .page-nav a:hover {{ background: rgba(106,161,248,0.06); color: var(--accent); }}
+    .page-nav .nav-label {{ font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .page-nav .nav-title {{ font-weight: 600; color: var(--text); }}
+    .page-nav .nav-next {{ text-align: right; margin-left: auto; }}
+
+    /* Mobile hamburger */
+    .hamburger {{
+      display: none; position: fixed; top: 12px; left: 12px;
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 10px; cursor: pointer;
+      color: var(--text-muted); z-index: 60; font-size: 18px;
+    }}
+
+    /* Full-text search overlay */
+    .search-result {{
+      display: block; padding: 10px 12px; border-radius: 8px;
+      text-decoration: none; color: var(--text); transition: background 0.1s;
+    }}
+    .search-result:hover {{ background: rgba(106,161,248,0.08); }}
+    .search-result-title {{ font-weight: 600; font-size: 13px; }}
+    .search-result-snippet {{ font-size: 12px; color: var(--text-muted); margin-top: 4px; }}
+    .search-result-snippet mark {{ background: rgba(106,161,248,0.3); color: var(--text); border-radius: 2px; padding: 0 2px; }}
+    .search-empty {{ padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px; }}
+
+    /* Line numbers on code blocks */
+    .code-wrapper pre {{ counter-reset: line; }}
+    .code-wrapper pre code .line {{ counter-increment: line; }}
+    .code-wrapper pre code .line::before {{
+      content: counter(line); display: inline-block; width: 3em;
+      margin-right: 1em; text-align: right; color: var(--text-muted);
+      opacity: 0.4; font-size: 12px; user-select: none;
+    }}
+
     @media (max-width:900px) {{
-      .sidebar {{ display:none; }}
+      .hamburger {{ display: block; }}
+      .sidebar {{ transform: translateX(-100%); transition: transform 0.25s ease; z-index: 55; position: fixed; height: 100vh; }}
+      .sidebar.open {{ transform: translateX(0); box-shadow: 4px 0 20px rgba(0,0,0,0.3); }}
       .toc {{ display:none; }}
       .main {{ padding:20px; }}
+    }}
+
+    /* Print CSS */
+    @media print {{
+      .sidebar, .toc, .header, .theme-toggle, .copy-btn, .hamburger, .page-nav, .search {{ display: none !important; }}
+      .main {{ margin: 0; padding: 20px; max-width: 100%; }}
+      body {{ font-family: Georgia, serif; font-size: 11pt; color: #000; background: #fff; }}
+      pre {{ border: 1px solid #ccc; page-break-inside: avoid; font-size: 9pt; }}
+      h1, h2, h3 {{ page-break-after: avoid; color: #000; }}
+      a {{ color: #000; text-decoration: underline; }}
+      .callout {{ border: 1px solid #ccc; break-inside: avoid; }}
     }}
   </style>
 </head>
 <body>
+  <button class="hamburger" onclick="toggleSidebar()">&#9776;</button>
+
+  <div id="search-overlay" class="hidden"
+    style="position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.6);display:flex;align-items:flex-start;justify-content:center;padding-top:15vh;">
+    <div style="width:560px;max-width:90vw;background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);">
+        <input id="search-input" type="text" placeholder="Rechercher dans la documentation... (Ctrl+K)"
+          style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;">
+      </div>
+      <div id="search-results" style="max-height:400px;overflow-y:auto;padding:8px;"></div>
+    </div>
+  </div>
+
   <header class="header">
     <h1>{project_name}</h1>
     <span class="stats">{stats}</span>
@@ -3827,7 +3991,7 @@ fn build_html_template(
 
   <nav class="sidebar">
     <div class="search">
-      <input type="text" placeholder="Search pages..." oninput="filterPages(this.value)">
+      <input type="text" placeholder="Filter pages..." oninput="filterPages(this.value)">
     </div>
     {sidebar_nav}
   </nav>
@@ -3842,47 +4006,151 @@ fn build_html_template(
   </aside>
 
   <script>
-    // Page data embedded as JSON
+    // Page data
     const PAGES = {pages_json};
+    const PAGE_ORDER = {page_order_json};
+    const SEARCH_INDEX = {search_index_json};
 
-    // Navigation
-    function showPage(id) {{
+    let currentPage = null;
+
+    // Show page
+    function showPage(id, anchor) {{
       const page = PAGES[id];
       if (!page) return;
-      document.getElementById('content').innerHTML = page.html;
+      currentPage = id;
 
-      // Update active sidebar link
-      document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
-      const link = document.querySelector('.sidebar a[data-page="' + id + '"]');
-      if (link) link.classList.add('active');
+      const content = document.getElementById('content');
+      content.style.opacity = '0';
 
-      // Build TOC
-      buildToc();
+      setTimeout(() => {{
+        content.innerHTML = page.html;
 
-      // Render Mermaid diagrams
-      renderMermaid();
+        // Add breadcrumb
+        const breadcrumb = buildBreadcrumb(id, page.title);
+        content.insertAdjacentHTML('afterbegin', breadcrumb);
 
-      // Scroll to top
-      document.getElementById('content').scrollTop = 0;
+        // Add prev/next navigation
+        content.insertAdjacentHTML('beforeend', buildPageNav(id));
+
+        // Update sidebar active
+        document.querySelectorAll('.sidebar a[data-page]').forEach(a => a.classList.remove('active'));
+        const link = document.querySelector('.sidebar a[data-page="' + id + '"]');
+        if (link) {{ link.classList.add('active'); link.scrollIntoView({{block:'nearest'}}); }}
+
+        // Build TOC
+        buildToc();
+
+        // Add copy buttons to code blocks
+        addCopyButtons();
+
+        // Render Mermaid
+        renderMermaid();
+
+        // Init scroll spy
+        initScrollSpy();
+
+        content.style.opacity = '1';
+
+        // Handle anchor navigation
+        if (anchor) {{
+          setTimeout(() => {{
+            const el = document.getElementById(anchor);
+            if (el) {{ if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({{behavior:'smooth'}}); }}
+          }}, 150);
+        }} else {{
+          content.scrollTop = 0;
+        }}
+      }}, 100);
     }}
 
-    // TOC builder
+    // Breadcrumb
+    function buildBreadcrumb(id, title) {{
+      const parts = id.split('/');
+      let html = '<div class="breadcrumb"><a href="#" onclick="showPage(PAGE_ORDER[0]); return false;">Documentation</a>';
+      if (parts.length > 1) {{
+        html += '<span class="sep">&#8250;</span><span>' + parts[0].charAt(0).toUpperCase() + parts[0].slice(1) + '</span>';
+      }}
+      html += '<span class="sep">&#8250;</span><span>' + title + '</span></div>';
+      return html;
+    }}
+
+    // Prev/Next navigation
+    function buildPageNav(id) {{
+      const idx = PAGE_ORDER.indexOf(id);
+      if (idx === -1) return '';
+      let html = '<div class="page-nav">';
+      if (idx > 0) {{
+        const prev = PAGE_ORDER[idx - 1];
+        html += '<a href="#" onclick="showPage(\'' + prev + '\'); return false;">' +
+          '<span class="nav-label">&larr; Pr&eacute;c&eacute;dent</span>' +
+          '<span class="nav-title">' + (PAGES[prev] ? PAGES[prev].title : prev) + '</span></a>';
+      }}
+      if (idx < PAGE_ORDER.length - 1) {{
+        const next = PAGE_ORDER[idx + 1];
+        html += '<a class="nav-next" href="#" onclick="showPage(\'' + next + '\'); return false;">' +
+          '<span class="nav-label">Suivant &rarr;</span>' +
+          '<span class="nav-title">' + (PAGES[next] ? PAGES[next].title : next) + '</span></a>';
+      }}
+      html += '</div>';
+      return html;
+    }}
+
+    // TOC with scroll spy
     function buildToc() {{
       const headings = document.querySelectorAll('.main h2, .main h3');
-      const toc = document.getElementById('toc-links');
-      toc.innerHTML = '';
+      const tocDiv = document.getElementById('toc-links');
+      tocDiv.innerHTML = '';
       headings.forEach((h, i) => {{
         h.id = 'heading-' + i;
         const a = document.createElement('a');
         a.textContent = h.textContent;
         a.href = '#heading-' + i;
         a.className = h.tagName === 'H3' ? 'depth-3' : '';
+        a.setAttribute('data-target', 'heading-' + i);
         a.onclick = (e) => {{ e.preventDefault(); h.scrollIntoView({{behavior:'smooth'}}); }};
-        toc.appendChild(a);
+        tocDiv.appendChild(a);
       }});
     }}
 
-    // Mermaid rendering
+    // Scroll spy
+    function initScrollSpy() {{
+      const tocLinks = document.querySelectorAll('.toc a[data-target]');
+      if (!tocLinks.length) return;
+
+      const observer = new IntersectionObserver(entries => {{
+        entries.forEach(e => {{
+          const link = document.querySelector('.toc a[data-target="' + e.target.id + '"]');
+          if (link) link.classList.toggle('toc-active', e.isIntersecting);
+        }});
+      }}, {{ threshold: 0.3, rootMargin: '-80px 0px -60% 0px' }});
+
+      document.querySelectorAll('h2[id], h3[id]').forEach(h => observer.observe(h));
+    }}
+
+    // Copy buttons
+    function addCopyButtons() {{
+      document.querySelectorAll('pre').forEach(pre => {{
+        if (pre.parentElement.classList.contains('code-wrapper')) return;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-wrapper';
+        pre.parentNode.insertBefore(wrapper, pre);
+        wrapper.appendChild(pre);
+
+        const btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.textContent = 'Copier';
+        btn.onclick = () => {{
+          navigator.clipboard.writeText(pre.textContent).then(() => {{
+            btn.textContent = '\u2713 Copi\u00e9';
+            btn.classList.add('copied');
+            setTimeout(() => {{ btn.textContent = 'Copier'; btn.classList.remove('copied'); }}, 1500);
+          }});
+        }};
+        wrapper.appendChild(btn);
+      }});
+    }}
+
+    // Mermaid
     function renderMermaid() {{
       document.querySelectorAll('pre code.language-mermaid').forEach(block => {{
         const div = document.createElement('div');
@@ -3891,30 +4159,90 @@ fn build_html_template(
         block.parentElement.replaceWith(div);
       }});
       if (typeof mermaid !== 'undefined') {{
-        mermaid.init(undefined, '.mermaid');
+        try {{ mermaid.run({{nodes: document.querySelectorAll('.mermaid')}}); }} catch(e) {{}}
       }}
+    }}
+
+    // Full-text search
+    function initSearch() {{
+      const searchInput = document.getElementById('search-input');
+      const searchResults = document.getElementById('search-results');
+      const searchOverlay = document.getElementById('search-overlay');
+
+      // Ctrl+K shortcut
+      document.addEventListener('keydown', e => {{
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {{
+          e.preventDefault();
+          searchOverlay.classList.toggle('hidden');
+          if (!searchOverlay.classList.contains('hidden')) searchInput.focus();
+        }}
+        if (e.key === 'Escape') searchOverlay.classList.add('hidden');
+      }});
+
+      searchInput.addEventListener('input', () => {{
+        const q = searchInput.value.toLowerCase().trim();
+        if (q.length < 2) {{ searchResults.innerHTML = ''; return; }}
+
+        const results = SEARCH_INDEX
+          .filter(p => p.title.toLowerCase().includes(q) || p.text.toLowerCase().includes(q))
+          .slice(0, 10);
+
+        searchResults.innerHTML = results.map(r => {{
+          // Find snippet around match
+          const idx = r.text.toLowerCase().indexOf(q);
+          const start = Math.max(0, idx - 40);
+          const end = Math.min(r.text.length, idx + q.length + 40);
+          const snippet = (start > 0 ? '...' : '') +
+            r.text.slice(start, idx) +
+            '<mark>' + r.text.slice(idx, idx + q.length) + '</mark>' +
+            r.text.slice(idx + q.length, end) +
+            (end < r.text.length ? '...' : '');
+
+          return '<a class="search-result" href="#" onclick="showPage(\'' + r.id + '\'); document.getElementById(\'search-overlay\').classList.add(\'hidden\'); return false;">' +
+            '<div class="search-result-title">' + r.title + '</div>' +
+            '<div class="search-result-snippet">' + (idx >= 0 ? snippet : '') + '</div>' +
+            '</a>';
+        }}).join('');
+
+        if (results.length === 0) {{
+          searchResults.innerHTML = '<div class="search-empty">Aucun r&eacute;sultat pour "' + q + '"</div>';
+        }}
+      }});
+    }}
+
+    // Sidebar filter
+    function filterPages(query) {{
+      const q = query.toLowerCase();
+      document.querySelectorAll('.sidebar a[data-page]').forEach(a => {{
+        a.style.display = a.textContent.toLowerCase().includes(q) ? '' : 'none';
+      }});
+      // Also hide section titles with no visible children
+      document.querySelectorAll('.sidebar .section-title').forEach(title => {{
+        let next = title.nextElementSibling;
+        let hasVisible = false;
+        while (next && !next.classList.contains('section-title')) {{
+          if (next.style.display !== 'none') hasVisible = true;
+          next = next.nextElementSibling;
+        }}
+        title.style.display = hasVisible || !q ? '' : 'none';
+      }});
     }}
 
     // Theme toggle
     function toggleTheme() {{
       const html = document.documentElement;
-      const current = html.getAttribute('data-theme');
-      const next = current === 'dark' ? 'light' : 'dark';
+      const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       html.setAttribute('data-theme', next);
       localStorage.setItem('theme', next);
       if (typeof mermaid !== 'undefined') {{
-        mermaid.initialize({{ theme: next === 'dark' ? 'dark' : 'default', startOnLoad: false }});
+        mermaid.initialize({{ theme: next === 'dark' ? 'dark' : 'default', startOnLoad: false, securityLevel: 'loose' }});
         renderMermaid();
       }}
     }}
 
-    // Search filter
-    function filterPages(query) {{
-      const q = query.toLowerCase();
-      document.querySelectorAll('.sidebar a[data-page]').forEach(a => {{
-        const text = a.textContent.toLowerCase();
-        a.style.display = text.includes(q) ? '' : 'none';
-      }});
+    // Hamburger
+    function toggleSidebar() {{
+      document.querySelector('.sidebar').classList.toggle('open');
     }}
 
     // Init
@@ -3927,6 +4255,9 @@ fn build_html_template(
       }}
       buildToc();
       renderMermaid();
+      addCopyButtons();
+      initSearch();
+      initScrollSpy();
     }});
   </script>
 </body>
@@ -4110,6 +4441,34 @@ fn markdown_to_html(md: &str) -> String {
                     continue;
                 }
             }
+        }
+
+        // Callouts: > [!NOTE], > [!TIP], > [!WARNING], > [!DANGER]
+        if line.starts_with("> [!") {
+            if in_list { html.push_str("</ul>\n"); in_list = false; }
+            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            let callout_type = if line.contains("[!NOTE]") { "note" }
+                else if line.contains("[!TIP]") { "tip" }
+                else if line.contains("[!WARNING]") { "warning" }
+                else if line.contains("[!DANGER]") { "danger" }
+                else { "note" };
+            let icon = match callout_type {
+                "tip" => "\u{1f4a1}",
+                "warning" => "\u{26a0}\u{fe0f}",
+                "danger" => "\u{1f534}",
+                _ => "\u{2139}\u{fe0f}",
+            };
+            let text = line.trim_start_matches("> ").trim_start_matches("[!NOTE]")
+                .trim_start_matches("[!TIP]").trim_start_matches("[!WARNING]")
+                .trim_start_matches("[!DANGER]").trim();
+            html.push_str(&format!(
+                "<div class=\"callout callout-{}\">\
+                 <span class=\"callout-icon\">{}</span>\
+                 <div class=\"callout-content\">{}</div>\
+                 </div>\n",
+                callout_type, icon, inline_md(text)
+            ));
+            continue;
         }
 
         // Blockquotes

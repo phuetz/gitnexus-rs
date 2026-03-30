@@ -55,8 +55,554 @@ fn load_llm_config() -> Option<LlmConfig> {
     serde_json::from_str(&content).ok()
 }
 
-/// Enrich a single Markdown page with LLM-generated prose.
-fn enrich_page_with_llm(
+// ─── Structured Enrichment Types ──────────────────────────────────────
+
+/// Classification of a documentation page for enrichment strategy.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PageType {
+    Overview,
+    Architecture,
+    Controller,
+    Service,
+    DataModel,
+    ExternalService,
+    ViewTemplate,
+    FunctionalGuide,
+    ProjectHealth,
+    Deployment,
+    Misc,
+}
+
+/// A reference to evidence from the codebase.
+#[derive(Debug, Clone, serde::Serialize)]
+struct EvidenceRef {
+    id: String,
+    file_path: String,
+    start_line: Option<u32>,
+    end_line: Option<u32>,
+    excerpt: String,
+    title: String,
+    kind: String, // "function", "class", "controller", "entity", etc.
+}
+
+/// Structured augmentation for a section of a page.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+struct SectionAugment {
+    section_key: String,
+    intro: Option<String>,
+    warning: Option<String>,
+    developer_tip: Option<String>,
+    #[serde(default)]
+    see_also: Vec<String>,
+    #[serde(default)]
+    source_ids: Vec<String>,
+}
+
+/// Structured payload returned by the LLM for enrichment.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+struct EnrichedPayload {
+    lead: Option<String>,
+    #[serde(default)]
+    what_text: Option<String>,
+    #[serde(default)]
+    why_text: Option<String>,
+    #[serde(default)]
+    who_text: Option<String>,
+    #[serde(default)]
+    section_augments: Vec<SectionAugment>,
+    #[serde(default)]
+    related_pages: Vec<String>,
+    #[serde(default)]
+    relevant_source_ids: Vec<String>,
+    closing_summary: Option<String>,
+}
+
+/// Provenance metadata for a generated page.
+#[derive(Debug, serde::Serialize)]
+struct ProvenanceEntry {
+    page_id: String,
+    model: String,
+    enriched_at: String,
+    evidence_refs: Vec<EvidenceRef>,
+    validation: ProvenanceValidation,
+    content_hash: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct ProvenanceValidation {
+    is_valid: bool,
+    issues: Vec<String>,
+}
+
+// ─── Page Classification ──────────────────────────────────────────────
+
+fn classify_page(page_path: &Path) -> PageType {
+    let name = page_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
+    if name == "overview" {
+        PageType::Overview
+    } else if name == "architecture" {
+        PageType::Architecture
+    } else if name.starts_with("ctrl-") {
+        PageType::Controller
+    } else if name == "services" {
+        PageType::Service
+    } else if name.starts_with("data-") {
+        PageType::DataModel
+    } else if name == "external-services" {
+        PageType::ExternalService
+    } else if name.contains("aspnet-views") {
+        PageType::ViewTemplate
+    } else if name == "functional-guide" {
+        PageType::FunctionalGuide
+    } else if name == "project-health" {
+        PageType::ProjectHealth
+    } else if name == "deployment" {
+        PageType::Deployment
+    } else {
+        PageType::Misc
+    }
+}
+
+// ─── Evidence Collection ──────────────────────────────────────────────
+
+fn collect_evidence(
+    graph: &KnowledgeGraph,
+    page_path: &Path,
+    repo_path: &Path,
+) -> Vec<EvidenceRef> {
+    let page_type = classify_page(page_path);
+    let mut evidence = Vec::new();
+
+    // Collect nodes relevant to this page type
+    let relevant_nodes: Vec<&GraphNode> = match page_type {
+        PageType::Controller => {
+            // Extract controller name from filename: ctrl-dossierscontroller -> DossiersController
+            let ctrl_name = page_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .strip_prefix("ctrl-")
+                .unwrap_or("");
+            graph
+                .iter_nodes()
+                .filter(|n| {
+                    n.properties.name.to_lowercase().contains(ctrl_name)
+                        || n.properties.file_path.to_lowercase().contains(ctrl_name)
+                })
+                .take(20)
+                .collect()
+        }
+        PageType::Service => graph
+            .iter_nodes()
+            .filter(|n| n.label == NodeLabel::Service || n.label == NodeLabel::Repository)
+            .take(20)
+            .collect(),
+        PageType::DataModel => graph
+            .iter_nodes()
+            .filter(|n| n.label == NodeLabel::DbEntity || n.label == NodeLabel::DbContext)
+            .take(20)
+            .collect(),
+        PageType::ExternalService => graph
+            .iter_nodes()
+            .filter(|n| n.label == NodeLabel::ExternalService)
+            .take(15)
+            .collect(),
+        _ => {
+            // For overview/architecture: top connected nodes
+            let mut nodes: Vec<(&GraphNode, usize)> = graph
+                .iter_nodes()
+                .map(|n| {
+                    let degree = graph
+                        .iter_relationships()
+                        .filter(|r| r.source_id == n.id || r.target_id == n.id)
+                        .count();
+                    (n, degree)
+                })
+                .collect();
+            nodes.sort_by(|a, b| b.1.cmp(&a.1));
+            nodes.into_iter().take(15).map(|(n, _)| n).collect()
+        }
+    };
+
+    for (idx, node) in relevant_nodes.iter().enumerate() {
+        // Try to read source code snippet
+        let excerpt = if !node.properties.file_path.is_empty() {
+            let source_path = repo_path.join(&node.properties.file_path);
+            if let Ok(source) = std::fs::read_to_string(&source_path) {
+                let lines: Vec<&str> = source.lines().collect();
+                let start = node
+                    .properties
+                    .start_line
+                    .map(|l| l as usize)
+                    .unwrap_or(1)
+                    .saturating_sub(1);
+                let end = node
+                    .properties
+                    .end_line
+                    .map(|l| l as usize)
+                    .unwrap_or(start + 5)
+                    .min(lines.len());
+                let end = end.min(start + 10); // Cap at 10 lines
+                if start < lines.len() && start < end {
+                    lines[start..end].join("\n")
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        evidence.push(EvidenceRef {
+            id: format!("E{}", idx + 1),
+            file_path: node.properties.file_path.clone(),
+            start_line: node.properties.start_line,
+            end_line: node.properties.end_line,
+            excerpt,
+            title: node.properties.name.clone(),
+            kind: format!("{:?}", node.label),
+        });
+    }
+
+    evidence
+}
+
+// ─── Simple hash for provenance ───────────────────────────────────────
+
+fn hash_simple(input: &str) -> u64 {
+    let mut hash: u64 = 0;
+    for byte in input.bytes() {
+        hash = hash.wrapping_mul(31).wrapping_add(byte as u64);
+    }
+    hash
+}
+
+// ─── Structured Enrichment ────────────────────────────────────────────
+
+fn enrich_page_structured(
+    page_path: &Path,
+    graph: &KnowledgeGraph,
+    config: &LlmConfig,
+    repo_path: &Path,
+) -> Result<Option<ProvenanceEntry>> {
+    let content = std::fs::read_to_string(page_path)?;
+    if content.len() < 100 {
+        return Ok(None);
+    }
+
+    let _page_type = classify_page(page_path);
+    let evidence = collect_evidence(graph, page_path, repo_path);
+
+    // Build evidence context for the prompt
+    let evidence_context: String = evidence
+        .iter()
+        .map(|e| {
+            format!(
+                "[{}] {} ({}) in `{}`{}",
+                e.id,
+                e.title,
+                e.kind,
+                e.file_path,
+                if !e.excerpt.is_empty() {
+                    format!("\n```\n{}\n```", e.excerpt)
+                } else {
+                    String::new()
+                }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    // Extract section keys from anchors in markdown
+    let section_keys: Vec<String> = content
+        .lines()
+        .filter(|l| l.contains("<!-- GNX:INTRO:"))
+        .filter_map(|l| {
+            l.split("GNX:INTRO:")
+                .nth(1)
+                .and_then(|s| s.split("-->").next())
+                .map(|s| s.trim().to_string())
+        })
+        .collect();
+
+    let evidence_ids_str = evidence
+        .iter()
+        .map(|e| e.id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sections_str = section_keys.join(", ");
+
+    let system_prompt = format!(
+        r#"Tu es un rédacteur technique senior. Tu enrichis une documentation existante.
+
+RÈGLES ABSOLUES :
+- Tu ne REMPLACES PAS la documentation. Tu AUGMENTES les sections marquées.
+- Tu ne cites QUE des source_ids parmi ceux fournis : {evidence_ids}
+- Tu écris en français technique professionnel
+- JAMAIS d'identifiants inventés
+
+Réponds UNIQUEMENT en JSON valide avec cette structure exacte :
+{{
+  "lead": "2-3 phrases résumant QUOI, POURQUOI, QUI pour cette page",
+  "section_augments": [
+    {{
+      "section_key": "nom-de-section",
+      "intro": "1-2 phrases d'introduction pour cette section (ou null)",
+      "warning": "point d'attention si pertinent (ou null)",
+      "developer_tip": "conseil développeur si pertinent (ou null)",
+      "see_also": ["page-liee.md"],
+      "source_ids": ["E1", "E3"]
+    }}
+  ],
+  "related_pages": ["overview.md", "services.md"],
+  "relevant_source_ids": ["E1", "E2", "E5"],
+  "closing_summary": "1-2 phrases de conclusion"
+}}
+
+Sections disponibles : {sections}
+
+SOURCES D'EVIDENCE :
+{evidence}"#,
+        evidence_ids = evidence_ids_str,
+        sections = sections_str,
+        evidence = evidence_context,
+    );
+
+    let messages = vec![
+        serde_json::json!({"role": "system", "content": system_prompt}),
+        serde_json::json!({"role": "user", "content": format!("Enrichis cette page :\n\n{}", content)}),
+    ];
+
+    // Call LLM
+    let url = format!(
+        "{}/chat/completions",
+        config.base_url.trim_end_matches('/')
+    );
+    let mut body = serde_json::json!({
+        "model": config.model,
+        "messages": messages,
+        "max_tokens": config.max_tokens,
+        "temperature": 0.3,
+        "stream": false
+    });
+
+    let effort = config.reasoning_effort.trim().to_lowercase();
+    if !effort.is_empty() && effort != "none" {
+        body["reasoning_effort"] = serde_json::Value::String(effort);
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .build()
+        .map_err(|e| anyhow::anyhow!("HTTP client: {}", e))?;
+
+    let mut request = client.post(&url).json(&body);
+    if !config.api_key.is_empty() {
+        request = request.header("Authorization", format!("Bearer {}", config.api_key));
+    }
+
+    let response = request
+        .send()
+        .map_err(|e| anyhow::anyhow!("LLM request: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!("LLM error: {}", response.status()));
+    }
+
+    let json_resp: serde_json::Value = response.json()?;
+    let raw_content = json_resp["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("No content"))?;
+
+    // Try to extract JSON from response (might be wrapped in ```json blocks)
+    let json_str = raw_content
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    // Parse structured payload; on failure, fall back to freeform enrichment
+    let payload: EnrichedPayload = match serde_json::from_str(json_str) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(
+                "Structured JSON parse failed for {}: {} — falling back to freeform",
+                page_path.display(),
+                e
+            );
+            // Fallback: use old freeform enrichment
+            enrich_page_freeform(page_path, graph, config)?;
+            // Build minimal provenance for freeform fallback
+            let page_id = page_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let fallback_content = std::fs::read_to_string(page_path).unwrap_or_default();
+            return Ok(Some(ProvenanceEntry {
+                page_id,
+                model: config.model.clone(),
+                enriched_at: chrono::Utc::now().to_rfc3339(),
+                evidence_refs: evidence,
+                validation: ProvenanceValidation {
+                    is_valid: true,
+                    issues: vec!["Freeform fallback used (JSON parse failed)".to_string()],
+                },
+                content_hash: format!("{:x}", hash_simple(&fallback_content)),
+            }));
+        }
+    };
+
+    // Validate: check source_ids are real
+    let valid_ids: std::collections::HashSet<&str> =
+        evidence.iter().map(|e| e.id.as_str()).collect();
+    let mut invalid_ids = Vec::new();
+    for aug in &payload.section_augments {
+        for sid in &aug.source_ids {
+            if !valid_ids.contains(sid.as_str()) {
+                invalid_ids.push(sid.clone());
+            }
+        }
+    }
+
+    // MERGE: Insert augmentations at anchor points
+    let mut enriched = String::new();
+    let mut lead_inserted = false;
+
+    for line in content.lines() {
+        enriched.push_str(line);
+        enriched.push('\n');
+
+        // Insert LEAD after the anchor
+        if line.contains("<!-- GNX:LEAD -->") && !lead_inserted {
+            if let Some(lead) = &payload.lead {
+                enriched.push('\n');
+                enriched.push_str(&format!("> {}\n\n", lead));
+                lead_inserted = true;
+            }
+        }
+
+        // Insert section augments
+        for aug in &payload.section_augments {
+            let anchor = format!("<!-- GNX:INTRO:{} -->", aug.section_key);
+            if line.contains(&anchor) {
+                if let Some(intro) = &aug.intro {
+                    enriched.push_str(&format!("\n{}\n\n", intro));
+                }
+                if let Some(warning) = &aug.warning {
+                    enriched.push_str(&format!("> [!WARNING]\n> {}\n\n", warning));
+                }
+                if let Some(tip) = &aug.developer_tip {
+                    enriched.push_str(&format!("> [!TIP]\n> {}\n\n", tip));
+                }
+                // Add source references
+                if !aug.source_ids.is_empty() {
+                    let sources: Vec<String> = aug
+                        .source_ids
+                        .iter()
+                        .filter_map(|sid| evidence.iter().find(|e| e.id == *sid))
+                        .map(|e| {
+                            if let Some(start) = e.start_line {
+                                format!("`{}` (L{})", e.file_path, start)
+                            } else {
+                                format!("`{}`", e.file_path)
+                            }
+                        })
+                        .collect();
+                    if !sources.is_empty() {
+                        enriched.push_str(&format!(
+                            "*Sources : {}*\n\n",
+                            sources.join(" \u{00b7} ")
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Insert TIP augments for controller action tables
+        if line.contains("<!-- GNX:TIP:actions -->") {
+            for aug in &payload.section_augments {
+                if aug.section_key == "actions" {
+                    if let Some(tip) = &aug.developer_tip {
+                        enriched.push_str(&format!("> [!TIP]\n> {}\n\n", tip));
+                    }
+                }
+            }
+        }
+
+        // Insert closing summary
+        if line.contains("<!-- GNX:CLOSING -->") {
+            if let Some(summary) = &payload.closing_summary {
+                enriched.push_str(&format!(
+                    "\n---\n\n**En r\u{00e9}sum\u{00e9} :** {}\n\n",
+                    summary
+                ));
+            }
+            // Add related pages
+            if !payload.related_pages.is_empty() {
+                let links: Vec<String> = payload
+                    .related_pages
+                    .iter()
+                    .map(|p| format!("[{}](./{})", p.trim_end_matches(".md"), p))
+                    .collect();
+                enriched.push_str(&format!(
+                    "**Voir aussi :** {}\n\n",
+                    links.join(" \u{00b7} ")
+                ));
+            }
+        }
+    }
+
+    // Validation: tables preserved
+    let orig_pipes = content.chars().filter(|c| *c == '|').count();
+    let enrich_pipes = enriched.chars().filter(|c| *c == '|').count();
+    if orig_pipes > 5 && enrich_pipes < orig_pipes / 2 {
+        return Err(anyhow::anyhow!("Tables lost"));
+    }
+    if enriched.len() < content.len() / 2 {
+        return Err(anyhow::anyhow!("Enriched too short"));
+    }
+
+    // Write enriched content
+    std::fs::write(page_path, &enriched)?;
+
+    // Build provenance entry
+    let page_id = page_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let provenance = ProvenanceEntry {
+        page_id,
+        model: config.model.clone(),
+        enriched_at: chrono::Utc::now().to_rfc3339(),
+        evidence_refs: evidence,
+        validation: ProvenanceValidation {
+            is_valid: invalid_ids.is_empty(),
+            issues: if invalid_ids.is_empty() {
+                vec![]
+            } else {
+                vec![format!("Invalid source IDs: {}", invalid_ids.join(", "))]
+            },
+        },
+        content_hash: format!("{:x}", hash_simple(&enriched)),
+    };
+
+    Ok(Some(provenance))
+}
+
+// ─── Freeform Enrichment (legacy fallback) ────────────────────────────
+
+/// Enrich a single Markdown page with LLM-generated prose (freeform, legacy mode).
+fn enrich_page_freeform(
     page_path: &Path,
     graph: &KnowledgeGraph,
     config: &LlmConfig,
@@ -180,7 +726,7 @@ CONTENU À ENRICHIR :"#,
     Ok(())
 }
 
-/// Run LLM enrichment on all generated docs if enabled.
+/// Run LLM enrichment on all generated docs if enabled (structured mode with provenance).
 fn run_enrichment_if_enabled(
     enrich: bool,
     graph: &KnowledgeGraph,
@@ -190,73 +736,108 @@ fn run_enrichment_if_enabled(
         return Ok(());
     }
 
-    let config = load_llm_config();
-    match config {
-        Some(cfg) => {
-            println!(
-                "{} Enriching pages with LLM ({})...",
-                "\u{2192}".cyan(),
-                cfg.model
-            );
-            let docs_dir = repo_path.join(".gitnexus").join("docs");
-
-            // Enrich all .md files in docs/
-            let mut enriched = 0usize;
-            let mut skipped = 0usize;
-            for entry in std::fs::read_dir(&docs_dir)? {
-                let path = entry?.path();
-                if path.extension().map_or(false, |e| e == "md") {
-                    let name = path.file_name().unwrap().to_string_lossy().to_string();
-                    print!("  {} {}...", "LLM".cyan(), name);
-                    std::io::stdout().flush().ok();
-                    match enrich_page_with_llm(&path, graph, &cfg) {
-                        Ok(()) => {
-                            println!(" {}", "OK".green());
-                            enriched += 1;
-                        }
-                        Err(e) => {
-                            println!(" {} ({})", "SKIP".yellow(), e);
-                            skipped += 1;
-                        }
-                    }
-                }
-            }
-            // Also enrich modules/
-            let modules_dir = docs_dir.join("modules");
-            if modules_dir.exists() {
-                for entry in std::fs::read_dir(&modules_dir)? {
-                    let path = entry?.path();
-                    if path.extension().map_or(false, |e| e == "md") {
-                        let name = path.file_name().unwrap().to_string_lossy().to_string();
-                        print!("  {} modules/{}...", "LLM".cyan(), name);
-                        std::io::stdout().flush().ok();
-                        match enrich_page_with_llm(&path, graph, &cfg) {
-                            Ok(()) => {
-                                println!(" {}", "OK".green());
-                                enriched += 1;
-                            }
-                            Err(e) => {
-                                println!(" {} ({})", "SKIP".yellow(), e);
-                                skipped += 1;
-                            }
-                        }
-                    }
-                }
-            }
-            println!(
-                "{} Enrichment: {} pages enriched, {} skipped",
-                "OK".green(),
-                enriched,
-                skipped
-            );
-        }
+    let config = match load_llm_config() {
+        Some(cfg) => cfg,
         None => {
             println!(
-                "{} No LLM configured. Create ~/.gitnexus/chat-config.json or skip --enrich",
+                "{} No LLM configured. Skipping enrichment.",
                 "WARN".yellow()
             );
+            println!(
+                "  Create ~/.gitnexus/chat-config.json or use --enrich with a configured provider."
+            );
+            return Ok(());
+        }
+    };
+
+    println!(
+        "{} Enriching with LLM ({}) \u{2014} structured mode",
+        "\u{2192}".cyan(),
+        config.model
+    );
+
+    let docs_dir = repo_path.join(".gitnexus").join("docs");
+    let mut provenance_entries: Vec<ProvenanceEntry> = Vec::new();
+    let mut enriched_count = 0usize;
+    let mut skipped = 0usize;
+
+    // Collect all .md files to enrich
+    let mut pages: Vec<std::path::PathBuf> = Vec::new();
+    // Root level pages
+    if let Ok(entries) = std::fs::read_dir(&docs_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "md") {
+                pages.push(path);
+            }
         }
     }
+    // Module pages
+    let modules_dir = docs_dir.join("modules");
+    if let Ok(entries) = std::fs::read_dir(&modules_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "md") {
+                pages.push(path);
+            }
+        }
+    }
+
+    // Sort: leaf pages first, then overview/architecture last
+    pages.sort_by(|a, b| {
+        let pa = classify_page(a);
+        let pb = classify_page(b);
+        let order = |p: PageType| match p {
+            PageType::Controller | PageType::Service | PageType::DataModel => 0,
+            PageType::ExternalService | PageType::ViewTemplate | PageType::Deployment => 1,
+            PageType::Misc | PageType::ProjectHealth => 2,
+            PageType::FunctionalGuide => 3,
+            PageType::Architecture => 4,
+            PageType::Overview => 5,
+        };
+        order(pa).cmp(&order(pb))
+    });
+
+    for page_path in &pages {
+        let name = page_path.file_name().unwrap().to_string_lossy();
+        print!("  {} {}...", "LLM".cyan(), name);
+        std::io::stdout().flush().ok();
+
+        match enrich_page_structured(page_path, graph, &config, repo_path) {
+            Ok(Some(prov)) => {
+                println!(
+                    " {} ({} evidence)",
+                    "OK".green(),
+                    prov.evidence_refs.len()
+                );
+                provenance_entries.push(prov);
+                enriched_count += 1;
+            }
+            Ok(None) => {
+                println!(" {} (too small)", "SKIP".yellow());
+                skipped += 1;
+            }
+            Err(e) => {
+                println!(" {} ({})", "SKIP".yellow(), e);
+                skipped += 1;
+            }
+        }
+    }
+
+    // Write provenance manifest
+    let meta_dir = docs_dir.join("_meta");
+    std::fs::create_dir_all(&meta_dir)?;
+    let manifest = serde_json::to_string_pretty(&provenance_entries)?;
+    std::fs::write(meta_dir.join("provenance.json"), &manifest)?;
+    println!("  {} _meta/provenance.json", "OK".green());
+
+    println!(
+        "{} Enrichment: {} pages enriched, {} skipped",
+        "OK".green(),
+        enriched_count,
+        skipped
+    );
+
     Ok(())
 }
 
@@ -1600,6 +2181,7 @@ fn generate_docs_overview(
 
     // Title
     writeln!(f, "# {}", repo_name)?;
+    writeln!(f, "<!-- GNX:LEAD -->")?;
     writeln!(f)?;
 
     // Relevant source files
@@ -1653,6 +2235,7 @@ fn generate_docs_overview(
     // Technology Stack as a proper table
     let (languages, frameworks, ui_libs, _desc) = detect_technology_stack(graph, lang_stats);
     writeln!(f, "## Technology Stack")?;
+    writeln!(f, "<!-- GNX:INTRO:technology-stack -->")?;
     writeln!(f)?;
     writeln!(f, "| Category | Technology |")?;
     writeln!(f, "|----------|-----------|")?;
@@ -1678,6 +2261,7 @@ fn generate_docs_overview(
     // Key Subsystems
     if !communities.is_empty() {
         writeln!(f, "## Key Subsystems")?;
+        writeln!(f, "<!-- GNX:INTRO:key-subsystems -->")?;
         writeln!(f)?;
         writeln!(f, "| Module | Members | Entry Points | Description |")?;
         writeln!(f, "|--------|---------|-------------|-------------|")?;
@@ -1777,6 +2361,9 @@ fn generate_docs_overview(
         }
     }
 
+    // GNX:CLOSING anchor before summary/navigation
+    writeln!(f, "<!-- GNX:CLOSING -->")?;
+
     // Summary
     // Count total pages: 3 static + communities + controller pages + data pages + services + ui + ajax
     let ctrl_pages = controller_count;
@@ -1855,6 +2442,7 @@ fn generate_docs_architecture(
     let arch_file_refs: Vec<&str> = arch_files.iter().take(15).map(|s| s.as_str()).collect();
 
     writeln!(f, "# Architecture")?;
+    writeln!(f, "<!-- GNX:LEAD -->")?;
     writeln!(f)?;
     write!(f, "{}", source_files_section(&arch_file_refs))?;
 
@@ -1875,6 +2463,7 @@ fn generate_docs_architecture(
 
     // Architecture Diagram - built from actual NodeLabel counts
     writeln!(f, "## Architecture Diagram")?;
+    writeln!(f, "<!-- GNX:INTRO:architecture-diagram -->")?;
     writeln!(f)?;
     writeln!(f, "```mermaid")?;
     writeln!(f, "graph TD")?;
@@ -1988,6 +2577,7 @@ fn generate_docs_architecture(
 
     // Layer Details
     writeln!(f, "## Layer Details")?;
+    writeln!(f, "<!-- GNX:INTRO:layer-details -->")?;
     writeln!(f)?;
 
     if ctrl_count > 0 {
@@ -2051,6 +2641,7 @@ fn generate_docs_architecture(
     }
 
     // Summary / Navigation
+    writeln!(f, "<!-- GNX:CLOSING -->")?;
     writeln!(f, "## Summary")?;
     writeln!(f)?;
     if has_tiered {
@@ -2630,6 +3221,7 @@ fn generate_docs_modules(
         let src_file_refs: Vec<&str> = src_files.iter().take(15).map(|s| s.as_str()).collect();
 
         let mut content = format!("# {}\n\n", ctrl_name);
+        content.push_str("<!-- GNX:LEAD -->\n");
         content.push_str(&source_files_section(&src_file_refs));
 
         // Description
@@ -2676,6 +3268,7 @@ fn generate_docs_modules(
                 i + 1, action.properties.name, method, params, ret, called_by));
         }
         content.push('\n');
+        content.push_str("<!-- GNX:TIP:actions -->\n");
 
         // ── Impact Analysis section ──────────────────────────────────────
         {
@@ -2881,6 +3474,7 @@ fn generate_docs_modules(
         }
 
         // Summary
+        content.push_str("<!-- GNX:CLOSING -->\n");
         content.push_str(&format!(
             "## Summary\n\n**{}** provides {} actions.\n\n",
             ctrl_name, action_count
@@ -2917,6 +3511,7 @@ fn generate_docs_modules(
         let src_file_refs: Vec<&str> = src_files_dedup.iter().take(15).map(|s| s.as_str()).collect();
 
         let mut content = format!("# Data Model: {}\n\n", ctx_name);
+        content.push_str("<!-- GNX:LEAD -->\n");
         content.push_str(&source_files_section(&src_file_refs));
         content.push_str(&format!("**File:** `{}`\n\n", ctx.properties.file_path));
         content.push_str(&format!("**Entities:** {}\n\n", entities.len()));
@@ -2998,6 +3593,7 @@ fn generate_docs_modules(
         let svc_file_refs: Vec<&str> = svc_files.iter().take(15).map(|s| s.as_str()).collect();
 
         let mut content = String::from("# Service Layer\n\n");
+        content.push_str("<!-- GNX:LEAD -->\n");
         content.push_str(&source_files_section(&svc_file_refs));
         content.push_str(&format!("**Total services:** {}\n\n", services.len()));
 
@@ -3478,6 +4074,7 @@ fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -> Result<()
         + label_counts.get(&NodeLabel::Repository).copied().unwrap_or(0);
 
     writeln!(f, "# Santé du Projet")?;
+    writeln!(f, "<!-- GNX:LEAD -->")?;
     writeln!(f)?;
     writeln!(f, "> Vue d'ensemble de la santé structurelle du codebase, ")?;
     writeln!(f, "> générée automatiquement par l'analyse du graphe de connaissances GitNexus.")?;
@@ -3485,6 +4082,7 @@ fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -> Result<()
 
     // ── Key Metrics Table ──
     writeln!(f, "## Métriques Clés")?;
+    writeln!(f, "<!-- GNX:INTRO:metriques-cles -->")?;
     writeln!(f)?;
     writeln!(f, "| Indicateur | Valeur | Interprétation |")?;
     writeln!(f, "|-----------|--------|----------------|")?;
@@ -3525,6 +4123,7 @@ fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -> Result<()
 
     // ── Top 10 Most Connected Nodes ──
     writeln!(f, "## Top 10 — Composants les plus connectés")?;
+    writeln!(f, "<!-- GNX:INTRO:top-connected -->")?;
     writeln!(f)?;
     writeln!(f, "> Ces composants ont le plus de dépendances. Un changement dans l'un d'eux")?;
     writeln!(f, "> a un impact potentiel large sur le reste du système.")?;
@@ -3595,6 +4194,7 @@ fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -> Result<()
         writeln!(f)?;
     }
 
+    writeln!(f, "<!-- GNX:CLOSING -->")?;
     writeln!(f, "---")?;
     writeln!(f, "**See also:** [Overview](./overview.md) · [Architecture](./architecture.md)")?;
 
@@ -3634,6 +4234,7 @@ fn generate_functional_guide(
         .collect();
 
     writeln!(f, "# Guide Fonctionnel — {}", repo_name)?;
+    writeln!(f, "<!-- GNX:LEAD -->")?;
     writeln!(f)?;
 
     // Source files
@@ -3820,6 +4421,7 @@ fn generate_functional_guide(
     writeln!(f, "---")?;
     writeln!(f)?;
     writeln!(f, "## Flux critiques")?;
+    writeln!(f, "<!-- GNX:INTRO:flux-critiques -->")?;
     writeln!(f)?;
 
     writeln!(f, "### Recherche Bénéficiaire")?;
@@ -3886,6 +4488,7 @@ fn generate_functional_guide(
     writeln!(f)?;
 
     // Synthesis
+    writeln!(f, "<!-- GNX:CLOSING -->")?;
     writeln!(f, "---")?;
     writeln!(f)?;
     writeln!(f, "## Synthèse : Modules les plus critiques")?;

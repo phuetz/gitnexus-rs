@@ -112,6 +112,9 @@ enum Commands {
         /// Enrich documentation with LLM-generated prose (requires configured LLM)
         #[arg(long, default_value_t = false)]
         enrich: bool,
+        /// Enrichment profile: fast, quality, or strict
+        #[arg(long, default_value = "quality")]
+        enrich_profile: String,
     },
     /// Watch a repository for changes and incrementally update the knowledge graph
     Watch {
@@ -155,6 +158,14 @@ enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+    },
+    /// Ask a question about the codebase using the knowledge graph + LLM
+    Ask {
+        /// The question to ask
+        question: String,
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
     },
 }
 
@@ -208,7 +219,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Setup => commands::setup::run(),
         Commands::Shell { path } => commands::shell::run(path.as_deref()).await,
-        Commands::Generate { what, path, enrich } => commands::generate::run(&what, path.as_deref(), enrich),
+        Commands::Generate { what, path, enrich, enrich_profile } => {
+            commands::generate::run(&what, path.as_deref(), enrich, &enrich_profile)
+        }
         Commands::Watch { path } => commands::watch::run(path.as_deref()).await,
         Commands::Dashboard { path } => commands::dashboard::run(path.as_deref()),
         Commands::Hotspots { since, path, json } => {
@@ -219,6 +232,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Ownership { path, json } => {
             commands::ownership_cmd::run(path.as_deref(), json)
+        }
+        Commands::Ask { question, path } => {
+            commands::ask::run(&question, path.as_deref())
         }
     }
 }

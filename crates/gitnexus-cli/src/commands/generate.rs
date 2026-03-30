@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use colored::Colorize;
@@ -29,19 +29,91 @@ const TARGET_ALL: &str = "all";
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LlmConfig {
+pub(crate) struct LlmConfig {
     #[allow(dead_code)]
-    provider: String,
-    api_key: String,
-    base_url: String,
-    model: String,
-    max_tokens: u32,
+    pub(crate) provider: String,
+    pub(crate) api_key: String,
+    pub(crate) base_url: String,
+    pub(crate) model: String,
+    pub(crate) max_tokens: u32,
     #[serde(default)]
-    reasoning_effort: String,
+    pub(crate) reasoning_effort: String,
+}
+
+// ─── Enrichment Profiles ─────────────────────────────────────────────
+
+struct EnrichProfile {
+    max_evidence: usize,
+    #[allow(dead_code)]
+    thinking_boost: bool,
+    review_critical: bool,
+    max_retries: u32,
+    timeout_secs: u64,
+}
+
+fn get_profile(name: &str) -> EnrichProfile {
+    match name {
+        "fast" => EnrichProfile {
+            max_evidence: 10,
+            thinking_boost: false,
+            review_critical: false,
+            max_retries: 0,
+            timeout_secs: 60,
+        },
+        "strict" => EnrichProfile {
+            max_evidence: 30,
+            thinking_boost: true,
+            review_critical: true,
+            max_retries: 2,
+            timeout_secs: 300,
+        },
+        _ => EnrichProfile {
+            // "quality" default
+            max_evidence: 20,
+            thinking_boost: false,
+            review_critical: true,
+            max_retries: 1,
+            timeout_secs: 180,
+        },
+    }
+}
+
+// ─── Enrichment Cache ────────────────────────────────────────────────
+
+/// Simple MD5-like hash for cache invalidation (not cryptographic).
+fn md5_simple(input: &str) -> u128 {
+    // Simple but adequate content hash using FNV-1a extended to 128 bits.
+    let mut h1: u64 = 0xcbf29ce484222325;
+    let mut h2: u64 = 0x100000001b3;
+    for byte in input.bytes() {
+        h1 ^= byte as u64;
+        h1 = h1.wrapping_mul(0x01000193);
+        h2 ^= byte as u64;
+        h2 = h2.wrapping_mul(0x01000193).wrapping_add(h1);
+    }
+    ((h1 as u128) << 64) | (h2 as u128)
+}
+
+fn get_page_hash(page_path: &Path) -> String {
+    let content = std::fs::read_to_string(page_path).unwrap_or_default();
+    format!("{:x}", md5_simple(&content))
+}
+
+fn is_cached(cache_dir: &Path, page_name: &str, current_hash: &str) -> bool {
+    let cache_file = cache_dir.join(format!("{}.hash", page_name));
+    if let Ok(cached) = std::fs::read_to_string(&cache_file) {
+        return cached.trim() == current_hash;
+    }
+    false
+}
+
+fn write_cache(cache_dir: &Path, page_name: &str, hash: &str) {
+    let _ = std::fs::create_dir_all(cache_dir);
+    let _ = std::fs::write(cache_dir.join(format!("{}.hash", page_name)), hash);
 }
 
 /// Load LLM config from ~/.gitnexus/chat-config.json
-fn load_llm_config() -> Option<LlmConfig> {
+pub(crate) fn load_llm_config() -> Option<LlmConfig> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
@@ -173,6 +245,7 @@ fn collect_evidence(
     graph: &KnowledgeGraph,
     page_path: &Path,
     repo_path: &Path,
+    max_evidence: usize,
 ) -> Vec<EvidenceRef> {
     let page_type = classify_page(page_path);
     let mut evidence = Vec::new();
@@ -193,23 +266,23 @@ fn collect_evidence(
                     n.properties.name.to_lowercase().contains(ctrl_name)
                         || n.properties.file_path.to_lowercase().contains(ctrl_name)
                 })
-                .take(20)
+                .take(max_evidence)
                 .collect()
         }
         PageType::Service => graph
             .iter_nodes()
             .filter(|n| n.label == NodeLabel::Service || n.label == NodeLabel::Repository)
-            .take(20)
+            .take(max_evidence)
             .collect(),
         PageType::DataModel => graph
             .iter_nodes()
             .filter(|n| n.label == NodeLabel::DbEntity || n.label == NodeLabel::DbContext)
-            .take(20)
+            .take(max_evidence)
             .collect(),
         PageType::ExternalService => graph
             .iter_nodes()
             .filter(|n| n.label == NodeLabel::ExternalService)
-            .take(15)
+            .take(max_evidence.min(15))
             .collect(),
         _ => {
             // For overview/architecture: top connected nodes
@@ -224,7 +297,7 @@ fn collect_evidence(
                 })
                 .collect();
             nodes.sort_by(|a, b| b.1.cmp(&a.1));
-            nodes.into_iter().take(15).map(|(n, _)| n).collect()
+            nodes.into_iter().take(max_evidence.min(15)).map(|(n, _)| n).collect()
         }
     };
 
@@ -290,6 +363,7 @@ fn enrich_page_structured(
     graph: &KnowledgeGraph,
     config: &LlmConfig,
     repo_path: &Path,
+    profile: &EnrichProfile,
 ) -> Result<Option<ProvenanceEntry>> {
     let content = std::fs::read_to_string(page_path)?;
     if content.len() < 100 {
@@ -297,7 +371,7 @@ fn enrich_page_structured(
     }
 
     let _page_type = classify_page(page_path);
-    let evidence = collect_evidence(graph, page_path, repo_path);
+    let evidence = collect_evidence(graph, page_path, repo_path, profile.max_evidence);
 
     // Build evidence context for the prompt
     let evidence_context: String = evidence
@@ -398,24 +472,50 @@ SOURCES D'EVIDENCE :
     }
 
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(180))
+        .timeout(std::time::Duration::from_secs(profile.timeout_secs))
         .build()
         .map_err(|e| anyhow::anyhow!("HTTP client: {}", e))?;
 
-    let mut request = client.post(&url).json(&body);
-    if !config.api_key.is_empty() {
-        request = request.header("Authorization", format!("Bearer {}", config.api_key));
+    // Retry logic based on profile
+    let mut last_err = None;
+    let mut json_resp: Option<serde_json::Value> = None;
+    for attempt in 0..=profile.max_retries {
+        if attempt > 0 {
+            debug!("Retry attempt {} for {}", attempt, page_path.display());
+            std::thread::sleep(std::time::Duration::from_secs(2 * attempt as u64));
+        }
+
+        // Build a fresh request each attempt (RequestBuilder is consumed on send)
+        let mut req = client.post(&url).json(&body);
+        if !config.api_key.is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", config.api_key));
+        }
+
+        match req.send() {
+            Ok(resp) if resp.status().is_success() => {
+                json_resp = resp.json().ok();
+                if json_resp.is_some() {
+                    last_err = None;
+                    break;
+                }
+                last_err = Some(anyhow::anyhow!("Failed to parse LLM JSON response"));
+            }
+            Ok(resp) => {
+                last_err = Some(anyhow::anyhow!("LLM error: {}", resp.status()));
+            }
+            Err(e) => {
+                last_err = Some(anyhow::anyhow!("LLM request: {}", e));
+            }
+        }
     }
 
-    let response = request
-        .send()
-        .map_err(|e| anyhow::anyhow!("LLM request: {}", e))?;
-
-    if !response.status().is_success() {
-        return Err(anyhow::anyhow!("LLM error: {}", response.status()));
+    if let Some(err) = last_err {
+        if json_resp.is_none() {
+            return Err(err);
+        }
     }
 
-    let json_resp: serde_json::Value = response.json()?;
+    let json_resp = json_resp.ok_or_else(|| anyhow::anyhow!("No LLM response after retries"))?;
     let raw_content = json_resp["choices"][0]["message"]["content"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("No content"))?;
@@ -726,11 +826,92 @@ CONTENU À ENRICHIR :"#,
     Ok(())
 }
 
+// ─── Review Pass for Critical Pages ──────────────────────────────────
+
+/// Perform a review pass on a critical enriched page using the LLM.
+/// The LLM checks for preserved tables, hallucinated identifiers, natural
+/// transitions, and marketing-speak. Only overwrites the file if the
+/// reviewed version passes basic sanity checks.
+fn review_enriched_page(
+    page_path: &Path,
+    original_content: &str,
+    config: &LlmConfig,
+    profile: &EnrichProfile,
+) -> Result<()> {
+    let enriched = std::fs::read_to_string(page_path)?;
+
+    let review_prompt = r#"Tu es un reviewer technique. Vérifie cette documentation enrichie.
+
+VÉRIFIE :
+1. Tous les tableaux originaux sont préservés
+2. Les identifiants entre backticks existent réellement (pas d'hallucination)
+3. Les transitions entre sections sont naturelles
+4. L'introduction résume correctement le contenu
+5. Pas de phrases marketing vides
+6. Les "Points d'attention" sont justifiés
+
+Si tu trouves des problèmes, corrige-les.
+Renvoie le document corrigé complet.
+Si tout est correct, renvoie le document tel quel.
+
+DOCUMENT ORIGINAL (pour comparaison) :
+"#;
+
+    let messages = vec![
+        serde_json::json!({"role": "system", "content": review_prompt}),
+        serde_json::json!({"role": "user", "content": format!(
+            "ORIGINAL:\n{}\n\n---\n\nENRICHI:\n{}",
+            &original_content[..original_content.len().min(3000)],
+            enriched
+        )}),
+    ];
+
+    // Call LLM for review
+    let url = format!(
+        "{}/chat/completions",
+        config.base_url.trim_end_matches('/')
+    );
+    let body = serde_json::json!({
+        "model": config.model,
+        "messages": messages,
+        "max_tokens": config.max_tokens,
+        "temperature": 0.1,
+        "stream": false
+    });
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(profile.timeout_secs))
+        .build()?;
+
+    let mut request = client.post(&url).json(&body);
+    if !config.api_key.is_empty() {
+        request = request.header("Authorization", format!("Bearer {}", config.api_key));
+    }
+
+    let response = request.send()?;
+    if !response.status().is_success() {
+        return Ok(()); // Review failed, keep enriched version
+    }
+
+    let json: serde_json::Value = response.json()?;
+    if let Some(reviewed) = json["choices"][0]["message"]["content"].as_str() {
+        // Only accept if reviewed version preserves tables
+        let orig_pipes = enriched.chars().filter(|c| *c == '|').count();
+        let rev_pipes = reviewed.chars().filter(|c| *c == '|').count();
+        if rev_pipes >= orig_pipes / 2 && reviewed.len() >= enriched.len() / 2 {
+            std::fs::write(page_path, reviewed)?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Run LLM enrichment on all generated docs if enabled (structured mode with provenance).
 fn run_enrichment_if_enabled(
     enrich: bool,
     graph: &KnowledgeGraph,
     repo_path: &Path,
+    enrich_profile: &str,
 ) -> Result<()> {
     if !enrich {
         return Ok(());
@@ -750,16 +931,22 @@ fn run_enrichment_if_enabled(
         }
     };
 
+    let profile = get_profile(enrich_profile);
+
     println!(
-        "{} Enriching with LLM ({}) \u{2014} structured mode",
+        "{} Enriching with LLM ({}) \u{2014} structured mode [profile: {}]",
         "\u{2192}".cyan(),
-        config.model
+        config.model,
+        enrich_profile
     );
 
     let docs_dir = repo_path.join(".gitnexus").join("docs");
+    let meta_dir = docs_dir.join("_meta");
+    let cache_dir = meta_dir.join("cache");
     let mut provenance_entries: Vec<ProvenanceEntry> = Vec::new();
     let mut enriched_count = 0usize;
     let mut skipped = 0usize;
+    let mut cached_count = 0usize;
 
     // Collect all .md files to enrich
     let mut pages: Vec<std::path::PathBuf> = Vec::new();
@@ -800,10 +987,27 @@ fn run_enrichment_if_enabled(
 
     for page_path in &pages {
         let name = page_path.file_name().unwrap().to_string_lossy();
+        let page_name = page_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+
         print!("  {} {}...", "LLM".cyan(), name);
         std::io::stdout().flush().ok();
 
-        match enrich_page_structured(page_path, graph, &config, repo_path) {
+        // ── Cache check: skip if page content hasn't changed ──
+        let current_hash = get_page_hash(page_path);
+        if is_cached(&cache_dir, page_name, &current_hash) {
+            println!(" {} (cached)", "OK".green());
+            cached_count += 1;
+            continue;
+        }
+
+        // Save original content before enrichment (needed for review pass)
+        let original_content = std::fs::read_to_string(page_path).unwrap_or_default();
+        let page_type = classify_page(page_path);
+
+        match enrich_page_structured(page_path, graph, &config, repo_path, &profile) {
             Ok(Some(prov)) => {
                 println!(
                     " {} ({} evidence)",
@@ -812,6 +1016,25 @@ fn run_enrichment_if_enabled(
                 );
                 provenance_entries.push(prov);
                 enriched_count += 1;
+
+                // ── Review pass for critical pages ──
+                if profile.review_critical
+                    && matches!(
+                        page_type,
+                        PageType::Overview | PageType::Architecture | PageType::FunctionalGuide
+                    )
+                {
+                    print!("  {} {} reviewing...", "REV".cyan(), name);
+                    std::io::stdout().flush().ok();
+                    match review_enriched_page(page_path, &original_content, &config, &profile) {
+                        Ok(()) => println!(" {}", "OK".green()),
+                        Err(e) => println!(" {} ({})", "SKIP".yellow(), e),
+                    }
+                }
+
+                // ── Write cache hash after successful enrichment ──
+                let enriched_hash = get_page_hash(page_path);
+                write_cache(&cache_dir, page_name, &enriched_hash);
             }
             Ok(None) => {
                 println!(" {} (too small)", "SKIP".yellow());
@@ -825,23 +1048,141 @@ fn run_enrichment_if_enabled(
     }
 
     // Write provenance manifest
-    let meta_dir = docs_dir.join("_meta");
     std::fs::create_dir_all(&meta_dir)?;
     let manifest = serde_json::to_string_pretty(&provenance_entries)?;
     std::fs::write(meta_dir.join("provenance.json"), &manifest)?;
     println!("  {} _meta/provenance.json", "OK".green());
 
     println!(
-        "{} Enrichment: {} pages enriched, {} skipped",
+        "{} Enrichment: {} enriched, {} cached, {} skipped",
         "OK".green(),
         enriched_count,
+        cached_count,
         skipped
     );
 
     Ok(())
 }
 
-pub fn run(what: &str, path: Option<&str>, enrich: bool) -> Result<()> {
+// ─── Cross-references ─────────────────────────────────────────────────
+
+/// Post-processing step that adds cross-reference links between documentation pages.
+/// Runs after all pages are generated (and optionally enriched) but before HTML generation.
+fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) -> Result<usize> {
+    // 1. Build a map of known names -> page links
+    let mut known_names: Vec<(String, String)> = Vec::new(); // (name, link)
+
+    // Controllers, Services, Repositories, DbEntities, ExternalServices
+    for node in graph.iter_nodes() {
+        match node.label {
+            NodeLabel::Controller => {
+                let name = &node.properties.name;
+                let filename = format!("ctrl-{}", sanitize_filename(name));
+                known_names.push((name.clone(), format!("./modules/{}.md", filename)));
+            }
+            NodeLabel::Service | NodeLabel::Repository => {
+                known_names.push((
+                    node.properties.name.clone(),
+                    "./modules/services.md".to_string(),
+                ));
+            }
+            NodeLabel::DbEntity => {
+                known_names.push((
+                    node.properties.name.clone(),
+                    format!("./modules/data-entities.md#{}", node.properties.name),
+                ));
+            }
+            NodeLabel::ExternalService => {
+                known_names.push((
+                    node.properties.name.clone(),
+                    "./modules/external-services.md".to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    // Sort by length descending (longest match first, avoid partial matches)
+    known_names.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
+    // Filter out names shorter than 5 chars (too generic)
+    known_names.retain(|(name, _)| name.len() >= 5);
+
+    // 2. Process each .md file
+    let mut total_links = 0;
+    let mut files_to_process: Vec<PathBuf> = Vec::new();
+
+    for entry in std::fs::read_dir(docs_dir)?.flatten() {
+        if entry.path().extension().map_or(false, |e| e == "md") {
+            files_to_process.push(entry.path());
+        }
+    }
+    let modules_dir = docs_dir.join("modules");
+    if modules_dir.exists() {
+        for entry in std::fs::read_dir(&modules_dir)?.flatten() {
+            if entry.path().extension().map_or(false, |e| e == "md") {
+                files_to_process.push(entry.path());
+            }
+        }
+    }
+
+    for file_path in &files_to_process {
+        let content = std::fs::read_to_string(file_path)?;
+        let mut modified = content.clone();
+        let mut linked_names: HashSet<String> = HashSet::new();
+        let mut page_links = 0;
+
+        for (name, link) in &known_names {
+            // Skip if already linked on this page
+            if linked_names.contains(name) {
+                continue;
+            }
+
+            // Skip self-references (don't link to the current page)
+            if link.contains(
+                file_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(""),
+            ) {
+                continue;
+            }
+
+            // Find FIRST occurrence that's not inside a code block, heading, or existing link
+            if let Some(idx) = modified.find(name.as_str()) {
+                // Check context: skip if inside code block or already linked
+                let before = &modified[..idx];
+
+                let in_code = before.matches("```").count() % 2 == 1;
+                let in_inline_code = before.ends_with('`');
+                let in_link = before.ends_with('[') || before.ends_with("](");
+                let in_heading = before
+                    .lines()
+                    .last()
+                    .map_or(false, |l| l.starts_with('#'));
+
+                if !in_code && !in_inline_code && !in_link && !in_heading {
+                    // Replace first occurrence with link
+                    modified = format!(
+                        "{}[{}]({}){}", &modified[..idx], name, link,
+                        &modified[idx + name.len()..]
+                    );
+                    linked_names.insert(name.clone());
+                    page_links += 1;
+                }
+            }
+        }
+
+        if page_links > 0 {
+            std::fs::write(file_path, &modified)?;
+            total_links += page_links;
+        }
+    }
+
+    Ok(total_links)
+}
+
+pub fn run(what: &str, path: Option<&str>, enrich: bool, enrich_profile: &str) -> Result<()> {
     let repo_path = Path::new(path.unwrap_or(".")).canonicalize()?;
     let storage = repo_manager::get_storage_paths(&repo_path);
     let snap_path = snapshot::snapshot_path(&storage.storage_path);
@@ -855,13 +1196,22 @@ pub fn run(what: &str, path: Option<&str>, enrich: bool) -> Result<()> {
         TARGET_SKILLS => generate_skills(&graph, &repo_path)?,
         TARGET_DOCS => {
             generate_docs(&graph, &repo_path)?;
-            run_enrichment_if_enabled(enrich, &graph, &repo_path)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile)?;
+            let docs_dir = repo_path.join(".gitnexus").join("docs");
+            let xref_count = apply_cross_references(&docs_dir, &graph)?;
+            if xref_count > 0 {
+                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+            }
         }
         TARGET_DOCX => {
-            // Generate Markdown first, then convert to DOCX
+            // Generate Markdown first, enrich, cross-ref, then convert to DOCX
             generate_docs(&graph, &repo_path)?;
-            run_enrichment_if_enabled(enrich, &graph, &repo_path)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile)?;
             let docs_dir = repo_path.join(".gitnexus").join("docs");
+            let xref_count = apply_cross_references(&docs_dir, &graph)?;
+            if xref_count > 0 {
+                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+            }
             let output_path = repo_path.join(".gitnexus").join("documentation.docx");
             let repo_name = repo_path
                 .file_name()
@@ -876,9 +1226,14 @@ pub fn run(what: &str, path: Option<&str>, enrich: bool) -> Result<()> {
             );
         }
         TARGET_HTML => {
-            // Generate Markdown first, enrich, then convert to HTML site
+            // Generate Markdown first, enrich, cross-ref, then convert to HTML site
             generate_docs(&graph, &repo_path)?;
-            run_enrichment_if_enabled(enrich, &graph, &repo_path)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile)?;
+            let docs_dir = repo_path.join(".gitnexus").join("docs");
+            let xref_count = apply_cross_references(&docs_dir, &graph)?;
+            if xref_count > 0 {
+                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+            }
             generate_html_site(&graph, &repo_path)?;
         }
         TARGET_ALL => {
@@ -886,9 +1241,13 @@ pub fn run(what: &str, path: Option<&str>, enrich: bool) -> Result<()> {
             generate_wiki(&graph, &repo_path)?;
             generate_skills(&graph, &repo_path)?;
             generate_docs(&graph, &repo_path)?;
-            run_enrichment_if_enabled(enrich, &graph, &repo_path)?;
-            // Also generate DOCX
+            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile)?;
             let docs_dir = repo_path.join(".gitnexus").join("docs");
+            let xref_count = apply_cross_references(&docs_dir, &graph)?;
+            if xref_count > 0 {
+                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+            }
+            // Also generate DOCX
             let output_path = repo_path.join(".gitnexus").join("documentation.docx");
             let repo_name = repo_path
                 .file_name()
@@ -4916,7 +5275,14 @@ fn build_html_template(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{project_name} — Documentation</title>
   <script src="mermaid.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js'"></script>
+  <link rel="stylesheet" href="hljs-dark.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github-dark.min.css'">
+  <script src="hljs.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/highlight.js@11/lib/core.min.js'"></script>
+  <script src="hljs-csharp.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/csharp.min.js'"></script>
+  <script src="hljs-js.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/javascript.min.js'"></script>
+  <script src="hljs-xml.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/xml.min.js'"></script>
+  <script src="hljs-sql.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/sql.min.js'"></script>
   <style>
+    [data-theme="light"] .hljs {{ background: var(--bg-surface); }}
     :root {{
       --bg: #0f1117; --bg-surface: #161822; --bg-sidebar: #12141e;
       --text: #e8ecf4; --text-muted: #8690a5; --accent: #6aa1f8;
@@ -5201,6 +5567,15 @@ fn build_html_template(
         // Render Mermaid
         renderMermaid();
 
+        // Syntax highlighting
+        if (typeof hljs !== 'undefined') {{
+          document.querySelectorAll('pre code').forEach(block => {{
+            if (!block.classList.contains('language-mermaid')) {{
+              hljs.highlightElement(block);
+            }}
+          }});
+        }}
+
         // Init scroll spy
         initScrollSpy();
 
@@ -5413,6 +5788,13 @@ fn build_html_template(
       addCopyButtons();
       initSearch();
       initScrollSpy();
+      if (typeof hljs !== 'undefined') {{
+        document.querySelectorAll('pre code').forEach(block => {{
+          if (!block.classList.contains('language-mermaid')) {{
+            hljs.highlightElement(block);
+          }}
+        }});
+      }}
     }});
   </script>
 </body>

@@ -41,3 +41,5 @@ crossterm.workspace = true
 notify.workspace = true
 notify-debouncer-mini.workspace = true
 zip.workspace = true
+reqwest.workspace = true
+serde.workspace = true

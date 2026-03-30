@@ -109,6 +109,9 @@ enum Commands {
         /// Path to the repository (defaults to current directory)
         #[arg(short, long)]
         path: Option<String>,
+        /// Enrich documentation with LLM-generated prose (requires configured LLM)
+        #[arg(long, default_value_t = false)]
+        enrich: bool,
     },
     /// Watch a repository for changes and incrementally update the knowledge graph
     Watch {
@@ -205,7 +208,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Setup => commands::setup::run(),
         Commands::Shell { path } => commands::shell::run(path.as_deref()).await,
-        Commands::Generate { what, path } => commands::generate::run(&what, path.as_deref()),
+        Commands::Generate { what, path, enrich } => commands::generate::run(&what, path.as_deref(), enrich),
         Commands::Watch { path } => commands::watch::run(path.as_deref()).await,
         Commands::Dashboard { path } => commands::dashboard::run(path.as_deref()),
         Commands::Hotspots { since, path, json } => {

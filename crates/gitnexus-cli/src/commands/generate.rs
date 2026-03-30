@@ -25,7 +25,242 @@ const TARGET_DOCX: &str = "docx";
 const TARGET_HTML: &str = "html";
 const TARGET_ALL: &str = "all";
 
-pub fn run(what: &str, path: Option<&str>) -> Result<()> {
+// ─── LLM Enrichment ────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LlmConfig {
+    #[allow(dead_code)]
+    provider: String,
+    api_key: String,
+    base_url: String,
+    model: String,
+    max_tokens: u32,
+    #[serde(default)]
+    reasoning_effort: String,
+}
+
+/// Load LLM config from ~/.gitnexus/chat-config.json
+fn load_llm_config() -> Option<LlmConfig> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    let config_path = std::path::Path::new(&home)
+        .join(".gitnexus")
+        .join("chat-config.json");
+    if !config_path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Enrich a single Markdown page with LLM-generated prose.
+fn enrich_page_with_llm(
+    page_path: &Path,
+    graph: &KnowledgeGraph,
+    config: &LlmConfig,
+) -> Result<()> {
+    let content = std::fs::read_to_string(page_path)?;
+    if content.len() < 100 {
+        return Ok(()); // Skip tiny pages
+    }
+
+    // Build verified entities list from graph (for hallucination prevention)
+    let entities: Vec<String> = graph
+        .iter_nodes()
+        .filter(|n| {
+            matches!(
+                n.label,
+                NodeLabel::Controller
+                    | NodeLabel::ControllerAction
+                    | NodeLabel::Service
+                    | NodeLabel::DbEntity
+                    | NodeLabel::DbContext
+                    | NodeLabel::ExternalService
+                    | NodeLabel::Class
+                    | NodeLabel::Function
+                    | NodeLabel::Method
+            )
+        })
+        .map(|n| n.properties.name.clone())
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .take(200) // Cap at 200 to fit in prompt
+        .collect();
+
+    let system_prompt = format!(
+        r#"Tu es un rédacteur technique senior documentant une application legacy.
+
+STYLE :
+- Documentation technique professionnelle, précise, sobre
+- Commence par un résumé de 2-3 phrases (QUOI, POURQUOI, QUI)
+- Ajoute des transitions entre sections
+- Un "⚠️ Point d'attention" par section complexe quand pertinent
+- Un "💡 Conseil développeur" quand pertinent
+
+RÈGLES CRITIQUES :
+- JAMAIS inventer de noms de classes, méthodes ou fichiers
+- GARDER tous les tableaux, listes, données et diagrammes Mermaid existants
+- Écrire en français
+- Le résultat doit être 20-50% plus long que l'original
+- N'utiliser QUE ces noms vérifiés : {}
+
+CONTENU À ENRICHIR :"#,
+        entities.join(", ")
+    );
+
+    let messages = vec![
+        json!({"role": "system", "content": system_prompt}),
+        json!({"role": "user", "content": content.clone()}),
+    ];
+
+    // Call LLM
+    let url = format!(
+        "{}/chat/completions",
+        config.base_url.trim_end_matches('/')
+    );
+    let mut body = json!({
+        "model": config.model,
+        "messages": messages,
+        "max_tokens": config.max_tokens,
+        "temperature": 0.3,
+        "stream": false
+    });
+
+    let effort = config.reasoning_effort.trim().to_lowercase();
+    if !effort.is_empty() && effort != "none" {
+        body["reasoning_effort"] = serde_json::Value::String(effort);
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+
+    let mut request = client.post(&url).json(&body);
+    if !config.api_key.is_empty() {
+        request = request.header("Authorization", format!("Bearer {}", config.api_key));
+    }
+
+    let response = request
+        .send()
+        .map_err(|e| anyhow::anyhow!("LLM request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let err = response.text().unwrap_or_default();
+        return Err(anyhow::anyhow!("LLM error ({}): {}", status, err));
+    }
+
+    let json_resp: serde_json::Value = response
+        .json()
+        .map_err(|e| anyhow::anyhow!("Failed to parse LLM response: {}", e))?;
+
+    let enriched = json_resp["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("No content in LLM response"))?;
+
+    // Validation: enriched must be at least 50% of original length
+    if enriched.len() < content.len() / 2 {
+        println!("    {} Enriched content too short, keeping original", "SKIP".yellow());
+        return Ok(());
+    }
+
+    // Validation: enriched must preserve tables (count | chars)
+    let orig_pipes = content.chars().filter(|c| *c == '|').count();
+    let enrich_pipes = enriched.chars().filter(|c| *c == '|').count();
+    if orig_pipes > 5 && enrich_pipes < orig_pipes / 2 {
+        println!("    {} Tables lost in enrichment, keeping original", "SKIP".yellow());
+        return Ok(());
+    }
+
+    // Write enriched content
+    std::fs::write(page_path, enriched)?;
+    Ok(())
+}
+
+/// Run LLM enrichment on all generated docs if enabled.
+fn run_enrichment_if_enabled(
+    enrich: bool,
+    graph: &KnowledgeGraph,
+    repo_path: &Path,
+) -> Result<()> {
+    if !enrich {
+        return Ok(());
+    }
+
+    let config = load_llm_config();
+    match config {
+        Some(cfg) => {
+            println!(
+                "{} Enriching pages with LLM ({})...",
+                "\u{2192}".cyan(),
+                cfg.model
+            );
+            let docs_dir = repo_path.join(".gitnexus").join("docs");
+
+            // Enrich all .md files in docs/
+            let mut enriched = 0usize;
+            let mut skipped = 0usize;
+            for entry in std::fs::read_dir(&docs_dir)? {
+                let path = entry?.path();
+                if path.extension().map_or(false, |e| e == "md") {
+                    let name = path.file_name().unwrap().to_string_lossy().to_string();
+                    print!("  {} {}...", "LLM".cyan(), name);
+                    std::io::stdout().flush().ok();
+                    match enrich_page_with_llm(&path, graph, &cfg) {
+                        Ok(()) => {
+                            println!(" {}", "OK".green());
+                            enriched += 1;
+                        }
+                        Err(e) => {
+                            println!(" {} ({})", "SKIP".yellow(), e);
+                            skipped += 1;
+                        }
+                    }
+                }
+            }
+            // Also enrich modules/
+            let modules_dir = docs_dir.join("modules");
+            if modules_dir.exists() {
+                for entry in std::fs::read_dir(&modules_dir)? {
+                    let path = entry?.path();
+                    if path.extension().map_or(false, |e| e == "md") {
+                        let name = path.file_name().unwrap().to_string_lossy().to_string();
+                        print!("  {} modules/{}...", "LLM".cyan(), name);
+                        std::io::stdout().flush().ok();
+                        match enrich_page_with_llm(&path, graph, &cfg) {
+                            Ok(()) => {
+                                println!(" {}", "OK".green());
+                                enriched += 1;
+                            }
+                            Err(e) => {
+                                println!(" {} ({})", "SKIP".yellow(), e);
+                                skipped += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            println!(
+                "{} Enrichment: {} pages enriched, {} skipped",
+                "OK".green(),
+                enriched,
+                skipped
+            );
+        }
+        None => {
+            println!(
+                "{} No LLM configured. Create ~/.gitnexus/chat-config.json or skip --enrich",
+                "WARN".yellow()
+            );
+        }
+    }
+    Ok(())
+}
+
+pub fn run(what: &str, path: Option<&str>, enrich: bool) -> Result<()> {
     let repo_path = Path::new(path.unwrap_or(".")).canonicalize()?;
     let storage = repo_manager::get_storage_paths(&repo_path);
     let snap_path = snapshot::snapshot_path(&storage.storage_path);
@@ -37,10 +272,14 @@ pub fn run(what: &str, path: Option<&str>) -> Result<()> {
         TARGET_CONTEXT | TARGET_AGENTS => generate_agents_md(&graph, &repo_path)?,
         TARGET_WIKI => generate_wiki(&graph, &repo_path)?,
         TARGET_SKILLS => generate_skills(&graph, &repo_path)?,
-        TARGET_DOCS => generate_docs(&graph, &repo_path)?,
+        TARGET_DOCS => {
+            generate_docs(&graph, &repo_path)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path)?;
+        }
         TARGET_DOCX => {
             // Generate Markdown first, then convert to DOCX
             generate_docs(&graph, &repo_path)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path)?;
             let docs_dir = repo_path.join(".gitnexus").join("docs");
             let output_path = repo_path.join(".gitnexus").join("documentation.docx");
             let repo_name = repo_path
@@ -56,8 +295,9 @@ pub fn run(what: &str, path: Option<&str>) -> Result<()> {
             );
         }
         TARGET_HTML => {
-            // Generate Markdown first, then convert to HTML site
+            // Generate Markdown first, enrich, then convert to HTML site
             generate_docs(&graph, &repo_path)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path)?;
             generate_html_site(&graph, &repo_path)?;
         }
         TARGET_ALL => {
@@ -65,6 +305,7 @@ pub fn run(what: &str, path: Option<&str>) -> Result<()> {
             generate_wiki(&graph, &repo_path)?;
             generate_skills(&graph, &repo_path)?;
             generate_docs(&graph, &repo_path)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path)?;
             // Also generate DOCX
             let docs_dir = repo_path.join(".gitnexus").join("docs");
             let output_path = repo_path.join(".gitnexus").join("documentation.docx");

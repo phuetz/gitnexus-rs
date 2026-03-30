@@ -1,260 +1,470 @@
-# TODO — Améliorations du Rapport HTML
+# TODO — Rapport HTML : Atteindre le niveau DeepWiki
 
-> Propositions pour rapprocher la documentation générée du niveau DeepWiki / Code Buddy.
-> Classées par priorité et effort. On code ce soir.
+> Analyse approfondie basée sur : DeepWiki-Open (Cognition), Code Buddy (grok-cli),
+> Docusaurus 3, Starlight (Astro), VitePress, MkDocs Material, Nextra 4, Fumadocs.
+> Objectif : transformer la doc générée en une documentation de qualité professionnelle.
 
 ---
 
-## 🔴 PRIORITÉ 1 — Enrichissement LLM du contenu (le plus gros impact)
+## Comment fonctionne l'enrichissement LLM chez les concurrents
 
-### 1.1 Mode `--enrich` : réécriture par LLM de chaque page
-**Effort :** 3-4h | **Impact :** Transforme la doc de "dump technique" en "wiki lisible"
+### Le pipeline Code Buddy (4 phases)
 
-Ajouter un flag `--enrich` à `gitnexus generate html` qui :
-1. Génère les pages markdown normalement (comme aujourd'hui)
-2. Pour chaque page `.md`, envoie le contenu + le contexte du graphe au LLM
-3. Le LLM réécrit avec :
-   - Un résumé exécutif en prose (pas de table brute)
-   - Des explications "pourquoi" (pas juste "quoi")
-   - Des transitions entre sections
-   - Des "Points d'attention" pour le développeur
-4. Sauvegarde la version enrichie
-
-**Prompt template par type de page :**
 ```
-Tu es un expert ASP.NET MVC 5. Réécris cette documentation technique
-pour qu'elle soit compréhensible par un responsable de service qui
-reprend l'application.
+Phase 1: DISCOVER → Analyse le graphe, détecte l'architecture, calcule le PageRank
+Phase 2: PLAN     → Génère un plan de 30 pages adapté au projet (LLM ou déterministe)
+Phase 3: GENERATE → Produit chaque page avec un template par type + enrichissement LLM
+Phase 4: LINK     → Crée les cross-références entre concepts (aliases, "See also", "Referenced by")
+```
 
-RÈGLES :
-- Ne jamais inventer de noms de classes/méthodes qui ne sont pas dans le contenu
-- Commencer par un résumé de 2-3 phrases
-- Expliquer le "pourquoi" de chaque flux
-- Ajouter des "⚠️ Point d'attention" quand pertinent
-- Garder les tableaux et diagrammes Mermaid existants
+**L'enrichissement LLM (Phase 3) fonctionne ainsi :**
+
+1. La page est d'abord générée avec des données brutes du graphe (comme on fait aujourd'hui)
+2. Le contenu brut est envoyé au LLM avec un system prompt spécifique :
+   - "Écris comme MDN Web Docs : précis, technique, pas de marketing"
+   - "JAMAIS inventer de noms de classes/méthodes — utilise uniquement la liste vérifiée"
+   - "Ajoute un paragraphe d'ouverture : QUOI, POURQUOI, QUI"
+   - "Ajoute des transitions entre sections"
+   - "UN diagramme Mermaid par document (max 10 noeuds)"
+   - "UN 'Point d'attention développeur' par section"
+3. Pour les pages critiques (overview, architecture), un **2ème pass de review** vérifie que :
+   - Toutes les tables/données originales sont préservées
+   - Les noms de méthodes existent dans le graphe
+   - Les diagrammes Mermaid sont valides
+4. **Validation post-génération** : liens cassés, placeholders, citations hallucin inventées, fences non fermées
+
+**Niveaux de "thinking" par type de page :**
+- `overview`, `architecture` → **high** (raisonnement complet)
+- `component`, `security` → **medium**
+- `api-reference`, `configuration` → **low** (extraction de données)
+- `changelog` → **minimal**
+
+**Prévention des hallucinations :**
+- Liste d'entités vérifiées passée au LLM dans le prompt
+- Après enrichissement, scan des identifiants `` `ClassName.method()` `` → vérification contre le graphe
+- Si hallucination détectée → remplacement par le nom le plus proche ou suppression des `()`
+- Fichiers trop gros (>8000 chars) → découpage par `##` et enrichissement chunk par chunk
+
+### Le pipeline DeepWiki-Open
+
+- Clone git shallow → chunking (8192 tokens) → embedding (OpenAI/Google/Ollama)
+- Index FAISS → LLM génère la structure wiki → chaque page générée avec contexte RAG
+- Frontend Next.js 15 + React 19, rendu côté client
+- Chat "Ask DeepWiki" via WebSocket avec mode Deep Research multi-tours
+
+---
+
+## État actuel GitNexus vs Concurrents
+
+| Feature | GitNexus | Code Buddy | DeepWiki | Docusaurus | VitePress |
+|---------|----------|------------|----------|------------|-----------|
+| **Coloration syntaxique** | ❌ | ✅ (regex) | ✅ (Prism) | ✅ (Prism) | ✅ (Shiki) |
+| **Recherche plein texte** | ❌ (filtre noms) | ✅ (JSON index) | ✅ (FAISS) | ✅ (Algolia) | ✅ (MiniSearch) |
+| **Copier code** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Numéros de ligne** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Callouts (info/warning)** | ❌ | ✅ | ✅ | ✅ (:::) | ✅ (:::) |
+| **Breadcrumbs** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **Previous/Next** | ❌ (dans MD) | ✅ | ❌ | ✅ | ✅ |
+| **Enrichissement LLM** | ❌ | ✅ (multi-pass) | ✅ (RAG) | ❌ | ❌ |
+| **Cross-références auto** | ❌ | ✅ (aliases) | ✅ | ❌ (manuel) | ❌ (manuel) |
+| **Images** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Mermaid** | ✅ | ✅ | ✅ (zoom/fullscreen) | ✅ (plugin) | ✅ (plugin) |
+| **Dark/Light** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Scroll spy TOC** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **Print CSS** | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Mobile hamburger** | ❌ | ✅ | ✅ | ✅ | ✅ |
+
+---
+
+## 🔴 PRIORITÉ 1 — Enrichissement LLM (game changer)
+
+### 1.1 Pipeline d'enrichissement `--enrich`
+**Effort :** 4h | **Impact :** Transforme tout
+
+Ajouter un flag `--enrich` qui appelle le LLM configuré (Gemini, Ollama, etc.) sur chaque page :
+
+```bash
+gitnexus generate --path D:\taf\Alise_v2 html --enrich
+```
+
+**Processus détaillé :**
+
+```
+Pour chaque page .md générée :
+  1. Lire le contenu markdown brut
+  2. Construire le prompt :
+     - System prompt (style narratif, règles anti-hallucination)
+     - Contenu brut de la page
+     - Liste des entités vérifiées du graphe (noms de classes, méthodes, fichiers)
+  3. Appeler le LLM (réutiliser call_llm de chat.rs)
+  4. Valider la réponse :
+     - Vérifier que les tables sont préservées
+     - Scanner les identifiants `ClassName.method()` contre le graphe
+     - Si trop court (< 50% de l'original) → garder l'original
+  5. Écrire la version enrichie
+```
+
+**System prompt (adapté de Code Buddy) :**
+```
+Tu es un rédacteur technique senior documentant une application ASP.NET MVC 5 legacy.
+
+STYLE :
+- Écris comme une documentation technique professionnelle, pas un listing de code
+- Explique le POURQUOI avant le COMMENT
+- Commence chaque page par un résumé de 2-3 phrases (QUOI, POURQUOI, QUI)
+- Ajoute des transitions entre les sections
+- Un "⚠️ Point d'attention" par section complexe
+- Un "💡 Conseil développeur" quand pertinent
+
+RÈGLES CRITIQUES :
+- JAMAIS inventer de noms de classes ou méthodes
+- GARDER tous les tableaux, listes et données du contenu original
 - Écrire en français
+- Le résultat doit être 20-50% plus long que l'original
+- Garder les diagrammes Mermaid existants
 
 CONTENU À ENRICHIR :
-{page_content}
+{contenu_page}
+
+ENTITÉS VÉRIFIÉES (ne PAS inventer d'autres noms) :
+{liste_entités_du_graphe}
 ```
 
-**Fichier :** `generate.rs` — nouvelle fonction `enrich_with_llm(page_path, config)`
-**Appel LLM :** Réutiliser la même mécanique que `chat.rs` (`call_llm` avec `ChatConfig`)
+**Niveaux de thinking par page :**
+```rust
+let thinking = match page_type {
+    "overview" | "architecture" | "functional-guide" => "high",
+    "ctrl-*" | "services" | "external-services" => "medium",
+    "data-*" | "ui-components" | "ajax-endpoints" => "low",
+    "deployment" => "low",
+    _ => "medium",
+};
+```
 
-### 1.2 Résumés exécutifs automatiques par LLM
-**Effort :** 1h | **Impact :** Élevé
+**Fichier :** `generate.rs` — nouvelle fonction `enrich_page_with_llm(page_path, graph, config)`
 
-Pour chaque page controller, envoyer la liste des actions + paramètres au LLM et lui demander un résumé de 3 lignes en français. Insérer en haut de la page.
+### 1.2 Validation post-enrichissement
+**Effort :** 1h | **Impact :** Élevé (empêche les hallucinations)
 
-**Exemple attendu :**
-> Le DossiersController gère le cycle de vie des dossiers d'aide sociale.
-> Il permet la recherche, création, modification et export des dossiers,
-> avec un calcul automatique des montants via les barèmes et plafonds.
+Après enrichissement LLM, valider :
+1. **Identifiants** : scanner `` `NomClasse.methode()` `` et vérifier contre le graphe
+2. **Tailles** : si le résultat LLM est < 50% de l'original → garder l'original
+3. **Tables** : compter les `|` avant/après → si moins de tables → garder l'original
+4. **Liens cassés** : vérifier que les `[text](./file.md)` pointent vers des fichiers existants
+5. **Mermaid** : vérifier que les blocs ` ```mermaid ` sont bien fermés
 
-### 1.3 Diagrammes Mermaid générés par LLM
+### 1.3 Cross-références automatiques entre pages
 **Effort :** 2h | **Impact :** Moyen-Élevé
 
-Au lieu de nos heuristiques (Recherche→Consultation→Création→Export), envoyer la liste des actions au LLM et lui demander de produire un diagramme Mermaid pertinent qui montre le vrai flux métier.
+Après génération de toutes les pages, scanner chaque page et transformer les noms connus en liens :
+- "DossierService" → `[DossierService](./services.md)`
+- "BeneficiaireController" → `[BeneficiaireController](./ctrl-beneficiairecontroller.md)`
+- "AIDEFINANCE" → `[AIDEFINANCE](./data-alisev2entities.md#AIDEFINANCE)`
 
-**Prompt :**
-```
-Voici les actions du DossiersController : [liste]
-Génère UN diagramme Mermaid flowchart (max 8 nœuds) montrant
-le flux principal d'un utilisateur. Pas de détails techniques,
-juste le parcours métier.
-```
+**Pattern Code Buddy :**
+- Trier les concepts par longueur décroissante (éviter les matchs partiels)
+- Ne linker que la première occurrence par page
+- Ne pas linker dans les blocs de code ou les titres
+- Supporter les aliases : "barème" → lien vers la section barèmes
 
 ---
 
-## 🟡 PRIORITÉ 2 — Améliorations HTML / UX
+## 🟡 PRIORITÉ 2 — HTML / UX (visible immédiatement)
 
-### 2.1 Recherche plein texte dans tout le contenu
-**Effort :** 2h | **Impact :** Élevé
+### 2.1 Coloration syntaxique (Highlight.js CDN)
+**Effort :** 1h | **Impact :** Élevé — sans ça le code est illisible
 
-Actuellement le search filtre les noms de pages. Ajouter une vraie recherche plein texte :
-1. Au moment de la génération, construire un index JSON de tous les mots par page
-2. Côté client, chercher dans cet index avec highlighting des résultats
-3. Afficher les résultats dans un overlay avec contexte (snippet de 50 chars autour du match)
+Ajouter via CDN comme on fait pour Mermaid :
+```html
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js/styles/github-dark.min.css">
+<script src="https://cdn.jsdelivr.net/npm/highlight.js/lib/core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js/lib/languages/csharp.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js/lib/languages/javascript.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js/lib/languages/xml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js/lib/languages/sql.min.js"></script>
+<script>hljs.highlightAll();</script>
+```
 
-**Approche :** Générer un `search-index.json` embarqué dans le HTML, avec un champ `content` par page (texte nettoyé sans HTML). Utiliser un simple `indexOf` côté JS — pas besoin de librairie externe pour 40 pages.
+Thème adaptatif : `github-dark` en dark mode, `github` en light mode.
+Changer le `<link>` CSS au toggle de thème.
 
-### 2.2 Scroll spy sur la TOC droite
+### 2.2 Bouton "Copier" sur les blocs de code
 **Effort :** 30min | **Impact :** Moyen
 
-La TOC droite doit highlighter la section visible pendant le scroll.
+Ajouter un bouton en haut-droite de chaque `<pre>` :
+```javascript
+document.querySelectorAll('pre').forEach(pre => {
+  const btn = document.createElement('button');
+  btn.textContent = '📋';
+  btn.className = 'copy-btn';
+  btn.onclick = () => {
+    navigator.clipboard.writeText(pre.textContent);
+    btn.textContent = '✓';
+    setTimeout(() => btn.textContent = '📋', 1500);
+  };
+  pre.style.position = 'relative';
+  pre.appendChild(btn);
+});
+```
+
+CSS :
+```css
+.copy-btn {
+  position: absolute; top: 8px; right: 8px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 6px; cursor: pointer;
+  opacity: 0; transition: opacity 0.15s;
+}
+pre:hover .copy-btn { opacity: 1; }
+```
+
+### 2.3 Recherche plein texte dans le contenu
+**Effort :** 2h | **Impact :** Élevé
+
+Embarquer un index de recherche dans le HTML :
+1. Au moment de la génération, créer un index JSON de chaque page (texte nettoyé)
+2. Côté client, rechercher avec `indexOf` + highlighting des résultats
+3. Overlay de résultats avec contexte (50 chars autour du match)
+4. Raccourci Ctrl+K pour ouvrir la recherche
+
+**Approche :** Pas besoin de librairie externe pour 36 pages. Un simple JSON indexé suffit.
+
+### 2.4 Scroll spy sur la TOC droite
+**Effort :** 30min | **Impact :** Moyen
 
 ```javascript
 const observer = new IntersectionObserver(entries => {
   entries.forEach(e => {
-    const link = document.querySelector(`[href="#${e.target.id}"]`);
-    if (link) link.classList.toggle('active', e.isIntersecting);
+    const id = e.target.id;
+    const link = document.querySelector(`.toc a[href="#${id}"]`);
+    if (link) {
+      link.style.color = e.isIntersecting ? 'var(--accent)' : '';
+      link.style.borderLeftColor = e.isIntersecting ? 'var(--accent)' : 'transparent';
+    }
   });
-}, { threshold: 0.5 });
-document.querySelectorAll('h2, h3').forEach(h => observer.observe(h));
+}, { threshold: 0.3 });
+document.querySelectorAll('h2[id], h3[id]').forEach(h => observer.observe(h));
 ```
 
-### 2.3 Temps de lecture par section
-**Effort :** 30min | **Impact :** Faible
-
-Afficher "~3 min" à côté de chaque entrée de la TOC. Calcul : nombre de mots / 200.
-
-### 2.4 Code blocks collapsibles (> 20 lignes)
+### 2.5 Callouts / Admonitions (info, warning, danger)
 **Effort :** 1h | **Impact :** Moyen
 
-Les blocs de code source des méthodes (jusqu'à 50 lignes) prennent beaucoup de place. Les wrapper automatiquement dans un `<details>` si > 20 lignes.
+Parser la syntaxe `> [!NOTE]`, `> [!WARNING]`, `> [!DANGER]` dans `markdown_to_html()` :
 
+```markdown
+> [!WARNING]
+> Cette méthode modifie les montants de paiement. Vérifier les plafonds avant d'appeler.
+```
+
+Rendu HTML :
 ```html
-<details class="code-block">
-  <summary>Code source (42 lignes)</summary>
-  <pre><code>...</code></pre>
-</details>
+<div class="callout callout-warning">
+  <span class="callout-icon">⚠️</span>
+  <div class="callout-content">
+    <strong>Attention</strong>
+    <p>Cette méthode modifie les montants...</p>
+  </div>
+</div>
 ```
 
-### 2.5 Syntax highlighting avec Highlight.js
+CSS avec couleurs sémantiques : bleu (note), vert (tip), jaune (warning), rouge (danger).
+
+### 2.6 Previous/Next navigation fonctionnelle
 **Effort :** 1h | **Impact :** Moyen
 
-Actuellement les blocs `<pre><code>` n'ont pas de coloration syntaxique. Ajouter Highlight.js via CDN (comme Mermaid) pour coloriser C#, JavaScript, SQL.
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/highlight.js/lib/core.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js/lib/languages/csharp.min.js"></script>
-<script>hljs.highlightAll();</script>
-```
-
-### 2.6 Export PDF propre
-**Effort :** 1h | **Impact :** Moyen
-
-Ajouter un bouton "📄 Exporter en PDF" qui utilise `window.print()` avec un CSS `@media print` optimisé : masquer sidebar/TOC, utiliser des fonts serif, ajouter en-têtes/pieds de page.
-
-### 2.7 Breadcrumbs visibles
-**Effort :** 30min | **Impact :** Faible
-
-Ajouter un fil d'Ariane en haut du contenu principal : `Documentation > Controllers > DossiersController`
-
----
-
-## 🟢 PRIORITÉ 3 — Améliorations du contenu (sans LLM)
-
-### 3.1 Page "Vue d'ensemble rapide" (one-pager)
-**Effort :** 2h | **Impact :** Élevé
-
-Une seule page qui résume TOUT le projet en 1 écran :
-- Diagramme d'architecture (déjà fait)
-- Tableau des controllers avec nombre d'actions (condensé)
-- Top 5 entités les plus connectées
-- Liste des services externes
-- Stats clés (fichiers, noeuds, edges)
-
-C'est la page que Florent ouvre en premier pour avoir une vue globale.
-
-### 3.2 Liens entre pages (cross-references améliorées)
-**Effort :** 1h | **Impact :** Moyen
-
-Quand une page controller mentionne un service (ex: "DossierService"), le nom devrait être cliquable et naviguer vers la page services. Idem pour les vues mentionnées.
-
-**Approche :** Après génération, scanner chaque page pour les noms connus (controllers, services, entités) et les transformer en liens.
-
-### 3.3 Badges de complexité par controller
-**Effort :** 30min | **Impact :** Faible
-
-Ajouter un badge visuel en haut de chaque page controller :
-- 🔴 **Complexe** (> 30 actions)
-- 🟡 **Moyen** (10-30 actions)
-- 🟢 **Simple** (< 10 actions)
-
-### 3.4 Section "Fichiers modifiés récemment" (si git disponible)
-**Effort :** 2h | **Impact :** Moyen
-
-Si le projet est un dépôt git, analyser `git log` pour chaque fichier et ajouter :
-- Date de dernière modification
-- Nombre de commits
-- Auteur principal
-
-Ça permet d'identifier les fichiers "vivants" vs les fichiers abandonnés.
-
----
-
-## 🔵 PRIORITÉ 4 — Améliorations visuelles
-
-### 4.1 Icônes par type de page dans la sidebar
-**Effort :** 30min | **Impact :** Faible
-
-Ajouter des emoji/icônes devant chaque entrée de la sidebar :
-- 📊 Overview
-- 🏗️ Architecture
-- 🎯 Guide Fonctionnel
-- ⚙️ Controllers
-- 💾 Data Model
-- 🔌 Services
-- 🌐 External Services
-- 📄 Views
-
-### 4.2 Graphe interactif miniature dans l'overview
-**Effort :** 3h | **Impact :** Élevé (effet "wow")
-
-Embarquer un petit graphe Cytoscape.js ou D3 dans la page overview montrant les 20 noeuds les plus connectés. Cliquable pour naviguer vers les pages correspondantes.
-
-**Approche :** Générer un JSON des top noeuds + edges pendant la génération, l'embarquer dans le HTML, le rendre avec D3 force-directed.
-
-### 4.3 Thème "paper" pour l'impression
-**Effort :** 1h | **Impact :** Faible
-
-Un troisième thème (en plus de dark/light) style "papier" avec fond crème, police serif, marges larges — pour les gens qui préfèrent lire sur fond clair avec une esthétique plus traditionnelle.
-
-### 4.4 Animation de chargement des pages
-**Effort :** 30min | **Impact :** Faible
-
-Quand on clique sur une page dans la sidebar, ajouter un petit fade-in au lieu du remplacement instantané du contenu.
+Ajouter des boutons Previous/Next en bas de chaque page dans le HTML (pas juste dans le markdown).
+Utiliser l'ordre des pages dans le sidebar pour déterminer le précédent/suivant.
 
 ```javascript
-content.style.opacity = 0;
-setTimeout(() => {
-  content.innerHTML = page.html;
-  content.style.opacity = 1;
-}, 100);
+function renderNavFooter(currentPageId) {
+  const pages = Object.keys(PAGES);
+  const idx = pages.indexOf(currentPageId);
+  let html = '<div class="nav-footer">';
+  if (idx > 0) html += `<a onclick="showPage('${pages[idx-1]}')">&larr; ${PAGES[pages[idx-1]].title}</a>`;
+  if (idx < pages.length - 1) html += `<a onclick="showPage('${pages[idx+1]}')">${PAGES[pages[idx+1]].title} &rarr;</a>`;
+  html += '</div>';
+  return html;
+}
+```
+
+### 2.7 Mobile hamburger menu
+**Effort :** 30min | **Impact :** Moyen
+
+Ajouter un bouton ☰ visible seulement en < 900px qui ouvre/ferme la sidebar en overlay.
+
+### 2.8 Icônes dans la sidebar par type de page
+**Effort :** 30min | **Impact :** Faible (mais joli)
+
+```
+📊 Overview
+🏗️ Architecture
+🎯 Guide Fonctionnel
+🔧 Environnement
+⚙️ AdministrationController
+📋 DossiersController
+💰 FacturesController
+💾 Data Model
+🔌 Services
+🌐 External Services
+📄 Views & Templates
 ```
 
 ---
 
-## 💡 IDÉES AVANCÉES (pour plus tard)
+## 🟢 PRIORITÉ 3 — Contenu amélioré (sans LLM)
 
-### 5.1 Chat intégré dans le site HTML
-Embarquer le même chat que le desktop app directement dans l'index.html. L'utilisateur peut poser des questions sur le code sans quitter la doc. Nécessite un endpoint API ou un appel direct au LLM configuré.
+### 3.1 One-pager "Vue rapide"
+**Effort :** 2h | **Impact :** Élevé
 
-### 5.2 Mode diff : comparer deux générations
-Sauvegarder chaque génération avec un timestamp et permettre de comparer deux versions de la doc côté à côté. Utile pour voir l'évolution du projet après un refactoring.
+Une page condensée qui montre TOUT le projet en 1 écran :
+- Diagramme architecture (3 couches)
+- Tableau controllers (nom + nb actions + criticité)
+- Top 5 entités les plus connectées
+- Services externes
+- Stats clés en gros
 
-### 5.3 Annotations collaboratives
-Permettre d'ajouter des sticky notes sur les pages (stockées dans un fichier JSON local). Florent pourrait annoter "cette méthode est critique" ou "TODO: vérifier ce flux".
+### 3.2 Badges de complexité visuels
+**Effort :** 30min | **Impact :** Faible
 
-### 5.4 GraphRAG : questions sur le graphe via le site
-Indexer le graphe pour le RAG et permettre des requêtes naturelles dans le site HTML : "quelles méthodes appellent le WebAPI Erable ?" → résultat avec liens vers les pages.
+En haut de chaque page controller :
+```html
+<span class="badge badge-critical">🔴 Complexe (51 actions)</span>
+<span class="badge badge-medium">🟡 Moyen (15 actions)</span>
+<span class="badge badge-simple">🟢 Simple (5 actions)</span>
+```
 
-### 5.5 Génération multi-langue
-Générer la doc en français ET en anglais. Le LLM peut traduire les pages enrichies.
+### 3.3 Temps de lecture estimé
+**Effort :** 15min | **Impact :** Faible
 
----
+Afficher "~5 min de lecture" en haut de chaque page. Calcul : mots / 200.
 
-## Résumé par effort (ce soir)
+### 3.4 Section "Fichiers liés" cliquable
+**Effort :** 1h | **Impact :** Moyen
 
-| Feature | Effort | Impact | Priorité |
-|---------|--------|--------|----------|
-| 1.1 Mode --enrich LLM | 3-4h | 🔴 Très élevé | Ce soir |
-| 1.2 Résumés exécutifs LLM | 1h | 🔴 Élevé | Ce soir |
-| 2.1 Recherche plein texte | 2h | 🟡 Élevé | Ce soir |
-| 2.2 Scroll spy TOC | 30min | 🟡 Moyen | Ce soir |
-| 2.5 Syntax highlighting | 1h | 🟡 Moyen | Ce soir |
-| 3.1 One-pager overview | 2h | 🟢 Élevé | Ce soir |
-| 4.1 Icônes sidebar | 30min | 🔵 Faible | Ce soir |
-| 2.4 Code blocks collapsibles | 1h | 🟡 Moyen | Demain |
-| 2.6 Export PDF | 1h | 🟡 Moyen | Demain |
-| 1.3 Mermaid par LLM | 2h | 🔴 Moyen-Élevé | Demain |
-| 3.2 Cross-references | 1h | 🟢 Moyen | Demain |
-| 4.2 Graphe miniature | 3h | 🔵 Élevé | Plus tard |
-| 5.1 Chat intégré HTML | 4h+ | 💡 Élevé | Plus tard |
-
-**Total estimé ce soir : ~10h** (réaliste : choisir les 5-6 plus impactants)
+Les `<details>` "Relevant source files" ne sont pas cliquables dans le HTML single-page.
+Les transformer en liens qui ouvrent la page du fichier (si elle existe) ou copient le chemin.
 
 ---
 
-*Basé sur l'analyse de : DeepWiki, Code Buddy (grok-cli), Docusaurus, Pagefind, Highlight.js, Shiki, Codapi, FlexSearch, CAST Imaging, Sourcegraph.*
+## 🔵 PRIORITÉ 4 — Visuels avancés
+
+### 4.1 Graphe D3 miniature interactif dans l'overview
+**Effort :** 3h | **Impact :** Effet "wow"
+
+Embarquer un petit graphe force-directed D3.js montrant les 20 noeuds les plus connectés.
+Chaque noeud cliquable → navigation vers la page correspondante.
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<div id="mini-graph" style="height:300px"></div>
+<script>
+  const graphData = {{GRAPH_JSON}};
+  // Force-directed layout with D3
+</script>
+```
+
+### 4.2 Diagramme Mermaid fullscreen + zoom
+**Effort :** 1h | **Impact :** Moyen
+
+Comme DeepWiki : clic sur un diagramme Mermaid → modal fullscreen avec contrôles zoom.
+
+### 4.3 CSS d'impression professionnel
+**Effort :** 1h | **Impact :** Moyen
+
+```css
+@media print {
+  .sidebar, .toc, .header, .theme-toggle, .copy-btn { display: none; }
+  .main { margin: 0; padding: 20px; max-width: 100%; }
+  body { font-family: 'Georgia', serif; font-size: 11pt; color: #000; }
+  a { color: #000; text-decoration: underline; }
+  pre { border: 1px solid #ccc; page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+}
+```
+
+### 4.4 Animation de transition entre pages
+**Effort :** 15min | **Impact :** Faible (mais fluide)
+
+```javascript
+function showPage(id) {
+  const content = document.getElementById('content');
+  content.style.opacity = '0';
+  content.style.transform = 'translateY(4px)';
+  setTimeout(() => {
+    content.innerHTML = PAGES[id].html;
+    content.style.opacity = '1';
+    content.style.transform = 'translateY(0)';
+    buildToc();
+    renderMermaid();
+    hljs.highlightAll();
+  }, 120);
+}
+```
+
+CSS : `transition: opacity 0.12s, transform 0.12s ease-out;`
+
+---
+
+## 💡 IDÉES EXPLORATOIRES
+
+### 5.1 Chat intégré dans le HTML (comme DeepWiki "Ask")
+Embarquer un chat dans le site HTML qui interroge le graphe via le LLM.
+Nécessite soit un backend (gitnexus serve) soit des appels API directs.
+
+### 5.2 Onglets de code (montrer le même concept en C# / SQL / JSON)
+Parser `=== "C#"` / `=== "SQL"` comme MkDocs Material pour des code tabs.
+
+### 5.3 Feedback "Cette page est-elle utile ?"
+Bouton thumbs up/down en bas de chaque page. Stocké dans localStorage.
+
+### 5.4 Historique de navigation (boutons Back/Forward)
+Utiliser `history.pushState()` pour pouvoir naviguer avec les boutons du navigateur.
+
+### 5.5 Export PDF bouton
+`window.print()` avec le CSS d'impression (4.3).
+
+---
+
+## Plan de ce soir (réaliste ~6h)
+
+### Sprint 1 : Quick wins visuels (1h30)
+- [x] 2.1 Coloration syntaxique (Highlight.js CDN)
+- [x] 2.2 Bouton "Copier" sur les blocs de code
+- [x] 2.4 Scroll spy TOC
+- [x] 2.8 Icônes sidebar
+- [x] 4.4 Animation transition pages
+
+### Sprint 2 : Recherche + Navigation (2h)
+- [ ] 2.3 Recherche plein texte
+- [ ] 2.6 Previous/Next en JS
+- [ ] 2.7 Mobile hamburger
+- [ ] 2.5 Callouts (info/warning/danger)
+
+### Sprint 3 : Enrichissement LLM (2h30)
+- [ ] 1.1 Mode --enrich (pipeline complet)
+- [ ] 1.2 Validation post-enrichissement
+- [ ] 1.3 Cross-références automatiques
+
+### Si il reste du temps
+- [ ] 3.1 One-pager "Vue rapide"
+- [ ] 4.3 CSS d'impression
+- [ ] 4.2 Mermaid fullscreen
+
+---
+
+## Résumé technique
+
+| Composant | Aujourd'hui | Cible |
+|-----------|-------------|-------|
+| **Rendu code** | Texte brut | Highlight.js + copier + numéros de ligne |
+| **Recherche** | Filtre noms sidebar | Plein texte avec highlighting |
+| **Navigation** | Sidebar seule | Sidebar + breadcrumbs + prev/next + scroll spy |
+| **Contenu** | Tables brutes du graphe | Prose enrichie par LLM + callouts + tips |
+| **Diagrammes** | Mermaid basique | Mermaid + zoom + fullscreen |
+| **Mobile** | Sidebar cachée | Hamburger menu + responsive |
+| **Impression** | Pas de CSS print | CSS print professionnel |
+| **Cross-refs** | Liens manuels (paramètres) | Liens automatiques sur tous les noms connus |
+
+---
+
+*Recherche basée sur : DeepWiki-Open (Next.js 15, Prism, FAISS, WebSocket chat), Code Buddy (HTML theme engine, LLM enricher multi-pass, concept linker avec aliases), Docusaurus 3 (Prism, Algolia, admonitions), Starlight/Astro (Shiki dual-theme, Pagefind, Expressive Code), VitePress (Shiki, MiniSearch, code groups), MkDocs Material (Pygments, lunr.js, code annotations, admonitions imbriquées), Nextra 4 (Shiki, Pagefind), Fumadocs (Orama search, OpenAPI).*

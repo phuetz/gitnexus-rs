@@ -1382,6 +1382,9 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
     // 1b. Generate functional guide (business-oriented documentation)
     generate_functional_guide(&docs_dir, repo_name, graph)?;
 
+    // 1c. Generate project health dashboard
+    generate_project_health(&docs_dir, graph)?;
+
     // 2. Generate architecture.md
     generate_docs_architecture(
         &docs_dir,
@@ -1424,8 +1427,8 @@ fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
         Vec::new()
     };
 
-    // Total page count: 4 static pages (overview, architecture, getting-started, deployment) + module pages + ASP.NET pages
-    let total_pages = 5 + module_page_count + aspnet_pages.len();
+    // Total page count: static pages (overview, architecture, getting-started, deployment, functional-guide, project-health) + module pages + ASP.NET pages
+    let total_pages = 6 + module_page_count + aspnet_pages.len();
     info!("Documentation generated: {} pages total", total_pages);
 
     // 6. Generate _index.json LAST so it includes ASP.NET pages
@@ -1493,6 +1496,12 @@ fn generate_docs_index(
             "title": "Overview",
             "path": "overview.md",
             "icon": "home"
+        }),
+        json!({
+            "id": "project-health",
+            "title": "Santé du Projet",
+            "path": "project-health.md",
+            "icon": "activity"
         }),
         json!({
             "id": "architecture",
@@ -1704,6 +1713,68 @@ fn generate_docs_overview(
             )?;
         }
         writeln!(f)?;
+    }
+
+    // ── Signaux d'Alerte ────────────────────────────────────────────────
+    {
+        let density = if node_count > 0 {
+            edge_count as f64 / node_count as f64
+        } else {
+            0.0
+        };
+
+        // StackLogger tracing coverage
+        let total_files = graph.iter_nodes()
+            .filter(|n| n.label == NodeLabel::File)
+            .count();
+        let traced_files = graph.iter_nodes()
+            .filter(|n| n.properties.is_traced == Some(true))
+            .count();
+        let traced_pct = if total_files > 0 {
+            (traced_files as f64 / total_files as f64) * 100.0
+        } else {
+            0.0
+        };
+        let ext_svc_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
+
+        let mut has_alerts = false;
+
+        if traced_pct < 10.0 && total_files > 0 {
+            if !has_alerts {
+                writeln!(f, "## Signaux d'Alerte")?;
+                writeln!(f)?;
+                has_alerts = true;
+            }
+            writeln!(f, "> [!WARNING]")?;
+            writeln!(f, "> Seulement {:.0}% des fichiers ont une traçabilité StackLogger.", traced_pct)?;
+            writeln!(f, "> Les modules non tracés seront difficiles à déboguer en production.")?;
+            writeln!(f)?;
+        }
+
+        if density > 3.0 {
+            if !has_alerts {
+                writeln!(f, "## Signaux d'Alerte")?;
+                writeln!(f)?;
+                has_alerts = true;
+            }
+            writeln!(f, "> [!DANGER]")?;
+            writeln!(f, "> Densité de couplage élevée ({:.1}). Le système est fortement interconnecté.", density)?;
+            writeln!(f, "> Tout changement peut avoir des effets de bord importants.")?;
+            writeln!(f)?;
+        }
+
+        if ext_svc_count > 5 {
+            if !has_alerts {
+                writeln!(f, "## Signaux d'Alerte")?;
+                writeln!(f)?;
+                #[allow(unused_assignments)]
+                { has_alerts = true; }
+            }
+            writeln!(f, "> [!NOTE]")?;
+            writeln!(f, "> {} services externes détectés. Chaque intégration est un point de", ext_svc_count)?;
+            writeln!(f, "> fragilité potentiel (timeout, indisponibilité, changement d'API).")?;
+            writeln!(f)?;
+        }
     }
 
     // Summary
@@ -2127,6 +2198,7 @@ fn generate_docs_modules(
 
     // Static pages (relative from modules/ directory via ../)
     page_order.push(("../overview".to_string(), "Overview".to_string()));
+    page_order.push(("../project-health".to_string(), "Santé du Projet".to_string()));
     page_order.push(("../architecture".to_string(), "Architecture".to_string()));
     page_order.push(("../getting-started".to_string(), "Getting Started".to_string()));
 
@@ -2604,6 +2676,72 @@ fn generate_docs_modules(
                 i + 1, action.properties.name, method, params, ret, called_by));
         }
         content.push('\n');
+
+        // ── Impact Analysis section ──────────────────────────────────────
+        {
+            // For each action, find outgoing calls (callees) and incoming calls (callers)
+            let mut action_impacts: Vec<(String, Vec<String>, Vec<String>)> = Vec::new();
+            for action in &actions {
+                let action_name = action.properties.name.clone();
+
+                // Callees: nodes this action calls (outgoing Calls/CallsAction/DependsOn)
+                let callees: Vec<String> = graph.iter_relationships()
+                    .filter(|r| {
+                        r.source_id == action.id
+                            && matches!(r.rel_type,
+                                RelationshipType::Calls
+                                | RelationshipType::CallsAction
+                                | RelationshipType::DependsOn
+                                | RelationshipType::CallsService)
+                    })
+                    .filter_map(|r| graph.get_node(&r.target_id).map(|n| n.properties.name.clone()))
+                    .collect::<BTreeSet<String>>()
+                    .into_iter()
+                    .collect();
+
+                // Callers: nodes that call this action (incoming Calls/CallsAction)
+                let callers: Vec<String> = graph.iter_relationships()
+                    .filter(|r| {
+                        r.target_id == action.id
+                            && matches!(r.rel_type,
+                                RelationshipType::Calls
+                                | RelationshipType::CallsAction)
+                    })
+                    .filter_map(|r| graph.get_node(&r.source_id).map(|n| n.properties.name.clone()))
+                    .collect::<BTreeSet<String>>()
+                    .into_iter()
+                    .collect();
+
+                let total_rels = callees.len() + callers.len();
+                if total_rels > 0 {
+                    action_impacts.push((action_name, callees, callers));
+                }
+            }
+
+            // Sort by total relationships descending, take top 5
+            action_impacts.sort_by(|a, b| (b.1.len() + b.2.len()).cmp(&(a.1.len() + a.2.len())));
+
+            if !action_impacts.is_empty() {
+                content.push_str("## Analyse d'Impact\n\n");
+                content.push_str("> Si une action de ce controller est modifiée, voici les composants potentiellement impactés.\n\n");
+                content.push_str("| Action modifiée | Impact aval (callees) | Impact amont (callers) |\n");
+                content.push_str("|----------------|----------------------|----------------------|\n");
+                for (action_name, callees, callers) in action_impacts.iter().take(5) {
+                    let callees_str = if callees.is_empty() {
+                        "-".to_string()
+                    } else {
+                        callees.iter().take(5).map(|s| format!("`{}`", s)).collect::<Vec<_>>().join(", ")
+                    };
+                    let callers_str = if callers.is_empty() {
+                        "-".to_string()
+                    } else {
+                        callers.iter().take(5).map(|s| format!("`{}`", s)).collect::<Vec<_>>().join(", ")
+                    };
+                    content.push_str(&format!("| **{}** | {} | {} |\n", action_name, callees_str, callers_str));
+                }
+                content.push('\n');
+            }
+        }
 
         // Callers section: all callers targeting actions of this controller
         if !caller_rels.is_empty() {
@@ -3289,6 +3427,179 @@ fn generate_docs_modules(
     }
 
     Ok(page_count)
+}
+
+// ─── Project Health Generator ──────────────────────────────────────────
+
+fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -> Result<()> {
+    let out_path = docs_dir.join("project-health.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    let label_counts = count_nodes_by_label(graph);
+    let node_count = graph.iter_nodes().count();
+    let edge_count = graph.iter_relationships().count();
+    let density = if node_count > 0 {
+        edge_count as f64 / node_count as f64
+    } else {
+        0.0
+    };
+    let density_interp = if density > 3.0 {
+        "Fortement couplé"
+    } else if density > 2.0 {
+        "Couplage modéré"
+    } else if density > 1.0 {
+        "Couplage normal"
+    } else {
+        "Faiblement couplé"
+    };
+
+    // StackLogger tracing coverage
+    let total_files = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::File)
+        .count();
+    let traced_files = graph.iter_nodes()
+        .filter(|n| n.properties.is_traced == Some(true))
+        .count();
+    let traced_pct = if total_files > 0 {
+        (traced_files as f64 / total_files as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let ext_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
+
+    // Key symbol counts
+    let fn_count = label_counts.get(&NodeLabel::Function).copied().unwrap_or(0);
+    let class_count = label_counts.get(&NodeLabel::Class).copied().unwrap_or(0);
+    let method_count = label_counts.get(&NodeLabel::Method).copied().unwrap_or(0);
+    let ctrl_count = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0);
+    let action_count = label_counts.get(&NodeLabel::ControllerAction).copied().unwrap_or(0);
+    let svc_count = label_counts.get(&NodeLabel::Service).copied().unwrap_or(0)
+        + label_counts.get(&NodeLabel::Repository).copied().unwrap_or(0);
+
+    writeln!(f, "# Santé du Projet")?;
+    writeln!(f)?;
+    writeln!(f, "> Vue d'ensemble de la santé structurelle du codebase, ")?;
+    writeln!(f, "> générée automatiquement par l'analyse du graphe de connaissances GitNexus.")?;
+    writeln!(f)?;
+
+    // ── Key Metrics Table ──
+    writeln!(f, "## Métriques Clés")?;
+    writeln!(f)?;
+    writeln!(f, "| Indicateur | Valeur | Interprétation |")?;
+    writeln!(f, "|-----------|--------|----------------|")?;
+    writeln!(f, "| Symboles | {} | Volume de code analysé |", node_count)?;
+    writeln!(f, "| Relations | {} | Couplage entre composants |", edge_count)?;
+    writeln!(f, "| Densité | {:.1} | {} |", density, density_interp)?;
+    writeln!(f, "| Couverture traçabilité | {:.0}% ({}/{} fichiers) | Fichiers avec StackLogger |",
+        traced_pct, traced_files, total_files)?;
+    writeln!(f, "| Services externes | {} | Points d'intégration |", ext_count)?;
+    writeln!(f)?;
+
+    // ── Symbol breakdown ──
+    writeln!(f, "## Répartition par type de symbole")?;
+    writeln!(f)?;
+    writeln!(f, "| Type | Nombre |")?;
+    writeln!(f, "|------|--------|")?;
+    if fn_count > 0 { writeln!(f, "| Functions | {} |", fn_count)?; }
+    if class_count > 0 { writeln!(f, "| Classes | {} |", class_count)?; }
+    if method_count > 0 { writeln!(f, "| Methods | {} |", method_count)?; }
+    if ctrl_count > 0 { writeln!(f, "| Controllers | {} |", ctrl_count)?; }
+    if action_count > 0 { writeln!(f, "| Controller Actions | {} |", action_count)?; }
+    if svc_count > 0 { writeln!(f, "| Services/Repositories | {} |", svc_count)?; }
+    // Show remaining non-zero labels
+    let shown_labels: HashSet<NodeLabel> = [
+        NodeLabel::Function, NodeLabel::Class, NodeLabel::Method,
+        NodeLabel::Controller, NodeLabel::ControllerAction,
+        NodeLabel::Service, NodeLabel::Repository, NodeLabel::ExternalService,
+        NodeLabel::File, NodeLabel::Community,
+    ].into_iter().collect();
+    let mut other_labels: Vec<_> = label_counts.iter()
+        .filter(|(label, count)| !shown_labels.contains(label) && **count > 0)
+        .collect();
+    other_labels.sort_by(|a, b| b.1.cmp(a.1));
+    for (label, count) in other_labels.iter().take(10) {
+        writeln!(f, "| {} | {} |", label.as_str(), count)?;
+    }
+    writeln!(f)?;
+
+    // ── Top 10 Most Connected Nodes ──
+    writeln!(f, "## Top 10 — Composants les plus connectés")?;
+    writeln!(f)?;
+    writeln!(f, "> Ces composants ont le plus de dépendances. Un changement dans l'un d'eux")?;
+    writeln!(f, "> a un impact potentiel large sur le reste du système.")?;
+    writeln!(f)?;
+
+    // Compute degree for each node
+    let mut node_degree: HashMap<String, usize> = HashMap::new();
+    for rel in graph.iter_relationships() {
+        *node_degree.entry(rel.source_id.clone()).or_insert(0) += 1;
+        *node_degree.entry(rel.target_id.clone()).or_insert(0) += 1;
+    }
+    let mut sorted_degree: Vec<_> = node_degree.into_iter().collect();
+    sorted_degree.sort_by(|a, b| b.1.cmp(&a.1));
+
+    writeln!(f, "| Composant | Type | Connexions | Fichier |")?;
+    writeln!(f, "|-----------|------|-----------|---------|")?;
+    for (node_id, degree) in sorted_degree.iter().take(10) {
+        if let Some(node) = graph.get_node(node_id) {
+            writeln!(f, "| `{}` | {} | {} | `{}` |",
+                node.properties.name,
+                node.label.as_str(),
+                degree,
+                node.properties.file_path)?;
+        }
+    }
+    writeln!(f)?;
+
+    // ── Top 10 Largest Files ──
+    writeln!(f, "## Top 10 — Fichiers les plus volumineux")?;
+    writeln!(f)?;
+
+    // Count symbols per file, and track the dominant label
+    let mut file_stats: HashMap<String, (usize, HashMap<NodeLabel, usize>)> = HashMap::new();
+    for node in graph.iter_nodes() {
+        if !node.properties.file_path.is_empty() && node.label != NodeLabel::File {
+            let entry = file_stats
+                .entry(node.properties.file_path.clone())
+                .or_insert_with(|| (0, HashMap::new()));
+            entry.0 += 1;
+            *entry.1.entry(node.label).or_insert(0) += 1;
+        }
+    }
+    let mut sorted_files: Vec<_> = file_stats.into_iter().collect();
+    sorted_files.sort_by(|a, b| (b.1).0.cmp(&(a.1).0));
+
+    writeln!(f, "| Fichier | Symboles | Type principal |")?;
+    writeln!(f, "|---------|----------|---------------|")?;
+    for (file_path, (sym_count, label_map)) in sorted_files.iter().take(10) {
+        let dominant = label_map.iter()
+            .max_by_key(|(_, c)| *c)
+            .map(|(l, _)| l.as_str())
+            .unwrap_or("-");
+        writeln!(f, "| `{}` | {} | {} |", file_path, sym_count, dominant)?;
+    }
+    writeln!(f)?;
+
+    // ── External Services ──
+    if ext_count > 0 {
+        writeln!(f, "## Services Externes")?;
+        writeln!(f)?;
+        writeln!(f, "| Service | Fichier |")?;
+        writeln!(f, "|---------|---------|")?;
+        for node in graph.iter_nodes() {
+            if node.label == NodeLabel::ExternalService {
+                writeln!(f, "| `{}` | `{}` |", node.properties.name, node.properties.file_path)?;
+            }
+        }
+        writeln!(f)?;
+    }
+
+    writeln!(f, "---")?;
+    writeln!(f, "**See also:** [Overview](./overview.md) · [Architecture](./architecture.md)")?;
+
+    println!("  {} project-health.md", "OK".green());
+    Ok(())
 }
 
 // ─── Functional Guide Generator ────────────────────────────────────────

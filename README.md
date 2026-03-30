@@ -67,17 +67,34 @@ The HTML site includes:
 
 - Rust 1.75+ (install via [rustup](https://rustup.rs/))
 - A C compiler (required for tree-sitter grammar compilation)
-- Node.js 18+ (for the desktop app frontend)
+- Node.js 18+ (for the desktop app frontend only)
 
-### Build the CLI
+### Build
 
 ```bash
 git clone https://github.com/phuetz/gitnexus-rs.git
 cd gitnexus-rs
-cargo build --release
+
+# Build the CLI (release mode, optimized)
+cargo build --release -p gitnexus-cli
+
+# The binary is at:
+# Windows: target\release\gitnexus.exe
+# Linux/macOS: target/release/gitnexus
 ```
 
-The binary is at `target/release/gitnexus`.
+Build scripts are also provided:
+
+```bash
+# Windows
+build-release.bat           # Build CLI + Desktop
+build-release.bat cli       # CLI only
+build-release.bat desktop   # Desktop only
+
+# Linux/macOS
+./build-release.sh          # Build CLI + Desktop
+./build-release.sh cli      # CLI only
+```
 
 ### Build the Desktop App
 
@@ -96,20 +113,40 @@ cd crates/gitnexus-desktop
 cargo tauri dev
 ```
 
-### Index a Repository
+## CLI Usage
+
+### Analyze a project
 
 ```bash
 # Index the current directory
 gitnexus analyze
 
-# Index a specific path
-gitnexus analyze /path/to/repo
+# Index a specific path (e.g., a legacy ASP.NET MVC project)
+gitnexus analyze D:\path\to\project
 
-# Force re-index
-gitnexus analyze --force
+# Force re-index (resets the graph)
+gitnexus analyze D:\path\to\project --force
 ```
 
 This creates a `.gitnexus/` directory containing the serialized knowledge graph.
+
+### Generate documentation
+
+```bash
+# Generate HTML documentation site (recommended)
+gitnexus generate --path D:\path\to\project html
+# → Open .gitnexus/docs/index.html in your browser
+
+# Generate everything (AGENTS.md, wiki, skills, docs, DOCX, HTML)
+gitnexus generate --path D:\path\to\project all
+
+# Generate specific formats
+gitnexus generate --path D:\path\to\project docs     # Markdown pages
+gitnexus generate --path D:\path\to\project docx     # Word document
+gitnexus generate --path D:\path\to\project context   # AGENTS.md only
+gitnexus generate --path D:\path\to\project wiki      # Wiki pages
+gitnexus generate --path D:\path\to\project skills    # Skill files
+```
 
 ### Search & Explore
 
@@ -127,28 +164,53 @@ gitnexus impact handleRequest --direction both
 gitnexus cypher "MATCH (n:Function) RETURN n.name LIMIT 10"
 ```
 
-### Start the MCP Server
+### Interactive modes
 
 ```bash
-# Stdio transport (for Claude, Cursor, etc.)
+gitnexus shell         # Interactive REPL with auto-completion
+gitnexus dashboard     # TUI dashboard with graph navigation
+gitnexus watch         # Watch & auto-reindex on file changes
+```
+
+### MCP Server (for AI agents)
+
+```bash
+# Stdio transport (for Claude, Cursor, VS Code, etc.)
 gitnexus mcp
 
 # Auto-configure MCP in your editor
 gitnexus setup
+
+# HTTP server
+gitnexus serve         # Default port 3000
 ```
 
-### Other Commands
+### Other commands
 
 ```bash
-gitnexus list          # List indexed repositories
-gitnexus status        # Show index status
-gitnexus shell         # Interactive REPL
-gitnexus dashboard     # TUI dashboard
-gitnexus watch         # Watch & auto-reindex on file changes
-gitnexus serve         # HTTP server (default port 3000)
-gitnexus generate --path . all   # Generate AGENTS.md, wiki/, skills/, docs/, DOCX
-gitnexus generate --path . html  # Generate HTML documentation site
-gitnexus clean                   # Delete index
+gitnexus list          # List indexed repositories with stats
+gitnexus status        # Show index status for current repo
+gitnexus clean         # Delete index
+gitnexus clean --all   # Delete all indexed repos
+```
+
+### Full workflow example (ASP.NET MVC project)
+
+```bash
+# 1. Build the CLI
+cargo build --release -p gitnexus-cli
+
+# 2. Analyze the project
+.\target\release\gitnexus.exe analyze D:\taf\MyLegacyApp
+
+# 3. Generate HTML documentation
+.\target\release\gitnexus.exe generate --path D:\taf\MyLegacyApp html
+
+# 4. Open in browser
+start D:\taf\MyLegacyApp\.gitnexus\docs\index.html
+
+# 5. Or launch the desktop app for interactive exploration
+.\target\release\gitnexus-desktop.exe
 ```
 
 ## Desktop App

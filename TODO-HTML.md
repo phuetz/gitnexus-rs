@@ -405,6 +405,249 @@ CSS : `transition: opacity 0.12s, transform 0.12s ease-out;`
 
 ---
 
+## 🟠 PRIORITÉ 1B — Pages métier détaillées (basées sur l'analyse du code Alise)
+
+> Ces pages nécessitent une connaissance approfondie des flux métier.
+> L'analyse du code source a révélé les processus exacts ci-dessous.
+
+### B1. Page "Système de Courriers" (11 types, process masse)
+**Effort :** 3h | **Impact :** Très élevé — c'est un module complet non documenté
+
+Générer une page `courriers.md` avec :
+
+**Section 1 : Types de courriers** (tableau)
+
+| Type | Usage |
+|------|-------|
+| Accord | Lettre d'accord pour approbation d'aide |
+| Refus | Lettre de refus de demande |
+| Rejet | Lettre de rejet (changement de statut) |
+| TarifApplique | Notification du tarif appliqué |
+| DemandeJustificatif | Demande de pièces justificatives |
+| Renouvellement | Notification de renouvellement |
+| Attestation | Lettre d'attestation |
+| PvCommission | Procès-verbal de commission (1 seul modèle max) |
+| CourrierInformation | Courrier d'information générale |
+| Regularisation | Notification de régularisation |
+| Bordereau | Bordereau de transmission |
+
+**Section 2 : Destinataires** (7 types)
+OD, ODDEMANDEUR, FOURNISSEUR, DESTREGBENEF, DESTREGFOURN, BENEFPRESTA, CMCAS
+
+**Section 3 : Diagramme du processus de courrier en masse**
+```mermaid
+sequenceDiagram
+    participant U as Utilisateur
+    participant C as CourrierController
+    participant R as RegleCourrierMasse
+    participant G as CourrierGenerer
+    participant PDF as Aspose.Words
+    U->>C: Sélection type + modèle
+    C->>R: GetTypeDestinataire()
+    R-->>C: Fournisseur/Dossier/Bénéficiaire
+    C-->>U: Grille des destinataires éligibles
+    U->>C: Sélection + Imprimer
+    C->>R: PrepareCreationCourrierMasse()
+    loop Pour chaque destinataire
+        R->>G: GenererInfoCourrier()
+        G->>PDF: Mail merge variables ELODIE
+        PDF-->>G: PDF généré
+        G->>G: Sauver en base
+    end
+    G->>G: Fusionner tous les PDFs
+    G-->>U: Téléchargement PDF unique
+```
+
+**Section 4 : Variables ELODIE disponibles**
+Lister les 50+ variables de fusion (NumDossier, NomBeneficiaire, Taux, SommeTotalePartBen, IBAN, etc.) groupées par catégorie (Identité, Adresses, Financier, Commission).
+
+**Section 5 : Templates Word**
+Expliquer le système Aspose.Words mail merge avec les régions (TableJustif, TableTarif, TablePlafond, TablePrestation).
+
+### B2. Page "Cycle de Paiement — De la Facture à ELODIE"
+**Effort :** 3h | **Impact :** Très élevé — c'est le flux financier complet
+
+Générer une page `paiements-lifecycle.md` avec :
+
+**Section 1 : Statuts de paiement** (machine à états)
+```mermaid
+stateDiagram-v2
+    [*] --> DemPaiemVal : Création facture
+    DemPaiemVal --> DemPaiemCtrler : Contrôle
+    DemPaiemCtrler --> DemPaiemCorrig : Correction
+    DemPaiemVal --> DemGrPrVal : Groupement (SetNumeroValidation)
+    DemPaiemCtrler --> DemGrPrVal : Groupement
+    DemPaiemCorrig --> DemGrPrVal : Groupement
+    DemGrPrVal --> DemTransmiseELODIE : Fonds nationaux
+    DemGrPrVal --> BordereauEditeFP : Fonds propres
+    DemTransmiseELODIE --> PaiementRegle : Règlement final
+    BordereauEditeFP --> PaiementRegle : Règlement final
+    DemTransmiseELODIE --> RejetBanc : Rejet bancaire
+```
+
+**Section 2 : Pipeline complet (séquence)**
+```mermaid
+sequenceDiagram
+    participant Agent as Agent CMCAS
+    participant FC as FacturesController
+    participant FS as FactureService
+    participant DB as Entity Framework
+    participant EL as ElodieService
+
+    Agent->>FC: Créer Facture
+    FC->>FS: FactureSave()
+    FS->>DB: Insert REGLEMENT (statut=DemPaiemVal)
+
+    Agent->>FC: Validation groupée
+    FC->>FS: SetNumeroValidation(liste)
+    FS->>DB: Update statut → DemGrPrVal
+    FS->>FS: Envoi email au comptable
+
+    Agent->>FC: Transmission ELODIE
+    FC->>FS: SetValidationElodie(liste)
+    FS->>DB: Update statut → DemTransmiseELODIE
+
+    Agent->>FC: Générer Bordereau
+    FC->>FS: GenererBordereau()
+    FS->>DB: Lire REGLEMENTLIGNE
+    FS->>FS: Créer PDF (Aspose)
+    FS-->>Agent: Télécharger bordereau PDF
+
+    Agent->>FC: Export ELODIE
+    FC->>EL: ExportElodiePost()
+    EL->>DB: Lire paiements validés
+    EL->>EL: Formater Flux3
+    EL-->>Agent: Fichier Excel ELODIE
+```
+
+**Section 3 : Types de régularisation** (tableau)
+
+| Code | Type | Description |
+|------|------|-------------|
+| 0 | Demande initiale | Premier règlement |
+| 1 | Remboursement | Trop-perçu à rembourser |
+| 2 | Remboursement perçu | Remboursement reçu |
+| 3 | Corrective | Écriture corrective |
+| 4 | Facture non parvenue | Facture comptabilisée sur mois précédent |
+| 5 | Correction comptable | Ré-imputation comptable |
+
+**Section 4 : Format export ELODIE**
+Documenter les champs du Flux3 : TypeTiers, CodeTiers, IBAN, BIC, MontantTTC, SegmentAnalytique, BonAPayer, Regularisation...
+
+**Section 5 : Paiement en masse**
+Conditions d'éligibilité : montant fixe OU tarif unique en euros, PAS de plafond quantitatif, dossiers en cours ou arrivant à échéance.
+
+### B3. Page "Moteur de Calcul des Barèmes"
+**Effort :** 3h | **Impact :** Très élevé — c'est le cœur du calcul financier
+
+Générer une page `baremes-calcul.md` avec :
+
+**Section 1 : Principe du barème** (explication textuelle)
+> Un barème est une table de calcul qui détermine le taux de participation (TauxFASS)
+> en fonction des ressources du bénéficiaire. Le processus est :
+> Ressources annuelles → Division par nombre de parts → Comparaison avec les tranches
+> → Extraction du taux applicable → Application des plafonds et majorations.
+
+**Section 2 : Diagramme de calcul complet**
+```mermaid
+flowchart TD
+    A["Ressources annuelles du bénéficiaire"] --> B["÷ Nombre de parts"]
+    B --> C["Ressource comparable"]
+    C --> D{"Type de comparaison ?"}
+    D -->|Par part| E["Ressource / parts"]
+    D -->|Annuelles| F["Ressource totale"]
+    D -->|Mensuelles| G["Ressource / 12"]
+    E --> H["Recherche dans les tranches"]
+    F --> H
+    G --> H
+    H --> I{"Tranche trouvée ?"}
+    I -->|Oui| J["TauxFASS = TRA_TAUX_SERVI"]
+    I -->|Non + BAR_TAUX_MIN| K["TauxFASS = taux minimum"]
+    I -->|Non| L["Hors barème"]
+    J --> M["Extraction plafond de la tranche"]
+    M --> N{"Majorations applicables ?"}
+    N -->|% sur €| O["Plafond += Plafond × Majo%"]
+    N -->|Montant fixe| P["Plafond += Majo€"]
+    N -->|Non| Q["Plafond inchangé"]
+    O --> R{"BAR_PLAFREVTAUX ?"}
+    P --> R
+    Q --> R
+    R -->|Oui| S["Plafond × TauxFASS / 100"]
+    R -->|Non| T["Plafond final"]
+    S --> T
+```
+
+**Section 3 : Automatique vs Manuel**
+
+| Aspect | Barème Automatique | Barème Manuel/Externe |
+|--------|-------------------|---------------------|
+| Création | Tranches calculées automatiquement entre min/max | Tranches saisies manuellement une par une |
+| Paramètres | Seuils min/max + taux min/max | N tranches avec valeurs libres |
+| Cas d'usage | Aides standard (revenus → taux) | Aides spécifiques (grilles complexes) |
+| BAR_TYPE | 1 (Automatique) | 2 (SansPlafond) ou 3 (AvecPlafond) |
+
+**Section 4 : Le Taux Libre**
+Quand `GRP_TAUX_LIBRE = TRUE` : pas de barème, l'agent saisit manuellement le taux dans le dossier.
+
+**Section 5 : Cascade AJAX dans la création de dossier**
+```mermaid
+sequenceDiagram
+    participant UI as Navigateur (Dossier.js)
+    participant C as DossiersController
+    participant S as DossierService
+    participant B as DossierCalculBareme
+
+    UI->>C: Sélection Groupe d'Aide + Date
+    C-->>UI: Liste des Aides (checkboxes)
+    UI->>C: Cocher Aides → ChargerInfoDossierNv
+    C->>S: Récupérer plafonds, majorations, tarifs
+    S-->>UI: ListPlafonds, ListMajoration, NomBareme
+
+    UI->>UI: Saisie ressources + nb parts
+    UI->>C: ChargerTrancheBareme(ressources, parts)
+    C->>B: DossierTrancheBareme(ressources, parts, baremes)
+    B->>B: SelectBareme → CalculRessource → Match Tranche
+    B-->>C: TauxFASS, Plafond, TrancheDE/A
+    C-->>UI: Afficher taux + plafond + tranche
+
+    UI->>UI: Sélection majorations (checkboxes)
+    UI->>UI: Recalcul plafond avec majorations
+```
+
+**Section 6 : Entités du calcul** (schéma simplifié)
+```mermaid
+graph LR
+    BAREME -->|contient| TRANCHEBAREME
+    GROUPEAIDE -->|a un| BAREME
+    GROUPEAIDE -->|a des| PLAFOND
+    AIDEFINANCE -->|a des| PLAFOND
+    AIDEFINANCE -->|a des| MAJOAIDE
+    DOSSIERPRESTA -->|utilise| TRANCHEBAREME
+    DOSSIERPRESTA -->|applique| MAJOAIDE
+```
+
+### B4. Page "Entités Financières et leur Cycle de Vie"
+**Effort :** 2h | **Impact :** Élevé
+
+Documenter le parcours des entités financières à travers le système :
+
+```
+DOSSIERPRESTA (Dossier d'aide)
+  └─→ REGLEMENT (Paiement)
+       ├─→ REGLEMENTLIGNE (Ligne de paiement)
+       ├─→ STATREG (Historique des statuts)
+       ├─→ REGULLIGNE (Ligne de régularisation)
+       └─→ BORDEREAU (Bordereau ELODIE)
+            └─→ EXPORT (Fichier Excel exporté)
+```
+
+### B5. Page "Gestion des Fournisseurs et Destinations de Paiement"
+**Effort :** 1h | **Impact :** Moyen
+
+Documenter le FournisseursController : recherche, détail, liste des demandes de paiement, codes auxiliaires, IBAN/BIC.
+
+---
+
 ## 💡 IDÉES EXPLORATOIRES
 
 ### 5.1 Chat intégré dans le HTML (comme DeepWiki "Ask")

@@ -2,19 +2,64 @@
 
 Graph-powered code intelligence for AI agents. GitNexus builds a knowledge graph from your codebase and exposes it via [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) for AI-powered code analysis.
 
-Written in Rust. Supports 13 programming languages. Ships with a desktop app.
+Written in Rust. Supports 14 programming languages. Ships with a desktop app and an HTML documentation generator.
 
 ## Features
 
-- **Knowledge Graph** -- Parses source code into a rich graph of symbols (functions, classes, modules, imports, calls, inheritance) with 38 node types and typed relationships
-- **13 Languages** -- JavaScript, TypeScript, Python, Java, C, C++, C#, Go, Rust, Ruby, PHP, Kotlin, Swift via tree-sitter
-- **Desktop App** -- Tauri v2 desktop application with interactive graph visualization, intelligent chat, and IDE-style navigation
-- **Intelligent Chat** -- AI-powered code Q&A with query complexity analysis, multi-step research plans, and deep research mode
+- **Knowledge Graph** -- Parses source code into a rich graph of symbols (functions, classes, modules, imports, calls, inheritance) with 50+ node types and typed relationships
+- **14 Languages** -- JavaScript, TypeScript, Python, Java, C, C++, C#, Go, Rust, Ruby, PHP, Kotlin, Swift, Razor via tree-sitter
+- **ASP.NET MVC 5 Deep Support** -- Controllers, actions, Razor views, Entity Framework 6 EDMX, Telerik/Kendo UI grids, jQuery/AJAX mapping, service/repository layer detection (see below)
+- **HTML Documentation Generator** -- DeepWiki-style single-page HTML site with sidebar navigation, Mermaid diagrams, dark/light theme, and search
+- **Desktop App** -- Tauri v2 desktop application with interactive graph visualization, treemap view, intelligent chat, and command palette (Ctrl+K)
+- **Intelligent Chat** -- AI-powered code Q&A with streaming responses, query complexity analysis, multi-step research plans, and deep research mode. Supports Ollama, OpenAI, Anthropic, OpenRouter, and Gemini (with reasoning/thinking mode)
 - **MCP Server** -- 7 tools accessible to any MCP-compatible AI agent (Claude, Cursor, VS Code, etc.)
 - **Hybrid Search** -- BM25 lexical search + optional ONNX semantic embeddings, fused with Reciprocal Rank Fusion
 - **Blast Radius Analysis** -- Trace upstream callers, downstream callees, and transitive impact of any symbol
 - **Interactive Modes** -- REPL shell, TUI dashboard, file watcher with auto-reindex
 - **Pluggable Storage** -- In-memory backend (default) or KuzuDB graph database
+
+## ASP.NET MVC 5 / Legacy .NET Support
+
+GitNexus has deep support for legacy ASP.NET MVC 5 projects, making it ideal for documenting and understanding complex enterprise applications.
+
+### What it detects
+
+| Feature | Detection |
+|---------|-----------|
+| **Controllers & Actions** | Class inheritance, `[HttpGet/Post]`, `[GridAction]`, route templates, parameter signatures |
+| **Razor Views** (.cshtml) | `@model`, `@layout`, `@Html.Partial`, `@Html.RenderAction`, `@Html.BeginForm` |
+| **Entity Framework 6** | DbContext, DbSet, EDMX entities, associations, navigation properties, inheritance (TPH/TPT) |
+| **Telerik / Kendo UI** | `Html.Telerik().Grid<T>()`, `Html.Kendo().Grid<T>()`, DataSource bindings (`.Select()`, `.Read()`), grid columns, `ClientEvents`, `DatePickerFor`, `DropDownListFor` |
+| **jQuery / AJAX** | `$.ajax()`, `$.getJSON()`, `$.post()`, `$.get()`, `$.load()`, `fetch()`, `@Url.Action()` — linked to controller actions |
+| **Service Layer** | `*Service`, `*Repository`, `*Manager`, `*Provider`, `*UnitOfWork` classes with interface detection |
+| **Dependency Injection** | Autofac (`RegisterType<T>().As<I>()`), Unity, Ninject, MS DI |
+| **Custom Attributes** | `[AuthorizeADAttribute]`, `[VerifActionFilter]`, any `[*Attribute]`, `[*Filter]`, `[*Action]` |
+| **External Services** | WebAPI client detection (`new CMCASClient(httpClient)`), WCF service references, HTTP call tracing |
+| **StackLogger Tracing** | Coverage analysis — identifies which methods are instrumented with `BeginMethodScope()` |
+| **Base Controllers** | Custom controller inheritance (`RootController` → `Controller`) |
+| **Web.config** | Configuration file detection |
+
+### Generated documentation
+
+The `generate html` command produces a DeepWiki-style HTML documentation site:
+
+```bash
+gitnexus analyze D:\path\to\your\mvc5-project
+gitnexus generate --path D:\path\to\your\mvc5-project html
+# Open .gitnexus/docs/index.html in your browser
+```
+
+The HTML site includes:
+- **Overview** with technology stack, project structure, and metrics
+- **Architecture diagram** (Mermaid) showing Presentation → Business Logic → Data Access layers
+- **Per-controller pages** with action signatures, parameters (linked to data model), callers, and source code
+- **Data model pages** with per-entity relationship diagrams and per-domain ER diagrams
+- **Functional guide** with business descriptions in French, criticality levels, and Mermaid flow diagrams
+- **External services page** with full WebAPI method signatures including all overloads
+- **Views & Templates** grouped by screen, filtered by type (grids, forms, partials)
+- **Service layer** with descriptions and "Used By" controller links
+- **Sequence diagrams** for critical flows (beneficiary search, case creation, accounting export)
+- **Dark/light theme** toggle with sidebar search and Previous/Next navigation
 
 ## Quick Start
 
@@ -101,8 +146,9 @@ gitnexus shell         # Interactive REPL
 gitnexus dashboard     # TUI dashboard
 gitnexus watch         # Watch & auto-reindex on file changes
 gitnexus serve         # HTTP server (default port 3000)
-gitnexus generate all  # Generate AGENTS.md, wiki/, skills/
-gitnexus clean         # Delete index
+gitnexus generate --path . all   # Generate AGENTS.md, wiki/, skills/, docs/, DOCX
+gitnexus generate --path . html  # Generate HTML documentation site
+gitnexus clean                   # Delete index
 ```
 
 ## Desktop App
@@ -205,6 +251,18 @@ The pipeline runs 6 sequential phases, with parallel file processing within each
 5. **Heritage** -- Class inheritance and interface implementation
 6. **Community** -- Community detection and clustering
 
+For ASP.NET MVC projects, 14 additional enrichment passes run automatically:
+- Controllers, actions, areas, route extraction
+- EDMX entity/association parsing with inheritance
+- Razor view analysis (@model, @layout, partials, forms)
+- Telerik/Kendo grid detection with DataSource bindings and columns
+- jQuery/AJAX → controller action mapping
+- Service/repository layer with DI detection (Autofac, Unity, Ninject)
+- Custom attribute/filter detection
+- External service call tracing (WebAPI, WCF)
+- StackLogger tracing coverage analysis
+- Base controller inheritance tracking
+
 ### Desktop IPC Commands
 
 The desktop app communicates with the Rust backend via Tauri IPC:
@@ -259,13 +317,14 @@ cargo build --release --features gitnexus-search/embeddings
 | Java | `.java` |
 | C | `.c` `.h` |
 | C++ | `.cpp` `.hpp` `.cc` `.hh` `.cxx` `.hxx` |
-| C# | `.cs` |
+| C# | `.cs` `.cshtml` `.edmx` `.config` |
 | Go | `.go` |
 | Rust | `.rs` |
 | Ruby | `.rb` |
 | PHP | `.php` |
 | Kotlin | `.kt` `.kts` |
 | Swift | `.swift` |
+| Razor | `.cshtml` `.razor` |
 
 ## License
 

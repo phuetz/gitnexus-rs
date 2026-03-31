@@ -94,22 +94,31 @@ Le site HTML inclut :
 
 ### Prérequis
 
-- Rust 1.75+ (installer via [rustup](https://rustup.rs/))
-- Un compilateur C (nécessaire pour la compilation des grammaires tree-sitter)
-- Node.js 18+ (pour le frontend de l'application desktop uniquement)
+| Dépendance | Version | Nécessaire pour | Installation |
+|-----------|---------|----------------|--------------|
+| **Rust** | 1.75+ | Tout | [rustup.rs](https://rustup.rs/) |
+| **Compilateur C/C++** | - | Grammaires tree-sitter | Windows: Visual Studio Build Tools. Linux: `apt install build-essential`. macOS: `xcode-select --install` |
+| **Node.js** | 18+ | Frontend de l'app desktop | [nodejs.org](https://nodejs.org/) |
+| **git** | 2.0+ | Analytics git (hotspots, couplage, ownership) | Déjà installé sur la plupart des systèmes |
+| **CMake** | 3.15+ | Backend KuzuDB (optionnel) | Windows: `winget install cmake`. Linux: `apt install cmake` |
 
-### Compilation
+### Installation & Compilation
 
 ```bash
+# 1. Cloner
 git clone https://github.com/phuetz/gitnexus-rs.git
 cd gitnexus-rs
 
-# Compiler la CLI (mode release, optimisé)
+# 2. Compiler la CLI (mode release, ~35 Mo)
 cargo build --release -p gitnexus-cli
 
 # Le binaire se trouve à :
 # Windows : target\release\gitnexus.exe
 # Linux/macOS : target/release/gitnexus
+
+# 3. (Optionnel) Compiler l'Application Desktop
+cd crates/gitnexus-desktop/ui && npm install && npm run build && cd ../../..
+cargo build -p gitnexus-desktop --release
 ```
 
 Des scripts de build sont aussi fournis :
@@ -125,15 +134,43 @@ build-release.bat desktop   # Desktop uniquement
 ./build-release.sh cli      # CLI uniquement
 ```
 
-### Compiler l'Application Desktop
+### Compilation avec fonctionnalités optionnelles
 
 ```bash
-cd crates/gitnexus-desktop/ui
-npm install
-npm run build
-cd ../../..
-cargo build -p gitnexus-desktop --release
+# Avec le backend KuzuDB (pour les très gros repos, nécessite CMake)
+cargo build --release -p gitnexus-cli --features gitnexus-cli/kuzu-backend
+
+# Avec la recherche sémantique ONNX (BM25 + embeddings hybrides)
+cargo build --release -p gitnexus-cli --features gitnexus-search/embeddings
+
+# Avec les deux
+cargo build --release -p gitnexus-cli --features gitnexus-cli/kuzu-backend,gitnexus-search/embeddings
 ```
+
+### Configuration LLM (pour `ask` et `--enrich`)
+
+Créer `~/.gitnexus/chat-config.json` :
+
+```json
+{
+  "provider": "gemini",
+  "api_key": "VOTRE_CLE_API",
+  "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+  "model": "gemini-2.5-flash",
+  "max_tokens": 8192,
+  "reasoning_effort": "high"
+}
+```
+
+Fournisseurs supportés : **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, pas de clé API nécessaire).
+
+Valider votre configuration :
+
+```bash
+gitnexus config test
+```
+
+### Lancer l'Application Desktop (dev mode avec rechargement à chaud)
 
 Ou lancer en mode développement avec rechargement à chaud :
 

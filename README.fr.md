@@ -11,7 +11,9 @@ Intelligence de code basée sur un graphe de connaissances pour agents IA. GitNe
 - **Graphe de connaissances** — Parse le code source en un graphe riche de symboles (fonctions, classes, modules, imports, appels, héritage) avec 50+ types de nœuds et relations typées
 - **14 Langages** — JavaScript, TypeScript, Python, Java, C, C++, C#, Go, Rust, Ruby, PHP, Kotlin, Swift, Razor via tree-sitter
 - **Support avancé ASP.NET MVC 5** — Controllers, actions, vues Razor, Entity Framework 6 EDMX, grilles Telerik/Kendo, mapping jQuery/AJAX, détection couche service/repository (voir ci-dessous)
-- **Générateur de documentation HTML** — Site HTML mono-page style DeepWiki avec navigation latérale, diagrammes Mermaid, thème sombre/clair et recherche
+- **Générateur de documentation HTML** — Site HTML mono-page style DeepWiki avec recherche plein texte (Ctrl+K), coloration syntaxique, boutons copier, callouts, breadcrumbs, navigation Précédent/Suivant, scroll spy TOC, responsive mobile
+- **Enrichissement LLM** — Mode `--enrich` optionnel qui augmente la documentation avec de la prose LLM grounded, des payloads JSON structurés, des citations avec provenance, et une validation anti-hallucination
+- **Interroger le code** — Commande CLI `gitnexus ask "question"` pour du Q&A basé sur le graphe avec réponses en streaming
 - **Application Desktop** — Application Tauri v2 avec visualisation interactive du graphe, vue treemap, chat intelligent et palette de commandes (Ctrl+K)
 - **Chat Intelligent** — Q&A de code assisté par IA avec réponses en streaming, analyse de complexité des requêtes, plans de recherche multi-étapes et mode recherche approfondie. Supporte Ollama, OpenAI, Anthropic, OpenRouter et Gemini (avec mode raisonnement)
 - **Serveur MCP** — 7 outils accessibles à tout agent IA compatible MCP (Claude, Cursor, VS Code, etc.)
@@ -139,6 +141,11 @@ Cela crée un répertoire `.gitnexus/` contenant le graphe de connaissances sér
 gitnexus generate --path D:\chemin\vers\projet html
 # → Ouvrir .gitnexus/docs/index.html dans le navigateur
 
+# Générer avec enrichissement LLM (nécessite un LLM configuré)
+gitnexus generate --path D:\chemin\vers\projet html --enrich
+gitnexus generate --path D:\chemin\vers\projet html --enrich --enrich-profile strict
+gitnexus generate --path D:\chemin\vers\projet html --enrich --enrich-lang en
+
 # Tout générer (AGENTS.md, wiki, skills, docs, DOCX, HTML)
 gitnexus generate --path D:\chemin\vers\projet all
 
@@ -148,6 +155,14 @@ gitnexus generate --path D:\chemin\vers\projet docx     # Document Word
 gitnexus generate --path D:\chemin\vers\projet context   # AGENTS.md uniquement
 gitnexus generate --path D:\chemin\vers\projet wiki      # Pages wiki
 gitnexus generate --path D:\chemin\vers\projet skills    # Fichiers skills
+```
+
+### Interroger le code
+
+```bash
+# Poser une question en utilisant le graphe + LLM (réponse en streaming)
+gitnexus ask "comment fonctionne le calcul des barèmes ?"
+gitnexus ask "quels controllers appellent le WebAPI Erable ?" --path D:\taf\Alise_v2
 ```
 
 ### Rechercher & Explorer

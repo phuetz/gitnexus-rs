@@ -11,7 +11,9 @@ Written in Rust. Supports 14 programming languages. Ships with a desktop app and
 - **Knowledge Graph** -- Parses source code into a rich graph of symbols (functions, classes, modules, imports, calls, inheritance) with 50+ node types and typed relationships
 - **14 Languages** -- JavaScript, TypeScript, Python, Java, C, C++, C#, Go, Rust, Ruby, PHP, Kotlin, Swift, Razor via tree-sitter
 - **ASP.NET MVC 5 Deep Support** -- Controllers, actions, Razor views, Entity Framework 6 EDMX, Telerik/Kendo UI grids, jQuery/AJAX mapping, service/repository layer detection (see below)
-- **HTML Documentation Generator** -- DeepWiki-style single-page HTML site with sidebar navigation, Mermaid diagrams, dark/light theme, and search
+- **HTML Documentation Generator** -- DeepWiki-style single-page HTML site with full-text search (Ctrl+K), syntax highlighting, copy buttons, callouts, breadcrumbs, Previous/Next navigation, scroll spy TOC, mobile responsive
+- **LLM Enrichment** -- Optional `--enrich` mode that augments documentation with grounded LLM prose, structured JSON payloads, evidence citations, provenance tracking, and anti-hallucination validation
+- **Ask the Codebase** -- `gitnexus ask "question"` CLI command for graph-powered Q&A with streaming responses
 - **Desktop App** -- Tauri v2 desktop application with interactive graph visualization, treemap view, intelligent chat, and command palette (Ctrl+K)
 - **Intelligent Chat** -- AI-powered code Q&A with streaming responses, query complexity analysis, multi-step research plans, and deep research mode. Supports Ollama, OpenAI, Anthropic, OpenRouter, and Gemini (with reasoning/thinking mode)
 - **MCP Server** -- 7 tools accessible to any MCP-compatible AI agent (Claude, Cursor, VS Code, etc.)
@@ -139,6 +141,11 @@ This creates a `.gitnexus/` directory containing the serialized knowledge graph.
 gitnexus generate --path D:\path\to\project html
 # → Open .gitnexus/docs/index.html in your browser
 
+# Generate with LLM enrichment (requires configured LLM)
+gitnexus generate --path D:\path\to\project html --enrich
+gitnexus generate --path D:\path\to\project html --enrich --enrich-profile strict
+gitnexus generate --path D:\path\to\project html --enrich --enrich-lang en
+
 # Generate everything (AGENTS.md, wiki, skills, docs, DOCX, HTML)
 gitnexus generate --path D:\path\to\project all
 
@@ -148,6 +155,14 @@ gitnexus generate --path D:\path\to\project docx     # Word document
 gitnexus generate --path D:\path\to\project context   # AGENTS.md only
 gitnexus generate --path D:\path\to\project wiki      # Wiki pages
 gitnexus generate --path D:\path\to\project skills    # Skill files
+```
+
+### Ask the codebase
+
+```bash
+# Ask a question using graph context + LLM (streaming response)
+gitnexus ask "comment fonctionne le calcul des barèmes ?"
+gitnexus ask "which controllers call the Erable WebAPI?" --path D:\taf\Alise_v2
 ```
 
 ### Search & Explore
@@ -208,10 +223,16 @@ cargo build --release -p gitnexus-cli
 # 3. Generate HTML documentation
 .\target\release\gitnexus.exe generate --path D:\taf\MyLegacyApp html
 
-# 4. Open in browser
+# 4. Optionally enrich with LLM (requires chat-config.json)
+.\target\release\gitnexus.exe generate --path D:\taf\MyLegacyApp html --enrich
+
+# 5. Open in browser
 start D:\taf\MyLegacyApp\.gitnexus\docs\index.html
 
-# 5. Or launch the desktop app for interactive exploration
+# 6. Ask questions about the code
+.\target\release\gitnexus.exe ask "how does payment validation work?" --path D:\taf\MyLegacyApp
+
+# 7. Or launch the desktop app for interactive exploration
 .\target\release\gitnexus-desktop.exe
 ```
 

@@ -19,3 +19,4 @@ pub mod hotspots;
 pub mod coupling_cmd;
 pub mod ownership_cmd;
 pub mod ask;
+pub mod report;

@@ -18,6 +18,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Index a repository into a knowledge graph
+    #[command(after_help = "Examples:\n  gitnexus analyze\n  gitnexus analyze D:\\taf\\MyProject\n  gitnexus analyze --force --verbose")]
     Analyze {
         /// Path to the repository (defaults to current directory)
         #[arg(default_value = ".")]
@@ -57,6 +58,7 @@ enum Commands {
         all: bool,
     },
     /// Search the knowledge graph
+    #[command(after_help = "Examples:\n  gitnexus query \"authentication middleware\"\n  gitnexus query \"user service\" --limit 5")]
     Query {
         /// Natural language search query
         query: String,
@@ -68,6 +70,7 @@ enum Commands {
         limit: usize,
     },
     /// 360-degree symbol view
+    #[command(after_help = "Examples:\n  gitnexus context UserService\n  gitnexus context handleRequest --repo my-project")]
     Context {
         /// Symbol name to look up
         name: String,
@@ -76,6 +79,7 @@ enum Commands {
         repo: Option<String>,
     },
     /// Blast radius analysis
+    #[command(after_help = "Examples:\n  gitnexus impact handleRequest --direction both\n  gitnexus impact UserService --direction upstream")]
     Impact {
         /// Symbol name or node ID
         target: String,
@@ -102,6 +106,7 @@ enum Commands {
         path: Option<String>,
     },
     /// Generate documentation from the knowledge graph
+    #[command(after_help = "Examples:\n  gitnexus generate html --path D:\\taf\\MyProject\n  gitnexus generate html --enrich --enrich-profile strict\n  gitnexus generate all --path D:\\taf\\MyProject")]
     Generate {
         /// Target: context, agents, wiki, skills, docs, docx, html, all
         #[arg(help = "Target: context | agents | wiki | skills | docs | docx | html | all")]
@@ -166,12 +171,23 @@ enum Commands {
         json: bool,
     },
     /// Ask a question about the codebase using the knowledge graph + LLM
+    #[command(after_help = "Examples:\n  gitnexus ask \"how does authentication work?\"\n  gitnexus ask \"quels controllers appellent le WebAPI?\" --path D:\\taf\\MyProject")]
     Ask {
         /// The question to ask
         question: String,
         /// Path to the repository (defaults to current directory)
         #[arg(short, long)]
         path: Option<String>,
+    },
+    /// Generate a combined code health report (hotspots + coupling + ownership + graph stats)
+    #[command(after_help = "Examples:\n  gitnexus report\n  gitnexus report --path D:\\taf\\MyProject\n  gitnexus report --json")]
+    Report {
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -241,6 +257,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Ask { question, path } => {
             commands::ask::run(&question, path.as_deref())
+        }
+        Commands::Report { path, json } => {
+            commands::report::run(path.as_deref(), json)
         }
     }
 }

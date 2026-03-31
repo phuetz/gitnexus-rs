@@ -209,6 +209,8 @@ gitnexus list          # List indexed repositories with stats
 gitnexus status        # Show index status for current repo
 gitnexus clean         # Delete index
 gitnexus clean --all   # Delete all indexed repos
+gitnexus report        # Combined code health report (hotspots + coupling + ownership)
+gitnexus report --json # Same, as JSON
 ```
 
 ### Full workflow example (ASP.NET MVC project)

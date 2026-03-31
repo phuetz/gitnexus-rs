@@ -46,7 +46,7 @@ cargo clippy --workspace
 
 ## Workspace Architecture
 
-Eight crates in `crates/`, with a strict dependency flow:
+14 crates in `crates/`, with a strict dependency flow:
 
 ```
 gitnexus-cli (binary: "gitnexus")
@@ -59,6 +59,7 @@ gitnexus-cli (binary: "gitnexus")
 
 gitnexus-desktop (Tauri v2 desktop app)
   ├── gitnexus-db          (direct graph/index/FTS access, NOT via MCP envelope)
+  ├── gitnexus-git         (hotspots, coupling, ownership, code health)
   ├── gitnexus-search
   └── gitnexus-core
 ```
@@ -75,9 +76,11 @@ gitnexus-desktop (Tauri v2 desktop app)
 
 **MCP** (`gitnexus-mcp`): Implements MCP protocol version 2024-11-05. Seven tools: `list_repos`, `query`, `context`, `impact`, `definition`, `codeql`, `symbol_stats`. Stdio and HTTP transports. `LocalBackend` coordinates registry loading and tool dispatch.
 
-**CLI** (`gitnexus-cli`): Binary `gitnexus` with commands: `analyze`, `mcp`, `serve`, `list`, `status`, `clean`, `query`, `context`, `impact`, `cypher`, `setup`, `shell`, `generate`, `watch`, `dashboard`. MCP mode logs to stderr to avoid polluting stdout JSON-RPC.
+**Git** (`gitnexus-git`): Git history analysis: `analyze_hotspots` (file churn scoring), `analyze_coupling` (temporal coupling between files), `analyze_ownership` (author distribution per file). Used by CLI (`hotspots`, `coupling`, `ownership`, `report` commands) and desktop app.
 
-**Desktop** (`gitnexus-desktop`): Tauri v2 desktop app with React 19 frontend. Accesses `KnowledgeGraph` + `GraphIndexes` + `FtsIndex` directly (not via MCP envelope). React frontend in `crates/gitnexus-desktop/ui/` uses Cytoscape.js for graph visualization, Zustand + TanStack Query for state, and Tailwind CSS for styling. IPC commands: `list_repos`, `open_repo`, `get_graph_data`, `get_subgraph`, `get_neighbors`, `search_symbols`, `search_autocomplete`, `get_symbol_context`, `get_impact_analysis`, `get_file_tree`, `read_file_content`, `execute_cypher`.
+**CLI** (`gitnexus-cli`): Binary `gitnexus` with commands: `analyze`, `mcp`, `serve`, `list`, `status`, `clean`, `query`, `context`, `impact`, `cypher`, `setup`, `shell`, `generate`, `watch`, `dashboard`, `hotspots`, `coupling`, `ownership`, `ask`, `report`. MCP mode logs to stderr to avoid polluting stdout JSON-RPC.
+
+**Desktop** (`gitnexus-desktop`): Tauri v2 desktop app with React 19 frontend. Accesses `KnowledgeGraph` + `GraphIndexes` + `FtsIndex` directly (not via MCP envelope). React frontend in `crates/gitnexus-desktop/ui/` uses Cytoscape.js for graph visualization (semantic sizing + glow shadows), Zustand + TanStack Query for state, Tailwind CSS + framer-motion for styling/animations. IPC commands: `list_repos`, `open_repo`, `get_graph_data`, `get_subgraph`, `get_neighbors`, `search_symbols`, `search_autocomplete`, `get_symbol_context`, `get_impact_analysis`, `get_file_tree`, `read_file_content`, `execute_cypher`, `get_process_flows`, `get_hotspots`, `get_coupling`, `get_ownership`, `get_code_health`.
 
 ## Feature Flags
 

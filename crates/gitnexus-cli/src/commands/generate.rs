@@ -5655,7 +5655,7 @@ fn build_html_template(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{project_name} — Documentation</title>
-  <script src="mermaid.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js'"></script>
+  <script src="mermaid.min.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';s.onload=function(){{if(typeof mermaid!=='undefined'){{mermaid.initialize({{theme:'dark',startOnLoad:false,securityLevel:'loose'}});renderMermaid();}}}};document.head.appendChild(s);"></script>
   <link rel="stylesheet" href="hljs-dark.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github-dark.min.css'">
   <script src="hljs.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/highlight.js@11/lib/core.min.js'"></script>
   <script src="hljs-csharp.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/csharp.min.js'"></script>
@@ -6069,8 +6069,13 @@ fn build_html_template(
         div.textContent = block.textContent;
         block.parentElement.replaceWith(div);
       }});
+      const nodes = document.querySelectorAll('.mermaid');
+      if (nodes.length === 0) return;
       if (typeof mermaid !== 'undefined') {{
-        try {{ mermaid.run({{nodes: document.querySelectorAll('.mermaid')}}); }} catch(e) {{}}
+        try {{ mermaid.run({{nodes}}); }} catch(e) {{ console.warn('Mermaid render error:', e); }}
+      }} else {{
+        // Mermaid not loaded yet — retry after a short delay (CDN loading)
+        setTimeout(renderMermaid, 500);
       }}
     }}
 

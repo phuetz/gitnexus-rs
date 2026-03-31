@@ -78,14 +78,13 @@ pub async fn get_process_flows(
                 // Follow outgoing CALLS edges
                 if let Some(outs) = indexes.outgoing.get(&current_id) {
                     for (target_id, rel_type) in outs {
-                        if rel_type.as_str().contains("Calls")
+                        if (rel_type.as_str().contains("Calls")
                             || rel_type.as_str() == "CALLS"
                             || rel_type.as_str() == "CallsAction"
-                            || rel_type.as_str() == "CallsService"
+                            || rel_type.as_str() == "CallsService")
+                            && !visited.contains(target_id)
                         {
-                            if !visited.contains(target_id) {
-                                queue.push_back(target_id.clone());
-                            }
+                            queue.push_back(target_id.clone());
                         }
                     }
                 }
@@ -95,7 +94,7 @@ pub async fn get_process_flows(
         // Generate Mermaid flowchart
         let mut mermaid = String::from("graph TD\n");
         for (i, step) in steps.iter().enumerate() {
-            let safe_name = step.name.replace('"', "'").replace('`', "'");
+            let safe_name = step.name.replace(['"', '`'], "'");
             let node_id = format!("S{}", i);
             mermaid.push_str(&format!(
                 "    {}[\"{} ({})\"]",

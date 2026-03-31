@@ -2,6 +2,7 @@
 //! to the appropriate handler.
 
 use serde_json::{json, Value};
+use std::time::Instant;
 use tracing::info;
 
 use gitnexus_core::storage::repo_manager::{self, RegistryEntry};
@@ -205,7 +206,27 @@ impl LocalBackend {
             )
         };
 
-        let results = adapter.execute_query(&cypher).map_err(McpError::Db)?;
+        let query_start = Instant::now();
+        let mut results = adapter.execute_query(&cypher).map_err(McpError::Db)?;
+        let duration = query_start.elapsed();
+
+        if duration.as_secs() > 5 {
+            tracing::warn!(
+                query = %cypher,
+                duration_ms = duration.as_millis() as u64,
+                "Slow context query detected"
+            );
+        }
+
+        let total_rows = results.len();
+        if total_rows > 1000 {
+            tracing::warn!(
+                total_rows = total_rows,
+                "Context query returned {} results, truncating to 1000",
+                total_rows
+            );
+            results.truncate(1000);
+        }
 
         Ok(json!({
             "content": [{
@@ -213,7 +234,8 @@ impl LocalBackend {
                 "text": query::format_query_result(&results)
             }],
             "_meta": {
-                "hint": hints::hint_for("context")
+                "hint": hints::hint_for("context"),
+                "durationMs": duration.as_millis() as u64
             }
         }))
     }
@@ -434,7 +456,28 @@ impl LocalBackend {
         let db_path = std::path::Path::new(&entry.storage_path).join("db");
         let adapter = self.pool.get_or_open(&db_path).map_err(McpError::Db)?;
 
-        let results = adapter.execute_query(cypher).map_err(McpError::Db)?;
+        let query_start = Instant::now();
+        let mut results = adapter.execute_query(cypher).map_err(McpError::Db)?;
+        let duration = query_start.elapsed();
+
+        if duration.as_secs() > 5 {
+            tracing::warn!(
+                query = %cypher,
+                duration_ms = duration.as_millis() as u64,
+                "Slow Cypher query detected"
+            );
+        }
+
+        let total_rows = results.len();
+        let truncated = total_rows > 1000;
+        if truncated {
+            tracing::warn!(
+                total_rows = total_rows,
+                "Query returned {} results, truncating to 1000",
+                total_rows
+            );
+            results.truncate(1000);
+        }
 
         Ok(json!({
             "content": [{
@@ -443,7 +486,10 @@ impl LocalBackend {
             }],
             "_meta": {
                 "hint": hints::hint_for("cypher"),
-                "rowCount": results.len()
+                "rowCount": results.len(),
+                "totalRows": total_rows,
+                "truncated": truncated,
+                "durationMs": duration.as_millis() as u64
             }
         }))
     }

@@ -141,7 +141,28 @@ impl DatabaseBackend for InMemoryBackend {
             cause: format!("{e}"),
         })?;
 
-        super::cypher::execute(&stmt, graph, indexes, &self.fts_index)
+        let query_start = std::time::Instant::now();
+        let mut results = super::cypher::execute(&stmt, graph, indexes, &self.fts_index)?;
+        let duration = query_start.elapsed();
+
+        if duration.as_secs() > 5 {
+            tracing::warn!(
+                query = %query,
+                duration_ms = duration.as_millis() as u64,
+                "Slow Cypher query detected in InMemoryBackend"
+            );
+        }
+
+        if results.len() > 1000 {
+            tracing::warn!(
+                total_rows = results.len(),
+                "Query returned {} results, truncating to 1000",
+                results.len()
+            );
+            results.truncate(1000);
+        }
+
+        Ok(results)
     }
 
     fn close(&mut self) -> Result<()> {

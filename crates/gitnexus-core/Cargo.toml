@@ -14,5 +14,7 @@ thiserror.workspace = true
 uuid.workspace = true
 regex.workspace = true
 bincode = "1"
+toml.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]

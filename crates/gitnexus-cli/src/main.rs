@@ -269,7 +269,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Config { action } => {
             match action.as_str() {
-                "test" => commands::config_cmd::run_test(),
+                "test" => tokio::task::spawn_blocking(commands::config_cmd::run_test)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("{}", e))?,
                 _ => {
                     println!("Unknown config action: {}. Use 'gitnexus config test'.", action);
                     Ok(())

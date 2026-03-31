@@ -146,7 +146,201 @@ pub fn generate_aspnet_docs(
         ));
     }
 
+    // 10. External services detail
+    let ext_services: Vec<&GraphNode> = graph
+        .iter_nodes()
+        .filter(|n| n.label == NodeLabel::ExternalService)
+        .collect();
+    if !ext_services.is_empty() {
+        generate_external_services_doc(docs_dir, &ext_services, &controllers, graph)?;
+        pages.push((
+            "aspnet-external".to_string(),
+            "Services Externes".to_string(),
+            "aspnet-external.md".to_string(),
+        ));
+    }
+
+    // 11. Entity detail with properties
+    if !entities.is_empty() {
+        generate_entities_detail_doc(docs_dir, &entities, graph)?;
+        pages.push((
+            "aspnet-entities-detail".to_string(),
+            "Détail des Entités".to_string(),
+            "aspnet-entities-detail.md".to_string(),
+        ));
+    }
+
     Ok(pages)
+}
+
+// ─── External Services Documentation ────────────────────────────────────
+
+fn generate_external_services_doc(
+    docs_dir: &Path,
+    ext_services: &[&GraphNode],
+    controllers: &[&GraphNode],
+    graph: &KnowledgeGraph,
+) -> Result<()> {
+    let out_path = docs_dir.join("aspnet-external.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    writeln!(f, "# Services Externes")?;
+    writeln!(f, "<!-- GNX:LEAD -->")?;
+    writeln!(f)?;
+    writeln!(f, "> Documentation des {} services externes (WebAPI, WCF, REST) appelés par l'application.", ext_services.len())?;
+    writeln!(f)?;
+
+    // Summary table
+    writeln!(f, "## Vue d'ensemble")?;
+    writeln!(f)?;
+    writeln!(f, "| Service | Type | URL / Endpoint | Fichier |")?;
+    writeln!(f, "|---------|------|---------------|---------|")?;
+    for svc in ext_services {
+        let svc_type = svc.properties.component_type.as_deref().unwrap_or("API");
+        let url = svc.properties.description.as_deref().unwrap_or("-");
+        writeln!(
+            f, "| **{}** | {} | `{}` | `{}` |",
+            svc.properties.name,
+            svc_type,
+            url,
+            svc.properties.file_path.replace('\\', "/")
+        )?;
+    }
+    writeln!(f)?;
+
+    // Detail per service
+    for svc in ext_services {
+        writeln!(f, "---")?;
+        writeln!(f, "## {}", svc.properties.name)?;
+        writeln!(f)?;
+
+        if let Some(desc) = &svc.properties.description {
+            writeln!(f, "**Endpoint :** `{}`", desc)?;
+            writeln!(f)?;
+        }
+
+        // Methods called on this service
+        let methods: Vec<&GraphNode> = graph
+            .iter_nodes()
+            .filter(|n| {
+                n.label == NodeLabel::Method
+                    && n.properties.file_path == svc.properties.file_path
+                    && !n.properties.name.starts_with("get_")
+                    && !n.properties.name.starts_with("set_")
+                    && !n.properties.name.starts_with("PrepareRequest")
+                    && !n.properties.name.starts_with("ProcessResponse")
+            })
+            .collect();
+
+        if !methods.is_empty() {
+            writeln!(f, "### Méthodes disponibles ({})", methods.len())?;
+            writeln!(f)?;
+            writeln!(f, "| Méthode | Type retour |")?;
+            writeln!(f, "|---------|-------------|")?;
+            for m in methods.iter().take(25) {
+                let ret = m.properties.return_type.as_deref().unwrap_or("-");
+                writeln!(f, "| `{}` | {} |", m.properties.name, ret)?;
+            }
+            if methods.len() > 25 {
+                writeln!(f, "| ... | +{} méthodes |", methods.len() - 25)?;
+            }
+            writeln!(f)?;
+        }
+
+        // Which controllers call this service
+        let callers: Vec<String> = controllers
+            .iter()
+            .filter(|c| {
+                graph.iter_relationships().any(|r| {
+                    r.source_id == c.id && r.target_id == svc.id
+                })
+            })
+            .map(|c| format!("`{}`", c.properties.name))
+            .collect();
+
+        if !callers.is_empty() {
+            writeln!(f, "**Appelé par :** {}", callers.join(", "))?;
+            writeln!(f)?;
+        }
+    }
+
+    println!("  {} aspnet-external.md ({} services)", "OK".green(), ext_services.len());
+    Ok(())
+}
+
+// ─── Entity Detail Documentation ────────────────────────────────────────
+
+fn generate_entities_detail_doc(
+    docs_dir: &Path,
+    entities: &[&GraphNode],
+    graph: &KnowledgeGraph,
+) -> Result<()> {
+    let out_path = docs_dir.join("aspnet-entities-detail.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    writeln!(f, "# Détail des Entités")?;
+    writeln!(f, "<!-- GNX:LEAD -->")?;
+    writeln!(f)?;
+    writeln!(f, "> Propriétés, types et relations de chaque entité Entity Framework ({} entités).", entities.len())?;
+    writeln!(f)?;
+
+    for entity in entities {
+        writeln!(f, "---")?;
+        writeln!(f, "## {}", entity.properties.name)?;
+        writeln!(f)?;
+        writeln!(f, "**Fichier :** `{}`", entity.properties.file_path.replace('\\', "/"))?;
+        writeln!(f)?;
+
+        // Collect properties (Property nodes in the same file or linked)
+        let props: Vec<&GraphNode> = graph
+            .iter_nodes()
+            .filter(|n| {
+                n.label == NodeLabel::Property
+                    && n.properties.file_path == entity.properties.file_path
+            })
+            .collect();
+
+        if !props.is_empty() {
+            writeln!(f, "### Propriétés ({})", props.len())?;
+            writeln!(f)?;
+            writeln!(f, "| Propriété | Type |")?;
+            writeln!(f, "|-----------|------|")?;
+            for p in props.iter().take(50) {
+                let ptype = p.properties.return_type.as_deref().unwrap_or("-");
+                writeln!(f, "| `{}` | {} |", p.properties.name, ptype)?;
+            }
+            if props.len() > 50 {
+                writeln!(f, "| ... | +{} propriétés |", props.len() - 50)?;
+            }
+            writeln!(f)?;
+        }
+
+        // Navigation properties / associations
+        let nav_rels: Vec<String> = graph
+            .iter_relationships()
+            .filter(|r| {
+                r.source_id == entity.id
+                    && (r.rel_type.as_str() == "HasAssociation"
+                        || r.rel_type.as_str() == "HasNavigationProperty")
+            })
+            .filter_map(|r| {
+                graph.get_node(&r.target_id).map(|target| {
+                    format!("`{}`", target.properties.name)
+                })
+            })
+            .collect();
+
+        if !nav_rels.is_empty() {
+            let unique: HashSet<String> = nav_rels.into_iter().collect();
+            let mut sorted: Vec<String> = unique.into_iter().collect();
+            sorted.sort();
+            writeln!(f, "**Relations :** {}", sorted.join(", "))?;
+            writeln!(f)?;
+        }
+    }
+
+    println!("  {} aspnet-entities-detail.md ({} entités)", "OK".green(), entities.len());
+    Ok(())
 }
 
 // ─── Services Detail Documentation ──────────────────────────────────────

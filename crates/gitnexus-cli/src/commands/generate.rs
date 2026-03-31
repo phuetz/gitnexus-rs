@@ -3157,6 +3157,54 @@ fn generate_docs_getting_started(
         writeln!(f)?;
     }
 
+    // ASP.NET setup section (if applicable)
+    let has_controllers = graph.iter_nodes().any(|n| n.label == NodeLabel::Controller);
+    if has_controllers {
+        writeln!(f, "## Prérequis & Setup local")?;
+        writeln!(f, "<!-- GNX:INTRO:setup-local -->")?;
+        writeln!(f)?;
+        writeln!(f, "Ce projet est une application **ASP.NET MVC 5** (.NET Framework).")?;
+        writeln!(f)?;
+        writeln!(f, "### Prérequis")?;
+        writeln!(f)?;
+        writeln!(f, "| Outil | Version | Notes |")?;
+        writeln!(f, "|-------|---------|-------|")?;
+        writeln!(f, "| Visual Studio | 2019+ | Avec le workload \"Développement web ASP.NET\" |")?;
+        writeln!(f, "| .NET Framework | 4.6.1+ | Vérifier dans `web.config` → `targetFramework` |")?;
+        writeln!(f, "| SQL Server | 2016+ | Base de données locale ou distante |")?;
+        writeln!(f, "| IIS Express | intégré à VS | Pour le debug local |")?;
+        writeln!(f)?;
+        writeln!(f, "### Étapes de démarrage")?;
+        writeln!(f)?;
+        writeln!(f, "1. **Ouvrir la solution** `.sln` dans Visual Studio")?;
+        writeln!(f, "2. **Restaurer les packages NuGet** : clic droit sur la solution → Restaurer les packages NuGet")?;
+        writeln!(f, "3. **Configurer la connexion DB** : vérifier `web.config` → `<connectionStrings>`")?;
+        writeln!(f, "4. **Compiler** : Ctrl+Shift+B")?;
+        writeln!(f, "5. **Lancer** : F5 (IIS Express)")?;
+        writeln!(f)?;
+
+        // Detect connection strings in web.config nodes
+        let config_files: Vec<&GraphNode> = graph
+            .iter_nodes()
+            .filter(|n| {
+                n.label == NodeLabel::File
+                    && (n.properties.file_path.ends_with("web.config")
+                        || n.properties.file_path.ends_with("Web.config"))
+                    && !n.properties.file_path.contains("PackageTmp")
+                    && !n.properties.file_path.contains("/obj/")
+            })
+            .collect();
+
+        if !config_files.is_empty() {
+            writeln!(f, "### Fichiers de configuration")?;
+            writeln!(f)?;
+            for cf in &config_files {
+                writeln!(f, "- `{}`", cf.properties.file_path.replace('\\', "/"))?;
+            }
+            writeln!(f)?;
+        }
+    }
+
     // Navigation
     writeln!(f, "## Pour aller plus loin")?;
     writeln!(f)?;
@@ -5264,10 +5312,74 @@ fn generate_deployment_guide(
     writeln!(f)?;
 
     writeln!(f, "## Configuration")?;
+    writeln!(f, "<!-- GNX:INTRO:configuration -->")?;
     writeln!(f)?;
-    writeln!(f, "Les fichiers Web.config contiennent les paramètres par environnement.")?;
-    writeln!(f, "Chaque environnement a sa propre transformation Web.{{env}}.config.")?;
+    writeln!(f, "Les fichiers `Web.config` contiennent les paramètres par environnement.")?;
+    writeln!(f, "Chaque environnement a sa propre transformation `Web.{{env}}.config`.")?;
     writeln!(f)?;
+
+    // List config files detected
+    let config_files: Vec<&GraphNode> = graph.iter_nodes()
+        .filter(|n| {
+            n.label == NodeLabel::File
+                && (n.properties.file_path.ends_with(".config")
+                    || n.properties.file_path.ends_with(".Config"))
+                && !n.properties.file_path.contains("PackageTmp")
+                && !n.properties.file_path.contains("/obj/")
+                && !n.properties.file_path.contains("\\obj\\")
+        })
+        .collect();
+
+    if !config_files.is_empty() {
+        writeln!(f, "### Fichiers de configuration détectés")?;
+        writeln!(f)?;
+        writeln!(f, "| Fichier | Rôle |")?;
+        writeln!(f, "|---------|------|")?;
+        for cf in &config_files {
+            let path = cf.properties.file_path.replace('\\', "/");
+            let role = if path.contains("Web.config") && !path.contains(".Release") && !path.contains(".Debug") {
+                "Configuration principale"
+            } else if path.contains("Release") {
+                "Transformation production"
+            } else if path.contains("Debug") {
+                "Transformation développement"
+            } else if path.contains("Qualification") {
+                "Transformation qualification"
+            } else if path.contains("packages.config") {
+                "Dépendances NuGet"
+            } else {
+                "Configuration"
+            };
+            writeln!(f, "| `{}` | {} |", path, role)?;
+        }
+        writeln!(f)?;
+    }
+
+    // ASP.NET deployment checklist
+    let has_controllers = graph.iter_nodes().any(|n| n.label == NodeLabel::Controller);
+    if has_controllers {
+        writeln!(f, "## Déploiement ASP.NET MVC")?;
+        writeln!(f, "<!-- GNX:INTRO:deploiement-aspnet -->")?;
+        writeln!(f)?;
+        writeln!(f, "### Checklist")?;
+        writeln!(f)?;
+        writeln!(f, "1. **Compiler en Release** : `msbuild /p:Configuration=Release`")?;
+        writeln!(f, "2. **Publier** : clic droit → Publier → Profil de publication")?;
+        writeln!(f, "3. **Transformations** : `Web.Release.config` appliquée automatiquement")?;
+        writeln!(f, "4. **IIS** : pool .NET 4.x (pipeline intégré), pointer vers le dossier publié")?;
+        writeln!(f, "5. **ConnectionStrings** : configurer dans `Web.config` du serveur")?;
+        writeln!(f, "6. **Tester** : naviguer vers l'URL du site")?;
+        writeln!(f)?;
+
+        writeln!(f, "### Environnements")?;
+        writeln!(f)?;
+        writeln!(f, "| Environnement | Transformation | Usage |")?;
+        writeln!(f, "|--------------|----------------|-------|")?;
+        writeln!(f, "| Développement | `Web.Debug.config` | Debug local (IIS Express) |")?;
+        writeln!(f, "| Qualification | `Web.Qualification.config` | Tests pré-production |")?;
+        writeln!(f, "| Production | `Web.Release.config` | Serveur de production |")?;
+        writeln!(f)?;
+    }
 
     println!("  {} deployment.md", "OK".green());
     Ok(())

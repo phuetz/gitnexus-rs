@@ -6,6 +6,29 @@ Written in Rust. Supports 14 programming languages. Ships with a desktop app and
 
 [Version française](README.fr.md)
 
+## Why GitNexus? (vs AI coding assistants alone)
+
+AI coding assistants like Claude Code, Cursor, or Copilot read files **one at a time, on demand**. For a large project (800+ files), they must read dozens of files to understand a single call chain, they start from scratch every conversation, and they fill their context window with raw source code.
+
+GitNexus solves this by pre-indexing your **entire** codebase into a knowledge graph of relationships.
+
+| | AI assistant alone | AI assistant + GitNexus |
+|---|---|---|
+| **Relationships** | Must read each file to discover who calls what | Pre-computed graph: instant callers, callees, hierarchy |
+| **Scale** | ~50 files in context max | 800+ files indexed, queryable in 1 command |
+| **Persistence** | Starts from scratch each conversation | Graph persists on disk, always available |
+| **Context efficiency** | Reading 50 files = full context, no room to think | Returns only relevant relationships, context stays free |
+| **Impact analysis** | Impossible without reading the whole project | `gitnexus impact handleRequest` → full chain in 1 second |
+| **Git analytics** | Would need to parse `git log` every time | Pre-computed hotspots, coupling, ownership |
+| **Documentation** | Can write 1-2 pages per conversation | Generates 40+ page HTML site with diagrams, navigation, search |
+| **Legacy frameworks** | Doesn't understand Telerik 2011, EDMX, jQuery→Controller mappings | Specialized parsers for ASP.NET MVC, EF6, Telerik, AJAX |
+| **Multi-agent** | Limited to one tool | MCP server → works with Claude, Cursor, VS Code, any agent |
+| **Offline** | Needs API | Graph works 100% local, no internet required |
+
+**In short:** an AI assistant reads code. GitNexus **understands** the entire codebase structure. Together, the AI has a "brain" that already knows all relationships -- instead of reading 50 files to find what calls `PaymentService`, it runs one command and gets the answer instantly, without consuming context.
+
+It's the difference between asking someone to **read a book** vs giving them the **index and table of contents**.
+
 ## Features
 
 - **Knowledge Graph** -- Parses source code into a rich graph of symbols (functions, classes, modules, imports, calls, inheritance) with 50+ node types and typed relationships

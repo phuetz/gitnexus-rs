@@ -6,6 +6,29 @@ Intelligence de code basée sur un graphe de connaissances pour agents IA. GitNe
 
 [English version](README.md)
 
+## Pourquoi GitNexus ? (vs un assistant IA seul)
+
+Les assistants IA comme Claude Code, Cursor ou Copilot lisent les fichiers **un par un, à la demande**. Pour un gros projet (800+ fichiers), ils doivent lire des dizaines de fichiers pour comprendre une seule chaîne d'appels, repartent de zéro à chaque conversation, et remplissent leur fenêtre de contexte avec du code brut.
+
+GitNexus résout ce problème en pré-indexant **l'intégralité** de votre codebase dans un graphe de connaissances.
+
+| | Assistant IA seul | Assistant IA + GitNexus |
+|---|---|---|
+| **Relations** | Doit lire chaque fichier pour découvrir qui appelle quoi | Graphe pré-calculé : appelants, appelés, hiérarchie instantanés |
+| **Échelle** | ~50 fichiers dans le contexte max | 800+ fichiers indexés, interrogeables en 1 commande |
+| **Persistance** | Repart de zéro à chaque conversation | Le graphe persiste sur disque, toujours disponible |
+| **Efficacité contexte** | Lire 50 fichiers = contexte plein, plus de place pour réfléchir | Retourne uniquement les relations pertinentes, le contexte reste libre |
+| **Analyse d'impact** | Impossible sans lire tout le projet | `gitnexus impact handleRequest` → chaîne complète en 1 seconde |
+| **Analytics Git** | Devrait parser `git log` à chaque fois | Hotspots, couplage, ownership pré-calculés |
+| **Documentation** | Peut écrire 1-2 pages par conversation | Génère 40+ pages HTML avec diagrammes, navigation, recherche |
+| **Frameworks legacy** | Ne comprend pas Telerik 2011, EDMX, jQuery→Controller | Parsers spécialisés ASP.NET MVC, EF6, Telerik, AJAX |
+| **Multi-agents** | Limité à un seul outil | Serveur MCP → Claude, Cursor, VS Code, tout agent |
+| **Hors ligne** | Besoin d'API | Le graphe fonctionne 100% local, sans internet |
+
+**En résumé :** un assistant IA lit du code. GitNexus **comprend** la structure de tout le codebase. Ensemble, l'IA a un "cerveau" qui connaît déjà toutes les relations — au lieu de lire 50 fichiers pour trouver ce qui appelle `PaymentService`, une seule commande donne la réponse instantanément, sans consommer de contexte.
+
+C'est la différence entre demander à quelqu'un de **lire un livre** et lui donner **l'index et le sommaire**.
+
 ## Fonctionnalités
 
 - **Graphe de connaissances** — Parse le code source en un graphe riche de symboles (fonctions, classes, modules, imports, appels, héritage) avec 50+ types de nœuds et relations typées

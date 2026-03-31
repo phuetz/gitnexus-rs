@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Code2, ChevronDown, ChevronRight, FileCode } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { useSymbolContext, useFileContent } from "../../hooks/use-tauri-query";
+import { useShikiTokens } from "../../hooks/use-shiki";
 
 /** A single collapsible code section with file path header + source code */
 function CodeSection({
@@ -32,6 +33,11 @@ function CodeSection({
     startLine,
     endLine ? endLine + 3 : undefined
   );
+  const { tokens } = useShikiTokens(
+    expanded ? data?.content : undefined,
+    data?.language
+  );
+  const baseLineNum = startLine ?? 1;
 
   return (
     <div
@@ -100,16 +106,29 @@ function CodeSection({
               background: "var(--bg-1)",
             }}
           >
-            {filePath.replace(/\\/g, "/")}
-            {startLine != null && `:${startLine}`}
-            {endLine != null && `-${endLine}`}
+            <span>{filePath.replace(/\\/g, "/")}</span>
+            {startLine != null && <span>:{startLine}</span>}
+            {endLine != null && <span>-{endLine}</span>}
+            {data?.language && (
+              <span
+                style={{
+                  marginLeft: 8,
+                  padding: "1px 5px",
+                  borderRadius: 3,
+                  background: "var(--bg-3)",
+                  color: "var(--text-2)",
+                  fontSize: 9,
+                }}
+              >
+                {data.language}
+              </span>
+            )}
           </div>
 
-          {/* Source */}
+          {/* Source with syntax highlighting */}
           {data ? (
             <pre
               style={{
-                padding: "8px 12px",
                 margin: 0,
                 fontSize: 11,
                 lineHeight: 1.6,
@@ -117,11 +136,75 @@ function CodeSection({
                 color: "var(--text-1)",
                 maxHeight: 220,
                 overflow: "auto",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-all",
               }}
             >
-              {data.content}
+              <code>
+                {tokens
+                  ? tokens.map((lineTokens, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          display: "flex",
+                          minHeight: "1.6em",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = "var(--bg-2)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = "transparent";
+                        }}
+                      >
+                        <span
+                          style={{
+                            paddingLeft: 8,
+                            paddingRight: 12,
+                            color: "var(--text-4)",
+                            width: "3.5em",
+                            textAlign: "right",
+                            userSelect: "none",
+                            flexShrink: 0,
+                            fontSize: 10,
+                          }}
+                        >
+                          {baseLineNum + i}
+                        </span>
+                        <span style={{ flex: 1, whiteSpace: "pre", paddingRight: 8 }}>
+                          {lineTokens.map((token, j) => (
+                            <span key={j} style={{ color: token.color }}>
+                              {token.content}
+                            </span>
+                          ))}
+                        </span>
+                      </div>
+                    ))
+                  : data.content.split("\n").map((line, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          display: "flex",
+                          minHeight: "1.6em",
+                        }}
+                      >
+                        <span
+                          style={{
+                            paddingLeft: 8,
+                            paddingRight: 12,
+                            color: "var(--text-4)",
+                            width: "3.5em",
+                            textAlign: "right",
+                            userSelect: "none",
+                            flexShrink: 0,
+                            fontSize: 10,
+                          }}
+                        >
+                          {baseLineNum + i}
+                        </span>
+                        <span style={{ flex: 1, whiteSpace: "pre", paddingRight: 8 }}>
+                          {line}
+                        </span>
+                      </div>
+                    ))}
+              </code>
             </pre>
           ) : (
             <div

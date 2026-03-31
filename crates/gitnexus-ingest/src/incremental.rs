@@ -169,7 +169,7 @@ pub fn incremental_update(
             &named_import_map,
             &package_map,
             &module_alias_map,
-            repo_path,
+            &file_entries,
         )?;
 
         // Re-run heritage processing for changed files

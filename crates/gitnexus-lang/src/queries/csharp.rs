@@ -29,10 +29,8 @@ pub const QUERIES: &str = r#"
 
 ; Calls — free function calls
 (invocation_expression function: (identifier) @call.name) @call
-; Calls — member access: obj.Method() → captures receiver as @call.object
-(invocation_expression function: (member_access_expression
-    object: (identifier) @call.object
-    name: (identifier) @call.name)) @call
+; Calls — member access: obj.Method()
+(invocation_expression function: (member_access_expression name: (identifier) @call.name)) @call
 
 ; Null-conditional method calls: user?.Save()
 ; Parses as: invocation_expression → conditional_access_expression → member_binding_expression → identifier

@@ -10,53 +10,61 @@ use crate::phases::parsing::ExtractedData;
 use crate::IngestError;
 
 /// Build a map of (file_path, field_name) → interface_type from constructor parameters.
-/// Reads .cs files from graph nodes and extracts constructor DI parameters.
+/// Scans .cs files for class constructors with DI-injected parameters.
 fn build_field_type_map(
-    graph: &KnowledgeGraph,
-    repo_path: &std::path::Path,
+    file_entries: &[crate::phases::structure::FileEntry],
 ) -> HashMap<(String, String), String> {
     let mut map = HashMap::new();
+    let mut class_count = 0u32;
 
-    // Collect all Class/Service/Repository/Controller nodes with file paths
-    let class_nodes: Vec<(&str, &str)> = graph
-        .iter_nodes()
-        .filter(|n| {
-            matches!(
-                n.label,
-                NodeLabel::Class | NodeLabel::Controller | NodeLabel::Service | NodeLabel::Repository
-            ) && n.properties.file_path.ends_with(".cs")
-        })
-        .map(|n| (n.properties.name.as_str(), n.properties.file_path.as_str()))
-        .collect();
+    // Pattern 1: Field declarations like "CourriersService courriersService = null;"
+    let field_re = regex::Regex::new(
+        r"(?:private|protected|public|internal)?\s*([A-Z]\w+(?:Service|Repository|Manager|Helper|Provider|Client|Handler))\s+(\w+)\s*[=;]"
+    ).ok();
 
-    for (class_name, file_path) in &class_nodes {
-        // Read the source file
-        let full_path = repo_path.join(file_path);
-        let content = match std::fs::read_to_string(&full_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+    // Pattern 2: Constructor DI params like "public Foo(ICourriersService courriersService)"
+    let class_re = regex::Regex::new(
+        r"(?:public|internal|private)?\s*(?:partial\s+)?class\s+(\w+)"
+    ).ok();
 
-        let deps = gitnexus_lang::route_extractors::csharp::extract_constructor_dependencies(
-            &content,
-            class_name,
-        );
+    for file in file_entries {
+        if !file.path.ends_with(".cs") {
+            continue;
+        }
+        let fp = file.path.clone();
 
-        for (iface_type, param_name) in deps {
-            let fp = file_path.to_string();
-            // Constructor param: courrierService
-            map.insert((fp.clone(), param_name.clone()), iface_type.clone());
-            // Prefixed with _: _courrierService
-            map.insert((fp.clone(), format!("_{}", param_name)), iface_type.clone());
-            // Lowercase variant
-            let lower = param_name[..1].to_lowercase() + &param_name[1..];
-            if lower != param_name {
-                map.insert((fp.clone(), lower), iface_type.clone());
+        // Extract field declarations (legacy ASP.NET pattern without DI)
+        if let Some(ref re) = field_re {
+            for cap in re.captures_iter(&file.content) {
+                if let (Some(type_name), Some(field_name)) = (cap.get(1), cap.get(2)) {
+                    let type_name = type_name.as_str().to_string();
+                    let field_name = field_name.as_str().to_string();
+                    map.insert((fp.clone(), field_name.clone()), type_name.clone());
+                    // Also with _ prefix
+                    map.insert((fp.clone(), format!("_{}", field_name)), type_name.clone());
+                    class_count += 1;
+                }
+            }
+        }
+
+        // Extract constructor DI params (modern pattern)
+        if let Some(ref re) = class_re {
+            for cap in re.captures_iter(&file.content) {
+                if let Some(class_name) = cap.get(1) {
+                    let deps = gitnexus_lang::route_extractors::csharp::extract_constructor_dependencies(
+                        &file.content,
+                        class_name.as_str(),
+                    );
+                    for (iface_type, param_name) in deps {
+                        map.insert((fp.clone(), param_name.clone()), iface_type.clone());
+                        map.insert((fp.clone(), format!("_{}", param_name)), iface_type.clone());
+                    }
+                }
             }
         }
     }
 
-    tracing::debug!("Built field type map: {} entries from {} classes", map.len(), class_nodes.len());
+    tracing::debug!("Built field type map: {} entries from {} classes with DI", map.len(), class_count);
     map
 }
 
@@ -78,7 +86,7 @@ pub fn resolve_calls(
     named_import_map: &NamedImportMap,
     package_map: &PackageMap,
     module_alias_map: &ModuleAliasMap,
-    repo_path: &std::path::Path,
+    file_entries: &[crate::phases::structure::FileEntry],
 ) -> Result<(), IngestError> {
     let mut ctx = ResolutionContext::new(
         symbol_table,
@@ -89,52 +97,62 @@ pub fn resolve_calls(
     );
 
     // Build field→type map for receiver-aware resolution (C# DI)
-    let field_type_map = build_field_type_map(graph, repo_path);
+    let field_type_map = build_field_type_map(file_entries);
     let mut receiver_resolved = 0u32;
 
     let mut edge_count = 0;
 
+    // Debug: count how many calls have receivers
+    let with_receiver = extracted.calls.iter().filter(|c| c.receiver_name.is_some()).count();
+    let cs_calls = extracted.calls.iter().filter(|c| c.file_path.ends_with(".cs")).count();
+    tracing::debug!("Calls: {} total, {} C#, {} with receiver", extracted.calls.len(), cs_calls, with_receiver);
+
     for call in &extracted.calls {
         ctx.enable_cache(&call.file_path);
 
-        // Tier 0: Receiver-aware resolution (C# DI pattern)
-        // If we have _courrierService.CreerCourrier(), resolve via constructor DI type
-        if let Some(ref receiver) = call.receiver_name {
-            let key = (call.file_path.clone(), receiver.clone());
-            if let Some(iface_type) = field_type_map.get(&key) {
-                // Strip leading 'I' to get implementation class name
-                // ICourriersService → CourriersService
-                let impl_name = iface_type.strip_prefix('I').unwrap_or(iface_type);
+        // Tier 0: Field-type-aware resolution for C# files
+        // If the calling file has declared "CourriersService courriersService" as a field,
+        // and the called method "CreerCourrier" exists in CourriersService.cs,
+        // create a high-confidence Calls edge.
+        if call.file_path.ends_with(".cs") {
+            // Get all service types declared as fields in this file
+            let file_types: Vec<&String> = field_type_map
+                .iter()
+                .filter(|((fp, _), _)| fp == &call.file_path)
+                .map(|(_, type_name)| type_name)
+                .collect();
 
-                // Find methods matching called_name in class files containing impl_name
-                let target = symbol_table.lookup_global(&call.called_name)
-                    .and_then(|defs| {
-                        defs.iter().find(|def| {
-                            (def.symbol_type == NodeLabel::Method
-                                || def.symbol_type == NodeLabel::Function)
-                                && (def.file_path.contains(impl_name)
+            if !file_types.is_empty() {
+                // Check if the called method exists in any of these service types' files
+                if let Some(candidates) = symbol_table.lookup_global(&call.called_name) {
+                    let target = candidates.iter().find(|def| {
+                        (def.symbol_type == NodeLabel::Method || def.symbol_type == NodeLabel::Function)
+                            && file_types.iter().any(|svc_type| {
+                                let impl_name = svc_type.strip_prefix('I').unwrap_or(svc_type);
+                                def.file_path.contains(impl_name)
                                     || def.owner_id.as_deref()
                                         .map(|o| o.contains(impl_name))
-                                        .unwrap_or(false))
-                        })
+                                        .unwrap_or(false)
+                            })
                     });
 
-                if let Some(target_def) = target {
-                    let edge_id = format!("calls_di_{}_{}", call.source_id, target_def.node_id);
-                    if graph.get_relationship(&edge_id).is_none() {
-                        graph.add_relationship(GraphRelationship {
-                            id: edge_id,
-                            source_id: call.source_id.clone(),
-                            target_id: target_def.node_id.clone(),
-                            rel_type: RelationshipType::Calls,
-                            confidence: 0.9,
-                            reason: format!("DI:{}->{}.{}", receiver, iface_type, call.called_name),
-                            step: None,
-                        });
-                        edge_count += 1;
-                        receiver_resolved += 1;
+                    if let Some(target_def) = target {
+                        let edge_id = format!("calls_di_{}_{}", call.source_id, target_def.node_id);
+                        if graph.get_relationship(&edge_id).is_none() {
+                            graph.add_relationship(GraphRelationship {
+                                id: edge_id,
+                                source_id: call.source_id.clone(),
+                                target_id: target_def.node_id.clone(),
+                                rel_type: RelationshipType::Calls,
+                                confidence: 0.85,
+                                reason: format!("field-type:{}", call.called_name),
+                                step: None,
+                            });
+                            edge_count += 1;
+                            receiver_resolved += 1;
+                        }
+                        continue;
                     }
-                    continue; // Skip normal resolution, we found a DI match
                 }
             }
         }

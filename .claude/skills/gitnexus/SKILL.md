@@ -76,7 +76,19 @@ gitnexus cypher "MATCH (n:Function) RETURN n.name LIMIT 10"
 gitnexus cypher "MATCH (n:Controller)-[:DEFINES]->(a:ControllerAction) RETURN n.name, a.name"
 ```
 
-### 9. Generate documentation
+### 9. Validate LLM config
+
+```bash
+gitnexus config test                              # Check API key + test connection
+```
+
+### 10. List indexed repos
+
+```bash
+gitnexus list                                      # Show all indexed repositories
+```
+
+### 11. Generate documentation
 
 ```bash
 gitnexus generate html --path [path]                    # HTML site (DeepWiki-style)

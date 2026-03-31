@@ -4,6 +4,7 @@ import { useSymbolContext } from "../../hooks/use-tauri-query";
 import { useI18n } from "../../hooks/use-i18n";
 import { CodePanel } from "../code/CodePanel";
 import { LayersTab } from "../detail/LayersTab";
+import { CodeHealthCard } from "../health/CodeHealthCard";
 import { ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -12,6 +13,7 @@ const TABS: { id: DetailTab; i18nKey: string }[] = [
   { id: "code", i18nKey: "detail.code" },
   { id: "properties", i18nKey: "detail.codeProperties" },
   { id: "layers", i18nKey: "detail.layers" },
+  { id: "health", i18nKey: "detail.health" },
 ];
 
 const NODE_TYPE_COLORS: Record<string, string> = {
@@ -106,6 +108,11 @@ export function DetailPanel() {
         {detailTab === "code" && <CodePanel />}
         {detailTab === "properties" && <PropertiesTab />}
         {detailTab === "layers" && <LayersTab />}
+        {detailTab === "health" && (
+          <div className="p-4 overflow-auto" style={{ backgroundColor: "var(--bg-0)" }}>
+            <CodeHealthCard />
+          </div>
+        )}
       </div>
     </div>
   );

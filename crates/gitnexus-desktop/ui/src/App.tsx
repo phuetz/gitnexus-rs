@@ -1,10 +1,12 @@
 import { useEffect } from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
+import { Group, Panel } from "react-resizable-panels";
 import { Sidebar } from "./components/layout/Sidebar";
 import { CommandBar } from "./components/layout/CommandBar";
 import { StatusBar } from "./components/layout/StatusBar";
 import { MainView } from "./components/layout/MainView";
 import { DetailPanel } from "./components/layout/DetailPanel";
+import { CodeInspectorPanel } from "./components/layout/CodeInspectorPanel";
+import { PanelSeparator } from "./components/layout/PanelSeparator";
 import { SearchModal } from "./components/search/SearchModal";
 import { SettingsModal } from "./components/layout/SettingsModal";
 import { CommandPalette } from "./components/layout/CommandPalette";
@@ -14,13 +16,14 @@ import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useResponsive } from "./hooks/use-responsive";
 import { useI18n } from "./hooks/use-i18n";
 
-/** Tabs where the detail panel (node inspector) is relevant */
-const DETAIL_PANEL_TABS = new Set(["graph", "impact", "search"]);
+/** Tabs where the 2-column detail panel is relevant (not graph — graph uses 3 columns) */
+const TWO_COL_DETAIL_TABS = new Set(["impact", "search"]);
 
 function App() {
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const sidebarTab = useAppStore((s) => s.sidebarTab);
+  const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   useKeyboardShortcuts();
 
   const { isCompact, isNarrow } = useResponsive();
@@ -35,7 +38,8 @@ function App() {
     }
   }, [isCompact]);
 
-  const showDetailPanel = activeRepo && DETAIL_PANEL_TABS.has(sidebarTab) && !isNarrow;
+  const showThreeCol = activeRepo && sidebarTab === "graph" && !isNarrow;
+  const showTwoCol = activeRepo && TWO_COL_DETAIL_TABS.has(sidebarTab) && !isNarrow;
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden" style={{ background: "var(--bg-0)" }}>
@@ -60,43 +64,49 @@ function App() {
 
         {/* Main content */}
         <main id="main-content" className="flex-1 min-w-0">
-          {showDetailPanel ? (
-            <Group orientation="horizontal" className="h-full">
+          {showThreeCol ? (
+            /* ── 3-column layout: Code Inspector | Graph | Analysis ── */
+            <Group orientation="horizontal" className="h-full" >
+              {/* Left: Code Inspector (visible when node selected) */}
+              <Panel
+                defaultSize={selectedNodeId ? 22 : 0}
+                minSize={0}
+                collapsible
+              >
+                <aside aria-label="Code inspector">
+                  <ErrorBoundary>
+                    <CodeInspectorPanel />
+                  </ErrorBoundary>
+                </aside>
+              </Panel>
+              <PanelSeparator />
+
+              {/* Center: Graph Canvas */}
+              <Panel minSize={30}>
+                <ErrorBoundary>
+                  <MainView />
+                </ErrorBoundary>
+              </Panel>
+              <PanelSeparator />
+
+              {/* Right: Analysis Panel */}
+              <Panel defaultSize={28} minSize={20} collapsible>
+                <aside aria-label="Symbol details">
+                  <ErrorBoundary>
+                    <DetailPanel />
+                  </ErrorBoundary>
+                </aside>
+              </Panel>
+            </Group>
+          ) : showTwoCol ? (
+            /* ── 2-column layout: MainView | DetailPanel (impact/search tabs) ── */
+            <Group orientation="horizontal" className="h-full" >
               <Panel defaultSize={62} minSize={30}>
                 <ErrorBoundary>
                   <MainView />
                 </ErrorBoundary>
               </Panel>
-              <Separator
-                className="cursor-col-resize group relative"
-                style={{ width: 5, background: "transparent" }}
-              >
-                {/* Visible drag handle */}
-                <div
-                  className="absolute inset-y-0 left-1/2 -translate-x-1/2"
-                  style={{
-                    width: 1,
-                    background: "var(--surface-border)",
-                  }}
-                />
-                {/* Hover accent indicator */}
-                <div
-                  className="absolute inset-y-0 left-1/2 -translate-x-1/2 transition-opacity duration-150 opacity-0 group-hover:opacity-100"
-                  style={{
-                    width: 3,
-                    background: "var(--accent)",
-                    borderRadius: 2,
-                  }}
-                />
-                {/* Grip dots visible on hover */}
-                <div
-                  className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                >
-                  <span className="w-1 h-1 rounded-full" style={{ background: "var(--accent)" }} />
-                  <span className="w-1 h-1 rounded-full" style={{ background: "var(--accent)" }} />
-                  <span className="w-1 h-1 rounded-full" style={{ background: "var(--accent)" }} />
-                </div>
-              </Separator>
+              <PanelSeparator />
               <Panel defaultSize={38} minSize={24}>
                 <aside aria-label="Symbol details">
                   <ErrorBoundary>
@@ -106,6 +116,7 @@ function App() {
               </Panel>
             </Group>
           ) : (
+            /* ── Single column: all other tabs ── */
             <ErrorBoundary>
               <MainView />
             </ErrorBoundary>

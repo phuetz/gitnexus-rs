@@ -12,7 +12,7 @@ import { useI18n } from "../../hooks/use-i18n";
 import { Tooltip } from "../shared/Tooltip";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
 import { CypherQueryFAB } from "./CypherQueryFAB";
-import { CodeReferencesOverlay } from "./CodeReferencesOverlay";
+// CodeReferencesOverlay moved to CodeInspectorPanel (left panel in 3-column layout)
 import { ProcessFlowModal } from "./ProcessFlowModal";
 import type { GraphFilter, CytoNode, CytoEdge, ZoomLevel } from "../../lib/tauri-commands";
 
@@ -209,7 +209,7 @@ export function GraphExplorer() {
   const cyRef = useRef<cytoscape.Core | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const minimapCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [layout, setLayout] = useState("grid");
+  const [layout, setLayout] = useState("cose");
   const [tooltip, setTooltip] = useState<{
     x: number;
     y: number;
@@ -1018,9 +1018,6 @@ export function GraphExplorer() {
             </button>
           </div>
         )}
-
-        {/* Code references overlay */}
-        <CodeReferencesOverlay />
 
         {/* Cypher query FAB */}
         <CypherQueryFAB />

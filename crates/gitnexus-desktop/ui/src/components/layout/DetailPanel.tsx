@@ -45,7 +45,7 @@ export function DetailPanel() {
     return (
       <div
         className="h-full flex flex-col items-center justify-center p-6 text-center"
-        style={{ backgroundColor: "var(--bg-0)", borderLeft: "1px solid var(--surface-border)" }}
+        style={{ backgroundColor: "rgba(9, 11, 16, 0.85)", backdropFilter: "blur(12px)", borderLeft: "1px solid var(--surface-border)" }}
       >
         <div
           className="w-12 h-12 rounded-lg mb-3 flex items-center justify-center"
@@ -72,7 +72,7 @@ export function DetailPanel() {
   return (
     <div
       className="h-full flex flex-col"
-      style={{ backgroundColor: "var(--bg-0)", borderLeft: "1px solid var(--surface-border)" }}
+      style={{ backgroundColor: "rgba(9, 11, 16, 0.85)", backdropFilter: "blur(12px)", borderLeft: "1px solid var(--surface-border)" }}
     >
       {/* Tab bar */}
       <div
@@ -221,6 +221,30 @@ function ContextTab() {
               exported
             </span>
           )}
+          {context.node.layerType && (
+            <span
+              className="px-2 py-1 rounded text-[11px] font-medium whitespace-nowrap"
+              style={{ backgroundColor: "var(--bg-3)", color: "var(--cyan)" }}
+            >
+              {context.node.layerType}
+            </span>
+          )}
+          {context.node.entryPointScore != null && context.node.entryPointScore > 0 && (
+            <span
+              className="px-2 py-1 rounded text-[11px] font-medium whitespace-nowrap"
+              style={{ backgroundColor: "var(--bg-3)", color: "var(--amber)" }}
+            >
+              Entry Point
+            </span>
+          )}
+          {context.node.isTraced && (
+            <span
+              className="px-2 py-1 rounded text-[11px] font-medium whitespace-nowrap"
+              style={{ backgroundColor: "var(--bg-3)", color: "var(--green)" }}
+            >
+              Traced
+            </span>
+          )}
         </div>
         <h2
           className="text-base font-semibold mb-1"
@@ -237,6 +261,55 @@ function ContextTab() {
           {context.node.endLine && `-${context.node.endLine}`}
         </p>
       </div>
+
+      {/* Description */}
+      {context.node.description && (
+        <div
+          className="rounded-lg p-3"
+          style={{
+            backgroundColor: "var(--bg-1)",
+            borderLeft: "3px solid var(--accent)",
+          }}
+        >
+          <p
+            className="text-xs"
+            style={{ color: "var(--text-1)", lineHeight: 1.6 }}
+          >
+            {context.node.description}
+          </p>
+        </div>
+      )}
+
+      {/* Community membership */}
+      {context.community && (
+        <div
+          className="rounded-lg p-3"
+          style={{ backgroundColor: "var(--bg-1)" }}
+        >
+          <div className="text-[10px] font-semibold uppercase mb-1" style={{ color: "var(--text-3)", letterSpacing: "0.05em" }}>
+            Module
+          </div>
+          <div className="text-xs font-medium" style={{ color: "var(--text-0)" }}>
+            {context.community.name}
+          </div>
+          {context.community.description && (
+            <div className="text-[11px] mt-1" style={{ color: "var(--text-2)" }}>
+              {context.community.description}
+            </div>
+          )}
+          {context.community.cohesion != null && (
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-[10px]" style={{ color: "var(--text-3)" }}>Cohesion</span>
+              <div style={{ flex: 1, height: 4, borderRadius: 2, background: "var(--bg-3)" }}>
+                <div style={{ width: `${(context.community.cohesion ?? 0) * 100}%`, height: "100%", borderRadius: 2, background: "var(--accent)" }} />
+              </div>
+              <span className="text-[10px]" style={{ color: "var(--text-2)" }}>
+                {Math.round((context.community.cohesion ?? 0) * 100)}%
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {context.callers.length > 0 && (
         <CollapsibleSection title={t("detail.callers")} count={context.callers.length} defaultExpanded>

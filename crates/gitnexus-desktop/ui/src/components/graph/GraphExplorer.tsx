@@ -138,6 +138,10 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       "text-max-width": "90px" as any,
       "text-wrap": "ellipsis" as any,
       "min-zoomed-font-size": 8,
+      "text-background-opacity": 0.7,
+      "text-background-color": "#090b10",
+      "text-background-padding": "2px",
+      "text-background-shape": "roundrectangle",
       "shadow-blur": 12,
       "shadow-color": "data(color)",
       "shadow-opacity": 0.2,
@@ -182,8 +186,11 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       "target-arrow-shape": "triangle",
       "curve-style": "bezier",
       "arrow-scale": 0.7,
-      opacity: 0.6,
-    },
+      opacity: 0.75,
+      "underlay-color": "data(color)",
+      "underlay-padding": 2,
+      "underlay-opacity": 0.06,
+    } as any,
   },
   {
     selector: "edge:selected",
@@ -856,6 +863,30 @@ export function GraphExplorer() {
                 margin: "4px 0",
               }}
             />
+            {/* View Impact */}
+            <button
+              onClick={() => {
+                setSelectedNodeId(contextMenu.nodeId, contextMenu.name);
+                setSidebarTab("impact");
+                setContextMenu(null);
+              }}
+              className="w-full text-left transition-colors"
+              style={{
+                padding: "8px 16px",
+                color: "var(--text-2)",
+                backgroundColor: "var(--bg-3)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "var(--surface-hover)";
+                e.currentTarget.style.color = "var(--text-0)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "var(--bg-3)";
+                e.currentTarget.style.color = "var(--text-2)";
+              }}
+            >
+              View Impact
+            </button>
             <Tooltip content={tt("graph.contextMenu.expandNeighbors").tip}>
               <button
                 onClick={() => {

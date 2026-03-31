@@ -181,7 +181,8 @@ export function CodeInspectorPanel() {
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        background: "var(--bg-0)",
+        background: "rgba(9, 11, 16, 0.85)",
+        backdropFilter: "blur(12px)",
         borderRight: "1px solid var(--border)",
       }}
     >

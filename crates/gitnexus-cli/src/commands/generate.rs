@@ -3093,7 +3093,7 @@ fn generate_docs_getting_started(
     ep_files.truncate(15);
     let ep_file_refs: Vec<&str> = ep_files.iter().map(|s| s.as_str()).collect();
 
-    writeln!(f, "# Getting Started")?;
+    writeln!(f, "# Prise en Main")?;
     writeln!(f)?;
     write!(f, "{}", source_files_section(&ep_file_refs))?;
     writeln!(f, "Welcome to the **{}** codebase!", repo_name)?;
@@ -3143,9 +3143,9 @@ fn generate_docs_getting_started(
     entry_points.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     if !entry_points.is_empty() {
-        writeln!(f, "## Key Entry Points")?;
+        writeln!(f, "## Points d'Entrée Principaux")?;
         writeln!(f)?;
-        writeln!(f, "Start exploring from these main entry points:")?;
+        writeln!(f, "Commencez l'exploration par ces points d'entrée :")?;
         writeln!(f)?;
         for (node, _score) in entry_points.iter().take(10) {
             writeln!(
@@ -3214,7 +3214,7 @@ fn generate_docs_getting_started(
     writeln!(f, "- Les **Services Externes** détaillent les intégrations (Erable, WCF)")?;
     writeln!(f)?;
 
-    writeln!(f, "**See also:** [Overview](./overview.md) · [Architecture](./architecture.md)")?;
+    writeln!(f, "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)")?;
     writeln!(f)?;
     writeln!(f, "---")?;
     writeln!(f, "[<- Previous: Architecture](./architecture.md) | [Next: Modules ->](./modules/)")?;
@@ -4654,7 +4654,7 @@ fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -> Result<()
 
     writeln!(f, "<!-- GNX:CLOSING -->")?;
     writeln!(f, "---")?;
-    writeln!(f, "**See also:** [Overview](./overview.md) · [Architecture](./architecture.md)")?;
+    writeln!(f, "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)")?;
 
     println!("  {} project-health.md", "OK".green());
     Ok(())
@@ -5190,7 +5190,7 @@ fn generate_functional_guide(
 
     writeln!(f, "---")?;
     writeln!(f)?;
-    writeln!(f, "**See also:** [Overview](./overview.md) · [Architecture](./architecture.md)")?;
+    writeln!(f, "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)")?;
     writeln!(f)?;
     writeln!(f, "[← Previous: Overview](./overview.md) | [Next: Architecture →](./architecture.md)")?;
 
@@ -5463,11 +5463,25 @@ fn generate_html_site(
     // 2. Build sidebar HTML with numbered sections
     let mut sidebar_html = String::new();
 
-    // Group pages by category
-    let overview_pages: Vec<_> = pages
+    // Group pages by category — force overview first
+    let preferred_order = [
+        "overview", "functional-guide", "project-health", "architecture",
+        "getting-started", "deployment",
+        "hotspots", "coupling", "ownership",
+        "aspnet-controllers", "aspnet-routes", "aspnet-entities", "aspnet-data-model",
+        "aspnet-views", "aspnet-services", "aspnet-external", "aspnet-entities-detail",
+        "aspnet-seq-http", "aspnet-seq-data",
+    ];
+
+    let mut overview_pages: Vec<_> = pages
         .iter()
         .filter(|(k, _)| !k.starts_with("modules/"))
         .collect();
+    // Sort by preferred order, then alphabetically for unlisted
+    overview_pages.sort_by_key(|(k, _)| {
+        preferred_order.iter().position(|&p| k.as_str() == p).unwrap_or(999)
+    });
+
     let module_pages: Vec<_> = pages
         .iter()
         .filter(|(k, _)| k.starts_with("modules/"))
@@ -6202,6 +6216,18 @@ fn markdown_to_html(md: &str) -> String {
     let mut in_ordered_list = false;
 
     for line in md.lines() {
+        // Strip GNX anchor comments (used by LLM enrichment, not for display)
+        if line.trim().starts_with("<!-- GNX:") {
+            continue;
+        }
+
+        // Handle HTML comments (pass through as invisible)
+        if line.trim().starts_with("<!--") && line.trim().ends_with("-->") {
+            html.push_str(line);
+            html.push('\n');
+            continue;
+        }
+
         // Handle <details>/<summary> blocks (pass through as HTML)
         if line.trim_start().starts_with("<details>")
             || line.trim_start().starts_with("<details ")

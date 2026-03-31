@@ -190,36 +190,41 @@ fn generate_external_services_doc(
     writeln!(f, "> Documentation des {} services externes (WebAPI, WCF, REST) appelés par l'application.", ext_services.len())?;
     writeln!(f)?;
 
-    // Summary table
+    // Summary table (only show columns that have data)
     writeln!(f, "## Vue d'ensemble")?;
     writeln!(f)?;
-    writeln!(f, "| Service | Type | URL / Endpoint | Fichier |")?;
-    writeln!(f, "|---------|------|---------------|---------|")?;
+    let has_urls = ext_services.iter().any(|s| s.properties.description.is_some());
+    let has_files = ext_services.iter().any(|s| !s.properties.file_path.is_empty());
+
+    if has_urls && has_files {
+        writeln!(f, "| Service | Type | Endpoint | Fichier |")?;
+        writeln!(f, "|---------|------|----------|---------|")?;
+    } else if has_urls {
+        writeln!(f, "| Service | Type | Endpoint |")?;
+        writeln!(f, "|---------|------|----------|")?;
+    } else {
+        writeln!(f, "| Service | Type |")?;
+        writeln!(f, "|---------|------|")?;
+    }
     for svc in ext_services {
         let svc_type = svc.properties.component_type.as_deref().unwrap_or("API");
-        let url = svc.properties.description.as_deref().unwrap_or("-");
-        writeln!(
-            f, "| **{}** | {} | `{}` | `{}` |",
-            svc.properties.name,
-            svc_type,
-            url,
-            svc.properties.file_path.replace('\\', "/")
-        )?;
+        if has_urls && has_files {
+            writeln!(f, "| **{}** | {} | {} | `{}` |",
+                svc.properties.name, svc_type,
+                svc.properties.description.as_deref().unwrap_or("-"),
+                svc.properties.file_path.replace('\\', "/"))?;
+        } else if has_urls {
+            writeln!(f, "| **{}** | {} | {} |",
+                svc.properties.name, svc_type,
+                svc.properties.description.as_deref().unwrap_or("-"))?;
+        } else {
+            writeln!(f, "| **{}** | {} |", svc.properties.name, svc_type)?;
+        }
     }
     writeln!(f)?;
 
-    // Detail per service
+    // Detail per service (skip if no useful content)
     for svc in ext_services {
-        writeln!(f, "---")?;
-        writeln!(f, "## {}", svc.properties.name)?;
-        writeln!(f)?;
-
-        if let Some(desc) = &svc.properties.description {
-            writeln!(f, "**Endpoint :** `{}`", desc)?;
-            writeln!(f)?;
-        }
-
-        // Methods called on this service
         let methods: Vec<&GraphNode> = graph
             .iter_nodes()
             .filter(|n| {
@@ -231,6 +236,24 @@ fn generate_external_services_doc(
                     && !n.properties.name.starts_with("ProcessResponse")
             })
             .collect();
+
+        let callers_exist = controllers.iter().any(|c| {
+            graph.iter_relationships().any(|r| r.source_id == c.id && r.target_id == svc.id)
+        });
+
+        // Only write the section if there's content
+        if methods.is_empty() && !callers_exist && svc.properties.description.is_none() {
+            continue;
+        }
+
+        writeln!(f, "---")?;
+        writeln!(f, "## {}", svc.properties.name)?;
+        writeln!(f)?;
+
+        if let Some(desc) = &svc.properties.description {
+            writeln!(f, "**Endpoint :** `{}`", desc)?;
+            writeln!(f)?;
+        }
 
         if !methods.is_empty() {
             writeln!(f, "### Méthodes disponibles ({})", methods.len())?;

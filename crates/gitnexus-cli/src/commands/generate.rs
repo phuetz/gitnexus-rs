@@ -1557,14 +1557,6 @@ fn extract_all_method_signatures(source: &str, method_name: &str) -> Vec<(String
     results
 }
 
-/// Extract first method signature (backward compat wrapper).
-fn extract_method_signature(source: &str, method_name: &str) -> (String, String) {
-    extract_all_method_signatures(source, method_name)
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| ("-".to_string(), "-".to_string()))
-}
-
 /// Extract a method body from source code by finding the method declaration and reading until its closing brace.
 fn extract_method_body(source: &str, method_name: &str, max_lines: usize) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
@@ -3072,7 +3064,7 @@ fn generate_docs_architecture(
 fn generate_docs_getting_started(
     docs_dir: &Path,
     repo_name: &str,
-    communities: &BTreeMap<String, CommunityInfo>,
+    _communities: &BTreeMap<String, CommunityInfo>,
     graph: &KnowledgeGraph,
 ) -> Result<()> {
     let out_path = docs_dir.join("getting-started.md");
@@ -4198,7 +4190,7 @@ fn generate_docs_modules(
 
         // Helper: find API methods for a service by searching Method nodes
         // in files containing "WebAPI" or matching the client name pattern
-        let find_methods = |svc: &GraphNode| -> Vec<&GraphNode> {
+        let _find_methods = |svc: &GraphNode| -> Vec<&GraphNode> {
             let svc_name = &svc.properties.name;
             // Look for Method nodes in files containing "WebAPI" or the client name
             graph.iter_nodes()
@@ -4938,10 +4930,10 @@ fn generate_functional_guide(
         writeln!(f)?;
 
         // Key actions (group by GET/POST)
-        let get_actions: Vec<&&GraphNode> = actions.iter()
+        let _get_actions: Vec<&&GraphNode> = actions.iter()
             .filter(|a| a.properties.http_method.as_deref().unwrap_or("GET") == "GET")
             .collect();
-        let post_actions: Vec<&&GraphNode> = actions.iter()
+        let _post_actions: Vec<&&GraphNode> = actions.iter()
             .filter(|a| a.properties.http_method.as_deref().unwrap_or("GET") == "POST")
             .collect();
 

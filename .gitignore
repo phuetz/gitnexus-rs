@@ -1,8 +1,37 @@
+# Rust
 /target
+
+# GitNexus generated
 .gitnexus/
 wiki/
 skills/
 !.claude/skills/
 AGENTS.md
+
+# Binaries
 *.exe
 *.pdb
+
+# Node
+node_modules/
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local

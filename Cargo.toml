@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/*"]
+exclude = ["crates/gitnexus-lsp", "crates/gitnexus-storage"]
 resolver = "2"
 
 [workspace.package]
@@ -7,6 +8,9 @@ version = "0.1.0"
 edition = "2021"
 license = "PolyForm-Noncommercial-1.0.0"
 rust-version = "1.75"
+repository = "https://github.com/phuetz/gitnexus-rs"
+homepage = "https://github.com/phuetz/gitnexus-rs"
+authors = ["Patrick Huetz"]
 
 [workspace.dependencies]
 # Serialization

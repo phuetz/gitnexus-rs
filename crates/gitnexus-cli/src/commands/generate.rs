@@ -364,6 +364,8 @@ fn enrich_page_structured(
     config: &LlmConfig,
     repo_path: &Path,
     profile: &EnrichProfile,
+    enrich_lang: &str,
+    enrich_citations: bool,
 ) -> Result<Option<ProvenanceEntry>> {
     let content = std::fs::read_to_string(page_path)?;
     if content.len() < 100 {
@@ -412,13 +414,18 @@ fn enrich_page_structured(
         .join(", ");
     let sections_str = section_keys.join(", ");
 
+    let lang_instruction = match enrich_lang {
+        "en" => "Write in English. Professional technical documentation style.",
+        "fr" | _ => "Écris en français technique professionnel.",
+    };
+
     let system_prompt = format!(
         r#"Tu es un rédacteur technique senior. Tu enrichis une documentation existante.
 
 RÈGLES ABSOLUES :
 - Tu ne REMPLACES PAS la documentation. Tu AUGMENTES les sections marquées.
 - Tu ne cites QUE des source_ids parmi ceux fournis : {evidence_ids}
-- Tu écris en français technique professionnel
+- {lang_instruction}
 - JAMAIS d'identifiants inventés
 
 Réponds UNIQUEMENT en JSON valide avec cette structure exacte :
@@ -444,6 +451,7 @@ Sections disponibles : {sections}
 SOURCES D'EVIDENCE :
 {evidence}"#,
         evidence_ids = evidence_ids_str,
+        lang_instruction = lang_instruction,
         sections = sections_str,
         evidence = evidence_context,
     );
@@ -602,8 +610,8 @@ SOURCES D'EVIDENCE :
                 if let Some(tip) = &aug.developer_tip {
                     enriched.push_str(&format!("> [!TIP]\n> {}\n\n", tip));
                 }
-                // Add source references
-                if !aug.source_ids.is_empty() {
+                // Add source references (only if citations are enabled)
+                if enrich_citations && !aug.source_ids.is_empty() {
                     let sources: Vec<String> = aug
                         .source_ids
                         .iter()
@@ -912,6 +920,8 @@ fn run_enrichment_if_enabled(
     graph: &KnowledgeGraph,
     repo_path: &Path,
     enrich_profile: &str,
+    enrich_lang: &str,
+    enrich_citations: bool,
 ) -> Result<()> {
     if !enrich {
         return Ok(());
@@ -1007,7 +1017,7 @@ fn run_enrichment_if_enabled(
         let original_content = std::fs::read_to_string(page_path).unwrap_or_default();
         let page_type = classify_page(page_path);
 
-        match enrich_page_structured(page_path, graph, &config, repo_path, &profile) {
+        match enrich_page_structured(page_path, graph, &config, repo_path, &profile, enrich_lang, enrich_citations) {
             Ok(Some(prov)) => {
                 println!(
                     " {} ({} evidence)",
@@ -1182,7 +1192,7 @@ fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) -> Result<usi
     Ok(total_links)
 }
 
-pub fn run(what: &str, path: Option<&str>, enrich: bool, enrich_profile: &str) -> Result<()> {
+pub fn run(what: &str, path: Option<&str>, enrich: bool, enrich_profile: &str, enrich_lang: &str, enrich_citations: bool) -> Result<()> {
     let repo_path = Path::new(path.unwrap_or(".")).canonicalize()?;
     let storage = repo_manager::get_storage_paths(&repo_path);
     let snap_path = snapshot::snapshot_path(&storage.storage_path);
@@ -1196,7 +1206,7 @@ pub fn run(what: &str, path: Option<&str>, enrich: bool, enrich_profile: &str) -
         TARGET_SKILLS => generate_skills(&graph, &repo_path)?,
         TARGET_DOCS => {
             generate_docs(&graph, &repo_path)?;
-            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations)?;
             let docs_dir = repo_path.join(".gitnexus").join("docs");
             let xref_count = apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
@@ -1206,7 +1216,7 @@ pub fn run(what: &str, path: Option<&str>, enrich: bool, enrich_profile: &str) -
         TARGET_DOCX => {
             // Generate Markdown first, enrich, cross-ref, then convert to DOCX
             generate_docs(&graph, &repo_path)?;
-            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations)?;
             let docs_dir = repo_path.join(".gitnexus").join("docs");
             let xref_count = apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
@@ -1228,7 +1238,7 @@ pub fn run(what: &str, path: Option<&str>, enrich: bool, enrich_profile: &str) -
         TARGET_HTML => {
             // Generate Markdown first, enrich, cross-ref, then convert to HTML site
             generate_docs(&graph, &repo_path)?;
-            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations)?;
             let docs_dir = repo_path.join(".gitnexus").join("docs");
             let xref_count = apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
@@ -1241,7 +1251,7 @@ pub fn run(what: &str, path: Option<&str>, enrich: bool, enrich_profile: &str) -
             generate_wiki(&graph, &repo_path)?;
             generate_skills(&graph, &repo_path)?;
             generate_docs(&graph, &repo_path)?;
-            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile)?;
+            run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations)?;
             let docs_dir = repo_path.join(".gitnexus").join("docs");
             let xref_count = apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
@@ -6212,4 +6222,218 @@ fn extract_title_from_md(content: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_classify_page_overview() {
+        assert_eq!(classify_page(Path::new("overview.md")), PageType::Overview);
+    }
+
+    #[test]
+    fn test_classify_page_architecture() {
+        assert_eq!(classify_page(Path::new("architecture.md")), PageType::Architecture);
+    }
+
+    #[test]
+    fn test_classify_page_controller() {
+        assert_eq!(classify_page(Path::new("ctrl-dossierscontroller.md")), PageType::Controller);
+    }
+
+    #[test]
+    fn test_classify_page_service() {
+        assert_eq!(classify_page(Path::new("services.md")), PageType::Service);
+    }
+
+    #[test]
+    fn test_classify_page_data_model() {
+        assert_eq!(classify_page(Path::new("data-alisev2entities.md")), PageType::DataModel);
+    }
+
+    #[test]
+    fn test_classify_page_external() {
+        assert_eq!(classify_page(Path::new("external-services.md")), PageType::ExternalService);
+    }
+
+    #[test]
+    fn test_classify_page_misc() {
+        assert_eq!(classify_page(Path::new("random-page.md")), PageType::Misc);
+    }
+
+    #[test]
+    fn test_strip_html_tags() {
+        assert_eq!(strip_html_tags("<h1>Hello</h1><p>World</p>"), "Hello World");
+        assert_eq!(strip_html_tags("no tags here"), "no tags here");
+        assert_eq!(strip_html_tags("<a href='x'>link</a> text"), "link text");
+        assert_eq!(strip_html_tags(""), "");
+    }
+
+    #[test]
+    fn test_md5_simple_deterministic() {
+        let h1 = md5_simple("hello world");
+        let h2 = md5_simple("hello world");
+        assert_eq!(h1, h2);
+        assert_ne!(md5_simple("hello"), md5_simple("world"));
+    }
+
+    #[test]
+    fn test_enriched_payload_parse() {
+        let json = r#"{
+            "lead": "This is the lead.",
+            "section_augments": [
+                {
+                    "section_key": "architecture",
+                    "intro": "Introduction text",
+                    "warning": null,
+                    "developer_tip": "A useful tip",
+                    "see_also": ["overview.md"],
+                    "source_ids": ["E1", "E2"]
+                }
+            ],
+            "related_pages": ["overview.md"],
+            "relevant_source_ids": ["E1"],
+            "closing_summary": "Summary text"
+        }"#;
+        let payload: EnrichedPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.lead.as_deref(), Some("This is the lead."));
+        assert_eq!(payload.section_augments.len(), 1);
+        assert_eq!(payload.section_augments[0].section_key, "architecture");
+        assert_eq!(payload.section_augments[0].source_ids, vec!["E1", "E2"]);
+        assert_eq!(payload.closing_summary.as_deref(), Some("Summary text"));
+    }
+
+    #[test]
+    fn test_enriched_payload_parse_minimal() {
+        // Minimal valid payload (all optional fields null/empty)
+        let json = r#"{
+            "section_augments": [],
+            "related_pages": [],
+            "relevant_source_ids": []
+        }"#;
+        let payload: EnrichedPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.lead.is_none());
+        assert!(payload.section_augments.is_empty());
+        assert!(payload.closing_summary.is_none());
+    }
+
+    #[test]
+    fn test_enriched_payload_parse_invalid() {
+        let json = r#"{"not": "a valid payload"}"#;
+        // Should parse but with defaults (empty vectors)
+        let result: Result<EnrichedPayload, _> = serde_json::from_str(json);
+        // Depending on serde defaults, this might fail -- that's OK, we test the fallback
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_extract_params_from_content() {
+        assert_eq!(
+            extract_params_from_content("string id, int page", "test"),
+            "`string` id, `int` page"
+        );
+        assert_eq!(
+            extract_params_from_content("", "test"),
+            "-"
+        );
+        assert_eq!(
+            extract_params_from_content("DossierPresta dossier", "test"),
+            "`DossierPresta` dossier"
+        );
+    }
+
+    #[test]
+    fn test_get_profile() {
+        let fast = get_profile("fast");
+        assert_eq!(fast.max_evidence, 10);
+        assert!(!fast.review_critical);
+        assert_eq!(fast.timeout_secs, 60);
+
+        let quality = get_profile("quality");
+        assert_eq!(quality.max_evidence, 20);
+        assert!(quality.review_critical);
+
+        let strict = get_profile("strict");
+        assert_eq!(strict.max_evidence, 30);
+        assert!(strict.review_critical);
+        assert_eq!(strict.max_retries, 2);
+    }
+
+    #[test]
+    fn test_sanitize_filename() {
+        assert_eq!(sanitize_filename("Hello World"), "hello_world");
+        assert_eq!(sanitize_filename("DossiersController"), "dossierscontroller");
+        assert_eq!(sanitize_filename("a-b_c"), "a-b_c");
+    }
+
+    #[test]
+    fn test_markdown_to_html_headings() {
+        let md = "# Title\n## Section\n### Subsection\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains("<h1>"));
+        assert!(html.contains("<h2>"));
+        assert!(html.contains("<h3>"));
+    }
+
+    #[test]
+    fn test_markdown_to_html_code_block() {
+        let md = "```csharp\npublic void Test() {}\n```\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains("<pre>"));
+        assert!(html.contains("language-csharp"));
+    }
+
+    #[test]
+    fn test_markdown_to_html_callout() {
+        let md = "> [!WARNING]\n> This is a warning\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains("callout-warning"));
+        assert!(html.contains("\u{26a0}\u{fe0f}"));
+    }
+
+    #[test]
+    fn test_markdown_to_html_table() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains("<table>"));
+        assert!(html.contains("<th>"));
+        assert!(html.contains("<td>"));
+    }
+
+    #[test]
+    fn test_markdown_to_html_mermaid() {
+        let md = "```mermaid\ngraph TD\n  A-->B\n```\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains("language-mermaid"));
+    }
+
+    #[test]
+    fn test_markdown_to_html_details() {
+        let md = "<details>\n<summary>Click me</summary>\nContent here\n</details>\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains("<details>"));
+        assert!(html.contains("<summary>"));
+    }
+
+    #[test]
+    fn test_inline_md_bold() {
+        let result = inline_md("This is **bold** text");
+        assert!(result.contains("<strong>bold</strong>"));
+    }
+
+    #[test]
+    fn test_inline_md_code() {
+        let result = inline_md("Use `code` here");
+        assert!(result.contains("<code>code</code>"));
+    }
+
+    #[test]
+    fn test_inline_md_link() {
+        let result = inline_md("See [docs](./overview.md)");
+        assert!(result.contains("showPage"));
+        assert!(result.contains("overview"));
+    }
 }

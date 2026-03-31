@@ -136,7 +136,7 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
         "messages": messages,
         "max_tokens": config.max_tokens,
         "temperature": 0.3,
-        "stream": false
+        "stream": true
     });
 
     let effort = config.reasoning_effort.trim().to_lowercase();
@@ -155,19 +155,31 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
 
     let response = request.send()?;
     if !response.status().is_success() {
-        let err = response.text().unwrap_or_default();
-        println!("{} LLM error: {}", "ERROR".red(), err);
+        println!("{} LLM error: {}", "ERROR".red(), response.status());
         return Ok(());
     }
 
-    let json: serde_json::Value = response.json()?;
-    let answer = json["choices"][0]["message"]["content"]
-        .as_str()
-        .unwrap_or("No response");
+    println!("\n{}\n", "\u{2500}".repeat(60));
 
-    println!("\n{}\n", "-".repeat(60));
-    println!("{}", answer);
-    println!("\n{}", "-".repeat(60));
+    use std::io::{BufRead, BufReader, Write};
+
+    let mut full_answer = String::new();
+    let reader = BufReader::new(response);
+    for line in reader.lines() {
+        let line = line?;
+        if let Some(data) = line.strip_prefix("data: ") {
+            if data.trim() == "[DONE]" { break; }
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
+                    print!("{}", delta);
+                    std::io::stdout().flush()?;
+                    full_answer.push_str(delta);
+                }
+            }
+        }
+    }
+
+    println!("\n\n{}", "\u{2500}".repeat(60));
 
     // Show sources
     println!("\n{}", "Sources:".dimmed());

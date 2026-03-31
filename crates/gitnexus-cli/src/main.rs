@@ -115,6 +115,12 @@ enum Commands {
         /// Enrichment profile: fast, quality, or strict
         #[arg(long, default_value = "quality")]
         enrich_profile: String,
+        /// Documentation language: auto, fr, or en
+        #[arg(long, default_value = "fr")]
+        enrich_lang: String,
+        /// Include source citations in enriched pages
+        #[arg(long, default_value_t = true)]
+        enrich_citations: bool,
     },
     /// Watch a repository for changes and incrementally update the knowledge graph
     Watch {
@@ -219,8 +225,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Setup => commands::setup::run(),
         Commands::Shell { path } => commands::shell::run(path.as_deref()).await,
-        Commands::Generate { what, path, enrich, enrich_profile } => {
-            commands::generate::run(&what, path.as_deref(), enrich, &enrich_profile)
+        Commands::Generate { what, path, enrich, enrich_profile, enrich_lang, enrich_citations } => {
+            commands::generate::run(&what, path.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations)
         }
         Commands::Watch { path } => commands::watch::run(path.as_deref()).await,
         Commands::Dashboard { path } => commands::dashboard::run(path.as_deref()),

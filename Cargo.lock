@@ -1726,6 +1726,7 @@ dependencies = [
  "futures-util",
  "gitnexus-core",
  "gitnexus-db",
+ "gitnexus-git",
  "gitnexus-ingest",
  "gitnexus-search",
  "once_cell",
@@ -1804,10 +1805,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gitnexus-lsp"
-version = "0.1.0"
-
-[[package]]
 name = "gitnexus-mcp"
 version = "0.1.0"
 dependencies = [
@@ -1860,10 +1857,6 @@ dependencies = [
  "tokio",
  "tracing",
 ]
-
-[[package]]
-name = "gitnexus-storage"
-version = "0.1.0"
 
 [[package]]
 name = "gitnexus-types"

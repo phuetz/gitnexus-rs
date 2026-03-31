@@ -43,10 +43,11 @@ pub fn walk_repository(repo_path: &Path) -> Result<Vec<FileEntry>, crate::Ingest
             .to_string_lossy()
             .replace('\\', "/");
 
-        // Skip large files (>512KB likely generated)
+        // Skip very large files (>2MB likely generated/minified)
         let metadata = std::fs::metadata(abs_path).ok();
         let size = metadata.as_ref().map_or(0, |m| m.len() as usize);
-        if size > 512 * 1024 {
+        if size > 2 * 1024 * 1024 {
+            tracing::debug!("Skipping large file ({} KB): {}", size / 1024, rel_path);
             continue;
         }
 

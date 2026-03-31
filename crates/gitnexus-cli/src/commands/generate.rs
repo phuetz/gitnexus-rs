@@ -28,7 +28,6 @@ const TARGET_ALL: &str = "all";
 // ─── LLM Enrichment ────────────────────────────────────────────────────
 
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct LlmConfig {
     #[allow(dead_code)]
     pub(crate) provider: String,
@@ -114,17 +113,27 @@ fn write_cache(cache_dir: &Path, page_name: &str, hash: &str) {
 
 /// Load LLM config from ~/.gitnexus/chat-config.json
 pub(crate) fn load_llm_config() -> Option<LlmConfig> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    let config_path = std::path::Path::new(&home)
-        .join(".gitnexus")
-        .join("chat-config.json");
-    if !config_path.exists() {
-        return None;
+    // Try multiple home directory sources for cross-platform compatibility
+    let candidates = [
+        std::env::var("USERPROFILE").ok(),
+        std::env::var("HOME").ok(),
+        std::env::var("HOMEDRIVE")
+            .ok()
+            .and_then(|d| std::env::var("HOMEPATH").ok().map(|p| format!("{}{}", d, p))),
+    ];
+
+    for candidate in candidates.iter().flatten() {
+        let config_path = std::path::Path::new(candidate)
+            .join(".gitnexus")
+            .join("chat-config.json");
+        if config_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&config_path) {
+                return serde_json::from_str(&content).ok();
+            }
+        }
     }
-    let content = std::fs::read_to_string(&config_path).ok()?;
-    serde_json::from_str(&content).ok()
+
+    None
 }
 
 // ─── Structured Enrichment Types ──────────────────────────────────────

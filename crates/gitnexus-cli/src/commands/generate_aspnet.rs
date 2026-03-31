@@ -15,6 +15,7 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::Result;
+use colored::Colorize;
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 
@@ -56,7 +57,7 @@ pub fn generate_aspnet_docs(
         generate_controllers_doc(docs_dir, &controllers, &actions, &api_endpoints, graph)?;
         pages.push((
             "aspnet-controllers".to_string(),
-            "Controllers & Actions".to_string(),
+            "Contrôleurs & Actions".to_string(),
             "aspnet-controllers.md".to_string(),
         ));
     }
@@ -66,7 +67,7 @@ pub fn generate_aspnet_docs(
         generate_routes_doc(docs_dir, &controllers, &actions, &api_endpoints)?;
         pages.push((
             "aspnet-routes".to_string(),
-            "API & Route Table".to_string(),
+            "Table des Routes API".to_string(),
             "aspnet-routes.md".to_string(),
         ));
     }
@@ -76,7 +77,7 @@ pub fn generate_aspnet_docs(
         generate_entities_doc(docs_dir, &entities, &db_contexts, graph)?;
         pages.push((
             "aspnet-entities".to_string(),
-            "Entity Data Model".to_string(),
+            "Modèle de Données".to_string(),
             "aspnet-entities.md".to_string(),
         ));
     }
@@ -86,7 +87,7 @@ pub fn generate_aspnet_docs(
         generate_views_doc(docs_dir, &views, &controllers, graph)?;
         pages.push((
             "aspnet-views".to_string(),
-            "Views & Templates".to_string(),
+            "Vues & Templates".to_string(),
             "aspnet-views.md".to_string(),
         ));
     }
@@ -106,7 +107,7 @@ pub fn generate_aspnet_docs(
         generate_er_diagram_doc(docs_dir, &entities, graph)?;
         pages.push((
             "aspnet-data-model".to_string(),
-            "Entity Relationship Diagram".to_string(),
+            "Diagramme Entités-Relations".to_string(),
             "aspnet-data-model.md".to_string(),
         ));
     }
@@ -126,12 +127,172 @@ pub fn generate_aspnet_docs(
         generate_sequence_data_doc(docs_dir, &controllers, &db_contexts, &entities, graph)?;
         pages.push((
             "aspnet-seq-data".to_string(),
-            "Sequence: Data Access Flow".to_string(),
+            "Flux d'Accès aux Données".to_string(),
             "aspnet-seq-data.md".to_string(),
         ));
     }
 
+    // 9. Services detail — methods, dependencies, callers
+    let services: Vec<&GraphNode> = graph
+        .iter_nodes()
+        .filter(|n| n.label == NodeLabel::Service || n.label == NodeLabel::Repository)
+        .collect();
+    if !services.is_empty() {
+        generate_services_detail_doc(docs_dir, &services, &controllers, graph)?;
+        pages.push((
+            "aspnet-services".to_string(),
+            "Services & Repositories".to_string(),
+            "aspnet-services.md".to_string(),
+        ));
+    }
+
     Ok(pages)
+}
+
+// ─── Services Detail Documentation ──────────────────────────────────────
+
+fn generate_services_detail_doc(
+    docs_dir: &Path,
+    services: &[&GraphNode],
+    controllers: &[&GraphNode],
+    graph: &KnowledgeGraph,
+) -> Result<()> {
+    let out_path = docs_dir.join("aspnet-services.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    writeln!(f, "# Services & Repositories")?;
+    writeln!(f, "<!-- GNX:LEAD -->")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "> Documentation des {} services et repositories de la couche métier.",
+        services.len()
+    )?;
+    writeln!(f)?;
+
+    // Summary table
+    writeln!(f, "## Vue d'ensemble")?;
+    writeln!(f)?;
+    writeln!(f, "| Service | Type | Fichier | Méthodes |")?;
+    writeln!(f, "|---------|------|---------|----------|")?;
+
+    for svc in services {
+        let svc_type = if svc.label == NodeLabel::Service {
+            "Service"
+        } else {
+            "Repository"
+        };
+
+        // Count methods belonging to this service (same file)
+        let method_count = graph
+            .iter_nodes()
+            .filter(|n| {
+                n.label == NodeLabel::Method
+                    && n.properties.file_path == svc.properties.file_path
+            })
+            .count();
+
+        let short_path: String = svc
+            .properties
+            .file_path
+            .replace('\\', "/")
+            .chars()
+            .collect();
+        writeln!(
+            f,
+            "| **{}** | {} | `{}` | {} |",
+            svc.properties.name, svc_type, short_path, method_count
+        )?;
+    }
+    writeln!(f)?;
+
+    // Detail per service
+    for svc in services {
+        writeln!(f, "---")?;
+        writeln!(f, "## {}", svc.properties.name)?;
+        writeln!(f)?;
+
+        let svc_type = if svc.label == NodeLabel::Service {
+            "Service"
+        } else {
+            "Repository"
+        };
+        writeln!(f, "**Type :** {} | **Fichier :** `{}`", svc_type, svc.properties.file_path.replace('\\', "/"))?;
+        writeln!(f)?;
+
+        // Constructor dependencies
+        let deps: Vec<&GraphNode> = graph
+            .iter_nodes()
+            .filter(|n| {
+                n.label == NodeLabel::Constructor
+                    && n.properties.file_path == svc.properties.file_path
+            })
+            .collect();
+        if !deps.is_empty() {
+            writeln!(f, "**Dépendances injectées :**")?;
+            for dep in &deps {
+                writeln!(f, "- `{}`", dep.properties.name)?;
+            }
+            writeln!(f)?;
+        }
+
+        // Methods
+        let methods: Vec<&GraphNode> = graph
+            .iter_nodes()
+            .filter(|n| {
+                n.label == NodeLabel::Method
+                    && n.properties.file_path == svc.properties.file_path
+                    && !n.properties.name.starts_with("get_")
+                    && !n.properties.name.starts_with("set_")
+            })
+            .collect();
+
+        if !methods.is_empty() {
+            writeln!(f, "### Méthodes ({})", methods.len())?;
+            writeln!(f)?;
+            writeln!(f, "| Méthode | Paramètres | Type retour |")?;
+            writeln!(f, "|---------|-----------|-------------|")?;
+            for m in methods.iter().take(30) {
+                let params = m
+                    .properties
+                    .parameter_count
+                    .map(|c| format!("{} params", c))
+                    .unwrap_or_else(|| "-".to_string());
+                let ret = m
+                    .properties
+                    .return_type
+                    .as_deref()
+                    .unwrap_or("-");
+                writeln!(f, "| `{}` | {} | {} |", m.properties.name, params, ret)?;
+            }
+            if methods.len() > 30 {
+                writeln!(f, "| ... | +{} méthodes | |", methods.len() - 30)?;
+            }
+            writeln!(f)?;
+        }
+
+        // Which controllers use this service
+        let callers: Vec<String> = controllers
+            .iter()
+            .filter(|c| {
+                graph.iter_relationships().any(|r| {
+                    (r.source_id == c.id && r.target_id == svc.id)
+                        || (r.rel_type.as_str().contains("Calls")
+                            && r.source_id.contains(&c.properties.name)
+                            && r.target_id.contains(&svc.properties.name))
+                })
+            })
+            .map(|c| c.properties.name.clone())
+            .collect();
+
+        if !callers.is_empty() {
+            writeln!(f, "**Utilisé par :** {}", callers.join(", "))?;
+            writeln!(f)?;
+        }
+    }
+
+    println!("  {} aspnet-services.md ({} services)", "OK".green(), services.len());
+    Ok(())
 }
 
 // ─── Node Collection ─────────────────────────────────────────────────────
@@ -193,7 +354,7 @@ fn generate_controllers_doc(
         if !ctrl_actions.is_empty() {
             writeln!(f, "### Actions")?;
             writeln!(f)?;
-            writeln!(f, "| Method | Action | Route | Model | Return Type |")?;
+            writeln!(f, "| Méthode | Action | Route | Modèle | Type retour |")?;
             writeln!(f, "|--------|--------|-------|-------|-------------|")?;
 
             for action in ctrl_actions {
@@ -300,7 +461,7 @@ fn generate_routes_doc(
 
     routes.sort_by(|a, b| a.1.cmp(b.1));
 
-    writeln!(f, "| Method | Route | Action | Controller | Type |")?;
+    writeln!(f, "| Méthode | Route | Action | Contrôleur | Type |")?;
     writeln!(f, "|--------|-------|--------|------------|------|")?;
     for (method, route, action, controller, kind) in &routes {
         writeln!(

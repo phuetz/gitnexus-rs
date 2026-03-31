@@ -2429,16 +2429,19 @@ fn generate_docs_index(
 ) -> Result<()> {
     let now = chrono::Local::now().to_rfc3339();
 
-    // Build module children
+    // Build module children (deduplicated by filename)
     let mut module_children = Vec::new();
+    let mut seen_modules = HashSet::new();
     for info in communities.values() {
         let filename = sanitize_filename(&info.label);
-        module_children.push(json!({
-            "id": format!("mod-{}", filename),
-            "title": info.label,
-            "path": format!("modules/{}.md", filename),
-            "icon": "box"
-        }));
+        if seen_modules.insert(filename.clone()) {
+            module_children.push(json!({
+                "id": format!("mod-{}", filename),
+                "title": info.label,
+                "path": format!("modules/{}.md", filename),
+                "icon": "box"
+            }));
+        }
     }
 
     // Build ASP.NET children (grouped under an "ASP.NET MVC" section)

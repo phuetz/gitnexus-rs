@@ -145,6 +145,7 @@ pub async fn run_pipeline(
         &named_import_map,
         &package_map,
         &module_alias_map,
+        repo_path,
     )?;
     let duration = phase_start.elapsed();
     tracing::info!(

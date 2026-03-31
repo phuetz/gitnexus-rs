@@ -17,6 +17,8 @@ Intelligence de code basée sur un graphe de connaissances pour agents IA. GitNe
 - **Application Desktop** — Application Tauri v2 avec visualisation interactive du graphe, vue treemap, chat intelligent et palette de commandes (Ctrl+K)
 - **Chat Intelligent** — Q&A de code assisté par IA avec réponses en streaming, analyse de complexité des requêtes, plans de recherche multi-étapes et mode recherche approfondie. Supporte Ollama, OpenAI, Anthropic, OpenRouter et Gemini (avec mode raisonnement)
 - **Serveur MCP** — 7 outils accessibles à tout agent IA compatible MCP (Claude, Cursor, VS Code, etc.)
+- **Skill Claude Code** — Skill `/gitnexus` intégré qui permet à Claude d'interroger le graphe de connaissances pendant votre conversation, avec invocation automatique sur les questions en langage naturel
+- **Rapport de Santé du Code** — Commande `gitnexus report` combinant hotspots, couplage temporel, ownership et métriques du graphe en un score de santé (A-E)
 - **Recherche Hybride** — Recherche lexicale BM25 + embeddings sémantiques ONNX optionnels, fusionnés par Reciprocal Rank Fusion
 - **Analyse d'Impact** — Trace les appelants amont, les appelés aval et l'impact transitif de tout symbole
 - **Modes Interactifs** — Shell REPL, dashboard TUI, surveillance de fichiers avec réindexation automatique
@@ -282,6 +284,62 @@ En mode serveur MCP, GitNexus expose ces outils :
 | `detect_changes` | Analyser les changements non committés et leur impact |
 | `rename` | Trouver toutes les références à mettre à jour pour un renommage |
 | `cypher` | Exécuter une requête Cypher en lecture seule |
+
+## Intégration IA : Trois façons d'utiliser GitNexus avec l'IA
+
+GitNexus propose trois approches distinctes pour l'intelligence de code assistée par IA, chacune avec ses avantages :
+
+### 1. Skill Claude Code (`/gitnexus`) -- Recommandé
+
+Un [skill Claude Code](https://docs.anthropic.com/en/docs/claude-code) intégré qui permet à Claude d'interroger directement le graphe de connaissances pendant votre conversation.
+
+```bash
+# Tapez simplement dans Claude Code :
+/gitnexus query "middleware d'authentification"
+/gitnexus impact UserService --direction upstream
+/gitnexus report --path D:\taf\MonProjet
+
+# Ou posez la question naturellement — Claude invoque le skill automatiquement :
+"Qu'est-ce qui appelle le PaymentService ?"  # → Claude lance gitnexus impact PaymentService
+```
+
+Le skill est défini dans `.claude/skills/gitnexus/SKILL.md` et fonctionne directement pour quiconque clone le dépôt. Une version personnelle (globale) peut être installée dans `~/.claude/skills/gitnexus/SKILL.md` pour l'utiliser dans tous vos projets.
+
+### 2. Serveur MCP (pour tout agent IA)
+
+Un serveur [Model Context Protocol](https://modelcontextprotocol.io/) standard exposant 7 outils. Compatible avec Claude Desktop, Cursor, VS Code Copilot, et tout agent MCP.
+
+```bash
+gitnexus mcp          # transport stdio
+gitnexus serve        # transport HTTP (port 3000)
+gitnexus setup        # Configuration automatique dans votre éditeur
+```
+
+### 3. API LLM (`--enrich` et `ask`)
+
+Appels LLM directs via API compatible OpenAI pour l'enrichissement de la documentation et le Q&A sur le code. Nécessite `~/.gitnexus/chat-config.json`.
+
+```bash
+gitnexus ask "comment fonctionne la validation des paiements ?" --path D:\taf\MonProjet
+gitnexus generate html --path D:\taf\MonProjet --enrich
+```
+
+### Comparaison
+
+| | Skill Claude Code | Serveur MCP | API LLM |
+|---|---|---|---|
+| **Fonctionnement** | Claude lit le graphe directement via la CLI | L'agent IA appelle des outils via JSON-RPC | GitNexus appelle un LLM externe |
+| **Modèle IA** | Claude (votre session en cours) | Tout agent compatible MCP | Gemini, OpenAI, Anthropic, Ollama |
+| **Configuration** | Zéro (le skill est dans le dépôt) | `gitnexus setup` | Fichier config + clé API |
+| **Latence** | Faible (CLI locale) | Faible (serveur local) | Plus élevée (aller-retour API) |
+| **Coût** | Inclus dans Claude Code | Inclus dans votre agent | Coût par token API |
+| **Idéal pour** | Exploration interactive, workflow dev | Intégration IDE, multi-agents | Enrichissement de doc, Q&A en batch |
+| **Contexte** | Conversation complète + graphe | Par requête (scope outil) | Contexte graphe uniquement |
+
+**Quand utiliser quoi :**
+- **Skill Claude Code** : Vous travaillez dans Claude Code et voulez explorer le code interactivement. Claude comprend l'historique de votre conversation ET le graphe — idéal pour les questions complexes.
+- **Serveur MCP** : Vous utilisez Cursor, VS Code, ou un autre éditeur compatible MCP. Le graphe est toujours disponible comme outil.
+- **API LLM** : Vous voulez enrichir la documentation en batch ou avez besoin d'une commande Q&A autonome sans agent IA.
 
 ## Langages Supportés
 

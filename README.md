@@ -17,6 +17,8 @@ Written in Rust. Supports 14 programming languages. Ships with a desktop app and
 - **Desktop App** -- Tauri v2 desktop application with interactive graph visualization, treemap view, intelligent chat, and command palette (Ctrl+K)
 - **Intelligent Chat** -- AI-powered code Q&A with streaming responses, query complexity analysis, multi-step research plans, and deep research mode. Supports Ollama, OpenAI, Anthropic, OpenRouter, and Gemini (with reasoning/thinking mode)
 - **MCP Server** -- 7 tools accessible to any MCP-compatible AI agent (Claude, Cursor, VS Code, etc.)
+- **Claude Code Skill** -- Built-in `/gitnexus` skill that lets Claude query the knowledge graph during your conversation, with automatic invocation on natural language questions
+- **Code Health Report** -- `gitnexus report` command combining hotspots, temporal coupling, ownership analysis, and graph metrics into a single health score (A-E)
 - **Hybrid Search** -- BM25 lexical search + optional ONNX semantic embeddings, fused with Reciprocal Rank Fusion
 - **Blast Radius Analysis** -- Trace upstream callers, downstream callees, and transitive impact of any symbol
 - **Interactive Modes** -- REPL shell, TUI dashboard, file watcher with auto-reindex
@@ -306,6 +308,62 @@ When running as an MCP server, GitNexus exposes these tools:
 | `detect_changes` | Analyze uncommitted changes and their impact |
 | `rename` | Find all references that would need updating for a symbol rename |
 | `cypher` | Execute a raw read-only Cypher query |
+
+## AI Integration: Three Ways to Use GitNexus with AI
+
+GitNexus offers three distinct approaches to AI-powered code intelligence, each with different trade-offs:
+
+### 1. Claude Code Skill (`/gitnexus`) -- Recommended
+
+A built-in [Claude Code skill](https://docs.anthropic.com/en/docs/claude-code) that lets Claude directly query the knowledge graph during your conversation.
+
+```bash
+# Just type in Claude Code:
+/gitnexus query "authentication middleware"
+/gitnexus impact UserService --direction upstream
+/gitnexus report --path D:\taf\MyProject
+
+# Or ask naturally -- Claude invokes the skill automatically:
+"What calls the PaymentService?"  # → Claude runs gitnexus impact PaymentService
+```
+
+The skill is defined in `.claude/skills/gitnexus/SKILL.md` and works out of the box for anyone cloning the repo. A personal (global) version can be installed at `~/.claude/skills/gitnexus/SKILL.md` to use across all projects.
+
+### 2. MCP Server (for any AI agent)
+
+A standards-based [Model Context Protocol](https://modelcontextprotocol.io/) server exposing 7 tools. Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible agent.
+
+```bash
+gitnexus mcp          # stdio transport
+gitnexus serve        # HTTP transport (port 3000)
+gitnexus setup        # Auto-configure in your editor
+```
+
+### 3. LLM API (`--enrich` and `ask`)
+
+Direct LLM calls via OpenAI-compatible API for documentation enrichment and code Q&A. Requires `~/.gitnexus/chat-config.json`.
+
+```bash
+gitnexus ask "how does payment validation work?" --path D:\taf\MyProject
+gitnexus generate html --path D:\taf\MyProject --enrich
+```
+
+### Comparison
+
+| | Claude Code Skill | MCP Server | LLM API |
+|---|---|---|---|
+| **How it works** | Claude reads the graph directly via CLI | AI agent calls tools via JSON-RPC | GitNexus calls an external LLM |
+| **AI model** | Claude (your current session) | Any MCP-compatible agent | Gemini, OpenAI, Anthropic, Ollama |
+| **Setup** | Zero (skill is in the repo) | `gitnexus setup` | Config file + API key |
+| **Latency** | Low (local CLI) | Low (local server) | Higher (API round-trip) |
+| **Cost** | Included in Claude Code | Included in your agent | Per-token API cost |
+| **Best for** | Interactive exploration, dev workflow | IDE integration, multi-agent setups | Documentation enrichment, batch Q&A |
+| **Context** | Full conversation context + graph | Tool-scoped (per request) | Graph context only |
+
+**When to use which:**
+- **Claude Code Skill**: You're working in Claude Code and want to explore code interactively. Claude understands your conversation history AND the graph -- best for complex questions.
+- **MCP Server**: You use Cursor, VS Code, or another MCP-compatible editor. The graph is always available as a tool.
+- **LLM API**: You want to batch-enrich documentation or need a standalone Q&A command without an AI agent.
 
 ## Architecture
 

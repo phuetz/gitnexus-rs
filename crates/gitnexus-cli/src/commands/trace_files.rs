@@ -67,15 +67,12 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
             continue;
         }
 
-        // Follow all outgoing relationships
+        // Follow OUTGOING relationships only (source → target)
         for rel in graph.iter_relationships() {
-            let neighbor_id = if rel.source_id == node_id {
-                &rel.target_id
-            } else if rel.target_id == node_id {
-                &rel.source_id
-            } else {
+            if rel.source_id != node_id {
                 continue;
-            };
+            }
+            let neighbor_id = &rel.target_id;
 
             if visited.contains(neighbor_id) {
                 continue;

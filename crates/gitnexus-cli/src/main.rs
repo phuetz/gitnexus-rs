@@ -203,8 +203,8 @@ enum Commands {
         /// Path to the repository (defaults to current directory)
         #[arg(short, long)]
         path: Option<String>,
-        /// Maximum traversal depth
-        #[arg(long, default_value = "5")]
+        /// Maximum traversal depth (default: 3)
+        #[arg(long, default_value = "3")]
         depth: usize,
         /// Output as JSON
         #[arg(long)]

@@ -30,6 +30,11 @@ export interface CytoNode {
   description?: string;
   parameterCount?: number;
   returnType?: string;
+  layerType?: string;
+  entryPointScore?: number;
+  entryPointReason?: string;
+  isTraced?: boolean;
+  traceCallCount?: number;
 }
 
 export interface CytoEdge {
@@ -270,6 +275,22 @@ export interface ChatSmartResponse {
   complexity: QueryComplexity;
 }
 
+export interface ProcessStep {
+  nodeId: string;
+  name: string;
+  label: string;
+  filePath: string;
+}
+
+export interface ProcessFlow {
+  id: string;
+  name: string;
+  processType: string;
+  stepCount: number;
+  steps: ProcessStep[];
+  mermaid: string;
+}
+
 export interface FileQuickPick {
   path: string;
   name: string;
@@ -445,6 +466,10 @@ export const commands = {
     invoke<string>("export_docs_docx"),
   getAspnetStats: () =>
     invoke<AspNetStats>("get_aspnet_stats"),
+
+  // Process Flows
+  getProcessFlows: () =>
+    invoke<ProcessFlow[]>("get_process_flows"),
 };
 
 // ─── ASP.NET Stats ────────────────────────────────────────────────────

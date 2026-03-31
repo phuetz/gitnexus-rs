@@ -40,6 +40,16 @@ pub struct CytoNode {
     pub parameter_count: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry_point_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry_point_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_traced: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_call_count: Option<u32>,
 }
 
 /// An edge in Cytoscape format.

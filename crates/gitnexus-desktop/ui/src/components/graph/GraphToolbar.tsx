@@ -1,4 +1,4 @@
-import { Maximize2, ChevronDown } from "lucide-react";
+import { Maximize2, ChevronDown, GitBranch } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 import { Tooltip } from "../shared/Tooltip";
@@ -24,11 +24,13 @@ export function GraphToolbar({
   layout,
   onLayoutChange,
   onFit,
+  onFlows,
 }: {
   stats?: GraphStats;
   layout: string;
   onLayoutChange: (layout: string) => void;
   onFit: () => void;
+  onFlows?: () => void;
 }) {
   const { t, tt } = useI18n();
   const zoomLevel = useAppStore((s) => s.zoomLevel);
@@ -194,6 +196,33 @@ export function GraphToolbar({
           <Maximize2 size={16} />
         </button>
       </Tooltip>
+
+      {/* Flows Button */}
+      {onFlows && (
+        <Tooltip content="Process Flows">
+          <button
+            onClick={onFlows}
+            aria-label="Show process flows"
+            className="p-2 rounded-md transition-all"
+            style={{
+              color: "var(--text-3)",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.backgroundColor =
+                "var(--bg-3)";
+              (e.currentTarget as HTMLElement).style.color = "var(--text-0)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.backgroundColor =
+                "transparent";
+              (e.currentTarget as HTMLElement).style.color = "var(--text-3)";
+            }}
+          >
+            <GitBranch size={16} />
+          </button>
+        </Tooltip>
+      )}
 
       {/* Stats Badges */}
       {stats && (

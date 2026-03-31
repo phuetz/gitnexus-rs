@@ -80,7 +80,9 @@ const en = {
 
   // ── Detail Panel ──
   "detail.context": "Context",
-  "detail.codeProperties": "Code Properties",
+  "detail.code": "Code",
+  "detail.codeProperties": "Properties",
+  "detail.layers": "Layers",
   "detail.callers": "CALLERS",
   "detail.callees": "CALLEES",
   "detail.community": "COMMUNITY",
@@ -299,7 +301,9 @@ const fr: Record<keyof typeof en, TranslationValue> = {
 
   // ── Detail Panel ──
   "detail.context": "Contexte",
-  "detail.codeProperties": "Propriétés du code",
+  "detail.code": "Code",
+  "detail.codeProperties": "Propriétés",
+  "detail.layers": "Couches",
   "detail.callers": "APPELANTS",
   "detail.callees": "APPELÉS",
   "detail.community": "COMMUNAUTÉ",

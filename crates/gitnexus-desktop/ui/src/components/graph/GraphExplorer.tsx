@@ -10,6 +10,10 @@ import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 import { TreemapView } from "./TreemapView";
 import { useI18n } from "../../hooks/use-i18n";
 import { Tooltip } from "../shared/Tooltip";
+import { LoadingOrbs } from "../shared/LoadingOrbs";
+import { CypherQueryFAB } from "./CypherQueryFAB";
+import { CodeReferencesOverlay } from "./CodeReferencesOverlay";
+import { ProcessFlowModal } from "./ProcessFlowModal";
 import type { GraphFilter, CytoNode, CytoEdge, ZoomLevel } from "../../lib/tauri-commands";
 
 const LABEL_COLORS: Record<string, string> = {
@@ -36,6 +40,31 @@ const LABEL_COLORS: Record<string, string> = {
   Namespace: "#414868",
 };
 
+const LABEL_SIZES: Record<string, number> = {
+  Project: 50,
+  Package: 42,
+  Folder: 36,
+  Community: 36,
+  Process: 34,
+  Class: 30,
+  Interface: 28,
+  Struct: 28,
+  Trait: 28,
+  Module: 28,
+  File: 24,
+  Enum: 22,
+  Namespace: 22,
+  Route: 20,
+  Function: 16,
+  Method: 14,
+  Constructor: 14,
+  Property: 12,
+  Tool: 12,
+  Variable: 10,
+  Type: 10,
+  Import: 8,
+};
+
 const NEXT_ZOOM: Record<ZoomLevel, ZoomLevel | null> = {
   package: "module",
   module: "symbol",
@@ -46,6 +75,7 @@ function buildElements(nodes: CytoNode[], edges: CytoEdge[]) {
   const elements: cytoscape.ElementDefinition[] = [];
 
   for (const node of nodes) {
+    const size = LABEL_SIZES[node.label] || 16;
     elements.push({
       data: {
         id: node.id,
@@ -55,6 +85,7 @@ function buildElements(nodes: CytoNode[], edges: CytoEdge[]) {
         startLine: node.startLine,
         endLine: node.endLine,
         color: LABEL_COLORS[node.label] || "#565f89",
+        size,
       },
     });
   }
@@ -98,8 +129,8 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       color: "#c0caf5",
       "text-valign": "bottom",
       "text-margin-y": 5,
-      width: 38,
-      height: 38,
+      width: "data(size)" as any,
+      height: "data(size)" as any,
       "border-width": 1.5,
       "border-color": "rgba(255,255,255,0.1)" as any,
       "border-opacity": 1,
@@ -107,7 +138,12 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       "text-max-width": "90px" as any,
       "text-wrap": "ellipsis" as any,
       "min-zoomed-font-size": 8,
-    },
+      "shadow-blur": 12,
+      "shadow-color": "data(color)",
+      "shadow-opacity": 0.2,
+      "shadow-offset-x": 0,
+      "shadow-offset-y": 0,
+    } as any,
   },
   {
     selector: "node:selected",
@@ -118,12 +154,17 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       width: 50,
       height: 50,
       "font-size": 12,
-      "font-weight": "bold" as any,
+      "font-weight": "bold",
       "z-index": 999,
       "overlay-color": "#7aa2f7",
       "overlay-opacity": 0.12,
       "overlay-padding": 10,
-    },
+      "shadow-blur": 25,
+      "shadow-color": "#7aa2f7",
+      "shadow-opacity": 0.5,
+      "shadow-offset-x": 0,
+      "shadow-offset-y": 0,
+    } as any,
   },
   {
     selector: "node:active",
@@ -177,6 +218,7 @@ export function GraphExplorer() {
     filePath: string;
   } | null>(null);
   const [legendExpanded, setLegendExpanded] = useState(false);
+  const [flowsOpen, setFlowsOpen] = useState(false);
   const [minimapVisible, setMinimapVisible] = useState(true);
   const [minimapOpacity, setMinimapOpacity] = useState(0.8);
   const [contextMenu, setContextMenu] = useState<{
@@ -542,61 +584,8 @@ export function GraphExplorer() {
           onLayoutChange={handleLayoutChange}
           onFit={handleFit}
         />
-        <div
-          className="flex-1 relative flex items-center justify-center overflow-hidden"
-          style={{ backgroundColor: "var(--bg-1)" }}
-        >
-          {/* Shimmer animation background */}
-          <div className="absolute inset-0 opacity-30">
-            <div
-              className="absolute inset-0"
-              style={{
-                backgroundImage:
-                  "linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 2s infinite",
-              }}
-            />
-          </div>
-
-          {/* Loading content */}
-          <div className="relative flex flex-col items-center gap-3">
-            <div
-              className="w-12 h-12 rounded-lg"
-              style={{
-                backgroundColor: "var(--surface)",
-                border: "2px solid",
-                borderColor: "var(--accent)",
-                borderTopColor: "var(--accent-subtle)",
-                animation: "spin 1s linear infinite",
-              }}
-            />
-            <p
-              style={{
-                color: "var(--text-3)",
-                fontSize: "14px",
-                fontWeight: "500",
-              }}
-            >
-              {t("graph.loadingGraph")}
-            </p>
-          </div>
-
-          <style>{`
-            @keyframes shimmer {
-              0% {
-                background-position: -200% 0;
-              }
-              100% {
-                background-position: 200% 0;
-              }
-            }
-            @keyframes spin {
-              to {
-                transform: rotate(360deg);
-              }
-            }
-          `}</style>
+        <div className="flex-1">
+          <LoadingOrbs label={t("graph.loadingGraph")} />
         </div>
       </div>
     );
@@ -697,6 +686,7 @@ export function GraphExplorer() {
             layout={layout}
             onLayoutChange={handleLayoutChange}
             onFit={handleFit}
+            onFlows={() => setFlowsOpen(true)}
           />
         </div>
         <div style={{ paddingRight: 12 }}>
@@ -1029,6 +1019,12 @@ export function GraphExplorer() {
           </div>
         )}
 
+        {/* Code references overlay */}
+        <CodeReferencesOverlay />
+
+        {/* Cypher query FAB */}
+        <CypherQueryFAB />
+
         {/* Legend overlay — bottom-right to avoid graph overlap */}
         <div
           className="absolute z-15 pointer-events-auto"
@@ -1137,6 +1133,9 @@ export function GraphExplorer() {
         </div>
       </div>
       )}
+
+      {/* Process Flow Modal */}
+      <ProcessFlowModal open={flowsOpen} onClose={() => setFlowsOpen(false)} />
     </div>
   );
 }

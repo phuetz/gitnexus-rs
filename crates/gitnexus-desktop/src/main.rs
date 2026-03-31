@@ -58,6 +58,8 @@ fn main() {
             // Export
             commands::export::export_docs_docx,
             commands::export::get_aspnet_stats,
+            // Process Flows
+            commands::process::get_process_flows,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GitNexus desktop application");

@@ -3,6 +3,7 @@ import { useAppStore, type DetailTab } from "../../stores/app-store";
 import { useSymbolContext } from "../../hooks/use-tauri-query";
 import { useI18n } from "../../hooks/use-i18n";
 import { CodePanel } from "../code/CodePanel";
+import { LayersTab } from "../detail/LayersTab";
 import { ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -10,6 +11,7 @@ const TABS: { id: DetailTab; i18nKey: string }[] = [
   { id: "context", i18nKey: "detail.context" },
   { id: "code", i18nKey: "detail.code" },
   { id: "properties", i18nKey: "detail.codeProperties" },
+  { id: "layers", i18nKey: "detail.layers" },
 ];
 
 const NODE_TYPE_COLORS: Record<string, string> = {
@@ -103,6 +105,7 @@ export function DetailPanel() {
         {detailTab === "context" && <ContextTab />}
         {detailTab === "code" && <CodePanel />}
         {detailTab === "properties" && <PropertiesTab />}
+        {detailTab === "layers" && <LayersTab />}
       </div>
     </div>
   );

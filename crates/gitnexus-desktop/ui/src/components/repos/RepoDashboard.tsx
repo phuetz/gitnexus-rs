@@ -12,6 +12,9 @@ import {
   Network,
   ArrowRightLeft,
   Languages,
+  Zap,
+  GitBranch,
+  Shield,
 } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { commands } from "../../lib/tauri-commands";
@@ -156,6 +159,30 @@ const METRICS: MetricDef[] = [
     icon: Languages,
     color: "#9ece6a",
     getValue: (nodes) => uniqueLanguages(nodes),
+  },
+  {
+    key: "entryPoints",
+    label: "Entry Points",
+    icon: Zap,
+    color: "#e0af68",
+    getValue: (nodes) =>
+      nodes.filter((n) => n.entryPointScore != null && n.entryPointScore > 0)
+        .length,
+  },
+  {
+    key: "processes",
+    label: "Processes",
+    icon: GitBranch,
+    color: "#ff9e64",
+    getValue: (nodes) => countByLabel(nodes, "Process"),
+  },
+  {
+    key: "traced",
+    label: "Traced",
+    icon: Shield,
+    color: "#73daca",
+    getValue: (nodes) =>
+      nodes.filter((n) => n.isTraced === true).length,
   },
 ];
 

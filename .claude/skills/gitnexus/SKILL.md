@@ -97,6 +97,30 @@ gitnexus generate docs --path [path]                    # Markdown pages
 gitnexus generate all --path [path]                     # All formats
 ```
 
+### 12. Trace files (all sources for a feature)
+
+```bash
+gitnexus trace-files CourrierController                  # List all related source files
+gitnexus trace-files BenefService --depth 3              # Limit traversal depth
+gitnexus trace-files CourrierController --json           # JSON output
+```
+
+### 13. Generate diagrams
+
+```bash
+gitnexus diagram CourrierController --type flowchart     # Call flow organigramme
+gitnexus diagram CourrierController --type sequence      # UML sequence diagram
+gitnexus diagram BeneficiaireController --type class     # Class diagram with methods
+gitnexus diagram CourrierController --output flow.md     # Write to file
+```
+
+### 14. Import execution traces
+
+```bash
+gitnexus trace-import D:\logs\production.log             # Enrich graph with runtime data
+gitnexus trace-import trace.csv --path D:\taf\MyProject  # Specify repo path
+```
+
 ## How to use this skill
 
 When the user asks about code structure, architecture, dependencies, or impact:
@@ -111,6 +135,10 @@ When the user asks about code structure, architecture, dependencies, or impact:
    - "Which files change most?" → `gitnexus hotspots`
    - "Explain how X works" → `gitnexus ask "how does X work?"`
    - "Show me the architecture" → `gitnexus generate html` then read the output
+   - "Which files are involved in X?" → `gitnexus trace-files X`
+   - "Generate a diagram of X" → `gitnexus diagram X --type flowchart`
+   - "Show the sequence for X" → `gitnexus diagram X --type sequence`
+   - "Import logs to enrich" → `gitnexus trace-import logfile.log`
 4. **Parse the output** and present it clearly with file paths and relationships
 5. **Combine multiple commands** if needed for complex questions
 

@@ -195,6 +195,45 @@ enum Commands {
         /// Subcommand: test
         action: String,
     },
+    /// List all source files involved in a feature (BFS traversal from a symbol)
+    #[command(after_help = "Examples:\n  gitnexus trace-files CourrierController\n  gitnexus trace-files BenefService --depth 3 --json")]
+    TraceFiles {
+        /// Symbol name to trace from (controller, service, class, method)
+        target: String,
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
+        /// Maximum traversal depth
+        #[arg(long, default_value = "5")]
+        depth: usize,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate Mermaid diagrams from the knowledge graph
+    #[command(after_help = "Examples:\n  gitnexus diagram CourrierController --type flowchart\n  gitnexus diagram BenefService --type sequence\n  gitnexus diagram CourrierController --type class --output diagram.md")]
+    Diagram {
+        /// Symbol name to diagram
+        target: String,
+        /// Diagram type: flowchart, sequence, or class
+        #[arg(long, default_value = "flowchart")]
+        r#type: String,
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
+        /// Output to file instead of stdout
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Import execution traces (log files) to enrich the knowledge graph
+    #[command(after_help = "Examples:\n  gitnexus trace-import D:\\logs\\production.log\n  gitnexus trace-import trace.csv --path D:\\taf\\MyProject")]
+    TraceImport {
+        /// Path to the log/trace file
+        file: String,
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -277,6 +316,15 @@ async fn main() -> anyhow::Result<()> {
                     Ok(())
                 }
             }
+        }
+        Commands::TraceFiles { target, path, depth, json } => {
+            commands::trace_files::run(&target, path.as_deref(), depth, json)
+        }
+        Commands::Diagram { target, r#type, path, output } => {
+            commands::diagram::run(&target, &r#type, path.as_deref(), output.as_deref())
+        }
+        Commands::TraceImport { file, path } => {
+            commands::trace_import::run(&file, path.as_deref())
         }
     }
 }

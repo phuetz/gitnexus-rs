@@ -24,11 +24,20 @@ pub fn run(target: &str, diagram_type: &str, path: Option<&str>, output: Option<
     let graph = snapshot::load_snapshot(&snap_path)
         .map_err(|e| anyhow::anyhow!("Failed to load graph: {}", e))?;
 
-    // Find the target symbol
+    // Find the target symbol — prefer Class/Controller over Constructor/Method
     let target_lower = target.to_lowercase();
-    let start_node = graph.iter_nodes().find(|n| {
-        n.properties.name.to_lowercase() == target_lower
+    let mut candidates: Vec<_> = graph.iter_nodes()
+        .filter(|n| n.properties.name.to_lowercase() == target_lower)
+        .collect();
+    candidates.sort_by_key(|n| match n.label {
+        NodeLabel::Controller => 0,
+        NodeLabel::Class => 1,
+        NodeLabel::Service => 2,
+        NodeLabel::Interface => 3,
+        NodeLabel::Module => 4,
+        _ => 10,
     });
+    let start_node = candidates.first().copied();
 
     let start_node = match start_node {
         Some(n) => n,
@@ -187,9 +196,9 @@ fn generate_sequence(
             if rel.source_id != node_id {
                 continue;
             }
-            // Only follow call-like relationships for sequence diagrams
+            // Follow meaningful relationships for sequence diagrams
             let rel_str = rel.rel_type.as_str();
-            if !rel_str.contains("Call") && !rel_str.contains("Renders") && !rel_str.contains("DependsOn") {
+            if rel_str == "Contains" || rel_str == "Imports" || rel_str == "StepInProcess" {
                 continue;
             }
 

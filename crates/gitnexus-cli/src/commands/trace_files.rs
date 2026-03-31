@@ -22,11 +22,18 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
     let graph = snapshot::load_snapshot(&snap_path)
         .map_err(|e| anyhow::anyhow!("Failed to load graph: {}", e))?;
 
-    // Find the target symbol
+    // Find the target symbol — prefer Class/Controller over Constructor/Method
     let target_lower = target.to_lowercase();
-    let start_node = graph.iter_nodes().find(|n| {
-        n.properties.name.to_lowercase() == target_lower
+    let mut candidates: Vec<_> = graph.iter_nodes()
+        .filter(|n| n.properties.name.to_lowercase() == target_lower)
+        .collect();
+    candidates.sort_by_key(|n| match n.label {
+        gitnexus_core::graph::types::NodeLabel::Controller => 0,
+        gitnexus_core::graph::types::NodeLabel::Class => 1,
+        gitnexus_core::graph::types::NodeLabel::Service => 2,
+        _ => 10,
     });
+    let start_node = candidates.first().copied();
 
     let start_node = match start_node {
         Some(n) => n,

@@ -26,7 +26,7 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
             println!("    \"provider\": \"gemini\",");
             println!("    \"api_key\": \"YOUR_API_KEY\",");
             println!("    \"base_url\": \"https://generativelanguage.googleapis.com/v1beta/openai\",");
-            println!("    \"model\": \"gemini-3.1-flash-lite-preview\",");
+            println!("    \"model\": \"gemini-2.5-flash\",");
             println!("    \"max_tokens\": 8192,");
             println!("    \"reasoning_effort\": \"high\"");
             println!("  }}");

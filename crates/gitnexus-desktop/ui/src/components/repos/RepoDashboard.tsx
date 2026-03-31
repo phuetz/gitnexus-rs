@@ -17,6 +17,7 @@ import {
   Shield,
 } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
+import { CodeHealthCard } from "../health/CodeHealthCard";
 import { commands } from "../../lib/tauri-commands";
 import type { CytoNode, CytoEdge, GraphPayload } from "../../lib/tauri-commands";
 import {
@@ -324,6 +325,9 @@ export function RepoDashboard() {
         gap: 20,
       }}
     >
+      {/* ── Code Health Score ─────────────────────────────────── */}
+      <CodeHealthCard />
+
       {/* ── Quality Banner ──────────────────────────────────────── */}
       <AnimatedCard
         style={{

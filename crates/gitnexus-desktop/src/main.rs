@@ -60,6 +60,12 @@ fn main() {
             commands::export::get_aspnet_stats,
             // Process Flows
             commands::process::get_process_flows,
+            // Git Analytics
+            commands::git_analytics::get_hotspots,
+            commands::git_analytics::get_coupling,
+            commands::git_analytics::get_ownership,
+            // Code Health
+            commands::health::get_code_health,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GitNexus desktop application");

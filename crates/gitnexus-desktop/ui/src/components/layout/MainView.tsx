@@ -9,6 +9,7 @@ import { ImpactView } from "../impact/ImpactView";
 import { DocsViewer } from "../docs/DocsViewer";
 import { ExportPanel } from "../export/ExportPanel";
 import { RepoDashboard } from "../repos/RepoDashboard";
+import { GitAnalyticsDashboard } from "../git/GitAnalyticsDashboard";
 
 export function MainView() {
   const activeRepo = useAppStore((s) => s.activeRepo);
@@ -67,6 +68,8 @@ export function MainView() {
         return <DocsViewer />;
       case "export":
         return <ExportPanel />;
+      case "git-analytics":
+        return <GitAnalyticsDashboard />;
       case "graph":
       default:
         return <GraphExplorer />;

@@ -14,6 +14,7 @@ gitnexus-core.workspace = true
 gitnexus-db.workspace = true
 gitnexus-ingest.workspace = true
 gitnexus-search.workspace = true
+gitnexus-git.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

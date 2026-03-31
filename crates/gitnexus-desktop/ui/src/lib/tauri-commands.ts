@@ -291,6 +291,51 @@ export interface ProcessFlow {
   mermaid: string;
 }
 
+export interface GitHotspot {
+  path: string;
+  commitCount: number;
+  linesAdded: number;
+  linesRemoved: number;
+  churn: number;
+  score: number;
+  lastModified: string;
+  authorCount: number;
+}
+
+export interface GitCoupling {
+  fileA: string;
+  fileB: string;
+  sharedCommits: number;
+  couplingStrength: number;
+}
+
+export interface GitAuthorContribution {
+  name: string;
+  email: string;
+  lines: number;
+  pct: number;
+}
+
+export interface GitOwnership {
+  path: string;
+  primaryAuthor: string;
+  ownershipPct: number;
+  authorCount: number;
+  authors: GitAuthorContribution[];
+}
+
+export interface CodeHealth {
+  overallScore: number;
+  grade: string;
+  hotspotScore: number;
+  cohesionScore: number;
+  tracingCoverage: number;
+  ownershipScore: number;
+  fileCount: number;
+  nodeCount: number;
+  edgeCount: number;
+}
+
 export interface FileQuickPick {
   path: string;
   name: string;
@@ -470,6 +515,18 @@ export const commands = {
   // Process Flows
   getProcessFlows: () =>
     invoke<ProcessFlow[]>("get_process_flows"),
+
+  // Code Health
+  getCodeHealth: () =>
+    invoke<CodeHealth>("get_code_health"),
+
+  // Git Analytics
+  getHotspots: (sinceDays?: number) =>
+    invoke<GitHotspot[]>("get_hotspots", { sinceDays }),
+  getCoupling: (minShared?: number) =>
+    invoke<GitCoupling[]>("get_coupling", { minShared }),
+  getOwnership: () =>
+    invoke<GitOwnership[]>("get_ownership"),
 };
 
 // ─── ASP.NET Stats ────────────────────────────────────────────────────

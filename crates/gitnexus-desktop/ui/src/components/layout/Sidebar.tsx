@@ -9,6 +9,7 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeft,
+  GitCommitHorizontal,
 } from "lucide-react";
 import { useAppStore, type SidebarTab } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
@@ -25,6 +26,7 @@ const TOOL_TABS: { id: SidebarTab; icon: typeof Network; labelKey: string }[] = 
   { id: "impact", icon: Zap, labelKey: "sidebar.impactAnalysis" },
   { id: "docs", icon: FileText, labelKey: "sidebar.documentation" },
   { id: "export", icon: Download, labelKey: "sidebar.export" },
+  { id: "git-analytics", icon: GitCommitHorizontal, labelKey: "sidebar.gitAnalytics" },
 ];
 
 export function Sidebar() {

@@ -23,4 +23,11 @@ tracing.workspace = true
 bincode = "1"
 kuzu = { workspace = true, optional = true }
 
+[build-dependencies]
+# Force cxx-build version to match kuzu's pinned cxx = "=1.0.138" runtime.
+# Without this, cxx-build resolves to latest (1.0.194+) which embeds version
+# numbers in CXX bridge symbol names, causing LNK2019 on Windows MSVC.
+# See: https://github.com/dtolnay/cxx/issues/1507
+cxx-build = { workspace = true }
+
 [dev-dependencies]

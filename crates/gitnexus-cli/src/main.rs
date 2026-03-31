@@ -189,6 +189,12 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Test LLM configuration (validate API key and connectivity)
+    #[command(after_help = "Examples:\n  gitnexus config test")]
+    Config {
+        /// Subcommand: test
+        action: String,
+    },
 }
 
 #[tokio::main]
@@ -260,6 +266,15 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Report { path, json } => {
             commands::report::run(path.as_deref(), json)
+        }
+        Commands::Config { action } => {
+            match action.as_str() {
+                "test" => commands::config_cmd::run_test(),
+                _ => {
+                    println!("Unknown config action: {}. Use 'gitnexus config test'.", action);
+                    Ok(())
+                }
+            }
         }
     }
 }

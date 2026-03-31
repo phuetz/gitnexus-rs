@@ -20,3 +20,4 @@ pub mod coupling_cmd;
 pub mod ownership_cmd;
 pub mod ask;
 pub mod report;
+pub mod config_cmd;

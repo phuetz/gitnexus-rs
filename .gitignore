@@ -2,6 +2,7 @@
 .gitnexus/
 wiki/
 skills/
+!.claude/skills/
 AGENTS.md
 *.exe
 *.pdb

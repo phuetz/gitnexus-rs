@@ -90,11 +90,23 @@ fn generate_flowchart(
     let mut nodes = HashSet::new();
     let max_nodes = 30;
 
-    // Seed: if starting from Class/Service, add child methods to BFS.
-    // Methods now have direct Method→Method Calls edges.
-    if matches!(start.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface | NodeLabel::Struct) {
+    // Seed: add child methods to BFS. For Controllers, also seed from sibling Class node.
+    if matches!(start.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface
+        | NodeLabel::Struct | NodeLabel::Controller)
+    {
+        let seed_source_ids: Vec<String> = if start.label == NodeLabel::Controller {
+            let mut ids = vec![start.id.clone()];
+            for n in graph.iter_nodes() {
+                if n.label == NodeLabel::Class
+                    && n.properties.name == start.properties.name
+                    && n.properties.file_path == start.properties.file_path
+                { ids.push(n.id.clone()); }
+            }
+            ids
+        } else { vec![start.id.clone()] };
+
         for rel in graph.iter_relationships() {
-            if rel.source_id == start.id
+            if seed_source_ids.contains(&rel.source_id)
                 && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
             {
                 if !visited.contains(&rel.target_id) {
@@ -117,14 +129,18 @@ fn generate_flowchart(
             if visited.contains(&rel.target_id) {
                 continue;
             }
-            // Skip structural edges — we already seeded HasMethod, and Defines is structural
-            if matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::Defines) {
+            // Skip structural/noise edges
+            if matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty
+                | RelationshipType::Defines | RelationshipType::MemberOf | RelationshipType::Extends) {
                 continue;
             }
 
             if let Some(target) = graph.get_node(&rel.target_id) {
-                // Skip File, Folder nodes for cleaner diagrams
+                // Skip File, Folder, and obj/ artifact nodes
                 if target.label == NodeLabel::File || target.label == NodeLabel::Folder {
+                    continue;
+                }
+                if target.properties.file_path.contains("/obj/") || target.properties.file_path.contains("\\obj\\") {
                     continue;
                 }
 
@@ -152,6 +168,10 @@ fn generate_flowchart(
             }
         }
     }
+
+    // Deduplicate edges
+    edges.sort();
+    edges.dedup();
 
     // Emit node declarations with labels
     let start_safe = safe_id(&start.properties.name);
@@ -214,11 +234,23 @@ fn generate_sequence(
     visited.insert(start.id.clone());
     queue.push_back((start.id.clone(), start_alias.clone(), 0usize));
 
-    // Seed: if starting from Class/Service, add child methods to BFS.
-    // Methods now have direct Method→Method Calls edges.
-    if matches!(start.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface | NodeLabel::Struct) {
+    // Seed: add child methods. For Controllers, also seed from sibling Class node.
+    if matches!(start.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface
+        | NodeLabel::Struct | NodeLabel::Controller)
+    {
+        let seed_source_ids: Vec<String> = if start.label == NodeLabel::Controller {
+            let mut ids = vec![start.id.clone()];
+            for n in graph.iter_nodes() {
+                if n.label == NodeLabel::Class
+                    && n.properties.name == start.properties.name
+                    && n.properties.file_path == start.properties.file_path
+                { ids.push(n.id.clone()); }
+            }
+            ids
+        } else { vec![start.id.clone()] };
+
         for rel in graph.iter_relationships() {
-            if rel.source_id == start.id
+            if seed_source_ids.contains(&rel.source_id)
                 && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
             {
                 if !visited.contains(&rel.target_id) {
@@ -238,17 +270,21 @@ fn generate_sequence(
             if rel.source_id != node_id {
                 continue;
             }
-            // Follow meaningful relationships for sequence diagrams
+            // Skip structural/noise edges
             let rel_str = rel.rel_type.as_str();
-            if rel_str == "Contains" || rel_str == "Imports" || rel_str == "StepInProcess"
-                || rel_str == "HasMethod" || rel_str == "HasProperty"
-                || rel_str == "Defines"
+            if matches!(rel.rel_type, RelationshipType::Contains | RelationshipType::Imports
+                | RelationshipType::StepInProcess | RelationshipType::HasMethod
+                | RelationshipType::HasProperty | RelationshipType::Defines
+                | RelationshipType::MemberOf)
             {
                 continue;
             }
 
             if let Some(target) = graph.get_node(&rel.target_id) {
                 if target.label == NodeLabel::File || target.label == NodeLabel::Folder {
+                    continue;
+                }
+                if target.properties.file_path.contains("/obj/") || target.properties.file_path.contains("\\obj\\") {
                     continue;
                 }
 

@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
+use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_core::storage::repo_manager;
 
 pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::Result<()> {
@@ -35,26 +36,30 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
 
     // Sort by priority: Controller > Class > Service > Method > File > others
     matches.sort_by_key(|n| match n.label {
-        gitnexus_core::graph::types::NodeLabel::Controller => 0,
-        gitnexus_core::graph::types::NodeLabel::Class => 1,
-        gitnexus_core::graph::types::NodeLabel::Service => 2,
-        gitnexus_core::graph::types::NodeLabel::Method => 5,
-        gitnexus_core::graph::types::NodeLabel::File => 8,
+        NodeLabel::Controller => 0,
+        NodeLabel::Class => 1,
+        NodeLabel::Service => 2,
+        NodeLabel::Method => 5,
+        NodeLabel::File => 8,
         _ => 10,
     });
 
     let start_id = &matches[0].id;
     let start_label = matches[0].label;
+    let start_name = graph
+        .get_node(start_id)
+        .map(|n| n.properties.name.clone())
+        .unwrap_or_else(|| target.to_string());
+    let start_file = matches[0].properties.file_path.clone();
 
     // Build adjacency index for dependency-related edges
-    // Include Calls, CallsAction, CallsService, DependsOn, HasAction, RendersView
     let mut outgoing: HashMap<String, Vec<String>> = HashMap::new();
     let mut incoming: HashMap<String, Vec<String>> = HashMap::new();
 
     for rel in graph.iter_relationships() {
-        let rel_str = rel.rel_type.as_str();
-        // Skip structural relationships (Contains, Imports, Inherits)
-        if rel_str == "Contains" || rel_str == "Imports" || rel_str == "StepInProcess" {
+        // Skip structural relationships
+        if matches!(rel.rel_type, RelationshipType::Contains | RelationshipType::Imports
+            | RelationshipType::StepInProcess | RelationshipType::Defines) {
             continue;
         }
         outgoing
@@ -67,40 +72,36 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
             .push(rel.source_id.clone());
     }
 
-    // If target is a Class/Service, collect child methods and merge their adjacencies
-    // into the start node's adjacencies so the BFS traverses through them
-    if matches!(start_label,
-        gitnexus_core::graph::types::NodeLabel::Class
-        | gitnexus_core::graph::types::NodeLabel::Service
-        | gitnexus_core::graph::types::NodeLabel::Interface
-    ) {
-        let mut child_ids = Vec::new();
-        for rel in graph.iter_relationships() {
-            if &rel.source_id == start_id {
-                let rel_str = rel.rel_type.as_str();
-                if rel_str == "HasMethod" || rel_str == "HasProperty" || rel_str == "HasAction" {
-                    child_ids.push(rel.target_id.clone());
+    // Collect BFS seed IDs: start node + child methods (for Class/Service/Controller)
+    let mut seed_ids: Vec<String> = vec![start_id.clone()];
+    if matches!(start_label, NodeLabel::Class | NodeLabel::Service
+        | NodeLabel::Interface | NodeLabel::Controller)
+    {
+        // For Controllers, also include the sibling Class node's children
+        let mut source_ids = vec![start_id.clone()];
+        if start_label == NodeLabel::Controller {
+            for n in graph.iter_nodes() {
+                if n.label == NodeLabel::Class
+                    && n.properties.name == start_name
+                    && n.properties.file_path == start_file
+                {
+                    source_ids.push(n.id.clone());
                 }
             }
         }
-        // Merge child method adjacencies into the start node
-        for child_id in &child_ids {
-            if let Some(child_out) = outgoing.get(child_id).cloned() {
-                outgoing.entry(start_id.clone()).or_default().extend(child_out);
-            }
-            if let Some(child_in) = incoming.get(child_id).cloned() {
-                incoming.entry(start_id.clone()).or_default().extend(child_in);
+
+        for rel in graph.iter_relationships() {
+            if source_ids.contains(&rel.source_id)
+                && matches!(rel.rel_type, RelationshipType::HasMethod
+                    | RelationshipType::HasProperty | RelationshipType::HasAction)
+            {
+                seed_ids.push(rel.target_id.clone());
             }
         }
     }
 
     let use_downstream = direction == "downstream" || direction == "both";
     let use_upstream = direction == "upstream" || direction == "both";
-
-    let start_name = graph
-        .get_node(start_id)
-        .map(|n| n.properties.name.clone())
-        .unwrap_or_else(|| target.to_string());
 
     println!("Impact Analysis for '{}' (direction: {})", start_name, direction);
     println!("{}", "-".repeat(50));
@@ -109,12 +110,12 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
 
     if use_downstream {
         println!("\nDownstream (symbols affected by changes):");
-        bfs_print(&graph, start_id, &outgoing, max_depth);
+        bfs_print(&graph, &seed_ids, &outgoing, max_depth);
     }
 
     if use_upstream {
         println!("\nUpstream (symbols that affect this):");
-        bfs_print(&graph, start_id, &incoming, max_depth);
+        bfs_print(&graph, &seed_ids, &incoming, max_depth);
     }
 
     Ok(())
@@ -122,16 +123,21 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
 
 fn bfs_print(
     graph: &gitnexus_core::graph::KnowledgeGraph,
-    start: &str,
+    seeds: &[String],
     adjacency: &HashMap<String, Vec<String>>,
     max_depth: usize,
 ) {
     let mut visited: HashSet<String> = HashSet::new();
-    visited.insert(start.to_string());
     let mut queue: VecDeque<(String, usize)> = VecDeque::new();
-    queue.push_back((start.to_string(), 0));
-    let mut total = 0;
 
+    // Initialize BFS with all seed nodes
+    for seed in seeds {
+        if visited.insert(seed.clone()) {
+            queue.push_back((seed.clone(), 0));
+        }
+    }
+
+    let mut total = 0;
     let mut levels: Vec<Vec<String>> = vec![Vec::new(); max_depth];
 
     while let Some((node_id, depth)) = queue.pop_front() {

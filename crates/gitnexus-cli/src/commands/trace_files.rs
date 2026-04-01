@@ -68,11 +68,29 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
             .push(format!("{} ({})", start_node.properties.name, start_node.label.as_str()));
     }
 
-    // Seed: if starting from a Class/Service/Interface, include child methods via HasMethod.
-    // Methods now have direct Method→Method Calls edges, so seeding children is sufficient.
-    if matches!(start_node.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface | NodeLabel::Struct) {
+    // Seed: include child methods via HasMethod so BFS can follow their Calls edges.
+    // For Controllers, also seed from the sibling Class node (which carries HasMethod edges).
+    if matches!(start_node.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface
+        | NodeLabel::Struct | NodeLabel::Controller)
+    {
+        // For Controllers, find the sibling Class node (same name, same file)
+        let seed_source_ids: Vec<String> = if start_node.label == NodeLabel::Controller {
+            let mut ids = vec![start_node.id.clone()];
+            for n in graph.iter_nodes() {
+                if n.label == NodeLabel::Class
+                    && n.properties.name == start_node.properties.name
+                    && n.properties.file_path == start_node.properties.file_path
+                {
+                    ids.push(n.id.clone());
+                }
+            }
+            ids
+        } else {
+            vec![start_node.id.clone()]
+        };
+
         for rel in graph.iter_relationships() {
-            if rel.source_id == start_node.id
+            if seed_source_ids.contains(&rel.source_id)
                 && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
             {
                 if !visited.contains(&rel.target_id) {

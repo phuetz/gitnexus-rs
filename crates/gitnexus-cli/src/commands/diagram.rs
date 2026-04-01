@@ -90,7 +90,8 @@ fn generate_flowchart(
     let mut nodes = HashSet::new();
     let max_nodes = 30;
 
-    // Seed: if starting from Class/Service, add child methods + parent File to BFS
+    // Seed: if starting from Class/Service, add child methods to BFS.
+    // Methods now have direct Method→Method Calls edges.
     if matches!(start.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface | NodeLabel::Struct) {
         for rel in graph.iter_relationships() {
             if rel.source_id == start.id
@@ -99,13 +100,6 @@ fn generate_flowchart(
                 if !visited.contains(&rel.target_id) {
                     visited.insert(rel.target_id.clone());
                     queue.push_back((rel.target_id.clone(), 1));
-                }
-            }
-            // Seed parent File node (File -> Class via Defines)
-            if rel.target_id == start.id && matches!(rel.rel_type, RelationshipType::Defines) {
-                if !visited.contains(&rel.source_id) {
-                    visited.insert(rel.source_id.clone());
-                    queue.push_back((rel.source_id.clone(), 0));
                 }
             }
         }
@@ -138,9 +132,9 @@ fn generate_flowchart(
                 nodes.insert(rel.target_id.clone());
 
                 let src_node = graph.get_node(&node_id);
+                // For child methods, attribute the edge to the parent class for cleaner display
                 let src_label = src_node.map(|n| n.label).unwrap_or(NodeLabel::Class);
-                // For methods and File nodes (seeded), attribute the edge to the start class
-                let src_display = if matches!(src_label, NodeLabel::Method | NodeLabel::Constructor | NodeLabel::File) {
+                let src_display = if matches!(src_label, NodeLabel::Method | NodeLabel::Constructor) {
                     &start.properties.name
                 } else {
                     src_node.map(|n| n.properties.name.as_str()).unwrap_or("?")
@@ -220,7 +214,8 @@ fn generate_sequence(
     visited.insert(start.id.clone());
     queue.push_back((start.id.clone(), start_alias.clone(), 0usize));
 
-    // Seed: if starting from Class/Service, add child methods + parent File to BFS
+    // Seed: if starting from Class/Service, add child methods to BFS.
+    // Methods now have direct Method→Method Calls edges.
     if matches!(start.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface | NodeLabel::Struct) {
         for rel in graph.iter_relationships() {
             if rel.source_id == start.id
@@ -229,13 +224,6 @@ fn generate_sequence(
                 if !visited.contains(&rel.target_id) {
                     visited.insert(rel.target_id.clone());
                     queue.push_back((rel.target_id.clone(), start_alias.clone(), 1));
-                }
-            }
-            // Seed parent File node
-            if rel.target_id == start.id && matches!(rel.rel_type, RelationshipType::Defines) {
-                if !visited.contains(&rel.source_id) {
-                    visited.insert(rel.source_id.clone());
-                    queue.push_back((rel.source_id.clone(), start_alias.clone(), 0));
                 }
             }
         }
@@ -264,12 +252,14 @@ fn generate_sequence(
                     continue;
                 }
 
-                // For Method targets, use their parent class name as participant
+                // For Method targets, find their parent class via HasMethod edge
                 let target_display = if matches!(target.label, NodeLabel::Method | NodeLabel::Constructor) {
-                    // Try to find the parent class from file name
-                    let file_stem = target.properties.file_path.rsplit('/').next().unwrap_or("")
-                        .trim_end_matches(".cs");
-                    if file_stem.is_empty() { &target.properties.name } else { file_stem }
+                    graph.iter_relationships()
+                        .find(|r| r.target_id == rel.target_id
+                            && matches!(r.rel_type, RelationshipType::HasMethod))
+                        .and_then(|r| graph.get_node(&r.source_id))
+                        .map(|n| n.properties.name.as_str())
+                        .unwrap_or(&target.properties.name)
                 } else {
                     &target.properties.name
                 };
@@ -282,6 +272,15 @@ fn generate_sequence(
                         safe_label(target_display)
                     ));
                     seen_participants.insert(target_alias.clone());
+                }
+
+                // Skip same-class interactions in the count (still traverse deeper)
+                if caller_alias == target_alias {
+                    if !visited.contains(&rel.target_id) {
+                        visited.insert(rel.target_id.clone());
+                        queue.push_back((rel.target_id.clone(), target_alias, depth + 1));
+                    }
+                    continue;
                 }
 
                 let call_label = if matches!(target.label, NodeLabel::Method | NodeLabel::Constructor) {

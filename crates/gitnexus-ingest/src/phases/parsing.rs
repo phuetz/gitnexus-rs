@@ -1083,6 +1083,53 @@ fn find_enclosing_class_id(
     None
 }
 
+/// Walk up the tree-sitter AST from `node` to find the nearest enclosing method/function/constructor
+/// and return its graph node ID. This enables Method→Method Calls edges instead of File→Method.
+fn find_enclosing_method_id(
+    node: &tree_sitter::Node,
+    file_path: &str,
+    content: &[u8],
+) -> Option<String> {
+    const METHOD_KINDS: &[&str] = &[
+        // C#
+        "method_declaration",
+        "constructor_declaration",
+        "local_function_statement",
+        // Java
+        // (method_declaration, constructor_declaration already listed)
+        // Python
+        "function_definition",
+        // Rust
+        "function_item",
+        // JavaScript / TypeScript
+        "method_definition",
+        "function_declaration",
+        // C / C++
+        // (function_definition already listed)
+        // Generic
+        "function",
+    ];
+
+    let mut cursor = node.parent();
+    while let Some(ancestor) = cursor {
+        let kind = ancestor.kind();
+        if METHOD_KINDS.contains(&kind) {
+            if let Some(name_node) = ancestor.child_by_field_name("name") {
+                let method_name = name_node.utf8_text(content).ok()?;
+                let label_str = if kind.contains("constructor") {
+                    "Constructor"
+                } else {
+                    "Method"
+                };
+                let qualified = format!("{}:{}", file_path, method_name);
+                return Some(generate_id(label_str, &qualified));
+            }
+        }
+        cursor = ancestor.parent();
+    }
+    None
+}
+
 /// Count parameters from a params string like "(a, b, c)" or "(a: int, b: str)".
 fn count_parameters(params: &str) -> u32 {
     let trimmed = params.trim();
@@ -1172,10 +1219,17 @@ fn extract_call(
     // Count args
     let arg_count = captures.get("call.args").map(|(text, _)| count_parameters(text));
 
+    // Resolve enclosing method as call source (fallback to file node)
+    let source_id = captures
+        .get("call")
+        .or_else(|| captures.get("call.name"))
+        .and_then(|(_, node)| find_enclosing_method_id(node, &file.path, file.content.as_bytes()))
+        .unwrap_or_else(|| file_node_id.to_string());
+
     extracted.calls.push(ExtractedCall {
         file_path: file.path.clone(),
         called_name,
-        source_id: file_node_id.to_string(),
+        source_id,
         arg_count,
         call_form,
         receiver_name,
@@ -1197,10 +1251,17 @@ fn extract_new_call(
 
     if let Some(name) = constructor_name {
         let arg_count = captures.get("new.args").map(|(text, _)| count_parameters(text));
+
+        let source_id = captures
+            .get("new.constructor")
+            .or_else(|| captures.get("new.type"))
+            .and_then(|(_, node)| find_enclosing_method_id(node, &file.path, file.content.as_bytes()))
+            .unwrap_or_else(|| file_node_id.to_string());
+
         extracted.calls.push(ExtractedCall {
             file_path: file.path.clone(),
             called_name: name,
-            source_id: file_node_id.to_string(),
+            source_id,
             arg_count,
             call_form: CallForm::Constructor,
             receiver_name: None,

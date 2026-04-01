@@ -68,12 +68,10 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
             .push(format!("{} ({})", start_node.properties.name, start_node.label.as_str()));
     }
 
-    // Seed: if starting from a Class/Service/Interface, include:
-    // 1. Child methods (via HasMethod) for structural completeness
-    // 2. The parent File node — because Calls edges currently originate from File nodes
+    // Seed: if starting from a Class/Service/Interface, include child methods via HasMethod.
+    // Methods now have direct Method→Method Calls edges, so seeding children is sufficient.
     if matches!(start_node.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface | NodeLabel::Struct) {
         for rel in graph.iter_relationships() {
-            // Seed child methods
             if rel.source_id == start_node.id
                 && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
             {
@@ -89,16 +87,6 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
                             entry.1 = entry.1.min(1);
                         }
                     }
-                }
-            }
-            // Seed parent File node (File -> Class via Defines)
-            if rel.target_id == start_node.id
-                && matches!(rel.rel_type, RelationshipType::Defines)
-            {
-                if !visited.contains(&rel.source_id) {
-                    visited.insert(rel.source_id.clone());
-                    // Add at depth 0 so its Calls edges count as depth 1
-                    queue.push_back((rel.source_id.clone(), 0));
                 }
             }
         }

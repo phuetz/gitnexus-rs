@@ -44,6 +44,7 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
     });
 
     let start_id = &matches[0].id;
+    let start_label = matches[0].label;
 
     // Build adjacency index for dependency-related edges
     // Include Calls, CallsAction, CallsService, DependsOn, HasAction, RendersView
@@ -64,6 +65,33 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
             .entry(rel.target_id.clone())
             .or_default()
             .push(rel.source_id.clone());
+    }
+
+    // If target is a Class/Service, collect child methods and merge their adjacencies
+    // into the start node's adjacencies so the BFS traverses through them
+    if matches!(start_label,
+        gitnexus_core::graph::types::NodeLabel::Class
+        | gitnexus_core::graph::types::NodeLabel::Service
+        | gitnexus_core::graph::types::NodeLabel::Interface
+    ) {
+        let mut child_ids = Vec::new();
+        for rel in graph.iter_relationships() {
+            if &rel.source_id == start_id {
+                let rel_str = rel.rel_type.as_str();
+                if rel_str == "HasMethod" || rel_str == "HasProperty" || rel_str == "HasAction" {
+                    child_ids.push(rel.target_id.clone());
+                }
+            }
+        }
+        // Merge child method adjacencies into the start node
+        for child_id in &child_ids {
+            if let Some(child_out) = outgoing.get(child_id).cloned() {
+                outgoing.entry(start_id.clone()).or_default().extend(child_out);
+            }
+            if let Some(child_in) = incoming.get(child_id).cloned() {
+                incoming.entry(start_id.clone()).or_default().extend(child_in);
+            }
+        }
     }
 
     let use_downstream = direction == "downstream" || direction == "both";

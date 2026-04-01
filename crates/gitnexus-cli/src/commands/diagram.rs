@@ -5,7 +5,7 @@ use std::io::Write;
 use anyhow::Result;
 use colored::Colorize;
 
-use gitnexus_core::graph::types::NodeLabel;
+use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_db::snapshot;
 
 pub fn run(target: &str, diagram_type: &str, path: Option<&str>, output: Option<&str>) -> Result<()> {
@@ -90,6 +90,27 @@ fn generate_flowchart(
     let mut nodes = HashSet::new();
     let max_nodes = 30;
 
+    // Seed: if starting from Class/Service, add child methods + parent File to BFS
+    if matches!(start.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface | NodeLabel::Struct) {
+        for rel in graph.iter_relationships() {
+            if rel.source_id == start.id
+                && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
+            {
+                if !visited.contains(&rel.target_id) {
+                    visited.insert(rel.target_id.clone());
+                    queue.push_back((rel.target_id.clone(), 1));
+                }
+            }
+            // Seed parent File node (File -> Class via Defines)
+            if rel.target_id == start.id && matches!(rel.rel_type, RelationshipType::Defines) {
+                if !visited.contains(&rel.source_id) {
+                    visited.insert(rel.source_id.clone());
+                    queue.push_back((rel.source_id.clone(), 0));
+                }
+            }
+        }
+    }
+
     while let Some((node_id, depth)) = queue.pop_front() {
         if depth >= 5 || nodes.len() >= max_nodes {
             break;
@@ -102,9 +123,13 @@ fn generate_flowchart(
             if visited.contains(&rel.target_id) {
                 continue;
             }
+            // Skip structural edges — we already seeded HasMethod, and Defines is structural
+            if matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::Defines) {
+                continue;
+            }
 
             if let Some(target) = graph.get_node(&rel.target_id) {
-                // Skip File and Folder nodes for cleaner diagrams
+                // Skip File, Folder nodes for cleaner diagrams
                 if target.label == NodeLabel::File || target.label == NodeLabel::Folder {
                     continue;
                 }
@@ -112,7 +137,15 @@ fn generate_flowchart(
                 visited.insert(rel.target_id.clone());
                 nodes.insert(rel.target_id.clone());
 
-                let src_id = safe_id(&graph.get_node(&node_id).map(|n| n.properties.name.as_str()).unwrap_or("?"));
+                let src_node = graph.get_node(&node_id);
+                let src_label = src_node.map(|n| n.label).unwrap_or(NodeLabel::Class);
+                // For methods and File nodes (seeded), attribute the edge to the start class
+                let src_display = if matches!(src_label, NodeLabel::Method | NodeLabel::Constructor | NodeLabel::File) {
+                    &start.properties.name
+                } else {
+                    src_node.map(|n| n.properties.name.as_str()).unwrap_or("?")
+                };
+                let src_id = safe_id(src_display);
                 let tgt_id = safe_id(&target.properties.name);
                 let rel_label = rel.rel_type.as_str();
 
@@ -187,6 +220,27 @@ fn generate_sequence(
     visited.insert(start.id.clone());
     queue.push_back((start.id.clone(), start_alias.clone(), 0usize));
 
+    // Seed: if starting from Class/Service, add child methods + parent File to BFS
+    if matches!(start.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface | NodeLabel::Struct) {
+        for rel in graph.iter_relationships() {
+            if rel.source_id == start.id
+                && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
+            {
+                if !visited.contains(&rel.target_id) {
+                    visited.insert(rel.target_id.clone());
+                    queue.push_back((rel.target_id.clone(), start_alias.clone(), 1));
+                }
+            }
+            // Seed parent File node
+            if rel.target_id == start.id && matches!(rel.rel_type, RelationshipType::Defines) {
+                if !visited.contains(&rel.source_id) {
+                    visited.insert(rel.source_id.clone());
+                    queue.push_back((rel.source_id.clone(), start_alias.clone(), 0));
+                }
+            }
+        }
+    }
+
     while let Some((node_id, caller_alias, depth)) = queue.pop_front() {
         if depth >= 4 || interactions.len() >= 20 {
             break;
@@ -198,7 +252,10 @@ fn generate_sequence(
             }
             // Follow meaningful relationships for sequence diagrams
             let rel_str = rel.rel_type.as_str();
-            if rel_str == "Contains" || rel_str == "Imports" || rel_str == "StepInProcess" {
+            if rel_str == "Contains" || rel_str == "Imports" || rel_str == "StepInProcess"
+                || rel_str == "HasMethod" || rel_str == "HasProperty"
+                || rel_str == "Defines"
+            {
                 continue;
             }
 
@@ -207,16 +264,31 @@ fn generate_sequence(
                     continue;
                 }
 
-                let target_alias = safe_id(&target.properties.name);
+                // For Method targets, use their parent class name as participant
+                let target_display = if matches!(target.label, NodeLabel::Method | NodeLabel::Constructor) {
+                    // Try to find the parent class from file name
+                    let file_stem = target.properties.file_path.rsplit('/').next().unwrap_or("")
+                        .trim_end_matches(".cs");
+                    if file_stem.is_empty() { &target.properties.name } else { file_stem }
+                } else {
+                    &target.properties.name
+                };
+                let target_alias = safe_id(target_display);
 
                 if !seen_participants.contains(&target_alias) {
                     participants.push(format!(
                         "    participant {} as {}",
                         target_alias,
-                        safe_label(&target.properties.name)
+                        safe_label(target_display)
                     ));
                     seen_participants.insert(target_alias.clone());
                 }
+
+                let call_label = if matches!(target.label, NodeLabel::Method | NodeLabel::Constructor) {
+                    &target.properties.name
+                } else {
+                    rel_str
+                };
 
                 let arrow = if rel_str.contains("Renders") {
                     "-->>"
@@ -226,7 +298,7 @@ fn generate_sequence(
 
                 interactions.push(format!(
                     "    {}{}{}: {}",
-                    caller_alias, arrow, target_alias, rel_str
+                    caller_alias, arrow, target_alias, call_label
                 ));
 
                 if !visited.contains(&rel.target_id) {
@@ -250,25 +322,56 @@ fn generate_class_diagram(
 
     let class_name = safe_id(&start.properties.name);
 
-    // Collect methods and properties in the same file
+    // Collect methods and properties via HasMethod/HasProperty edges (preferred)
     let mut methods = Vec::new();
     let mut properties = Vec::new();
+    let mut method_ids = Vec::new();
 
-    for node in graph.iter_nodes() {
-        if node.properties.file_path == start.properties.file_path {
-            match node.label {
-                NodeLabel::Method => {
-                    let ret = node.properties.return_type.as_deref().unwrap_or("void");
-                    methods.push(format!("        +{}() {}", node.properties.name, ret));
+    for rel in graph.iter_relationships() {
+        if rel.source_id == start.id
+            && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
+        {
+            if let Some(member) = graph.get_node(&rel.target_id) {
+                match member.label {
+                    NodeLabel::Method | NodeLabel::ControllerAction => {
+                        let ret = member.properties.return_type.as_deref().unwrap_or("void");
+                        methods.push(format!("        +{}() {}", member.properties.name, ret));
+                        method_ids.push(rel.target_id.clone());
+                    }
+                    NodeLabel::Property => {
+                        let ptype = member.properties.return_type.as_deref().unwrap_or("object");
+                        properties.push(format!("        +{} : {}", member.properties.name, ptype));
+                    }
+                    NodeLabel::Constructor => {
+                        methods.push(format!("        +{}()", member.properties.name));
+                        method_ids.push(rel.target_id.clone());
+                    }
+                    _ => {}
                 }
-                NodeLabel::Property => {
-                    let ptype = node.properties.return_type.as_deref().unwrap_or("object");
-                    properties.push(format!("        +{} : {}", node.properties.name, ptype));
+            }
+        }
+    }
+
+    // Fallback: if no HasMethod edges found, use file_path-based heuristic
+    if methods.is_empty() && properties.is_empty() {
+        for node in graph.iter_nodes() {
+            if node.properties.file_path == start.properties.file_path {
+                match node.label {
+                    NodeLabel::Method => {
+                        let ret = node.properties.return_type.as_deref().unwrap_or("void");
+                        methods.push(format!("        +{}() {}", node.properties.name, ret));
+                        method_ids.push(node.id.clone());
+                    }
+                    NodeLabel::Property => {
+                        let ptype = node.properties.return_type.as_deref().unwrap_or("object");
+                        properties.push(format!("        +{} : {}", node.properties.name, ptype));
+                    }
+                    NodeLabel::Constructor => {
+                        methods.push(format!("        +{}()", node.properties.name));
+                        method_ids.push(node.id.clone());
+                    }
+                    _ => {}
                 }
-                NodeLabel::Constructor => {
-                    methods.push(format!("        +{}()", node.properties.name));
-                }
-                _ => {}
             }
         }
     }
@@ -305,6 +408,27 @@ fn generate_class_diagram(
                 lines.push("    }".to_string());
             }
         }
+    }
+
+    // Show dependencies: other classes called by this class's methods
+    let mut dep_classes = HashSet::new();
+    for rel in graph.iter_relationships() {
+        if rel.rel_type == RelationshipType::Calls && method_ids.contains(&rel.source_id) {
+            if let Some(target) = graph.get_node(&rel.target_id) {
+                // Find the owning class via file_path stem
+                let file_stem = target.properties.file_path.rsplit('/').next().unwrap_or("")
+                    .trim_end_matches(".cs");
+                if !file_stem.is_empty() && file_stem != start.properties.name {
+                    dep_classes.insert(file_stem.to_string());
+                }
+            }
+        }
+    }
+    for dep in dep_classes.iter().take(10) {
+        let dep_id = safe_id(dep);
+        lines.push(format!("    {} --> {}", class_name, dep_id));
+        lines.push(format!("    class {} {{", dep_id));
+        lines.push("    }".to_string());
     }
 
     lines.join("\n")

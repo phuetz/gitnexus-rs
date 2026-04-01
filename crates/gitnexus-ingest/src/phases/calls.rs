@@ -27,6 +27,16 @@ fn build_field_type_map(
         r"(?:public|internal|private)?\s*(?:partial\s+)?class\s+(\w+)"
     ).ok();
 
+    // Pattern 3: C# 'using' statement: using (var x = new CourriersService(...))
+    let using_re = regex::Regex::new(
+        r"using\s*\(\s*(?:var|[A-Z]\w+)\s+(\w+)\s*=\s*new\s+([A-Z]\w+)\s*\("
+    ).ok();
+
+    // Pattern 4: Local variable instantiation: var x = new SomeService(...)
+    let local_new_re = regex::Regex::new(
+        r"(?:var|[A-Z]\w+)\s+(\w+)\s*=\s*new\s+([A-Z]\w+)\s*[\(\{]"
+    ).ok();
+
     for file in file_entries {
         if !file.path.ends_with(".cs") {
             continue;
@@ -59,6 +69,24 @@ fn build_field_type_map(
                         map.insert((fp.clone(), param_name.clone()), iface_type.clone());
                         map.insert((fp.clone(), format!("_{}", param_name)), iface_type.clone());
                     }
+                }
+            }
+        }
+
+        // Extract 'using' pattern: using (var svc = new CourriersService(...))
+        if let Some(ref re) = using_re {
+            for cap in re.captures_iter(&file.content) {
+                if let (Some(var_name), Some(type_name)) = (cap.get(1), cap.get(2)) {
+                    map.insert((fp.clone(), var_name.as_str().to_string()), type_name.as_str().to_string());
+                }
+            }
+        }
+
+        // Extract local instantiation: var x = new SomeService(...)
+        if let Some(ref re) = local_new_re {
+            for cap in re.captures_iter(&file.content) {
+                if let (Some(var_name), Some(type_name)) = (cap.get(1), cap.get(2)) {
+                    map.insert((fp.clone(), var_name.as_str().to_string()), type_name.as_str().to_string());
                 }
             }
         }
@@ -152,6 +180,47 @@ pub fn resolve_calls(
                             receiver_resolved += 1;
                         }
                         continue;
+                    }
+                }
+            }
+        }
+
+        // Tier 0.5: Static method calls — receiver is a class name, not a field/variable
+        // e.g., RegleCourriers.TraitementGenerationCourrier(...)
+        if call.file_path.ends_with(".cs") {
+            if let Some(ref receiver) = call.receiver_name {
+                // Check if the receiver matches a known Class/Struct name
+                if let Some(class_defs) = symbol_table.lookup_global(receiver) {
+                    let class_files: Vec<&str> = class_defs
+                        .iter()
+                        .filter(|d| matches!(d.symbol_type, NodeLabel::Class | NodeLabel::Struct))
+                        .map(|d| d.file_path.as_str())
+                        .collect();
+
+                    if !class_files.is_empty() {
+                        if let Some(method_defs) = symbol_table.lookup_global(&call.called_name) {
+                            let target = method_defs.iter().find(|d| {
+                                matches!(d.symbol_type, NodeLabel::Method | NodeLabel::Function | NodeLabel::Constructor)
+                                    && class_files.contains(&d.file_path.as_str())
+                            });
+                            if let Some(target_def) = target {
+                                let edge_id = format!("calls_static_{}_{}", call.source_id, target_def.node_id);
+                                if graph.get_relationship(&edge_id).is_none() {
+                                    graph.add_relationship(GraphRelationship {
+                                        id: edge_id,
+                                        source_id: call.source_id.clone(),
+                                        target_id: target_def.node_id.clone(),
+                                        rel_type: RelationshipType::Calls,
+                                        confidence: 0.80,
+                                        reason: format!("static-call:{}::{}", receiver, call.called_name),
+                                        step: None,
+                                    });
+                                    edge_count += 1;
+                                    receiver_resolved += 1;
+                                }
+                                continue;
+                            }
+                        }
                     }
                 }
             }

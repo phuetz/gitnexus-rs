@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashSet, VecDeque};
 use anyhow::Result;
 use colored::Colorize;
 
+use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_db::snapshot;
 
 pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result<()> {
@@ -45,7 +46,7 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
 
     println!("{} Tracing files from {} ({})", "->".cyan(), start_node.properties.name, start_node.label.as_str());
 
-    // BFS: follow ALL outgoing relationships
+    // BFS: follow outgoing relationships, seeding with child methods for Class/Service nodes
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
     visited.insert(start_node.id.clone());
@@ -54,12 +55,53 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
     // Collect: file_path -> (labels, depth)
     let mut files: BTreeMap<String, (Vec<String>, usize)> = BTreeMap::new();
 
+    // Helper: check if a file_path should be included (filter out obj/ build artifacts)
+    let is_valid_path = |p: &str| -> bool {
+        !p.is_empty() && !p.contains("/obj/") && !p.contains("\\obj\\")
+    };
+
     // Record start node's file
-    if !start_node.properties.file_path.is_empty() {
+    if is_valid_path(&start_node.properties.file_path) {
         files.entry(start_node.properties.file_path.clone())
             .or_insert_with(|| (Vec::new(), 0))
             .0
             .push(format!("{} ({})", start_node.properties.name, start_node.label.as_str()));
+    }
+
+    // Seed: if starting from a Class/Service/Interface, include:
+    // 1. Child methods (via HasMethod) for structural completeness
+    // 2. The parent File node — because Calls edges currently originate from File nodes
+    if matches!(start_node.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface | NodeLabel::Struct) {
+        for rel in graph.iter_relationships() {
+            // Seed child methods
+            if rel.source_id == start_node.id
+                && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
+            {
+                if !visited.contains(&rel.target_id) {
+                    visited.insert(rel.target_id.clone());
+                    queue.push_back((rel.target_id.clone(), 1));
+                    if let Some(member) = graph.get_node(&rel.target_id) {
+                        if is_valid_path(&member.properties.file_path) {
+                            let entry = files
+                                .entry(member.properties.file_path.clone())
+                                .or_insert_with(|| (Vec::new(), 1));
+                            entry.0.push(format!("{} ({})", member.properties.name, member.label.as_str()));
+                            entry.1 = entry.1.min(1);
+                        }
+                    }
+                }
+            }
+            // Seed parent File node (File -> Class via Defines)
+            if rel.target_id == start_node.id
+                && matches!(rel.rel_type, RelationshipType::Defines)
+            {
+                if !visited.contains(&rel.source_id) {
+                    visited.insert(rel.source_id.clone());
+                    // Add at depth 0 so its Calls edges count as depth 1
+                    queue.push_back((rel.source_id.clone(), 0));
+                }
+            }
+        }
     }
 
     while let Some((node_id, d)) = queue.pop_front() {
@@ -67,9 +109,13 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
             continue;
         }
 
-        // Follow OUTGOING relationships only (source → target)
+        // Follow OUTGOING relationships (source → target)
         for rel in graph.iter_relationships() {
             if rel.source_id != node_id {
+                continue;
+            }
+            // Skip already-seeded HasMethod/HasProperty edges to avoid double-counting
+            if matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty) {
                 continue;
             }
             let neighbor_id = &rel.target_id;
@@ -81,7 +127,7 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
 
             if let Some(neighbor) = graph.get_node(neighbor_id) {
                 // Record this file
-                if !neighbor.properties.file_path.is_empty() {
+                if is_valid_path(&neighbor.properties.file_path) {
                     let entry = files
                         .entry(neighbor.properties.file_path.clone())
                         .or_insert_with(|| (Vec::new(), d + 1));

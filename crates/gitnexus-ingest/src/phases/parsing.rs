@@ -993,6 +993,27 @@ fn create_definition_node(
     };
     nodes.push(graph_node);
 
+    // Create nesting edges: Class -> Method/Property/Constructor
+    if matches!(label, NodeLabel::Method | NodeLabel::Property | NodeLabel::Constructor) {
+        if let Some(class_node_id) = find_enclosing_class_id(node, &file.path, file.content.as_bytes()) {
+            let rel_type = if label == NodeLabel::Property {
+                RelationshipType::HasProperty
+            } else {
+                RelationshipType::HasMethod
+            };
+            let nesting_edge_id = format!("{}_{}", rel_type.as_str().to_lowercase(), node_id);
+            relationships.push(GraphRelationship {
+                id: nesting_edge_id,
+                source_id: class_node_id,
+                target_id: node_id.clone(),
+                rel_type,
+                confidence: 1.0,
+                reason: "ast_nesting".to_string(),
+                step: None,
+            });
+        }
+    }
+
     // Create DEFINES edge: File -> Symbol
     let edge_id = format!("defines_{}_{}", file_node_id, node_id);
     relationships.push(GraphRelationship {
@@ -1004,6 +1025,62 @@ fn create_definition_node(
         reason: "ast".to_string(),
         step: None,
     });
+}
+
+/// Walk up the tree-sitter AST from `node` to find the nearest enclosing class/struct/interface
+/// container, and return its graph node ID so we can create HasMethod/HasProperty edges.
+fn find_enclosing_class_id(
+    node: &tree_sitter::Node,
+    file_path: &str,
+    content: &[u8],
+) -> Option<String> {
+    // Container node kinds across all supported languages
+    const CONTAINER_KINDS: &[&str] = &[
+        // C#
+        "class_declaration",
+        "struct_declaration",
+        "interface_declaration",
+        "record_declaration",
+        // Java
+        "annotation_type_declaration",
+        // Python
+        "class_definition",
+        // Rust
+        "struct_item",
+        "impl_item",
+        "enum_item",
+        "trait_item",
+        // C / C++
+        "class_specifier",
+        "struct_specifier",
+        // PHP
+        "trait_declaration",
+        // Note: "class_declaration" / "interface_declaration" / "enum_declaration"
+        // are shared across C#, Java, TS/JS, Kotlin, PHP, Swift — no duplicates needed
+    ];
+
+    let mut cursor = node.parent();
+    while let Some(ancestor) = cursor {
+        let kind = ancestor.kind();
+        if CONTAINER_KINDS.contains(&kind) {
+            // Extract the class/struct/interface name via the "name" field child
+            if let Some(name_node) = ancestor.child_by_field_name("name") {
+                let class_name = name_node.utf8_text(content).ok()?;
+                let label_str = match kind {
+                    k if k.contains("interface") => "Interface",
+                    k if k.contains("struct") => "Struct",
+                    k if k.contains("record") => "Record",
+                    k if k.contains("trait") => "Trait",
+                    k if k.contains("impl") => "Impl",
+                    _ => "Class",
+                };
+                let qualified = format!("{}:{}", file_path, class_name);
+                return Some(generate_id(label_str, &qualified));
+            }
+        }
+        cursor = ancestor.parent();
+    }
+    None
 }
 
 /// Count parameters from a params string like "(a, b, c)" or "(a: int, b: str)".

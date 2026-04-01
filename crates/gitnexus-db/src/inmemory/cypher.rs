@@ -924,6 +924,10 @@ fn get_node_field_str(node: &GraphNode, field: &str) -> Option<String> {
             node.properties.entry_point_score.map(|v| v.to_string())
         }
         "entryPointReason" | "entry_point_reason" => node.properties.entry_point_reason.clone(),
+        "isTraced" | "is_traced" => node.properties.is_traced.map(|v| v.to_string()),
+        "traceCallCount" | "trace_call_count" => {
+            node.properties.trace_call_count.map(|v| v.to_string())
+        }
         _ => None,
     }
 }
@@ -1034,6 +1038,12 @@ fn node_to_json(node: &GraphNode) -> Value {
     }
     if let Some(ref epr) = node.properties.entry_point_reason {
         map.insert("entryPointReason".to_string(), Value::String(epr.clone()));
+    }
+    if let Some(traced) = node.properties.is_traced {
+        map.insert("isTraced".to_string(), serde_json::json!(traced));
+    }
+    if let Some(tcc) = node.properties.trace_call_count {
+        map.insert("traceCallCount".to_string(), serde_json::json!(tcc));
     }
     Value::Object(map)
 }

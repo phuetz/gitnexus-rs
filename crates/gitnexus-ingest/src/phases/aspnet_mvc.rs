@@ -1312,6 +1312,25 @@ pub fn enrich_aspnet_mvc(
                 node.properties.is_traced = Some(true);
                 node.properties.trace_call_count = Some(tracing_info.call_count);
             }
+
+            // Propagate is_traced to individual Method nodes (from BeginMethodScope detection)
+            for method_name in &tracing_info.traced_methods {
+                let method_id = gitnexus_core::id::generate_id(
+                    "Method",
+                    &format!("{}:{}", entry.path, method_name),
+                );
+                if let Some(method_node) = graph.get_node_mut(&method_id) {
+                    method_node.properties.is_traced = Some(true);
+                }
+                // Also try Constructor label
+                let ctor_id = gitnexus_core::id::generate_id(
+                    "Constructor",
+                    &format!("{}:{}", entry.path, method_name),
+                );
+                if let Some(ctor_node) = graph.get_node_mut(&ctor_id) {
+                    ctor_node.properties.is_traced = Some(true);
+                }
+            }
         }
     }
 

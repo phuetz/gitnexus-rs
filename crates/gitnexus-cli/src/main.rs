@@ -234,6 +234,19 @@ enum Commands {
         #[arg(short, long)]
         path: Option<String>,
     },
+
+    /// Analyze tracing coverage and detect dead code
+    #[command(after_help = "Examples:\n  gitnexus coverage CourriersService\n  gitnexus coverage --json\n  gitnexus coverage CourriersService --path D:\\taf\\Alise_v2")]
+    Coverage {
+        /// Class/Service name to analyze (omit for global report)
+        target: Option<String>,
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -325,6 +338,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::TraceImport { file, path } => {
             commands::trace_import::run(&file, path.as_deref())
+        }
+        Commands::Coverage { target, path, json } => {
+            commands::coverage::run(target.as_deref(), path.as_deref(), json)
         }
     }
 }

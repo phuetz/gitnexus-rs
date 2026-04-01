@@ -24,3 +24,4 @@ pub mod config_cmd;
 pub mod trace_files;
 pub mod diagram;
 pub mod trace_import;
+pub mod coverage;

@@ -6,6 +6,7 @@
 wiki/
 skills/
 !.claude/skills/
+!.codex/skills/
 AGENTS.md
 
 # Binaries

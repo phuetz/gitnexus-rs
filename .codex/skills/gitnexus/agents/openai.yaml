@@ -1,0 +1,8 @@
+display_name: GitNexus
+icon: graph
+brand_color: "#7aa2f7"
+invocation_policy: automatic
+tools:
+  - shell
+  - file_read
+  - file_search

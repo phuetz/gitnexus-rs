@@ -64,11 +64,11 @@ gitnexus-desktop (Tauri v2 desktop app)
   └── gitnexus-core
 ```
 
-**Core** (`gitnexus-core`): In-memory knowledge graph with HashMap-based O(1) node/relationship lookup. Defines `NodeLabel` (38 variants), `RelationshipType`, `SymbolDefinition`, and pipeline types.
+**Core** (`gitnexus-core`): In-memory knowledge graph with HashMap-based O(1) node/relationship lookup. Defines `NodeLabel` (38 variants), `RelationshipType` (34 variants including `Calls`, `HasMethod`, `HasProperty`, `HasAction`), `SymbolDefinition`, and pipeline types. Node properties include `is_traced`, `is_dead_candidate`, `trace_call_count`.
 
 **Lang** (`gitnexus-lang`): `LanguageProvider` trait with 13 implementations (JS, TS, Python, Java, C, C++, C#, Go, Rust, PHP, Ruby, Kotlin, Swift). Each provider supplies tree-sitter query strings (`queries/`), import resolvers (`import_resolvers/`), named binding extractors (`named_bindings/`), type extractors, export detection, and call routing. Static dispatch via `registry.rs`.
 
-**Ingest** (`gitnexus-ingest`): Pipeline orchestrator in `pipeline.rs` runs 6 phases sequentially: Structure (filesystem walk) -> Parsing (tree-sitter AST extraction) -> Imports (resolution) -> Calls (function/method calls) -> Heritage (class hierarchy) -> Community (clustering). Uses rayon for parallel file processing with a 20MB chunk budget and LRU AST cache (cap 50).
+**Ingest** (`gitnexus-ingest`): Pipeline orchestrator in `pipeline.rs` runs 8 phases sequentially: Structure (filesystem walk) -> Parsing (tree-sitter AST extraction, creates HasMethod/HasProperty nesting edges via AST parent-chain walk) -> Imports (resolution) -> Calls (Method→Method resolution with DI/using/static pattern support) -> Heritage (class hierarchy) -> ASP.NET MVC (controllers, views, entities, tracing coverage propagation to Method nodes) -> Community (clustering) -> Dead Code (marks methods with 0 incoming Calls as `is_dead_candidate`). Uses rayon for parallel file processing with a 20MB chunk budget and LRU AST cache (cap 50).
 
 **DB** (`gitnexus-db`): `DatabaseBackend` trait with `InMemoryBackend` (default, includes simple Cypher executor and BM25 FTS) and `KuzuDbBackend` (feature-gated via `kuzu-backend`). Schema defines 35 node tables with a unified `CodeRelation` relationship table. Persistence via bincode snapshots (`graph.bin`).
 
@@ -78,7 +78,7 @@ gitnexus-desktop (Tauri v2 desktop app)
 
 **Git** (`gitnexus-git`): Git history analysis: `analyze_hotspots` (file churn scoring), `analyze_coupling` (temporal coupling between files), `analyze_ownership` (author distribution per file). Used by CLI (`hotspots`, `coupling`, `ownership`, `report` commands) and desktop app.
 
-**CLI** (`gitnexus-cli`): Binary `gitnexus` with commands: `analyze`, `mcp`, `serve`, `list`, `status`, `clean`, `query`, `context`, `impact`, `cypher`, `setup`, `shell`, `generate`, `watch`, `dashboard`, `hotspots`, `coupling`, `ownership`, `ask`, `report`. MCP mode logs to stderr to avoid polluting stdout JSON-RPC.
+**CLI** (`gitnexus-cli`): Binary `gitnexus` with commands: `analyze`, `mcp`, `serve`, `list`, `status`, `clean`, `query`, `context`, `impact`, `cypher`, `setup`, `shell`, `generate`, `watch`, `dashboard`, `hotspots`, `coupling`, `ownership`, `ask`, `report`, `trace-files`, `diagram`, `trace-import`, `coverage`. MCP mode logs to stderr to avoid polluting stdout JSON-RPC.
 
 **Desktop** (`gitnexus-desktop`): Tauri v2 desktop app with React 19 frontend. Accesses `KnowledgeGraph` + `GraphIndexes` + `FtsIndex` directly (not via MCP envelope). React frontend in `crates/gitnexus-desktop/ui/` uses Cytoscape.js for graph visualization (semantic sizing + glow shadows), Zustand + TanStack Query for state, Tailwind CSS + framer-motion for styling/animations. IPC commands: `list_repos`, `open_repo`, `get_graph_data`, `get_subgraph`, `get_neighbors`, `search_symbols`, `search_autocomplete`, `get_symbol_context`, `get_impact_analysis`, `get_file_tree`, `read_file_content`, `execute_cypher`, `get_process_flows`, `get_hotspots`, `get_coupling`, `get_ownership`, `get_code_health`.
 

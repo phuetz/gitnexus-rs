@@ -7,7 +7,7 @@ use colored::Colorize;
 use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_db::snapshot;
 
-pub fn run(target: Option<&str>, path: Option<&str>, json: bool) -> Result<()> {
+pub fn run(target: Option<&str>, path: Option<&str>, json: bool, trace: bool) -> Result<()> {
     let repo_path = if let Some(p) = path {
         std::path::PathBuf::from(p)
     } else {
@@ -50,8 +50,13 @@ pub fn run(target: Option<&str>, path: Option<&str>, json: bool) -> Result<()> {
     }
 
     if let Some(target_name) = target {
-        // Single class mode
-        run_single_class(&graph, target_name, &incoming_calls, &class_methods, &method_class, json)
+        if trace {
+            // Flow trace mode: follow call chain and show coverage
+            run_flow_trace(&graph, target_name, &class_methods, &method_class)
+        } else {
+            // Single class mode
+            run_single_class(&graph, target_name, &incoming_calls, &class_methods, &method_class, json)
+        }
     } else {
         // Global mode
         run_global(&graph, &incoming_calls, &class_methods, &method_class, json)
@@ -400,4 +405,200 @@ fn print_json_single(class_node: &gitnexus_core::graph::types::GraphNode, method
     });
 
     println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+}
+
+/// Trace the full call flow from a class and show tracing coverage along the chain.
+fn run_flow_trace(
+    graph: &gitnexus_core::graph::KnowledgeGraph,
+    target_name: &str,
+    _class_methods: &HashMap<String, Vec<String>>,
+    method_class: &HashMap<String, String>,
+) -> Result<()> {
+    use std::collections::{HashSet, VecDeque, BTreeMap};
+
+    let target_lower = target_name.to_lowercase();
+
+    // Find the Class/Service/Controller node
+    let mut candidates: Vec<_> = graph
+        .iter_nodes()
+        .filter(|n| {
+            n.properties.name.to_lowercase() == target_lower
+                && matches!(n.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller)
+        })
+        .collect();
+    candidates.sort_by_key(|n| match n.label {
+        NodeLabel::Controller => 0,
+        NodeLabel::Class => 1,
+        NodeLabel::Service => 2,
+        _ => 10,
+    });
+
+    let start_node = match candidates.first() {
+        Some(n) => *n,
+        None => {
+            println!("{} Class '{}' not found.", "ERROR".red(), target_name);
+            return Ok(());
+        }
+    };
+
+    // BFS: seed with child methods, follow Calls edges
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+    visited.insert(start_node.id.clone());
+
+    // Seed source IDs (include sibling Class for Controllers)
+    let mut seed_source_ids = vec![start_node.id.clone()];
+    if start_node.label == NodeLabel::Controller {
+        for n in graph.iter_nodes() {
+            if n.label == NodeLabel::Class
+                && n.properties.name == start_node.properties.name
+                && n.properties.file_path == start_node.properties.file_path
+            {
+                seed_source_ids.push(n.id.clone());
+            }
+        }
+    }
+
+    // Seed child methods
+    for rel in graph.iter_relationships() {
+        if seed_source_ids.contains(&rel.source_id)
+            && matches!(
+                rel.rel_type,
+                RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction
+            )
+        {
+            if visited.insert(rel.target_id.clone()) {
+                queue.push_back((rel.target_id.clone(), 0usize));
+            }
+        }
+    }
+
+    // BFS following Calls edges, collecting all traversed methods
+    let mut flow_methods: Vec<(String, String)> = Vec::new(); // (method_id, parent_class_name)
+    let max_depth = 3;
+
+    // Add seed methods
+    for mid in visited.iter() {
+        if let Some(node) = graph.get_node(mid) {
+            if matches!(node.label, NodeLabel::Method | NodeLabel::Constructor | NodeLabel::ControllerAction) {
+                let parent_class = method_class
+                    .get(mid)
+                    .and_then(|cid| graph.get_node(cid))
+                    .map(|n| n.properties.name.clone())
+                    .unwrap_or_else(|| {
+                        node.properties.file_path.rsplit('/').next().unwrap_or("?")
+                            .trim_end_matches(".cs").to_string()
+                    });
+                flow_methods.push((mid.clone(), parent_class));
+            }
+        }
+    }
+
+    while let Some((node_id, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        for rel in graph.iter_relationships() {
+            if rel.source_id == node_id
+                && matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService)
+            {
+                if visited.insert(rel.target_id.clone()) {
+                    if let Some(target) = graph.get_node(&rel.target_id) {
+                        if matches!(target.label, NodeLabel::Method | NodeLabel::Constructor | NodeLabel::ControllerAction) {
+                            // Skip StackLogger methods for cleaner output
+                            if target.properties.file_path.contains("StackLogger") {
+                                continue;
+                            }
+                            let parent_class = method_class
+                                .get(&rel.target_id)
+                                .and_then(|cid| graph.get_node(cid))
+                                .map(|n| n.properties.name.clone())
+                                .unwrap_or_else(|| {
+                                    target.properties.file_path.rsplit('/').next().unwrap_or("?")
+                                        .trim_end_matches(".cs").to_string()
+                                });
+                            flow_methods.push((rel.target_id.clone(), parent_class));
+                            queue.push_back((rel.target_id.clone(), depth + 1));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Group by parent class
+    let mut grouped: BTreeMap<String, Vec<(String, bool, bool, Option<u32>)>> = BTreeMap::new();
+    for (method_id, parent_class) in &flow_methods {
+        if let Some(node) = graph.get_node(method_id) {
+            let is_traced = node.properties.is_traced.unwrap_or(false);
+            let is_dead = node.properties.is_dead_candidate.unwrap_or(false);
+            grouped
+                .entry(parent_class.clone())
+                .or_default()
+                .push((node.properties.name.clone(), is_traced, is_dead, node.properties.start_line));
+        }
+    }
+
+    // Print results
+    println!();
+    println!(
+        "{} {} (depth {})",
+        "Flow Coverage from".cyan(),
+        start_node.properties.name.bold(),
+        max_depth
+    );
+    println!("{}", "=".repeat(60).cyan());
+
+    let mut total_methods = 0usize;
+    let mut total_traced = 0usize;
+    let mut total_dead = 0usize;
+
+    for (class_name, methods) in &grouped {
+        let traced = methods.iter().filter(|m| m.1).count();
+        let dead = methods.iter().filter(|m| m.2).count();
+        let count = methods.len();
+        total_methods += count;
+        total_traced += traced;
+        total_dead += dead;
+
+        let pct = if count > 0 { (traced as f64 / count as f64) * 100.0 } else { 0.0 };
+        println!();
+        println!(
+            "  {} ({}/{} traced, {:.0}%)",
+            class_name.bold(),
+            traced,
+            count,
+            pct
+        );
+        for (name, is_traced, is_dead, line) in methods {
+            let marker = if *is_traced {
+                "V".green().to_string()
+            } else {
+                "X".red().to_string()
+            };
+            let dead_marker = if *is_dead { " [dead]".dimmed().to_string() } else { String::new() };
+            let line_info = line.map(|l| format!(":{}", l)).unwrap_or_default();
+            println!("    {} {}{}{}", marker, name, line_info.dimmed(), dead_marker);
+        }
+    }
+
+    let total_pct = if total_methods > 0 {
+        (total_traced as f64 / total_methods as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    println!();
+    println!("{}", "-".repeat(60));
+    println!(
+        "  Flow total: {}/{} methods traced ({:.1}%)",
+        total_traced, total_methods, total_pct
+    );
+    println!("  Untraced in flow: {}", total_methods - total_traced);
+    if total_dead > 0 {
+        println!("  Dead code in flow: {}", total_dead);
+    }
+    println!();
+
+    Ok(())
 }

@@ -246,6 +246,9 @@ enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+        /// Trace the full call flow and show coverage along the chain
+        #[arg(long)]
+        trace: bool,
     },
 }
 
@@ -339,8 +342,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::TraceImport { file, path } => {
             commands::trace_import::run(&file, path.as_deref())
         }
-        Commands::Coverage { target, path, json } => {
-            commands::coverage::run(target.as_deref(), path.as_deref(), json)
+        Commands::Coverage { target, path, json, trace } => {
+            commands::coverage::run(target.as_deref(), path.as_deref(), json, trace)
         }
     }
 }

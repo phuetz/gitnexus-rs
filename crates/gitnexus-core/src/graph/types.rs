@@ -550,6 +550,10 @@ pub struct NodeProperties {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_call_count: Option<u32>,
 
+    /// Whether this method has no incoming Calls edges (potential dead code)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_dead_candidate: Option<bool>,
+
     /// External service type (WebAPI, WCF, REST)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_type: Option<String>,

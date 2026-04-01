@@ -256,6 +256,16 @@ pub async fn run_pipeline(
         &format!("Found {process_count} processes"),
     );
 
+    // Phase 7: Dead code detection
+    let phase_start = Instant::now();
+    phases::dead_code::mark_dead_code(&mut graph);
+    let duration = phase_start.elapsed();
+    tracing::info!(
+        phase = "dead_code",
+        duration_ms = duration.as_millis() as u64,
+        "Phase complete"
+    );
+
     send_progress(PipelinePhase::Complete, 100.0, "Pipeline complete");
 
     tracing::info!(

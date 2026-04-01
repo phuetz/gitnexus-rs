@@ -928,6 +928,9 @@ fn get_node_field_str(node: &GraphNode, field: &str) -> Option<String> {
         "traceCallCount" | "trace_call_count" => {
             node.properties.trace_call_count.map(|v| v.to_string())
         }
+        "isDeadCandidate" | "is_dead_candidate" => {
+            node.properties.is_dead_candidate.map(|v| v.to_string())
+        }
         _ => None,
     }
 }
@@ -1044,6 +1047,9 @@ fn node_to_json(node: &GraphNode) -> Value {
     }
     if let Some(tcc) = node.properties.trace_call_count {
         map.insert("traceCallCount".to_string(), serde_json::json!(tcc));
+    }
+    if let Some(dead) = node.properties.is_dead_candidate {
+        map.insert("isDeadCandidate".to_string(), serde_json::json!(dead));
     }
     Value::Object(map)
 }

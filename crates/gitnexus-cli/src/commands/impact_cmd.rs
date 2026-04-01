@@ -3,7 +3,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
-use gitnexus_core::graph::types::RelationshipType;
 use gitnexus_core::storage::repo_manager;
 
 pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::Result<()> {
@@ -19,19 +18,14 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
     let graph = gitnexus_db::snapshot::load_snapshot(&snap)?;
     let lower = target.to_lowercase();
 
-    // Find the target node
-    let mut matches = Vec::new();
-    for node in graph.iter_nodes() {
-        if node.properties.name.to_lowercase() == lower {
-            matches.push(node.id.clone());
-        }
-    }
+    // Find the target node — prefer Controller/Class/Service over Constructor/File
+    let mut matches: Vec<_> = graph.iter_nodes()
+        .filter(|n| n.properties.name.to_lowercase() == lower)
+        .collect();
     if matches.is_empty() {
-        for node in graph.iter_nodes() {
-            if node.properties.name.to_lowercase().contains(&lower) {
-                matches.push(node.id.clone());
-            }
-        }
+        matches = graph.iter_nodes()
+            .filter(|n| n.properties.name.to_lowercase().contains(&lower))
+            .collect();
     }
 
     if matches.is_empty() {
@@ -39,23 +33,37 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
         return Ok(());
     }
 
-    let start_id = &matches[0];
+    // Sort by priority: Controller > Class > Service > Method > File > others
+    matches.sort_by_key(|n| match n.label {
+        gitnexus_core::graph::types::NodeLabel::Controller => 0,
+        gitnexus_core::graph::types::NodeLabel::Class => 1,
+        gitnexus_core::graph::types::NodeLabel::Service => 2,
+        gitnexus_core::graph::types::NodeLabel::Method => 5,
+        gitnexus_core::graph::types::NodeLabel::File => 8,
+        _ => 10,
+    });
 
-    // Build adjacency index for CALLS edges
+    let start_id = &matches[0].id;
+
+    // Build adjacency index for dependency-related edges
+    // Include Calls, CallsAction, CallsService, DependsOn, HasAction, RendersView
     let mut outgoing: HashMap<String, Vec<String>> = HashMap::new();
     let mut incoming: HashMap<String, Vec<String>> = HashMap::new();
 
     for rel in graph.iter_relationships() {
-        if rel.rel_type == RelationshipType::Calls {
-            outgoing
-                .entry(rel.source_id.clone())
-                .or_default()
-                .push(rel.target_id.clone());
-            incoming
-                .entry(rel.target_id.clone())
-                .or_default()
-                .push(rel.source_id.clone());
+        let rel_str = rel.rel_type.as_str();
+        // Skip structural relationships (Contains, Imports, Inherits)
+        if rel_str == "Contains" || rel_str == "Imports" || rel_str == "StepInProcess" {
+            continue;
         }
+        outgoing
+            .entry(rel.source_id.clone())
+            .or_default()
+            .push(rel.target_id.clone());
+        incoming
+            .entry(rel.target_id.clone())
+            .or_default()
+            .push(rel.source_id.clone());
     }
 
     let use_downstream = direction == "downstream" || direction == "both";

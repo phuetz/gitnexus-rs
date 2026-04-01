@@ -129,9 +129,13 @@ fn generate_flowchart(
             if visited.contains(&rel.target_id) {
                 continue;
             }
-            // Skip structural/noise edges
+            // Skip structural/noise edges (keep HAS_ACTION, RENDERS_VIEW for flowcharts)
             if matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty
-                | RelationshipType::Defines | RelationshipType::MemberOf | RelationshipType::Extends) {
+                | RelationshipType::Defines | RelationshipType::MemberOf
+                | RelationshipType::Inherits | RelationshipType::Implements
+                | RelationshipType::Extends | RelationshipType::Contains
+                | RelationshipType::Imports | RelationshipType::BelongsToArea
+                | RelationshipType::StepInProcess) {
                 continue;
             }
 
@@ -275,7 +279,12 @@ fn generate_sequence(
             if matches!(rel.rel_type, RelationshipType::Contains | RelationshipType::Imports
                 | RelationshipType::StepInProcess | RelationshipType::HasMethod
                 | RelationshipType::HasProperty | RelationshipType::Defines
-                | RelationshipType::MemberOf)
+                | RelationshipType::MemberOf
+                // Structural ASP.NET edges — not call interactions
+                | RelationshipType::HasAction | RelationshipType::HasFilter
+                | RelationshipType::Inherits | RelationshipType::Implements
+                | RelationshipType::Extends | RelationshipType::RendersView
+                | RelationshipType::BelongsToArea)
             {
                 continue;
             }

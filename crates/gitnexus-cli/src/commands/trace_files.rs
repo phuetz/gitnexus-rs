@@ -146,10 +146,14 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
         }
     }
 
-    // Deduplicate symbols per file
+    // Deduplicate symbols per file (by name, keeping the more specific label)
     for (_path, (symbols, _depth)) in files.iter_mut() {
         symbols.sort();
-        symbols.dedup();
+        symbols.dedup_by(|a, b| {
+            let name_a = a.split(" (").next().unwrap_or(a);
+            let name_b = b.split(" (").next().unwrap_or(b);
+            name_a == name_b
+        });
     }
 
     if json {

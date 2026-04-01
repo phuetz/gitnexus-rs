@@ -57,9 +57,12 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
     let mut incoming: HashMap<String, Vec<String>> = HashMap::new();
 
     for rel in graph.iter_relationships() {
-        // Skip structural relationships
+        // Skip structural relationships that don't represent functional dependencies
         if matches!(rel.rel_type, RelationshipType::Contains | RelationshipType::Imports
-            | RelationshipType::StepInProcess | RelationshipType::Defines) {
+            | RelationshipType::StepInProcess | RelationshipType::Defines
+            | RelationshipType::MemberOf | RelationshipType::Inherits
+            | RelationshipType::Implements | RelationshipType::Extends
+            | RelationshipType::BelongsToArea) {
             continue;
         }
         outgoing
@@ -147,6 +150,15 @@ fn bfs_print(
         if let Some(neighbors) = adjacency.get(&node_id) {
             for neighbor in neighbors {
                 if !visited.contains(neighbor) {
+                    // Skip obj/ artifacts and Community noise nodes
+                    if let Some(node) = graph.get_node(neighbor) {
+                        if node.label == NodeLabel::Community
+                            || node.properties.file_path.contains("/obj/")
+                            || node.properties.file_path.contains("\\obj\\")
+                        {
+                            continue;
+                        }
+                    }
                     visited.insert(neighbor.clone());
                     levels[depth].push(neighbor.clone());
                     total += 1;

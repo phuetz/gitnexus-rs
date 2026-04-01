@@ -187,9 +187,14 @@ fn generate_flowchart(
     ));
     lines.push(format!("    style {} fill:#7aa2f7,color:#fff", start_safe));
 
+    let mut declared_nodes = HashSet::new();
     for nid in &nodes {
         if let Some(node) = graph.get_node(nid) {
             let nid_safe = safe_id(&node.properties.name);
+            // Skip duplicate node declarations (same display name from different files)
+            if !declared_nodes.insert(nid_safe.clone()) {
+                continue;
+            }
             let shape = match node.label {
                 NodeLabel::Service | NodeLabel::Repository => format!(
                     "    {}[/\"{}\\n({})\"/]",
@@ -352,6 +357,10 @@ fn generate_sequence(
             }
         }
     }
+
+    // Deduplicate interactions (same caller→target:label from different methods)
+    let mut seen_interactions = HashSet::new();
+    interactions.retain(|i| seen_interactions.insert(i.clone()));
 
     lines.extend(participants);
     lines.extend(interactions);

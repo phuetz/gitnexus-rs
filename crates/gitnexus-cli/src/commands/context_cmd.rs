@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use gitnexus_core::graph::types::RelationshipType;
+use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_core::storage::repo_manager;
 
 pub async fn run(name: &str, repo: Option<&str>) -> anyhow::Result<()> {
@@ -38,6 +38,19 @@ pub async fn run(name: &str, repo: Option<&str>) -> anyhow::Result<()> {
         println!("Symbol '{}' not found.", name);
         return Ok(());
     }
+
+    // Sort by priority: Controller > Class > Service > Interface > Method > others
+    matches.sort_by_key(|id| {
+        graph.get_node(id).map(|n| match n.label {
+            NodeLabel::Controller => 0,
+            NodeLabel::Class => 1,
+            NodeLabel::Service => 2,
+            NodeLabel::Interface => 3,
+            NodeLabel::Method => 5,
+            NodeLabel::File => 8,
+            _ => 10,
+        }).unwrap_or(10)
+    });
 
     let node_id = &matches[0];
     let node = graph.get_node(node_id).unwrap();

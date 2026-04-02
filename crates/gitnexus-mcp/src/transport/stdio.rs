@@ -75,7 +75,8 @@ impl StdioTransport {
                 }
             }
 
-            match self.framing.unwrap() {
+            // Safety: framing is always set in the block above when None
+            match self.framing.expect("framing set above") {
                 StdioFraming::ContentLength => {
                     if trimmed.starts_with("Content-Length:") {
                         return self.read_content_length_body(&trimmed).await;

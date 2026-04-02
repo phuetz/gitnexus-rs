@@ -62,14 +62,6 @@ pub async fn read_doc(state: State<'_, AppState>, path: String) -> Result<DocCon
     })
 }
 
-/// Check if documentation has been generated for the active repository.
-#[tauri::command]
-pub async fn has_docs(state: State<'_, AppState>) -> Result<bool, String> {
-    let repo_path = get_active_repo_path(&state).await?;
-    let index_path = repo_path.join(".gitnexus").join("docs").join("_index.json");
-    Ok(index_path.exists())
-}
-
 /// Helper: get the active repository's filesystem path.
 async fn get_active_repo_path(state: &State<'_, AppState>) -> Result<PathBuf, String> {
     let name = state

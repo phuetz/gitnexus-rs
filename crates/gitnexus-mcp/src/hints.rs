@@ -39,6 +39,36 @@ pub fn hint_for(tool_name: &str) -> &'static str {
              (query, context, impact) for structured analysis. \
              Common patterns: MATCH (n:Function) WHERE n.isExported = true RETURN n"
         }
+        "hotspots" => {
+            "Review the top hotspots — files with high churn and frequent commits \
+             are often sources of bugs. Use `coupling` to find files that change \
+             together, or `context` to explore symbols in hotspot files."
+        }
+        "coupling" => {
+            "File pairs with high coupling strength may have hidden dependencies. \
+             Use `context` or `impact` to understand why they change together. \
+             Use `hotspots` to see which of these files are also churn-heavy."
+        }
+        "ownership" => {
+            "Files with many authors or low ownership percentage may need \
+             clearer ownership. Use `hotspots` to see if these files are \
+             also frequently modified, or `coupling` to find related files."
+        }
+        "coverage" => {
+            "Review dead code candidates (methods with 0 incoming calls). \
+             Use `context` on a dead method to verify it's truly unused. \
+             Use `diagram` to visualize call chains around covered methods."
+        }
+        "diagram" => {
+            "The Mermaid diagram can be rendered in any Markdown viewer. \
+             Use `context` to explore the symbol further, or `impact` \
+             to understand the blast radius of changes."
+        }
+        "report" => {
+            "Review the health grade and focus on the worst metrics. \
+             Use `hotspots` for file-level churn detail, `coupling` for \
+             hidden dependencies, and `coverage` for dead code."
+        }
         _ => "Use `list_repos` to see indexed repositories, or `query` to search.",
     }
 }
@@ -57,6 +87,12 @@ mod tests {
             "detect_changes",
             "rename",
             "cypher",
+            "hotspots",
+            "coupling",
+            "ownership",
+            "coverage",
+            "diagram",
+            "report",
         ];
         for tool in &tools {
             let hint = hint_for(tool);

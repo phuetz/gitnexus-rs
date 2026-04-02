@@ -13,3 +13,5 @@ pub mod export;
 pub mod process;
 pub mod git_analytics;
 pub mod health;
+pub mod coverage;
+pub mod diagram;

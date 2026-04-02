@@ -152,7 +152,7 @@ pub async fn handle_request(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
-            match resources::read_resource(uri) {
+            match resources::read_resource(uri, backend.registry()) {
                 Some(content) => JsonRpcResponse::success(id, content),
                 None => JsonRpcResponse::error(
                     id,
@@ -225,7 +225,7 @@ mod tests {
         let resp = handle_request(&req, &mut backend).await;
         let result = resp.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 13);
     }
 
     #[tokio::test]
@@ -243,7 +243,7 @@ mod tests {
         let resp = handle_request(&req, &mut backend).await;
         let result = resp.result.unwrap();
         let prompts = result["prompts"].as_array().unwrap();
-        assert_eq!(prompts.len(), 2);
+        assert_eq!(prompts.len(), 5);
     }
 
     #[tokio::test]

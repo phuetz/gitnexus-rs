@@ -87,7 +87,8 @@ impl SymbolTable {
             }
             self.callable_index = Some(index);
         }
-        self.callable_index.as_ref().unwrap()
+        // Safety: callable_index is always set above when None
+        self.callable_index.as_ref().expect("callable_index populated above")
     }
 
     /// Total symbol count.

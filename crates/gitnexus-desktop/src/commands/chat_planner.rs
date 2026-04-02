@@ -24,17 +24,6 @@ fn sanitize_cypher_string(s: &str) -> String {
 
 // ─── Query Analysis ─────────────────────────────────────────────────
 
-/// Analyze a query to determine its complexity and required tools.
-#[tauri::command]
-pub async fn chat_analyze_query(
-    state: State<'_, AppState>,
-    question: String,
-    filters: Option<ChatContextFilter>,
-) -> Result<QueryAnalysis, String> {
-    let (graph, _indexes, fts_index, _repo_path) = state.get_repo(None).await?;
-    analyze_query_impl(&question, &filters, &graph, &fts_index)
-}
-
 /// Internal query analysis implementation.
 pub fn analyze_query_impl(
     question: &str,
@@ -176,32 +165,6 @@ pub fn analyze_query_impl(
 }
 
 // ─── Research Plan Generation ───────────────────────────────────────
-
-/// Generate a research plan for a complex question.
-#[tauri::command]
-pub async fn chat_plan_research(
-    state: State<'_, AppState>,
-    question: String,
-    filters: Option<ChatContextFilter>,
-) -> Result<ResearchPlan, String> {
-    let (graph, _indexes, fts_index, _repo_path) = state.get_repo(None).await?;
-    let analysis = analyze_query_impl(&question, &filters, &graph, &fts_index)?;
-
-    let plan_id = format!("plan-{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis());
-
-    let steps = build_research_steps(&plan_id, &question, &analysis, &filters, &graph, &fts_index);
-
-    Ok(ResearchPlan {
-        id: plan_id,
-        query: question,
-        analysis,
-        steps,
-        status: PlanStatus::Pending,
-    })
-}
 
 /// Public wrapper for the executor.
 pub fn build_research_steps_pub(

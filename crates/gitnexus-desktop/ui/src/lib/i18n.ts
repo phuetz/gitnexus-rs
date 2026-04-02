@@ -28,6 +28,9 @@ const en = {
   "sidebar.export": "Export",
   "sidebar.gitAnalytics": "Git Analytics",
   "sidebar.chat": "Chat",
+  "sidebar.coverage": "Coverage",
+  "sidebar.diagram": "Diagrams",
+  "sidebar.report": "Health Report",
   "sidebar.settings": "Settings",
   "sidebar.collapse": { label: "Collapse sidebar", tip: "Toggle the sidebar visibility (Ctrl+B)" },
   "sidebar.expand": { label: "Expand sidebar", tip: "Show the navigation sidebar (Ctrl+B)" },
@@ -227,6 +230,13 @@ const en = {
   "graph.loadingGraph": "Loading graph...",
   "graph.failedToLoad": "Failed to load graph",
 
+  // ── Code Health ──
+  "health.title": "Code Health",
+  "health.hotspots": "Hotspots",
+  "health.cohesion": "Cohesion",
+  "health.tracing": "Tracing",
+  "health.ownership": "Ownership",
+
   // ── Accessibility ──
   "a11y.skipToContent": "Skip to main content",
   "a11y.codeIntelligencePlatform": "GitNexus — Code Intelligence Platform",
@@ -252,6 +262,9 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "sidebar.export": "Export",
   "sidebar.gitAnalytics": "Git Analytics",
   "sidebar.chat": "Chat",
+  "sidebar.coverage": "Couverture",
+  "sidebar.diagram": "Diagrammes",
+  "sidebar.report": "Rapport santé",
   "sidebar.settings": "Paramètres",
   "sidebar.collapse": { label: "Réduire le panneau", tip: "Afficher/masquer la barre latérale (Ctrl+B)" },
   "sidebar.expand": { label: "Agrandir le panneau", tip: "Afficher la barre de navigation (Ctrl+B)" },
@@ -450,6 +463,13 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   // ── Graph Explorer ──
   "graph.loadingGraph": "Chargement du graphe…",
   "graph.failedToLoad": "Impossible de charger le graphe",
+
+  // ── Code Health ──
+  "health.title": "Santé du code",
+  "health.hotspots": "Points chauds",
+  "health.cohesion": "Cohésion",
+  "health.tracing": "Traçabilité",
+  "health.ownership": "Propriété",
 
   // ── Accessibility ──
   "a11y.skipToContent": "Aller au contenu principal",

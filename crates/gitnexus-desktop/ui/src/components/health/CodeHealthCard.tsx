@@ -5,6 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { commands } from "../../lib/tauri-commands";
 import { AnimatedCard } from "../shared/motion";
+import { useI18n } from "../../hooks/use-i18n";
 
 function gradeColor(grade: string): string {
   switch (grade) {
@@ -75,6 +76,7 @@ function ScoreBar({
 }
 
 export function CodeHealthCard() {
+  const { t } = useI18n();
   const { data: health } = useQuery({
     queryKey: ["code-health"],
     queryFn: () => commands.getCodeHealth(),
@@ -168,12 +170,12 @@ export function CodeHealthCard() {
               marginBottom: 4,
             }}
           >
-            Code Health
+            {t("health.title")}
           </div>
-          <ScoreBar label="Hotspots" value={health.hotspotScore} color="#9ece6a" />
-          <ScoreBar label="Cohesion" value={health.cohesionScore} color="#7aa2f7" />
-          <ScoreBar label="Tracing" value={health.tracingCoverage} color="#73daca" />
-          <ScoreBar label="Ownership" value={health.ownershipScore} color="#bb9af7" />
+          <ScoreBar label={t("health.hotspots")} value={health.hotspotScore} color="#9ece6a" />
+          <ScoreBar label={t("health.cohesion")} value={health.cohesionScore} color="#7aa2f7" />
+          <ScoreBar label={t("health.tracing")} value={health.tracingCoverage} color="#73daca" />
+          <ScoreBar label={t("health.ownership")} value={health.ownershipScore} color="#bb9af7" />
         </div>
       </div>
     </AnimatedCard>

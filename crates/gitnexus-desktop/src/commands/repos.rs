@@ -53,11 +53,6 @@ pub async fn open_repo(state: State<'_, AppState>, name: String) -> Result<RepoI
     })
 }
 
-#[tauri::command]
-pub async fn get_active_repo(state: State<'_, AppState>) -> Result<Option<String>, String> {
-    Ok(state.active_repo_name().await)
-}
-
 /// Index a repository using the Rust pipeline directly (no subprocess).
 /// Emits "pipeline-progress" events to the frontend for real-time progress tracking.
 #[tauri::command]

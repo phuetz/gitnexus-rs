@@ -1748,6 +1748,7 @@ name = "gitnexus-ingest"
 version = "0.1.0"
 dependencies = [
  "gitnexus-core",
+ "gitnexus-db",
  "gitnexus-lang",
  "ignore",
  "lru",
@@ -1800,6 +1801,7 @@ dependencies = [
  "axum",
  "gitnexus-core",
  "gitnexus-db",
+ "gitnexus-git",
  "gitnexus-search",
  "serde",
  "serde_json",

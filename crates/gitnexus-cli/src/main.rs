@@ -35,6 +35,9 @@ enum Commands {
         /// Skip git operations (index without git context)
         #[arg(long)]
         skip_git: bool,
+        /// Use incremental indexing (only re-parse changed files)
+        #[arg(long)]
+        incremental: bool,
     },
     /// Start MCP server (stdio transport)
     Mcp,
@@ -278,8 +281,9 @@ async fn main() -> anyhow::Result<()> {
             embeddings,
             verbose,
             skip_git,
+            incremental,
         } => {
-            commands::analyze::run(&path, force, embeddings, verbose, skip_git).await
+            commands::analyze::run(&path, force, embeddings, verbose, skip_git, incremental).await
         }
         Commands::Mcp => commands::mcp::run().await,
         Commands::Serve { port } => commands::serve::run(port).await,

@@ -40,6 +40,49 @@ pub fn prompt_definitions() -> Value {
                         "required": false
                     }
                 ]
+            },
+            {
+                "name": "analyze_hotspots",
+                "description": "Identify the most problematic files based on churn, coupling, and ownership",
+                "arguments": [
+                    {
+                        "name": "repo",
+                        "description": "Repository name (optional if only one is indexed)",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "find_dead_code",
+                "description": "Find methods with zero incoming calls (dead code candidates) and assess tracing coverage",
+                "arguments": [
+                    {
+                        "name": "target",
+                        "description": "Optional class/service name to scope the analysis",
+                        "required": false
+                    },
+                    {
+                        "name": "repo",
+                        "description": "Repository name (optional if only one is indexed)",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "trace_dependencies",
+                "description": "Trace the full dependency chain for a symbol to understand its role in the system",
+                "arguments": [
+                    {
+                        "name": "symbol",
+                        "description": "The symbol to trace",
+                        "required": true
+                    },
+                    {
+                        "name": "repo",
+                        "description": "Repository name (optional if only one is indexed)",
+                        "required": false
+                    }
+                ]
             }
         ]
     })
@@ -113,6 +156,79 @@ pub fn get_prompt(name: &str, args: &Value) -> Option<Value> {
                 ]
             }))
         }
+        "analyze_hotspots" => {
+            let repo = args
+                .get("repo")
+                .and_then(|v| v.as_str())
+                .map(|r| format!(" for repository '{r}'"))
+                .unwrap_or_default();
+
+            Some(json!({
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "Analyze code hotspots{repo}.\n\n\
+                             Please:\n\
+                             1. Use the `hotspots` tool to find files with high churn\n\
+                             2. Use the `coupling` tool to find temporally coupled file pairs\n\
+                             3. Use the `ownership` tool to identify files with distributed ownership\n\
+                             4. Cross-reference: which hotspot files also have strong coupling or low ownership?\n\
+                             5. Recommend which files to prioritize for refactoring"
+                        )
+                    }
+                }]
+            }))
+        }
+        "find_dead_code" => {
+            let target = args
+                .get("target")
+                .and_then(|v| v.as_str())
+                .map(|t| format!(" focusing on '{t}'"))
+                .unwrap_or_default();
+
+            Some(json!({
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "Find dead code and assess tracing coverage{target}.\n\n\
+                             Please:\n\
+                             1. Use the `coverage` tool to get dead code candidates and tracing stats\n\
+                             2. For each dead code candidate, use `context` to verify it's truly unused\n\
+                             3. Check if dead methods are test helpers, entry points, or framework callbacks (false positives)\n\
+                             4. Summarize findings: truly dead code vs false positives vs missing tracing"
+                        )
+                    }
+                }]
+            }))
+        }
+        "trace_dependencies" => {
+            let symbol = args
+                .get("symbol")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            Some(json!({
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "Trace the full dependency chain for `{symbol}`.\n\n\
+                             Please:\n\
+                             1. Use `context` to get the 360-degree view (callers, callees, hierarchy)\n\
+                             2. Use `impact` with direction 'upstream' to find all callers transitively\n\
+                             3. Use `impact` with direction 'downstream' to find all callees transitively\n\
+                             4. Use `diagram` to generate a visual call graph\n\
+                             5. Summarize the role of this symbol in the system and its blast radius"
+                        )
+                    }
+                }]
+            }))
+        }
         _ => None,
     }
 }
@@ -125,7 +241,7 @@ mod tests {
     fn test_prompt_definitions() {
         let defs = prompt_definitions();
         let prompts = defs["prompts"].as_array().unwrap();
-        assert_eq!(prompts.len(), 2);
+        assert_eq!(prompts.len(), 5);
         assert_eq!(prompts[0]["name"], "detect_impact");
         assert_eq!(prompts[1]["name"], "generate_map");
     }

@@ -108,23 +108,6 @@ pub async fn chat_set_config(config: ChatConfig) -> Result<(), String> {
     save_config(&config)
 }
 
-/// Quick search — returns relevant symbols without calling LLM.
-/// Used for "Deep Research" context gathering.
-#[tauri::command]
-pub async fn chat_search_context(
-    state: State<'_, AppState>,
-    query: String,
-    max_results: Option<usize>,
-) -> Result<Vec<ChatSource>, String> {
-    let (graph, _indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
-    let repo_path = PathBuf::from(&repo_path_str);
-
-    let results = search_relevant_context(&query, &graph, &fts_index, max_results.unwrap_or(10));
-    let sources = build_sources(&results, &graph, &repo_path);
-
-    Ok(sources)
-}
-
 // ─── Public Helpers (used by chat_executor) ─────────────────────────
 
 /// Public config loader for the executor module.

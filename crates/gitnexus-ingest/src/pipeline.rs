@@ -6,6 +6,7 @@ use std::path::Path;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
+use crate::incremental;
 use crate::phases;
 
 pub type ProgressSender = mpsc::UnboundedSender<PipelineProgress>;
@@ -41,7 +42,7 @@ pub struct PipelineOptions {
 pub async fn run_pipeline(
     repo_path: &Path,
     progress_tx: Option<ProgressSender>,
-    _options: PipelineOptions,
+    options: PipelineOptions,
 ) -> Result<PipelineResult, crate::IngestError> {
     let pipeline_start = Instant::now();
     let repo_path_str = repo_path.display().to_string();
@@ -58,6 +59,68 @@ pub async fn run_pipeline(
             });
         }
     };
+
+    // Incremental mode: if a manifest and graph snapshot exist, only re-parse changed files
+    let storage_path = repo_path.join(".gitnexus");
+    let snap_path = storage_path.join("graph.bin");
+    let manifest_path = storage_path.join("manifest.json");
+    if options.incremental && !options.force && snap_path.exists() && manifest_path.exists() {
+        send_progress(PipelinePhase::Structure, 0.0, "Incremental update...");
+
+        let mut graph = gitnexus_db::snapshot::load_snapshot(&snap_path)
+            .map_err(|e| crate::IngestError::PhaseError {
+                phase: "incremental".into(),
+                message: format!("Failed to load snapshot: {e}"),
+            })?;
+
+        let inc_result = incremental::incremental_update(repo_path, &storage_path, &mut graph)?;
+
+        if inc_result.total_changed() > 0 {
+            // Re-run community + process detection on the updated graph
+            let community_count = phases::community::detect_communities(&mut graph)?;
+            let process_count = phases::process::detect_processes(&mut graph)?;
+            phases::dead_code::mark_dead_code(&mut graph);
+
+            tracing::info!(
+                added = inc_result.added,
+                modified = inc_result.modified,
+                removed = inc_result.removed,
+                total_duration_ms = pipeline_start.elapsed().as_millis() as u64,
+                "Incremental pipeline complete"
+            );
+
+            send_progress(PipelinePhase::Complete, 100.0, &format!(
+                "Incremental: +{} ~{} -{} files",
+                inc_result.added, inc_result.modified, inc_result.removed,
+            ));
+
+            return Ok(PipelineResult {
+                graph,
+                repo_path: repo_path_str,
+                total_file_count: inc_result.unchanged + inc_result.added + inc_result.modified,
+                community_count,
+                process_count,
+            });
+        } else {
+            tracing::info!("No changes detected, graph is up to date");
+            send_progress(PipelinePhase::Complete, 100.0, "No changes detected");
+
+            let community_count = graph.iter_nodes()
+                .filter(|n| n.label == gitnexus_core::graph::types::NodeLabel::Community)
+                .count();
+            let process_count = graph.iter_nodes()
+                .filter(|n| n.label == gitnexus_core::graph::types::NodeLabel::Process)
+                .count();
+
+            return Ok(PipelineResult {
+                graph,
+                repo_path: repo_path_str,
+                total_file_count: inc_result.unchanged,
+                community_count,
+                process_count,
+            });
+        }
+    }
 
     send_progress(PipelinePhase::Structure, 0.0, "Scanning repository...");
 

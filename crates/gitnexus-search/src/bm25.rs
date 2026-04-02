@@ -1,7 +1,7 @@
 //! BM25 full-text search via Cypher FTS queries.
 //!
-//! Executes FTS queries across 5 tables (File, Function, Class, Method, Interface)
-//! and merges results by file_path with summed scores.
+//! Executes FTS queries across 17 searchable tables and merges results
+//! by file_path with summed scores.
 
 use std::collections::HashMap;
 
@@ -13,7 +13,14 @@ use gitnexus_db::error::DbError;
 use gitnexus_db::query::escape_cypher_string;
 
 /// Tables that have FTS indexes.
-const FTS_TABLES: &[&str] = &["File", "Function", "Class", "Method", "Interface"];
+/// Matches the 17 tables defined in gitnexus-db schema::fts_queries().
+const FTS_TABLES: &[&str] = &[
+    "File", "Function", "Class", "Method", "Interface",
+    "Controller", "ControllerAction", "ApiEndpoint", "View",
+    "ViewModel", "DbEntity", "DbContext",
+    "ScriptFile", "UiComponent", "Service", "Repository",
+    "ExternalService",
+];
 
 /// A single BM25 search result.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -19,16 +19,13 @@ fn main() {
             // Repos
             commands::repos::list_repos,
             commands::repos::open_repo,
-            commands::repos::get_active_repo,
             commands::repos::analyze_repo,
             commands::repos::generate_docs,
             // Graph
             commands::graph::get_graph_data,
             commands::graph::get_subgraph,
-            commands::graph::get_neighbors,
             // Search
             commands::search::search_symbols,
-            commands::search::search_autocomplete,
             // Context
             commands::context::get_symbol_context,
             // Impact
@@ -39,15 +36,11 @@ fn main() {
             // Docs
             commands::docs::get_doc_index,
             commands::docs::read_doc,
-            commands::docs::has_docs,
             // Chat Q&A
             commands::chat::chat_ask,
             commands::chat::chat_get_config,
             commands::chat::chat_set_config,
-            commands::chat::chat_search_context,
             // Chat Intelligence (Planner & Executor)
-            commands::chat_planner::chat_analyze_query,
-            commands::chat_planner::chat_plan_research,
             commands::chat_planner::chat_pick_files,
             commands::chat_planner::chat_pick_symbols,
             commands::chat_planner::chat_pick_modules,
@@ -66,6 +59,9 @@ fn main() {
             commands::git_analytics::get_ownership,
             // Code Health
             commands::health::get_code_health,
+            // Coverage & Diagrams
+            commands::coverage::get_coverage_stats,
+            commands::diagram::get_diagram,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GitNexus desktop application");

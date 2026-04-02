@@ -11,6 +11,9 @@ import {
   PanelLeft,
   GitCommitHorizontal,
   MessageSquare,
+  ShieldCheck,
+  Workflow,
+  HeartPulse,
 } from "lucide-react";
 import { useAppStore, type SidebarTab } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
@@ -28,6 +31,9 @@ const TOOL_TABS: { id: SidebarTab; icon: typeof Network; labelKey: string }[] = 
   { id: "docs", icon: FileText, labelKey: "sidebar.documentation" },
   { id: "export", icon: Download, labelKey: "sidebar.export" },
   { id: "git-analytics", icon: GitCommitHorizontal, labelKey: "sidebar.gitAnalytics" },
+  { id: "coverage", icon: ShieldCheck, labelKey: "sidebar.coverage" },
+  { id: "diagram", icon: Workflow, labelKey: "sidebar.diagram" },
+  { id: "report", icon: HeartPulse, labelKey: "sidebar.report" },
   { id: "chat", icon: MessageSquare, labelKey: "sidebar.chat" },
 ];
 

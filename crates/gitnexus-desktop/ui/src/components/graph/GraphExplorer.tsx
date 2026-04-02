@@ -12,7 +12,6 @@ import { useI18n } from "../../hooks/use-i18n";
 import { Tooltip } from "../shared/Tooltip";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
 import { CypherQueryFAB } from "./CypherQueryFAB";
-// CodeReferencesOverlay moved to CodeInspectorPanel (left panel in 3-column layout)
 import { ProcessFlowModal } from "./ProcessFlowModal";
 import type { GraphFilter, CytoNode, CytoEdge, ZoomLevel } from "../../lib/tauri-commands";
 

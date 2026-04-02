@@ -1,4 +1,4 @@
-import { X, Info, Globe, Sun, Moon, Monitor } from "lucide-react";
+import { X, Globe, Sun, Moon, Monitor } from "lucide-react";
 import { useAppStore, type ThemeMode } from "../../stores/app-store";
 import { useI18n, type Locale } from "../../hooks/use-i18n";
 
@@ -106,69 +106,8 @@ export function SettingsModal() {
             </div>
           </div>
 
-          {/* ── Info notice ── */}
-          <div
-            className="flex items-start rounded-lg"
-            style={{
-              gap: 12,
-              padding: 16,
-              background: "var(--accent-subtle)",
-              border: "1px solid rgba(122, 162, 247, 0.15)",
-              marginBottom: 20,
-            }}
-          >
-            <Info size={18} style={{ color: "var(--accent)", flexShrink: 0, marginTop: 1 }} />
-            <div>
-              <p className="text-sm font-medium" style={{ color: "var(--text-0)", marginBottom: 4 }}>
-                {locale === "fr" ? "Plus de paramètres bientôt" : "More settings coming soon"}
-              </p>
-              <p className="text-xs" style={{ color: "var(--text-2)" }}>
-                {locale === "fr"
-                  ? "Nous travaillons sur les préférences de graphe, la personnalisation du thème, les raccourcis clavier et la configuration du serveur MCP."
-                  : "We're working on graph layout defaults, theme customization, keyboard shortcuts, and MCP server configuration."}
-              </p>
-            </div>
-          </div>
-
-          {/* ── Theme selector (active) ── */}
+          {/* ── Theme selector ── */}
           <ThemeSelector />
-
-          {/* ── Preview of future sections ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 20 }}>
-            {[
-              { titleKey: "settings.shortcuts", desc: locale === "fr" ? "Personnaliser les raccourcis clavier" : "Customize key bindings" },
-              { titleKey: "", title: "MCP Server", desc: locale === "fr" ? "Transport, port, authentification" : "Transport, port, authentication" },
-            ].map((section) => {
-              const entry = section.titleKey ? tt(section.titleKey) : { label: section.title ?? "" };
-              return (
-                <div
-                  key={entry.label}
-                  className="flex items-center justify-between rounded-lg"
-                  style={{
-                    padding: "12px 16px",
-                    background: "var(--bg-1)",
-                    border: "1px solid var(--surface-border)",
-                    opacity: 0.5,
-                  }}
-                >
-                  <div>
-                    <p className="text-sm font-medium" style={{ color: "var(--text-1)" }}>
-                      {entry.label}
-                    </p>
-                    <p className="text-xs" style={{ color: "var(--text-3)", marginTop: 2 }}>
-                      {section.desc}
-                    </p>
-                  </div>
-                  <span
-                    className="text-[10px] rounded-full font-medium"
-                    style={{ background: "var(--bg-3)", color: "var(--text-3)", padding: "4px 8px" }}
-                  >
-                    {locale === "fr" ? "Bientôt" : "Soon"}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
         </div>
 
         {/* Footer */}

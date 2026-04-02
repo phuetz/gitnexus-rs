@@ -1,4 +1,4 @@
-//! JSON Schema definitions for the 7 MCP tools.
+//! JSON Schema definitions for the 13 MCP tools.
 //!
 //! Each tool has a name, description, and inputSchema following the MCP spec.
 
@@ -11,7 +11,7 @@ pub struct ToolDefinition {
     pub input_schema: Value,
 }
 
-/// Return definitions for all 7 MCP tools.
+/// Return definitions for all 13 MCP tools.
 pub fn tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
@@ -164,6 +164,130 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        ToolDefinition {
+            name: "hotspots",
+            description: "Identify file-level hotspots: files with high churn (lines added/removed) and frequent commits. These are often sources of bugs and maintenance burden.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "since_days": {
+                        "type": "number",
+                        "description": "Analyze commits from the last N days (default: 90)",
+                        "default": 90
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum results to return (default: 20)",
+                        "default": 20
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "coupling",
+            description: "Analyze temporal coupling between files: find file pairs that frequently change together in commits, suggesting hidden dependencies.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "min_shared": {
+                        "type": "number",
+                        "description": "Minimum shared commits to report a coupling (default: 3)",
+                        "default": 3
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum results to return (default: 20)",
+                        "default": 20
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "ownership",
+            description: "Analyze code ownership by author: shows primary author, ownership percentage, and contributor distribution for each file.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum results to return (default: 20)",
+                        "default": 20
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "coverage",
+            description: "Analyze tracing coverage and dead code: shows which methods have tracing instrumentation and which have zero incoming calls (dead code candidates).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Optional class/service name to analyze. If omitted, returns global coverage stats."
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "diagram",
+            description: "Generate a Mermaid diagram for a code symbol: flowchart (call graph), sequence (interaction), or class (hierarchy).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Symbol name to generate diagram for (class, controller, service, etc.)"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["flowchart", "sequence", "class"],
+                        "description": "Diagram type (default: flowchart)",
+                        "default": "flowchart"
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    }
+                },
+                "required": ["target"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "report",
+            description: "Generate a code health report combining graph stats, hotspots, coupling, and ownership into a grade (A-E).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
     ]
 }
 
@@ -189,7 +313,7 @@ mod tests {
 
     #[test]
     fn test_tool_definitions_count() {
-        assert_eq!(tool_definitions().len(), 7);
+        assert_eq!(tool_definitions().len(), 13);
     }
 
     #[test]
@@ -203,13 +327,19 @@ mod tests {
         assert!(names.contains(&"detect_changes"));
         assert!(names.contains(&"rename"));
         assert!(names.contains(&"cypher"));
+        assert!(names.contains(&"hotspots"));
+        assert!(names.contains(&"coupling"));
+        assert!(names.contains(&"ownership"));
+        assert!(names.contains(&"coverage"));
+        assert!(names.contains(&"diagram"));
+        assert!(names.contains(&"report"));
     }
 
     #[test]
     fn test_tools_list_json() {
         let json = tools_list_json();
         let tools = json["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 13);
         for tool in tools {
             assert!(tool.get("name").is_some());
             assert!(tool.get("description").is_some());

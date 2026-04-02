@@ -327,7 +327,9 @@ fn bfs_trace(
             continue;
         }
 
-        let current = path.last().unwrap();
+        let Some(current) = path.last() else {
+            continue;
+        };
         let callees = match callees_of.get(current.as_str()) {
             Some(c) => c,
             None => {
@@ -391,8 +393,9 @@ fn deduplicate_traces(mut traces: Vec<ProcessTrace>) -> Vec<ProcessTrace> {
             continue;
         }
 
-        let entry = trace.steps.first().unwrap().clone();
-        let terminal = trace.steps.last().unwrap().clone();
+        // Safety: empty traces are filtered by the check on line 390
+        let entry = trace.steps.first().expect("non-empty after filter").clone();
+        let terminal = trace.steps.last().expect("non-empty after filter").clone();
         let pair = (entry, terminal);
 
         // Keep only the longest trace per entry->terminal pair

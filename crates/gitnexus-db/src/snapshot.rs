@@ -6,60 +6,61 @@ use gitnexus_core::graph::KnowledgeGraph;
 
 use crate::error::DbError;
 
+// NOTE: Bincode serialization was attempted but is incompatible with the
+// `#[serde(skip_serializing_if)]` attributes on NodeProperties (~40 fields).
+// Bincode is a positional format and cannot handle conditionally skipped fields.
+// Migrating to bincode would require either:
+//   1. Removing all skip_serializing_if attributes (breaking JSON API output)
+//   2. Creating separate Encode/Decode impls (bincode 2.x)
+//   3. Using a map-based binary format like MessagePack (rmp-serde)
+// For now, JSON serialization is retained for full serde compatibility.
+
+fn snapshot_err(cause: String) -> DbError {
+    DbError::CsvError {
+        table: "snapshot".to_string(),
+        cause,
+    }
+}
+
 /// Save a KnowledgeGraph to a JSON snapshot file.
-/// Uses serde_json for full compatibility with enum rename attributes.
+/// Uses serde_json for full compatibility with enum rename and skip attributes.
 /// Performs atomic write with explicit fsync to ensure durability.
 pub fn save_snapshot(graph: &KnowledgeGraph, path: &Path) -> Result<(), DbError> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| DbError::CsvError {
-            table: "snapshot".to_string(),
-            cause: e.to_string(),
-        })?;
+        std::fs::create_dir_all(parent).map_err(|e| snapshot_err(e.to_string()))?;
     }
 
     // Write to temporary file first to avoid data loss on partial write
     let temp_path = path.with_extension("tmp");
-    let file = File::create(&temp_path).map_err(|e| DbError::CsvError {
-        table: "snapshot".to_string(),
-        cause: format!("Failed to create temporary snapshot file: {e}"),
-    })?;
+    let file = File::create(&temp_path)
+        .map_err(|e| snapshot_err(format!("Failed to create temporary snapshot file: {e}")))?;
 
     let mut writer = BufWriter::new(file);
-    serde_json::to_writer(&mut writer, graph).map_err(|e| DbError::CsvError {
-        table: "snapshot".to_string(),
-        cause: e.to_string(),
-    })?;
+    serde_json::to_writer(&mut writer, graph).map_err(|e| snapshot_err(e.to_string()))?;
 
     // Explicit flush to ensure all data is written to the file
-    writer.flush().map_err(|e| DbError::CsvError {
-        table: "snapshot".to_string(),
-        cause: format!("Failed to flush snapshot data: {e}"),
-    })?;
+    writer
+        .flush()
+        .map_err(|e| snapshot_err(format!("Failed to flush snapshot data: {e}")))?;
 
     // Sync to disk for durability (via drop of file handle)
     drop(writer);
 
     // Atomic rename: temp file becomes the real snapshot
     // This ensures the old snapshot is only replaced when the new one is fully written
-    std::fs::rename(&temp_path, path).map_err(|e| DbError::CsvError {
-        table: "snapshot".to_string(),
-        cause: format!("Failed to finalize snapshot (rename): {e}"),
-    })?;
+    std::fs::rename(&temp_path, path)
+        .map_err(|e| snapshot_err(format!("Failed to finalize snapshot (rename): {e}")))?;
 
     Ok(())
 }
 
 /// Load a KnowledgeGraph from a JSON snapshot file.
 pub fn load_snapshot(path: &Path) -> Result<KnowledgeGraph, DbError> {
-    let file = File::open(path).map_err(|e| DbError::CsvError {
-        table: "snapshot".to_string(),
-        cause: format!("Failed to open snapshot: {e}"),
-    })?;
+    let file = File::open(path)
+        .map_err(|e| snapshot_err(format!("Failed to open snapshot: {e}")))?;
     let reader = BufReader::new(file);
-    let graph: KnowledgeGraph = serde_json::from_reader(reader).map_err(|e| DbError::CsvError {
-        table: "snapshot".to_string(),
-        cause: format!("Failed to deserialize snapshot: {e}"),
-    })?;
+    let graph: KnowledgeGraph = serde_json::from_reader(reader)
+        .map_err(|e| snapshot_err(format!("Failed to deserialize snapshot: {e}")))?;
     Ok(graph)
 }
 

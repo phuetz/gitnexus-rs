@@ -12,6 +12,7 @@ pub async fn run(
     embeddings: bool,
     verbose: bool,
     skip_git: bool,
+    incremental: bool,
 ) -> anyhow::Result<()> {
     let repo_path = Path::new(path)
         .canonicalize()
@@ -55,7 +56,7 @@ pub async fn run(
         embeddings,
         verbose,
         skip_git,
-        ..Default::default()
+        incremental,
     };
 
     let result = gitnexus_ingest::pipeline::run_pipeline(&repo_path, Some(tx), options).await;

@@ -9,6 +9,7 @@ description = "MCP server (stdio + HTTP), tools, resources for GitNexus"
 [dependencies]
 gitnexus-core.workspace = true
 gitnexus-db.workspace = true
+gitnexus-git = { workspace = true }
 gitnexus-search.workspace = true
 tokio.workspace = true
 axum.workspace = true

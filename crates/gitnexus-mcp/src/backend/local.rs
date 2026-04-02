@@ -1,10 +1,12 @@
 //! Local backend: resolves repos from the registry and dispatches tool calls
 //! to the appropriate handler.
 
+use std::collections::HashMap;
 use serde_json::{json, Value};
 use std::time::Instant;
 use tracing::info;
 
+use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_core::storage::repo_manager::{self, RegistryEntry};
 use gitnexus_db::pool::ConnectionPool;
 use gitnexus_db::query;
@@ -86,6 +88,12 @@ impl LocalBackend {
             "detect_changes" => self.tool_detect_changes(args).await,
             "rename" => self.tool_rename(args).await,
             "cypher" => self.tool_cypher(args).await,
+            "hotspots" => self.tool_hotspots(args).await,
+            "coupling" => self.tool_coupling(args).await,
+            "ownership" => self.tool_ownership(args).await,
+            "coverage" => self.tool_coverage(args).await,
+            "diagram" => self.tool_diagram(args).await,
+            "report" => self.tool_report(args).await,
             _ => Err(McpError::UnknownTool(name.to_string())),
         }
     }
@@ -141,8 +149,8 @@ impl LocalBackend {
 
         let adapter = self.pool.get_or_open(&db_path).map_err(McpError::Db)?;
 
-        // Use BM25 FTS search
-        let results = gitnexus_search::bm25::search_fts(&adapter, query_text, limit)
+        // Use best available search strategy (BM25, or hybrid RRF when embeddings are available)
+        let results = gitnexus_search::search(&adapter, query_text, limit)
             .map_err(McpError::Db)?;
 
         let results_json: Vec<Value> = results
@@ -493,6 +501,378 @@ impl LocalBackend {
             }
         }))
     }
+
+    async fn tool_hotspots(&self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let since_days = args
+            .get("since_days")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(90) as u32;
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(20) as usize;
+
+        let entry = self.resolve_repo(repo_name)?;
+        let repo_path = std::path::Path::new(&entry.path);
+
+        let mut hotspots = gitnexus_git::hotspots::analyze_hotspots(repo_path, since_days)
+            .map_err(|e| McpError::Internal(e.to_string()))?;
+
+        hotspots.truncate(limit);
+
+        let results: Vec<Value> = hotspots
+            .iter()
+            .map(|h| serde_json::to_value(h).unwrap_or_default())
+            .collect();
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("hotspots"),
+                "resultCount": results.len(),
+                "sinceDays": since_days
+            }
+        }))
+    }
+
+    async fn tool_coupling(&self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let min_shared = args
+            .get("min_shared")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3) as u32;
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(20) as usize;
+
+        let entry = self.resolve_repo(repo_name)?;
+        let repo_path = std::path::Path::new(&entry.path);
+
+        let mut couplings = gitnexus_git::coupling::analyze_coupling(repo_path, min_shared)
+            .map_err(|e| McpError::Internal(e.to_string()))?;
+
+        couplings.truncate(limit);
+
+        let results: Vec<Value> = couplings
+            .iter()
+            .map(|c| serde_json::to_value(c).unwrap_or_default())
+            .collect();
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("coupling"),
+                "resultCount": results.len(),
+                "minShared": min_shared
+            }
+        }))
+    }
+
+    async fn tool_ownership(&self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(20) as usize;
+
+        let entry = self.resolve_repo(repo_name)?;
+        let repo_path = std::path::Path::new(&entry.path);
+
+        let mut ownerships = gitnexus_git::ownership::analyze_ownership(repo_path)
+            .map_err(|e| McpError::Internal(e.to_string()))?;
+
+        ownerships.truncate(limit);
+
+        let results: Vec<Value> = ownerships
+            .iter()
+            .map(|o| serde_json::to_value(o).unwrap_or_default())
+            .collect();
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("ownership"),
+                "resultCount": results.len()
+            }
+        }))
+    }
+
+    async fn tool_coverage(&self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let target = args.get("target").and_then(|v| v.as_str());
+
+        let entry = self.resolve_repo(repo_name)?;
+        let snap_path = std::path::Path::new(&entry.storage_path).join("graph.bin");
+
+        let graph = gitnexus_db::snapshot::load_snapshot(&snap_path)
+            .map_err(|e| McpError::Internal(format!("Failed to load graph: {e}")))?;
+
+        // Build incoming calls index
+        let mut incoming_calls: HashMap<String, Vec<String>> = HashMap::new();
+        let mut class_methods: HashMap<String, Vec<String>> = HashMap::new();
+
+        for rel in graph.iter_relationships() {
+            match rel.rel_type {
+                RelationshipType::Calls | RelationshipType::CallsAction => {
+                    incoming_calls
+                        .entry(rel.target_id.clone())
+                        .or_default()
+                        .push(rel.source_id.clone());
+                }
+                RelationshipType::HasMethod => {
+                    class_methods
+                        .entry(rel.source_id.clone())
+                        .or_default()
+                        .push(rel.target_id.clone());
+                }
+                _ => {}
+            }
+        }
+
+        let result = if let Some(target_name) = target {
+            // Single class coverage
+            let target_lower = target_name.to_lowercase();
+            let class_node = graph.iter_nodes().find(|n| {
+                n.properties.name.to_lowercase() == target_lower
+                    && matches!(n.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller)
+            });
+
+            if let Some(cn) = class_node {
+                let methods = class_methods.get(&cn.id).cloned().unwrap_or_default();
+                let total = methods.len();
+                let traced = methods.iter().filter(|mid| {
+                    graph.get_node(mid).map_or(false, |n| n.properties.is_traced == Some(true))
+                }).count();
+                let dead = methods.iter().filter(|mid| {
+                    !incoming_calls.contains_key(*mid)
+                }).count();
+
+                json!({
+                    "class": cn.properties.name,
+                    "totalMethods": total,
+                    "tracedMethods": traced,
+                    "deadCodeCandidates": dead,
+                    "coveragePct": if total > 0 { (traced as f64 / total as f64 * 100.0).round() } else { 0.0 }
+                })
+            } else {
+                json!({"error": format!("Class '{}' not found", target_name)})
+            }
+        } else {
+            // Global coverage
+            let all_methods: Vec<_> = graph.iter_nodes()
+                .filter(|n| n.label == NodeLabel::Method || n.label == NodeLabel::Function)
+                .collect();
+            let total = all_methods.len();
+            let traced = all_methods.iter().filter(|n| n.properties.is_traced == Some(true)).count();
+            let dead = all_methods.iter().filter(|n| !incoming_calls.contains_key(&n.id)).count();
+
+            json!({
+                "totalMethods": total,
+                "tracedMethods": traced,
+                "deadCodeCandidates": dead,
+                "coveragePct": if total > 0 { (traced as f64 / total as f64 * 100.0).round() } else { 0.0 }
+            })
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&result).unwrap_or_default()
+            }],
+            "_meta": {
+                "hint": hints::hint_for("coverage")
+            }
+        }))
+    }
+
+    async fn tool_diagram(&self, args: &Value) -> Result<Value> {
+        let target = args
+            .get("target")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::InvalidArguments {
+                tool: "diagram".into(),
+                reason: "Missing required 'target' parameter".into(),
+            })?;
+
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let diagram_type = args.get("type").and_then(|v| v.as_str()).unwrap_or("flowchart");
+
+        let entry = self.resolve_repo(repo_name)?;
+        let snap_path = std::path::Path::new(&entry.storage_path).join("graph.bin");
+
+        let graph = gitnexus_db::snapshot::load_snapshot(&snap_path)
+            .map_err(|e| McpError::Internal(format!("Failed to load graph: {e}")))?;
+
+        // Find the target symbol
+        let target_lower = target.to_lowercase();
+        let mut candidates: Vec<_> = graph.iter_nodes()
+            .filter(|n| n.properties.name.to_lowercase() == target_lower)
+            .collect();
+        candidates.sort_by_key(|n| match n.label {
+            NodeLabel::Controller => 0,
+            NodeLabel::Class => 1,
+            NodeLabel::Service => 2,
+            NodeLabel::Interface => 3,
+            _ => 10,
+        });
+
+        let start_node = candidates.first().ok_or_else(|| {
+            McpError::Internal(format!("Symbol '{}' not found", target))
+        })?;
+
+        // Generate simple flowchart showing calls from this symbol's methods
+        let mut lines = Vec::new();
+        lines.push(format!("graph TD"));
+
+        let node_id = &start_node.id;
+        let node_name = &start_node.properties.name;
+        lines.push(format!("    {}[\"{}\"]", sanitize_mermaid_id(node_id), node_name));
+
+        // Find methods and their calls
+        for rel in graph.iter_relationships() {
+            if &rel.source_id == node_id || graph.iter_relationships().any(|parent|
+                parent.source_id == *node_id
+                && parent.target_id == rel.source_id
+                && matches!(parent.rel_type, RelationshipType::HasMethod | RelationshipType::HasAction)
+            ) {
+                if matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
+                    if let Some(target_node) = graph.get_node(&rel.target_id) {
+                        let src_name = graph.get_node(&rel.source_id)
+                            .map(|n| n.properties.name.as_str())
+                            .unwrap_or("?");
+                        lines.push(format!(
+                            "    {}[\"{}\"] --> {}[\"{}\"]",
+                            sanitize_mermaid_id(&rel.source_id), src_name,
+                            sanitize_mermaid_id(&rel.target_id), target_node.properties.name,
+                        ));
+                    }
+                }
+            }
+        }
+
+        if lines.len() == 2 {
+            // No calls found, show class members instead
+            for rel in graph.iter_relationships() {
+                if &rel.source_id == node_id && matches!(rel.rel_type, RelationshipType::HasMethod) {
+                    if let Some(member) = graph.get_node(&rel.target_id) {
+                        lines.push(format!(
+                            "    {} --> {}[\"{}\"]",
+                            sanitize_mermaid_id(node_id),
+                            sanitize_mermaid_id(&rel.target_id),
+                            member.properties.name,
+                        ));
+                    }
+                }
+            }
+        }
+
+        let mermaid = lines.join("\n");
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": format!("```mermaid\n{}\n```", mermaid)
+            }],
+            "_meta": {
+                "hint": hints::hint_for("diagram"),
+                "diagramType": diagram_type,
+                "target": target
+            }
+        }))
+    }
+
+    async fn tool_report(&self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let entry = self.resolve_repo(repo_name)?;
+        let repo_path = std::path::Path::new(&entry.path);
+        let snap_path = std::path::Path::new(&entry.storage_path).join("graph.bin");
+
+        let graph = gitnexus_db::snapshot::load_snapshot(&snap_path)
+            .map_err(|e| McpError::Internal(format!("Failed to load graph: {e}")))?;
+
+        let node_count = graph.iter_nodes().count();
+        let edge_count = graph.iter_relationships().count();
+        let file_count = graph.iter_nodes()
+            .filter(|n| n.label == NodeLabel::File)
+            .count();
+        let density = if node_count > 0 { edge_count as f64 / node_count as f64 } else { 0.0 };
+
+        // Git analytics
+        let hotspots = gitnexus_git::hotspots::analyze_hotspots(repo_path, 90).unwrap_or_default();
+        let couplings = gitnexus_git::coupling::analyze_coupling(repo_path, 3).unwrap_or_default();
+        let ownerships = gitnexus_git::ownership::analyze_ownership(repo_path).unwrap_or_default();
+
+        // Compute health score (0-100)
+        let mut score: f64 = 70.0;
+        let hot_files = hotspots.iter().filter(|h| h.score > 0.7).count();
+        score -= (hot_files as f64) * 2.0;
+        let strong_couples = couplings.iter().filter(|c| c.coupling_strength > 0.7).count();
+        score -= (strong_couples as f64) * 1.5;
+        let orphan_files = ownerships.iter().filter(|o| o.ownership_pct < 50.0).count();
+        score -= (orphan_files as f64) * 0.5;
+        score = score.clamp(0.0, 100.0);
+
+        let grade = match score as u32 {
+            90..=100 => "A",
+            75..=89 => "B",
+            60..=74 => "C",
+            40..=59 => "D",
+            _ => "E",
+        };
+
+        let report = json!({
+            "grade": grade,
+            "score": (score * 10.0).round() / 10.0,
+            "graph": {
+                "nodes": node_count,
+                "edges": edge_count,
+                "files": file_count,
+                "density": (density * 100.0).round() / 100.0,
+            },
+            "hotspots": {
+                "total": hotspots.len(),
+                "critical": hot_files,
+                "top3": hotspots.iter().take(3).map(|h| json!({
+                    "path": h.path,
+                    "score": (h.score * 100.0).round() / 100.0,
+                    "commits": h.commit_count,
+                })).collect::<Vec<_>>(),
+            },
+            "coupling": {
+                "total": couplings.len(),
+                "strong": strong_couples,
+            },
+            "ownership": {
+                "totalFiles": ownerships.len(),
+                "orphanedFiles": orphan_files,
+            }
+        });
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&report).unwrap_or_default()
+            }],
+            "_meta": {
+                "hint": hints::hint_for("report")
+            }
+        }))
+    }
+}
+
+fn sanitize_mermaid_id(id: &str) -> String {
+    id.replace([':', '/', '.', ' ', '<', '>', '(', ')', '{', '}'], "_")
 }
 
 impl Default for LocalBackend {

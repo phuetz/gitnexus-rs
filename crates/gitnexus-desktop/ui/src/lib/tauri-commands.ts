@@ -422,7 +422,6 @@ export const commands = {
   // Repos
   listRepos: () => invoke<RepoInfo[]>("list_repos"),
   openRepo: (name: string) => invoke<RepoInfo>("open_repo", { name }),
-  getActiveRepo: () => invoke<string | null>("get_active_repo"),
   analyzeRepo: (path: string) => invoke<string>("analyze_repo", { path }),
   generateDocs: (what: string, path: string) =>
     invoke<string>("generate_docs", { what, path }),
@@ -432,14 +431,10 @@ export const commands = {
     invoke<GraphPayload>("get_graph_data", { filter }),
   getSubgraph: (centerNodeId: string, depth?: number) =>
     invoke<GraphPayload>("get_subgraph", { centerNodeId, depth }),
-  getNeighbors: (nodeId: string, direction?: string) =>
-    invoke<GraphPayload>("get_neighbors", { nodeId, direction }),
 
   // Search
   searchSymbols: (query: string, limit?: number) =>
     invoke<SearchResult[]>("search_symbols", { query, limit }),
-  searchAutocomplete: (prefix: string, limit?: number) =>
-    invoke<SearchResult[]>("search_autocomplete", { prefix, limit }),
 
   // Context
   getSymbolContext: (nodeId: string) =>
@@ -475,8 +470,6 @@ export const commands = {
     invoke<DocIndex | null>("get_doc_index"),
   readDoc: (path: string) =>
     invoke<DocContent>("read_doc", { path }),
-  hasDocs: () =>
-    invoke<boolean>("has_docs"),
 
   // Chat Q&A
   chatAsk: (request: ChatRequest) =>
@@ -485,14 +478,8 @@ export const commands = {
     invoke<ChatConfig>("chat_get_config"),
   chatSetConfig: (config: ChatConfig) =>
     invoke<void>("chat_set_config", { config }),
-  chatSearchContext: (query: string, maxResults?: number) =>
-    invoke<ChatSource[]>("chat_search_context", { query, maxResults }),
 
-  // Chat Intelligence (Planner & Executor)
-  chatAnalyzeQuery: (question: string, filters?: ChatContextFilter) =>
-    invoke<QueryAnalysis>("chat_analyze_query", { question, filters }),
-  chatPlanResearch: (question: string, filters?: ChatContextFilter) =>
-    invoke<ResearchPlan>("chat_plan_research", { question, filters }),
+  // Chat Intelligence (Executor)
   chatExecuteStep: (planId: string, stepId: string) =>
     invoke<StepResult>("chat_execute_step", { planId, stepId }),
   chatExecutePlan: (request: ChatSmartRequest) =>
@@ -527,7 +514,39 @@ export const commands = {
     invoke<GitCoupling[]>("get_coupling", { minShared }),
   getOwnership: () =>
     invoke<GitOwnership[]>("get_ownership"),
+
+  // Coverage & Diagrams
+  getCoverageStats: () =>
+    invoke<CoverageStats>("get_coverage_stats"),
+  getDiagram: (target: string, diagramType?: string) =>
+    invoke<DiagramResult>("get_diagram", { target, diagramType }),
 };
+
+// ─── Coverage ────────────────────────────────────────────────────────
+
+export interface CoverageStats {
+  totalMethods: number;
+  tracedMethods: number;
+  deadCodeCandidates: number;
+  coveragePct: number;
+  deadMethods: DeadMethod[];
+}
+
+export interface DeadMethod {
+  name: string;
+  filePath: string;
+  className: string | null;
+  nodeId: string;
+}
+
+// ─── Diagram ─────────────────────────────────────────────────────────
+
+export interface DiagramResult {
+  mermaid: string;
+  targetName: string;
+  targetLabel: string;
+  diagramType: string;
+}
 
 // ─── ASP.NET Stats ────────────────────────────────────────────────────
 

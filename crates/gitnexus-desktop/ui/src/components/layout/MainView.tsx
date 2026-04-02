@@ -11,6 +11,9 @@ import { ExportPanel } from "../export/ExportPanel";
 import { RepoDashboard } from "../repos/RepoDashboard";
 import { GitAnalyticsDashboard } from "../git/GitAnalyticsDashboard";
 import { ChatPanel } from "../chat/ChatPanel";
+import { CoverageView } from "../coverage/CoverageView";
+import { DiagramView } from "../diagram/DiagramView";
+import { ReportView } from "../report/ReportView";
 
 export function MainView() {
   const activeRepo = useAppStore((s) => s.activeRepo);
@@ -71,6 +74,12 @@ export function MainView() {
         return <ExportPanel />;
       case "git-analytics":
         return <GitAnalyticsDashboard />;
+      case "coverage":
+        return <CoverageView />;
+      case "diagram":
+        return <DiagramView />;
+      case "report":
+        return <ReportView />;
       case "chat":
         return <ChatPanel />;
       case "graph":

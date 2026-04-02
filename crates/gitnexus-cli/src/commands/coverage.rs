@@ -186,19 +186,8 @@ fn run_global(
                     traced += 1;
                     total_traced += 1;
                 }
-                // Dead = 0 external callers and not an entry point
-                let external_callers = incoming_calls
-                    .get(method_id)
-                    .map(|callers| {
-                        callers
-                            .iter()
-                            .filter(|cid| {
-                                method_class.get(*cid).map(|cls| cls != class_id).unwrap_or(true)
-                            })
-                            .count()
-                    })
-                    .unwrap_or(0);
-                if external_callers == 0 && !matches!(method_node.label, NodeLabel::ControllerAction) {
+                // Use the pre-computed is_dead_candidate flag from the pipeline
+                if method_node.properties.is_dead_candidate.unwrap_or(false) {
                     dead += 1;
                     total_dead += 1;
                 }

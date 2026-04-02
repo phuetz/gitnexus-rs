@@ -1346,12 +1346,52 @@ fn cmd_files(pattern: &str, ctx: &ShellContext) -> anyhow::Result<()> {
 
 // ─── Cypher ─────────────────────────────────────────────────────────────
 
-fn cmd_cypher(_query: &str, _ctx: &ShellContext) -> anyhow::Result<()> {
-    eprintln!(
-        "  {} Cypher query engine is not yet available.",
-        "Note:".yellow().bold()
-    );
-    eprintln!("  Use 'query', 'find', 'context', or 'impact' commands for graph exploration.");
+fn cmd_cypher(query: &str, ctx: &ShellContext) -> anyhow::Result<()> {
+    if query.is_empty() {
+        eprintln!("  {} Usage: cypher <query>", "Hint:".yellow().bold());
+        eprintln!("  Example: cypher MATCH (n:Function) RETURN n LIMIT 10");
+        return Ok(());
+    }
+
+    // Block write operations
+    let upper = query.to_uppercase();
+    for kw in &["CREATE", "DELETE", "MERGE", "REMOVE", "DROP"] {
+        if upper.contains(kw) {
+            eprintln!("  {} Only read-only queries are allowed.", "Error:".red().bold());
+            return Ok(());
+        }
+    }
+
+    // Build indexes and FTS from the in-memory graph
+    let indexes = gitnexus_db::inmemory::cypher::GraphIndexes::build(&ctx.graph);
+    let fts_index = gitnexus_db::inmemory::fts::FtsIndex::build(&ctx.graph);
+
+    // Parse and execute
+    let stmt = match gitnexus_db::inmemory::cypher::parse(query) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("  {} {}", "Parse error:".red().bold(), e);
+            return Ok(());
+        }
+    };
+
+    let results = match gitnexus_db::inmemory::cypher::execute(&stmt, &ctx.graph, &indexes, &fts_index) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("  {} {}", "Query error:".red().bold(), e);
+            return Ok(());
+        }
+    };
+
+    if results.is_empty() {
+        println!("  {} No results.", "Info:".yellow().bold());
+        return Ok(());
+    }
+
+    println!("  {} {} result{}", "OK".green().bold(), results.len(), if results.len() == 1 { "" } else { "s" });
+    println!();
+    println!("{}", serde_json::to_string_pretty(&results)?);
+
     Ok(())
 }
 
@@ -1548,8 +1588,16 @@ fn cmd_help() -> anyhow::Result<()> {
         "export [json|dot|csv]".yellow()
     );
     println!(
-        "    {}  Execute a Cypher query (when engine is available)",
+        "    {}  Execute a Cypher query against the graph",
         "cypher <query>".yellow()
+    );
+    println!(
+        "    {}",
+        "         Supports: =, <>, !=, CONTAINS, STARTS WITH, ENDS WITH".dimmed()
+    );
+    println!(
+        "    {}",
+        "         WHERE: AND, OR, NOT  |  RETURN DISTINCT  |  ORDER BY, LIMIT".dimmed()
     );
     println!(
         "    {}  Reload graph from snapshot",

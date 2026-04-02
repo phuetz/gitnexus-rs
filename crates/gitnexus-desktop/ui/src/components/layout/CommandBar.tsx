@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Search, ChevronRight, ArrowLeft, ArrowRight } from "lucide-react";
+import { Search, ChevronRight, ArrowLeft, ArrowRight, Sun, Moon } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 
@@ -14,6 +14,8 @@ export function CommandBar() {
   const canGoForward = useAppStore((s) => s.canGoForward);
   const goBack = useAppStore((s) => s.goBack);
   const goForward = useAppStore((s) => s.goForward);
+  const theme = useAppStore((s) => s.theme);
+  const setTheme = useAppStore((s) => s.setTheme);
 
   // Keyboard shortcuts: Alt+Left / Alt+Right for navigation
   useEffect(() => {
@@ -201,6 +203,16 @@ export function CommandBar() {
         >
           {t("search.shortcut")}
         </kbd>
+      </button>
+
+      {/* Theme toggle */}
+      <button
+        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        className="p-1.5 rounded-md transition-colors"
+        style={{ color: "var(--text-3)" }}
+        title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      >
+        {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
       </button>
 
       {/* Right: spacer */}

@@ -400,6 +400,7 @@ export function GraphExplorer() {
     new Set(["IMPORTS", "HAS_METHOD", "HAS_PROPERTY", "CONTAINS"])
   );
   const [depthFilter, setDepthFilter] = useState<number | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const searchMatchIds = useAppStore((s) => s.searchMatchIds);
 
@@ -532,6 +533,11 @@ export function GraphExplorer() {
       if (e.key === "Escape" && !e.ctrlKey && !e.metaKey) {
         setSelectedNodeId(null);
         setContextMenu(null);
+        setShortcutsOpen(false);
+      }
+      // ? key: show shortcuts help
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
+        setShortcutsOpen(prev => !prev);
       }
     };
     window.addEventListener("keydown", handler);
@@ -1554,6 +1560,39 @@ export function GraphExplorer() {
 
         {/* Cypher query FAB */}
         <CypherQueryFAB />
+
+        {/* Keyboard shortcuts overlay */}
+        {shortcutsOpen && (
+          <div
+            className="absolute z-30 rounded-xl"
+            style={{
+              top: 60, right: 16, padding: "16px 20px",
+              background: "var(--bg-2)", border: "1px solid var(--surface-border)",
+              backdropFilter: "blur(12px)", boxShadow: "var(--shadow-lg)",
+              fontSize: 11, color: "var(--text-2)", minWidth: 220,
+            }}
+          >
+            <div style={{ fontWeight: 600, color: "var(--text-0)", marginBottom: 8, fontSize: 12 }}>
+              Keyboard Shortcuts
+            </div>
+            {[
+              ["Ctrl+G", "Go to symbol"],
+              ["Ctrl+E", "Export graph PNG"],
+              ["Ctrl+Shift+S", "Screenshot"],
+              ["Ctrl+=/\u2212/0", "Zoom in/out/fit"],
+              ["Alt+\u2190/\u2192", "Navigate back/forward"],
+              ["Escape", "Clear selection"],
+              ["Double-click", "Focus subgraph"],
+              ["?", "Toggle this help"],
+            ].map(([key, desc]) => (
+              <div key={key} className="flex justify-between py-1" style={{ gap: 16 }}>
+                <kbd className="font-mono text-[10px] rounded px-1.5 py-0.5"
+                  style={{ background: "var(--bg-3)", color: "var(--text-1)" }}>{key}</kbd>
+                <span>{desc}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Zoom Controls */}
         <div

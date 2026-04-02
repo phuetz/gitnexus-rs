@@ -1,9 +1,10 @@
 import { useCallback, useRef, useEffect, useState } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import type cytoscape from "cytoscape";
-import { AlertCircle, Copy, EyeOff, Network } from "lucide-react";
+import { AlertCircle, Copy, EyeOff, Network, Zap } from "lucide-react";
 import { useGraphData } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
+import { commands } from "../../lib/tauri-commands";
 import { GraphToolbar } from "./GraphToolbar";
 import { NodeHoverCard } from "./NodeHoverCard";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
@@ -201,6 +202,53 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       "z-index": 999,
     },
   },
+  // Impact overlay classes
+  {
+    selector: "node.impact-origin",
+    css: {
+      "border-width": 4,
+      "border-color": "#f7768e",
+      "shadow-blur": 30,
+      "shadow-color": "#f7768e",
+      "shadow-opacity": 0.7,
+    } as any,
+  },
+  {
+    selector: "node.impact-depth-1",
+    css: {
+      "border-width": 3,
+      "border-color": "#ff9e64",
+      "shadow-blur": 20,
+      "shadow-color": "#ff9e64",
+      "shadow-opacity": 0.5,
+    } as any,
+  },
+  {
+    selector: "node.impact-depth-2",
+    css: {
+      "border-width": 2,
+      "border-color": "#e0af68",
+      "shadow-blur": 15,
+      "shadow-color": "#e0af68",
+      "shadow-opacity": 0.4,
+    } as any,
+  },
+  {
+    selector: "node.impact-depth-3",
+    css: {
+      "border-width": 2,
+      "border-color": "#9ece6a",
+      "shadow-blur": 10,
+      "shadow-color": "#9ece6a",
+      "shadow-opacity": 0.3,
+    } as any,
+  },
+  {
+    selector: "node.impact-dimmed",
+    css: {
+      opacity: 0.2,
+    } as any,
+  },
 ];
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -247,6 +295,63 @@ export function GraphExplorer() {
   // Unique key per mount to force layout re-run when navigating back
   const [mountId] = useState(() => Date.now());
   const [viewMode, setViewMode] = useState<ViewMode>("graph");
+  const [impactOverlay, setImpactOverlay] = useState(false);
+  const selectedNodeId = useAppStore((s) => s.selectedNodeId);
+
+  // Impact overlay: highlight affected nodes when toggled
+  const toggleImpactOverlay = useCallback(async () => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    if (impactOverlay) {
+      // Clear overlay
+      cy.nodes().removeClass("impact-origin impact-depth-1 impact-depth-2 impact-depth-3 impact-dimmed");
+      setImpactOverlay(false);
+      return;
+    }
+
+    const nodeId = selectedNodeId;
+    if (!nodeId) return;
+
+    try {
+      const result = await commands.getImpactAnalysis(nodeId, "both", 3);
+      const affectedIds = new Set<string>();
+
+      // Mark origin
+      const originNode = cy.getElementById(nodeId);
+      if (originNode.length) {
+        originNode.addClass("impact-origin");
+        affectedIds.add(nodeId);
+      }
+
+      // Mark upstream + downstream by depth
+      const markNodes = (items: Array<{ id: string; depth: number }>) => {
+        for (const item of items) {
+          affectedIds.add(item.id);
+          const n = cy.getElementById(item.id);
+          if (n.length) {
+            if (item.depth <= 1) n.addClass("impact-depth-1");
+            else if (item.depth <= 2) n.addClass("impact-depth-2");
+            else n.addClass("impact-depth-3");
+          }
+        }
+      };
+
+      if (result.upstream) markNodes(result.upstream);
+      if (result.downstream) markNodes(result.downstream);
+
+      // Dim non-affected nodes
+      cy.nodes().forEach((n) => {
+        if (!affectedIds.has(n.id())) {
+          n.addClass("impact-dimmed");
+        }
+      });
+
+      setImpactOverlay(true);
+    } catch {
+      // silently fail
+    }
+  }, [selectedNodeId, impactOverlay]);
 
   const filter: GraphFilter = {
     zoomLevel,
@@ -1047,6 +1152,30 @@ export function GraphExplorer() {
               <EyeOff size={12} />
             </button>
           </div>
+        )}
+
+        {/* Impact overlay toggle */}
+        {selectedNodeId && (
+          <button
+            onClick={toggleImpactOverlay}
+            className="absolute z-20 flex items-center gap-1.5 rounded-lg transition-all"
+            style={{
+              bottom: 70,
+              left: 16,
+              padding: "8px 14px",
+              background: impactOverlay ? "#f7768e" : "var(--bg-2)",
+              color: impactOverlay ? "white" : "var(--text-2)",
+              border: `1px solid ${impactOverlay ? "#f7768e" : "var(--surface-border)"}`,
+              backdropFilter: "blur(12px)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              boxShadow: impactOverlay ? "0 0 20px rgba(247, 118, 142, 0.3)" : "var(--shadow-sm)",
+            }}
+          >
+            <Zap size={13} />
+            {impactOverlay ? "Clear Impact" : "Impact Overlay"}
+          </button>
         )}
 
         {/* Cypher query FAB */}

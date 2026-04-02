@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAppStore, type DetailTab } from "../../stores/app-store";
 import { useSymbolContext } from "../../hooks/use-tauri-query";
 import { useI18n } from "../../hooks/use-i18n";
@@ -6,7 +7,8 @@ import { CodePanel } from "../code/CodePanel";
 import { LayersTab } from "../detail/LayersTab";
 import { CodeHealthCard } from "../health/CodeHealthCard";
 import { SymbolBreadcrumb } from "../shared/Breadcrumb";
-import { ChevronDown } from "lucide-react";
+import { commands } from "../../lib/tauri-commands";
+import { ChevronDown, Code2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const TABS: { id: DetailTab; i18nKey: string }[] = [
@@ -268,6 +270,15 @@ function ContextTab() {
         </p>
       </div>
 
+      {/* Inline code snippet */}
+      {context.node.filePath && context.node.startLine && (
+        <InlineCodeSnippet
+          filePath={context.node.filePath}
+          startLine={context.node.startLine}
+          endLine={context.node.endLine}
+        />
+      )}
+
       {/* Description */}
       {context.node.description && (
         <div
@@ -511,6 +522,95 @@ function RelationSection({
             </div>
           </button>
         ))}
+    </div>
+  );
+}
+
+/** Collapsible inline code snippet showing the first N lines of a symbol */
+function InlineCodeSnippet({
+  filePath,
+  startLine,
+  endLine,
+}: {
+  filePath: string;
+  startLine: number;
+  endLine?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const maxPreviewLines = 8;
+  const snippetEnd = endLine ?? startLine + maxPreviewLines;
+  const previewEnd = Math.min(startLine + maxPreviewLines, snippetEnd);
+
+  const { data: content } = useQuery({
+    queryKey: ["inline-snippet", filePath, startLine, expanded ? snippetEnd : previewEnd],
+    queryFn: () =>
+      commands.readFileContent(filePath, startLine, expanded ? snippetEnd : previewEnd),
+    staleTime: 60_000,
+  });
+
+  if (!content?.content) return null;
+
+  const lines = content.content.split("\n");
+  const hasMore = endLine != null && endLine - startLine > maxPreviewLines;
+
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{
+        border: "1px solid var(--surface-border)",
+        background: "var(--bg-2)",
+      }}
+    >
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-left"
+        style={{
+          background: "var(--bg-1)",
+          borderBottom: "1px solid var(--surface-border)",
+          color: "var(--text-2)",
+          fontSize: 10,
+          fontWeight: 500,
+        }}
+      >
+        <Code2 size={10} />
+        <span>{expanded ? "Collapse" : "Preview"}</span>
+        {hasMore && !expanded && (
+          <span style={{ color: "var(--text-4)", marginLeft: "auto" }}>
+            {endLine! - startLine + 1} lines
+          </span>
+        )}
+      </button>
+      <pre
+        className="overflow-x-auto"
+        style={{
+          margin: 0,
+          padding: "8px 12px",
+          fontSize: 11,
+          lineHeight: 1.5,
+          fontFamily: "var(--font-mono)",
+          color: "var(--text-1)",
+          maxHeight: expanded ? 400 : 160,
+          overflowY: "auto",
+        }}
+      >
+        {lines.map((line, i) => (
+          <div key={i} className="flex">
+            <span
+              style={{
+                width: 36,
+                flexShrink: 0,
+                textAlign: "right",
+                paddingRight: 12,
+                color: "var(--text-4)",
+                userSelect: "none",
+              }}
+            >
+              {startLine + i}
+            </span>
+            <span>{line}</span>
+          </div>
+        ))}
+      </pre>
     </div>
   );
 }

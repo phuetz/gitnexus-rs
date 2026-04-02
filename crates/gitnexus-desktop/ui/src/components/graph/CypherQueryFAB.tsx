@@ -17,13 +17,21 @@ const EXAMPLES = [
     query: "MATCH (n)-[:CALLS]->(m) RETURN n.name, m.name LIMIT 30",
   },
   {
-    label: "Inheritance",
-    query: "MATCH (n:Class)-[:INHERITS]->(m) RETURN n.name, m.name",
-  },
-  {
     label: "Controllers",
     query:
       "MATCH (n:Controller)-[:DEFINES]->(a:ControllerAction) RETURN n.name, a.name LIMIT 30",
+  },
+  {
+    label: "Dead Code",
+    query: "MATCH (n:Method) WHERE n.name STARTS WITH 'Get' RETURN DISTINCT n.name, n.filePath LIMIT 20",
+  },
+  {
+    label: "Top Callers",
+    query: "MATCH (n)-[:CALLS]->(m) RETURN m.name, count(n) ORDER BY count(n) LIMIT 10",
+  },
+  {
+    label: "Services",
+    query: "MATCH (n:Service) RETURN n.name, n.filePath LIMIT 20",
   },
   {
     label: "Communities",
@@ -268,23 +276,89 @@ export function CypherQueryFAB() {
                 >
                   {results.length} result{results.length !== 1 ? "s" : ""}
                 </div>
-                <pre
-                  style={{
-                    fontSize: 11,
-                    color: "var(--text-1)",
-                    fontFamily: "var(--font-mono)",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-all",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {JSON.stringify(results, null, 2)}
-                </pre>
+                <ResultsView data={results} />
               </div>
             )}
           </motion.div>
         )}
       </AnimatePresence>
     </>
+  );
+}
+
+/** Renders query results as a table if possible, otherwise as JSON */
+function ResultsView({ data }: { data: unknown[] }) {
+  // Try to render as table if results are objects with consistent keys
+  if (data.length > 0 && typeof data[0] === "object" && data[0] !== null) {
+    const keys = Object.keys(data[0] as Record<string, unknown>);
+    if (keys.length > 0 && keys.length <= 8) {
+      return (
+        <div style={{ overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead>
+              <tr>
+                {keys.map((k) => (
+                  <th
+                    key={k}
+                    style={{
+                      padding: "4px 8px",
+                      textAlign: "left",
+                      color: "var(--text-3)",
+                      fontWeight: 500,
+                      borderBottom: "1px solid var(--surface-border)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {k}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row, i) => (
+                <tr key={i}>
+                  {keys.map((k) => (
+                    <td
+                      key={k}
+                      style={{
+                        padding: "3px 8px",
+                        color: "var(--text-1)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10,
+                        maxWidth: 200,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        borderBottom: "1px solid var(--surface-border)",
+                      }}
+                    >
+                      {String((row as Record<string, unknown>)[k] ?? "")}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+  }
+
+  // Fallback: raw JSON
+  return (
+    <pre
+      style={{
+        fontSize: 11,
+        color: "var(--text-1)",
+        fontFamily: "var(--font-mono)",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-all",
+        lineHeight: 1.5,
+      }}
+    >
+      {JSON.stringify(data, null, 2)}
+    </pre>
   );
 }

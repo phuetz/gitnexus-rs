@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useEffect, useState } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import type cytoscape from "cytoscape";
+import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, Copy, EyeOff, Network, Zap } from "lucide-react";
 import { useGraphData } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
@@ -14,7 +15,7 @@ import { Tooltip } from "../shared/Tooltip";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
 import { CypherQueryFAB } from "./CypherQueryFAB";
 import { ProcessFlowModal } from "./ProcessFlowModal";
-import type { GraphFilter, CytoNode, CytoEdge, ZoomLevel } from "../../lib/tauri-commands";
+import type { GraphFilter, CytoNode, CytoEdge } from "../../lib/tauri-commands";
 
 const LABEL_COLORS: Record<string, string> = {
   Function: "#7aa2f7",
@@ -65,17 +66,28 @@ const LABEL_SIZES: Record<string, number> = {
   Import: 8,
 };
 
-const NEXT_ZOOM: Record<ZoomLevel, ZoomLevel | null> = {
-  package: "module",
-  module: "symbol",
-  symbol: null,
-};
+const COMMUNITY_COLORS = [
+  "#7aa2f7", "#bb9af7", "#9ece6a", "#e0af68", "#f7768e",
+  "#73daca", "#7dcfff", "#ff9e64", "#c0caf5", "#565f89",
+  "#2ac3de", "#b4f9f8",
+];
 
-function buildElements(nodes: CytoNode[], edges: CytoEdge[]) {
+function hashString(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function buildElements(nodes: CytoNode[], edges: CytoEdge[], hiddenEdgeTypes?: Set<string>) {
   const elements: cytoscape.ElementDefinition[] = [];
 
   for (const node of nodes) {
     const size = LABEL_SIZES[node.label] || 16;
+    const color = node.community
+      ? COMMUNITY_COLORS[hashString(node.community) % COMMUNITY_COLORS.length]
+      : LABEL_COLORS[node.label] || "#565f89";
     elements.push({
       data: {
         id: node.id,
@@ -88,13 +100,17 @@ function buildElements(nodes: CytoNode[], edges: CytoEdge[]) {
         returnType: node.returnType,
         isTraced: node.isTraced,
         isDeadCandidate: node.isDeadCandidate,
-        color: LABEL_COLORS[node.label] || "#565f89",
+        color,
         size,
       },
     });
   }
 
-  for (const edge of edges) {
+  const filteredEdges = hiddenEdgeTypes
+    ? edges.filter(e => !hiddenEdgeTypes.has(e.relType))
+    : edges;
+
+  for (const edge of filteredEdges) {
     elements.push({
       data: {
         id: edge.id,
@@ -259,7 +275,6 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
 export function GraphExplorer() {
   const { t, tt } = useI18n();
   const zoomLevel = useAppStore((s) => s.zoomLevel);
-  const setZoomLevel = useAppStore((s) => s.setZoomLevel);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const setSidebarTab = useAppStore((s) => s.setSidebarTab);
   const setSearchOpen = useAppStore((s) => s.setSearchOpen);
@@ -305,6 +320,10 @@ export function GraphExplorer() {
   const [viewMode, setViewMode] = useState<ViewMode>("graph");
   const [impactOverlay, setImpactOverlay] = useState(false);
   const [layoutRunning, setLayoutRunning] = useState(false);
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const [hiddenEdgeTypes] = useState<Set<string>>(
+    new Set(["IMPORTS", "HAS_METHOD", "HAS_PROPERTY", "CONTAINS"])
+  );
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
 
   // Impact overlay: highlight affected nodes when toggled
@@ -364,13 +383,22 @@ export function GraphExplorer() {
 
   const filter: GraphFilter = {
     zoomLevel,
-    maxNodes: 500,
+    maxNodes: 200,
   };
 
   const { data, isLoading, error } = useGraphData(filter, true);
+
+  const { data: subgraphData } = useQuery({
+    queryKey: ["subgraph", focusNodeId],
+    queryFn: () => commands.getSubgraph(focusNodeId!, 2),
+    enabled: !!focusNodeId,
+    staleTime: 30_000,
+  });
+
+  const activeData = focusNodeId && subgraphData ? subgraphData : data;
   const elements = useMemo(
-    () => (data ? buildElements(data.nodes, data.edges) : []),
-    [data]
+    () => (activeData ? buildElements(activeData.nodes, activeData.edges, hiddenEdgeTypes) : []),
+    [activeData, hiddenEdgeTypes]
   );
   const dataVersion = useMemo(
     () => (data ? `${data.stats.nodeCount}-${data.stats.edgeCount}-${zoomLevel}` : ""),
@@ -529,10 +557,10 @@ export function GraphExplorer() {
                   name: "cose",
                   animate: false,
                   nodeOverlap: 40,
-                  nodeRepulsion: () => 3500,
-                  idealEdgeLength: () => 70,
+                  nodeRepulsion: () => 6000,
+                  idealEdgeLength: () => 100,
                   edgeElasticity: () => 40,
-                  gravity: 0.4,
+                  gravity: 0.3,
                   numIter: 1500,
                   padding: 50,
                   randomize: true,
@@ -562,12 +590,10 @@ export function GraphExplorer() {
         }
       });
 
-      // Double click → zoom to next level
-      cy.on("dbltap", "node", () => {
-        const next = NEXT_ZOOM[useAppStore.getState().zoomLevel];
-        if (next) {
-          setZoomLevel(next);
-        }
+      // Double click → load subgraph centered on this node
+      cy.on("dbltap", "node", (evt) => {
+        const nodeId = evt.target.id();
+        setFocusNodeId(nodeId);
       });
 
       // Hover → tooltip + hover card
@@ -643,7 +669,7 @@ export function GraphExplorer() {
       cy.on("zoom", drawMinimapThrottled);
       cy.on("layoutstop", drawMinimapThrottled);
     },
-    [setSelectedNodeId, setZoomLevel, drawMinimapThrottled]
+    [setSelectedNodeId, drawMinimapThrottled]
   );
 
   // Clean up Cytoscape listeners on unmount
@@ -679,10 +705,10 @@ export function GraphExplorer() {
               name: layout === "cose" ? "cose" : layout,
               animate: false,
               nodeOverlap: 40,
-              nodeRepulsion: () => 3500,
-              idealEdgeLength: () => 70,
+              nodeRepulsion: () => 6000,
+              idealEdgeLength: () => 100,
               edgeElasticity: () => 40,
-              gravity: 0.4,
+              gravity: 0.3,
               numIter: 1500,
               padding: 50,
               randomize: false,
@@ -887,6 +913,39 @@ export function GraphExplorer() {
             <div style={{ color: "var(--text-2)", fontSize: 13 }}>Computing layout...</div>
           </div>
         )}
+        {/* Focus mode: back button */}
+        {focusNodeId && (
+          <button
+            onClick={() => setFocusNodeId(null)}
+            className="absolute top-16 left-4 z-20 rounded-lg text-xs font-medium"
+            style={{
+              padding: "6px 12px",
+              background: "var(--accent)",
+              color: "white",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            &larr; Back to full graph
+          </button>
+        )}
+
+        {/* Truncation banner */}
+        {data?.stats.truncated && !focusNodeId && (
+          <div
+            className="absolute top-16 left-4 right-4 z-20 rounded-lg text-xs"
+            style={{
+              padding: "8px 12px",
+              background: "var(--bg-2)",
+              border: "1px solid var(--surface-border)",
+              color: "var(--text-2)",
+              textAlign: "center",
+            }}
+          >
+            Showing top {data.stats.nodeCount} nodes by importance. Double-click a node to explore its neighborhood.
+          </div>
+        )}
+
         <CytoscapeComponent
           key={mountId}
           elements={elements}

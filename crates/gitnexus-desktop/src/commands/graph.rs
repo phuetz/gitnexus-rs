@@ -11,9 +11,9 @@ pub async fn get_graph_data(
     state: State<'_, AppState>,
     filter: GraphFilter,
 ) -> Result<GraphPayload, String> {
-    let (graph, _indexes, _fts, _repo_path) = state.get_repo(None).await?;
+    let (graph, indexes, _fts, _repo_path) = state.get_repo(None).await?;
 
-    let max_nodes = filter.max_nodes.unwrap_or(500);
+    let max_nodes = filter.max_nodes.unwrap_or(200);
 
     // Determine which node labels to include based on zoom level
     let allowed_labels = match filter.zoom_level {
@@ -67,38 +67,80 @@ pub async fn get_graph_data(
             .collect()
     });
 
-    // Collect nodes
-    let mut nodes = Vec::new();
-    for node in graph.iter_nodes() {
-        let label_ok = if let Some(ref custom) = custom_labels {
-            custom.contains(&node.label)
-        } else {
-            allowed_labels.contains(&node.label)
-        };
-
-        if !label_ok {
-            continue;
-        }
-
-        // File path filter
-        if let Some(ref paths) = filter.file_paths {
-            if !paths.iter().any(|p| node.properties.file_path.starts_with(p)) {
-                continue;
+    // Collect filtered nodes
+    let filtered_nodes: Vec<_> = graph
+        .iter_nodes()
+        .filter(|node| {
+            let label_ok = if let Some(ref custom) = custom_labels {
+                custom.contains(&node.label)
+            } else {
+                allowed_labels.contains(&node.label)
+            };
+            if !label_ok {
+                return false;
             }
-        }
+            // File path filter
+            if let Some(ref paths) = filter.file_paths {
+                if !paths.iter().any(|p| node.properties.file_path.starts_with(p)) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
 
-        nodes.push(node_to_cyto(node));
+    // Compute importance score for each node and sort descending
+    let mut scored_nodes: Vec<(f64, &gitnexus_core::graph::types::GraphNode)> = filtered_nodes
+        .into_iter()
+        .map(|node| {
+            let mut score: f64 = 0.0;
 
-        if nodes.len() >= max_nodes {
-            break;
-        }
-    }
+            // Connectivity (from indexes)
+            let indegree = indexes.incoming.get(node.id.as_str()).map_or(0, |v| v.len());
+            let outdegree = indexes.outgoing.get(node.id.as_str()).map_or(0, |v| v.len());
+            score += (indegree + outdegree) as f64 * 2.0;
 
-    // Collect node ID set for edge filtering
+            // Entry point bonus
+            if let Some(eps) = node.properties.entry_point_score {
+                score += eps * 10.0;
+            }
+
+            // Exported symbols
+            if node.properties.is_exported == Some(true) {
+                score += 5.0;
+            }
+
+            // Traced symbols
+            if node.properties.is_traced == Some(true) {
+                score += 3.0;
+            }
+
+            // High-level types get priority
+            match node.label {
+                NodeLabel::Controller | NodeLabel::Service => score += 20.0,
+                NodeLabel::Class | NodeLabel::Interface => score += 10.0,
+                NodeLabel::Module | NodeLabel::Package => score += 15.0,
+                _ => {}
+            }
+
+            (score, node)
+        })
+        .collect();
+
+    scored_nodes.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Take top N nodes
+    let nodes: Vec<CytoNode> = scored_nodes
+        .iter()
+        .take(max_nodes)
+        .map(|(_, node)| node_to_cyto(node))
+        .collect();
+
+    // Collect node ID set for edge filtering — only edges between selected nodes
     let node_ids: std::collections::HashSet<&str> =
         nodes.iter().map(|n| n.id.as_str()).collect();
 
-    // Collect edges
+    // Collect edges between selected nodes
     let mut edges = Vec::new();
     for rel in graph.iter_relationships() {
         if !allowed_rel_types.contains(&rel.rel_type) {

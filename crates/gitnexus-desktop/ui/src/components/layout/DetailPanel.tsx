@@ -576,7 +576,7 @@ function InlineCodeSnippet({
         <span>{expanded ? "Collapse" : "Preview"}</span>
         {hasMore && !expanded && (
           <span style={{ color: "var(--text-4)", marginLeft: "auto" }}>
-            {endLine! - startLine + 1} lines
+            {endLine != null ? endLine - startLine + 1 : "?"} lines
           </span>
         )}
       </button>

@@ -35,6 +35,7 @@ export interface CytoNode {
   entryPointReason?: string;
   isTraced?: boolean;
   traceCallCount?: number;
+  isDeadCandidate?: boolean;
 }
 
 export interface CytoEdge {

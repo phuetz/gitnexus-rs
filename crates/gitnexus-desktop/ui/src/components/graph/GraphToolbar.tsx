@@ -25,6 +25,7 @@ export function GraphToolbar({
   onLayoutChange,
   onFit,
   onFlows,
+  onExport,
 }: {
   stats?: GraphStats;
   layout: string;

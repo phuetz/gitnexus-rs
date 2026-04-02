@@ -345,8 +345,8 @@ export function GraphExplorer() {
         }
       };
 
-      if (result.upstream) markNodes(result.upstream);
-      if (result.downstream) markNodes(result.downstream);
+      if (result.upstream) markNodes(result.upstream.map(n => ({ id: n.node.id, depth: n.depth })));
+      if (result.downstream) markNodes(result.downstream.map(n => ({ id: n.node.id, depth: n.depth })));
 
       // Dim non-affected nodes
       cy.nodes().forEach((n) => {

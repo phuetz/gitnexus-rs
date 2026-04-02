@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "ui/dist",
     "devUrl": "http://localhost:5174",
-    "beforeDevCommand": "npm run dev --prefix ui",
-    "beforeBuildCommand": "npm run build --prefix ui"
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
   },
   "app": {
     "windows": [

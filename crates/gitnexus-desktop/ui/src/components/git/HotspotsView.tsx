@@ -3,6 +3,7 @@
  */
 
 import type { GitHotspot } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
 
 interface Props {
@@ -17,7 +18,9 @@ function scoreColor(score: number): string {
 }
 
 export function HotspotsView({ data, loading }: Props) {
-  if (loading) return <LoadingOrbs label="Analyzing hotspots..." />;
+  const { t } = useI18n();
+
+  if (loading) return <LoadingOrbs label={t("hotspots.loading")} />;
 
   if (data.length === 0) {
     return (
@@ -29,7 +32,7 @@ export function HotspotsView({ data, loading }: Props) {
           fontSize: 13,
         }}
       >
-        No hotspot data available. Make sure the repository has git history.
+        {t("hotspots.noData")}
       </div>
     );
   }
@@ -43,7 +46,7 @@ export function HotspotsView({ data, loading }: Props) {
           marginBottom: 12,
         }}
       >
-        {data.length} files analyzed (last 90 days)
+        {t("hotspots.filesAnalyzed").replace("{0}", String(data.length))}
       </div>
 
       {/* Table */}
@@ -56,12 +59,12 @@ export function HotspotsView({ data, loading }: Props) {
               textAlign: "left",
             }}
           >
-            <th style={{ padding: "6px 8px", fontWeight: 600 }}>#</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600 }}>File</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600, textAlign: "right" }}>Commits</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600, textAlign: "right" }}>Churn</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600, textAlign: "right" }}>Authors</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600, width: 120 }}>Score</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600 }}>{t("hotspots.colRank")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600 }}>{t("hotspots.colFile")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600, textAlign: "right" }}>{t("hotspots.colCommits")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600, textAlign: "right" }}>{t("hotspots.colChurn")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600, textAlign: "right" }}>{t("hotspots.colAuthors")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600, width: 120 }}>{t("hotspots.colScore")}</th>
           </tr>
         </thead>
         <tbody>

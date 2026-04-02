@@ -3,6 +3,7 @@
  */
 
 import type { GitCoupling } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
 
 interface Props {
@@ -17,7 +18,9 @@ function strengthColor(s: number): string {
 }
 
 export function CouplingView({ data, loading }: Props) {
-  if (loading) return <LoadingOrbs label="Analyzing coupling..." />;
+  const { t } = useI18n();
+
+  if (loading) return <LoadingOrbs label={t("coupling.loading")} />;
 
   if (data.length === 0) {
     return (
@@ -29,7 +32,7 @@ export function CouplingView({ data, loading }: Props) {
           fontSize: 13,
         }}
       >
-        No temporal coupling detected. Files change independently.
+        {t("coupling.noData")}
       </div>
     );
   }
@@ -47,10 +50,10 @@ export function CouplingView({ data, loading }: Props) {
           gap: 16,
         }}
       >
-        <span>{data.length} coupled pairs detected</span>
+        <span>{t("coupling.pairsDetected").replace("{0}", String(data.length))}</span>
         {strong > 0 && (
           <span style={{ color: "#f7768e" }}>
-            {strong} strongly coupled (&gt;70%)
+            {t("coupling.stronglyCoupled").replace("{0}", String(strong))}
           </span>
         )}
       </div>
@@ -64,11 +67,11 @@ export function CouplingView({ data, loading }: Props) {
               textAlign: "left",
             }}
           >
-            <th style={{ padding: "6px 8px", fontWeight: 600 }}>#</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600 }}>File A</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600 }}>File B</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600, textAlign: "right" }}>Shared</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600, width: 120 }}>Strength</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600 }}>{t("coupling.colRank")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600 }}>{t("coupling.colFileA")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600 }}>{t("coupling.colFileB")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600, textAlign: "right" }}>{t("coupling.colShared")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600, width: 120 }}>{t("coupling.colStrength")}</th>
           </tr>
         </thead>
         <tbody>

@@ -136,12 +136,12 @@ export function ExportPanel() {
       const path = await commands.exportDocsDocx();
       setExportPath(path);
       setExportStatus("success");
-      toast.success("DOCX exported successfully");
+      toast.success(t("export.toastSuccess"));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMsg(msg);
       setExportStatus("error");
-      toast.error("Export failed: " + msg);
+      toast.error(t("export.toastError").replace("{0}", msg));
     }
   };
 
@@ -192,7 +192,7 @@ export function ExportPanel() {
           <button
             onClick={loadStats}
             title={t("export.refreshStats")}
-            aria-label="Refresh statistics"
+            aria-label={t("export.ariaRefresh")}
             className="rounded-md hover-surface"
             style={{
               padding: 8,
@@ -250,7 +250,7 @@ export function ExportPanel() {
           <button
             onClick={handleExport}
             disabled={exportStatus === "exporting"}
-            aria-label="Export documentation as DOCX"
+            aria-label={t("export.ariaExport")}
             className="w-full flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all"
             style={{
               marginTop: 16,

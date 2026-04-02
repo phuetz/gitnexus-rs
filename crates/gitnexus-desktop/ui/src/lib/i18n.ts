@@ -303,6 +303,50 @@ const en = {
   "a11y.skipToContent": "Skip to main content",
   "a11y.codeIntelligencePlatform": "GitNexus — Code Intelligence Platform",
 
+  // ── Git Analytics ──
+  "git.hotspots": "Hotspots",
+  "git.coupling": "Coupling",
+  "git.ownership": "Ownership",
+
+  // ── Hotspots View ──
+  "hotspots.loading": "Analyzing hotspots...",
+  "hotspots.noData": "No hotspot data available. Make sure the repository has git history.",
+  "hotspots.filesAnalyzed": "{0} files analyzed (last 90 days)",
+  "hotspots.colRank": "#",
+  "hotspots.colFile": "File",
+  "hotspots.colCommits": "Commits",
+  "hotspots.colChurn": "Churn",
+  "hotspots.colAuthors": "Authors",
+  "hotspots.colScore": "Score",
+
+  // ── Coupling View ──
+  "coupling.loading": "Analyzing coupling...",
+  "coupling.noData": "No temporal coupling detected. Files change independently.",
+  "coupling.pairsDetected": "{0} coupled pairs detected",
+  "coupling.stronglyCoupled": "{0} strongly coupled (>70%)",
+  "coupling.colRank": "#",
+  "coupling.colFileA": "File A",
+  "coupling.colFileB": "File B",
+  "coupling.colShared": "Shared",
+  "coupling.colStrength": "Strength",
+
+  // ── Ownership View ──
+  "ownership.loading": "Analyzing ownership...",
+  "ownership.noData": "No ownership data available.",
+  "ownership.authors": "Authors ({0})",
+  "ownership.files": "files",
+  "ownership.orphanWarning": "{0} files with no clear owner (<50% ownership)",
+  "ownership.colFile": "File",
+  "ownership.colPrimaryAuthor": "Primary Author",
+  "ownership.colOwnership": "Ownership",
+  "ownership.colAuthors": "Authors",
+
+  // ── Export Panel (toast) ──
+  "export.toastSuccess": "DOCX exported successfully",
+  "export.toastError": "Export failed: {0}",
+  "export.ariaRefresh": "Refresh statistics",
+  "export.ariaExport": "Export documentation as DOCX",
+
   // ── Tooltips for common actions ──
   "tooltip.clickToOpen": "Click to open",
   "tooltip.rightClickForMenu": "Right-click for context menu",
@@ -598,6 +642,50 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   // ── Accessibility ──
   "a11y.skipToContent": "Aller au contenu principal",
   "a11y.codeIntelligencePlatform": "GitNexus — Plateforme d'intelligence de code",
+
+  // ── Git Analytics ──
+  "git.hotspots": "Points chauds",
+  "git.coupling": "Couplage",
+  "git.ownership": "Propriété",
+
+  // ── Hotspots View ──
+  "hotspots.loading": "Analyse des points chauds…",
+  "hotspots.noData": "Aucune donnée de points chauds disponible. Assurez-vous que le dépôt possède un historique git.",
+  "hotspots.filesAnalyzed": "{0} fichiers analysés (90 derniers jours)",
+  "hotspots.colRank": "#",
+  "hotspots.colFile": "Fichier",
+  "hotspots.colCommits": "Commits",
+  "hotspots.colChurn": "Churn",
+  "hotspots.colAuthors": "Auteurs",
+  "hotspots.colScore": "Score",
+
+  // ── Coupling View ──
+  "coupling.loading": "Analyse du couplage…",
+  "coupling.noData": "Aucun couplage temporel détecté. Les fichiers changent indépendamment.",
+  "coupling.pairsDetected": "{0} paires couplées détectées",
+  "coupling.stronglyCoupled": "{0} fortement couplées (>70%)",
+  "coupling.colRank": "#",
+  "coupling.colFileA": "Fichier A",
+  "coupling.colFileB": "Fichier B",
+  "coupling.colShared": "Partagés",
+  "coupling.colStrength": "Force",
+
+  // ── Ownership View ──
+  "ownership.loading": "Analyse de la propriété…",
+  "ownership.noData": "Aucune donnée de propriété disponible.",
+  "ownership.authors": "Auteurs ({0})",
+  "ownership.files": "fichiers",
+  "ownership.orphanWarning": "{0} fichiers sans propriétaire clair (<50% de propriété)",
+  "ownership.colFile": "Fichier",
+  "ownership.colPrimaryAuthor": "Auteur principal",
+  "ownership.colOwnership": "Propriété",
+  "ownership.colAuthors": "Auteurs",
+
+  // ── Export Panel (toast) ──
+  "export.toastSuccess": "DOCX exporté avec succès",
+  "export.toastError": "Échec de l'export : {0}",
+  "export.ariaRefresh": "Rafraîchir les statistiques",
+  "export.ariaExport": "Exporter la documentation en DOCX",
 
   // ── Tooltips for common actions ──
   "tooltip.clickToOpen": "Cliquer pour ouvrir",

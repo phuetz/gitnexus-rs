@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Flame, Link2, Users } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
 import { AnimatedPage } from "../shared/motion";
 import { HotspotsView } from "./HotspotsView";
 import { CouplingView } from "./CouplingView";
@@ -13,13 +14,14 @@ import { OwnershipView } from "./OwnershipView";
 
 type Tab = "hotspots" | "coupling" | "ownership";
 
-const TABS: { id: Tab; label: string; icon: typeof Flame }[] = [
-  { id: "hotspots", label: "Hotspots", icon: Flame },
-  { id: "coupling", label: "Coupling", icon: Link2 },
-  { id: "ownership", label: "Ownership", icon: Users },
+const TABS: { id: Tab; i18nKey: string; icon: typeof Flame }[] = [
+  { id: "hotspots", i18nKey: "git.hotspots", icon: Flame },
+  { id: "coupling", i18nKey: "git.coupling", icon: Link2 },
+  { id: "ownership", i18nKey: "git.ownership", icon: Users },
 ];
 
 export function GitAnalyticsDashboard() {
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("hotspots");
 
   const { data: hotspots, isLoading: loadingH } = useQuery({
@@ -50,21 +52,21 @@ export function GitAnalyticsDashboard() {
           borderColor: "var(--border)",
         }}
       >
-        {TABS.map((t) => (
+        {TABS.map((tb) => (
           <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
+            key={tb.id}
+            onClick={() => setTab(tb.id)}
             className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
             style={{
-              background: tab === t.id ? "var(--accent-subtle)" : "transparent",
-              color: tab === t.id ? "var(--accent)" : "var(--text-2)",
+              background: tab === tb.id ? "var(--accent-subtle)" : "transparent",
+              color: tab === tb.id ? "var(--accent)" : "var(--text-2)",
               border: "none",
               cursor: "pointer",
             }}
           >
-            <t.icon size={14} />
-            {t.label}
-            {t.id === "hotspots" && hotspots && (
+            <tb.icon size={14} />
+            {t(tb.i18nKey)}
+            {tb.id === "hotspots" && hotspots && (
               <span
                 className="px-1.5 rounded-full text-[10px]"
                 style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
@@ -72,7 +74,7 @@ export function GitAnalyticsDashboard() {
                 {hotspots.length}
               </span>
             )}
-            {t.id === "coupling" && coupling && (
+            {tb.id === "coupling" && coupling && (
               <span
                 className="px-1.5 rounded-full text-[10px]"
                 style={{ background: "var(--bg-3)", color: "var(--text-3)" }}

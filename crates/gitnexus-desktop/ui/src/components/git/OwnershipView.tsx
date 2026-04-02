@@ -4,6 +4,7 @@
 
 import { useMemo } from "react";
 import type { GitOwnership } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
 
 interface Props {
@@ -23,7 +24,9 @@ const AUTHOR_COLORS = [
 ];
 
 export function OwnershipView({ data, loading }: Props) {
-  if (loading) return <LoadingOrbs label="Analyzing ownership..." />;
+  const { t } = useI18n();
+
+  if (loading) return <LoadingOrbs label={t("ownership.loading")} />;
 
   if (data.length === 0) {
     return (
@@ -35,7 +38,7 @@ export function OwnershipView({ data, loading }: Props) {
           fontSize: 13,
         }}
       >
-        No ownership data available.
+        {t("ownership.noData")}
       </div>
     );
   }
@@ -64,7 +67,7 @@ export function OwnershipView({ data, loading }: Props) {
             marginBottom: 8,
           }}
         >
-          Authors ({authorSummary.length})
+          {t("ownership.authors").replace("{0}", String(authorSummary.length))}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {authorSummary.slice(0, 10).map(([author, count], i) => (
@@ -91,7 +94,7 @@ export function OwnershipView({ data, loading }: Props) {
               />
               <span style={{ color: "var(--text-1)" }}>{author}</span>
               <span style={{ color: "var(--text-3)", fontSize: 10 }}>
-                {count} files
+                {count} {t("ownership.files")}
               </span>
             </div>
           ))}
@@ -111,7 +114,7 @@ export function OwnershipView({ data, loading }: Props) {
             color: "#f7768e",
           }}
         >
-          {orphans.length} files with no clear owner (&lt;50% ownership)
+          {t("ownership.orphanWarning").replace("{0}", String(orphans.length))}
         </div>
       )}
 
@@ -125,10 +128,10 @@ export function OwnershipView({ data, loading }: Props) {
               textAlign: "left",
             }}
           >
-            <th style={{ padding: "6px 8px", fontWeight: 600 }}>File</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600 }}>Primary Author</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600, width: 120 }}>Ownership</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600, textAlign: "right" }}>Authors</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600 }}>{t("ownership.colFile")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600 }}>{t("ownership.colPrimaryAuthor")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600, width: 120 }}>{t("ownership.colOwnership")}</th>
+            <th style={{ padding: "6px 8px", fontWeight: 600, textAlign: "right" }}>{t("ownership.colAuthors")}</th>
           </tr>
         </thead>
         <tbody>

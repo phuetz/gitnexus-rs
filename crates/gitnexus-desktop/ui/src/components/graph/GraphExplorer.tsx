@@ -1059,8 +1059,8 @@ export function GraphExplorer() {
           >
             <Network size={64} style={{ color: "var(--text-4)" }} />
           </div>
-          <p className="text-lg font-medium">No graph data available</p>
-          <p className="text-sm">Analyze a repository first to see the knowledge graph.</p>
+          <p className="text-lg font-medium">{t("graph.noData")}</p>
+          <p className="text-sm">{t("graph.analyzeFirst")}</p>
         </div>
       </div>
     );
@@ -1169,7 +1169,7 @@ export function GraphExplorer() {
         {layoutRunning && (
           <div className="absolute inset-0 z-30 flex items-center justify-center"
             style={{ backgroundColor: "rgba(9, 11, 16, 0.5)", backdropFilter: "blur(2px)" }}>
-            <div style={{ color: "var(--text-2)", fontSize: 13 }}>Computing layout...</div>
+            <div style={{ color: "var(--text-2)", fontSize: 13 }}>{t("graph.computingLayout")}</div>
           </div>
         )}
         {/* Focus mode: back button */}
@@ -1185,7 +1185,7 @@ export function GraphExplorer() {
               cursor: "pointer",
             }}
           >
-            &larr; Back to full graph
+            &larr; {t("graph.backToFull")}
           </button>
         )}
 
@@ -1201,7 +1201,7 @@ export function GraphExplorer() {
               textAlign: "center",
             }}
           >
-            Showing top {data.stats.nodeCount} nodes by importance. Double-click a node to explore its neighborhood.
+            {t("graph.showingTopNodes").replace("{0}", String(data.stats.nodeCount))}
           </div>
         )}
 
@@ -1369,7 +1369,7 @@ export function GraphExplorer() {
                 e.currentTarget.style.color = "var(--text-2)";
               }}
             >
-              View Impact
+              {t("graph.viewImpact")}
             </button>
             <Tooltip content={tt("graph.contextMenu.expandNeighbors").tip}>
               <button
@@ -1554,7 +1554,7 @@ export function GraphExplorer() {
             }}
           >
             <Zap size={13} />
-            {impactOverlay ? "Clear Impact" : "Impact Overlay"}
+            {impactOverlay ? t("graph.clearImpact") : t("graph.impactOverlay")}
           </button>
         )}
 
@@ -1573,17 +1573,17 @@ export function GraphExplorer() {
             }}
           >
             <div style={{ fontWeight: 600, color: "var(--text-0)", marginBottom: 8, fontSize: 12 }}>
-              Keyboard Shortcuts
+              {t("graph.keyboardShortcuts")}
             </div>
             {[
-              ["Ctrl+G", "Go to symbol"],
-              ["Ctrl+E", "Export graph PNG"],
-              ["Ctrl+Shift+S", "Screenshot"],
-              ["Ctrl+=/\u2212/0", "Zoom in/out/fit"],
-              ["Alt+\u2190/\u2192", "Navigate back/forward"],
-              ["Escape", "Clear selection"],
-              ["Double-click", "Focus subgraph"],
-              ["?", "Toggle this help"],
+              ["Ctrl+G", t("graph.shortcut.goToSymbol")],
+              ["Ctrl+E", t("graph.shortcut.exportPng")],
+              ["Ctrl+Shift+S", t("graph.shortcut.screenshot")],
+              ["Ctrl+=/\u2212/0", t("graph.shortcut.zoomInOutFit")],
+              ["Alt+\u2190/\u2192", t("graph.shortcut.navigateBackForward")],
+              ["Escape", t("graph.shortcut.clearSelection")],
+              ["Double-click", t("graph.shortcut.focusSubgraph")],
+              ["?", t("graph.shortcut.toggleHelp")],
             ].map(([key, desc]) => (
               <div key={key} className="flex justify-between py-1" style={{ gap: 16 }}>
                 <kbd className="font-mono text-[10px] rounded px-1.5 py-0.5"

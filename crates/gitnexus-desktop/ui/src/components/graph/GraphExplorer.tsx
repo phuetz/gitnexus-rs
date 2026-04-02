@@ -18,27 +18,29 @@ import { ProcessFlowModal } from "./ProcessFlowModal";
 import type { GraphFilter, CytoNode, CytoEdge } from "../../lib/tauri-commands";
 
 const LABEL_COLORS: Record<string, string> = {
-  Function: "#7aa2f7",
-  Class: "#bb9af7",
-  Method: "#7dcfff",
-  Interface: "#e0af68",
-  Struct: "#ff9e64",
-  Trait: "#9ece6a",
-  Enum: "#f7768e",
-  File: "#565f89",
-  Folder: "#414868",
-  Module: "#565f89",
-  Package: "#414868",
-  Variable: "#73daca",
-  Type: "#c0caf5",
-  Import: "#414868",
-  Community: "#9ece6a",
-  Process: "#e0af68",
-  Constructor: "#7dcfff",
-  Property: "#73daca",
-  Route: "#ff9e64",
-  Tool: "#e0af68",
-  Namespace: "#414868",
+  Function: "#10b981",    // Emerald
+  Class: "#f59e0b",       // Amber
+  Method: "#14b8a6",      // Teal
+  Interface: "#ec4899",   // Pink
+  Struct: "#f97316",      // Orange
+  Trait: "#22c55e",       // Green
+  Enum: "#ef4444",        // Red
+  File: "#3b82f6",        // Blue
+  Folder: "#6366f1",      // Indigo
+  Module: "#7c3aed",      // Violet
+  Package: "#8b5cf6",     // Purple
+  Variable: "#64748b",    // Slate
+  Type: "#a78bfa",        // Light violet
+  Import: "#475569",      // Slate dark
+  Community: "#22c55e",   // Green
+  Process: "#eab308",     // Yellow
+  Constructor: "#14b8a6", // Teal
+  Property: "#06b6d4",    // Cyan
+  Route: "#f97316",       // Orange
+  Tool: "#eab308",        // Yellow
+  Namespace: "#6366f1",   // Indigo
+  Controller: "#a855f7",  // Purple bright
+  Service: "#06b6d4",     // Cyan
 };
 
 const NODE_SIZES: Record<string, number> = {
@@ -69,9 +71,9 @@ const NODE_SIZES: Record<string, number> = {
 };
 
 const COMMUNITY_COLORS = [
-  "#7aa2f7", "#bb9af7", "#9ece6a", "#e0af68", "#f7768e",
-  "#73daca", "#7dcfff", "#ff9e64", "#c0caf5", "#565f89",
-  "#2ac3de", "#b4f9f8",
+  "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4",
+  "#3b82f6", "#8b5cf6", "#d946ef", "#ec4899", "#f43f5e",
+  "#14b8a6", "#84cc16",
 ];
 
 function hashString(s: string): number {
@@ -153,26 +155,26 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
     css: {
       label: "data(label)",
       "background-color": "data(color)" as any,
-      "font-size": 10,
-      color: "#c0caf5",
+      "font-size": 12,
+      color: "#e4e4ed",
       "text-valign": "bottom",
       "text-margin-y": 5,
       width: "data(size)" as any,
       height: "data(size)" as any,
-      "border-width": 1.5,
-      "border-color": "rgba(255,255,255,0.1)" as any,
+      "border-width": 2,
+      "border-color": "rgba(255,255,255,0.15)" as any,
       "border-opacity": 1,
       "overlay-padding": 6,
       "text-max-width": "90px" as any,
       "text-wrap": "ellipsis" as any,
       "min-zoomed-font-size": 14,
-      "text-background-opacity": 0.7,
-      "text-background-color": "#090b10",
-      "text-background-padding": "2px",
+      "text-background-opacity": 0.85,
+      "text-background-color": "#06060a",
+      "text-background-padding": "3px",
       "text-background-shape": "roundrectangle",
-      "shadow-blur": 12,
+      "shadow-blur": 18,
       "shadow-color": "data(color)",
-      "shadow-opacity": 0.2,
+      "shadow-opacity": 0.4,
       "shadow-offset-x": 0,
       "shadow-offset-y": 0,
     } as any,
@@ -190,10 +192,10 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       "z-index": 999,
       "overlay-color": "#7aa2f7",
       "overlay-opacity": 0.12,
-      "overlay-padding": 10,
-      "shadow-blur": 25,
+      "overlay-padding": 14,
+      "shadow-blur": 35,
       "shadow-color": "#7aa2f7",
-      "shadow-opacity": 0.5,
+      "shadow-opacity": 0.7,
       "shadow-offset-x": 0,
       "shadow-offset-y": 0,
     } as any,
@@ -208,13 +210,13 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
   {
     selector: "edge",
     css: {
-      width: 1.5,
+      width: 1,
       "line-color": "data(color)" as any,
       "target-arrow-color": "data(color)" as any,
       "target-arrow-shape": "triangle",
       "curve-style": "bezier",
       "arrow-scale": 0.7,
-      opacity: 0.75,
+      opacity: 0.5,
       "underlay-color": "data(color)",
       "underlay-padding": 2,
       "underlay-opacity": 0.06,
@@ -225,7 +227,7 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
     css: {
       "line-color": "#7aa2f7",
       "target-arrow-color": "#7aa2f7",
-      width: 2.5,
+      width: 3,
       opacity: 1,
       "z-index": 999,
     },
@@ -1160,7 +1162,7 @@ export function GraphExplorer() {
           <TreemapView data={data} isLoading={isLoading} />
         </div>
       ) : (
-      <div ref={containerRef} className="flex-1 relative cytoscape-container" role="img" aria-label="Knowledge graph visualization">
+      <div ref={containerRef} className="flex-1 relative cytoscape-container" role="img" aria-label="Knowledge graph visualization" style={{ backgroundColor: "#06060a" }}>
         {layoutRunning && (
           <div className="absolute inset-0 z-30 flex items-center justify-center"
             style={{ backgroundColor: "rgba(9, 11, 16, 0.5)", backdropFilter: "blur(2px)" }}>

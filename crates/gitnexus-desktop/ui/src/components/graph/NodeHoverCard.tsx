@@ -2,27 +2,29 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowDownLeft, ArrowUpRight, Code2, Zap, ShieldCheck, Skull } from "lucide-react";
 
 const LABEL_COLORS: Record<string, string> = {
-  Function: "#7aa2f7",
-  Class: "#bb9af7",
-  Method: "#7dcfff",
-  Interface: "#e0af68",
-  Struct: "#ff9e64",
-  Trait: "#9ece6a",
-  Enum: "#f7768e",
-  File: "#565f89",
-  Folder: "#414868",
-  Module: "#565f89",
-  Package: "#414868",
-  Variable: "#73daca",
-  Type: "#c0caf5",
-  Import: "#414868",
-  Community: "#9ece6a",
-  Process: "#e0af68",
-  Constructor: "#7dcfff",
-  Property: "#73daca",
-  Route: "#ff9e64",
-  Tool: "#e0af68",
-  Namespace: "#414868",
+  Function: "#10b981",    // Emerald
+  Class: "#f59e0b",       // Amber
+  Method: "#14b8a6",      // Teal
+  Interface: "#ec4899",   // Pink
+  Struct: "#f97316",      // Orange
+  Trait: "#22c55e",       // Green
+  Enum: "#ef4444",        // Red
+  File: "#3b82f6",        // Blue
+  Folder: "#6366f1",      // Indigo
+  Module: "#7c3aed",      // Violet
+  Package: "#8b5cf6",     // Purple
+  Variable: "#64748b",    // Slate
+  Type: "#a78bfa",        // Light violet
+  Import: "#475569",      // Slate dark
+  Community: "#22c55e",   // Green
+  Process: "#eab308",     // Yellow
+  Constructor: "#14b8a6", // Teal
+  Property: "#06b6d4",    // Cyan
+  Route: "#f97316",       // Orange
+  Tool: "#eab308",        // Yellow
+  Namespace: "#6366f1",   // Indigo
+  Controller: "#a855f7",  // Purple bright
+  Service: "#06b6d4",     // Cyan
 };
 
 export interface NodeHoverCardProps {

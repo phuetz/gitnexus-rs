@@ -50,6 +50,9 @@ interface AppState {
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
 
+  searchMatchIds: string[];
+  setSearchMatchIds: (ids: string[]) => void;
+
   theme: ThemeMode;
   setTheme: (theme: ThemeMode) => void;
 }
@@ -147,6 +150,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   commandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+
+  searchMatchIds: [],
+  setSearchMatchIds: (ids) => set({ searchMatchIds: ids }),
 
   theme: (localStorage.getItem("gitnexus-theme") as ThemeMode) || "dark",
   setTheme: (theme) => {

@@ -165,7 +165,7 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       "overlay-padding": 6,
       "text-max-width": "90px" as any,
       "text-wrap": "ellipsis" as any,
-      "min-zoomed-font-size": 8,
+      "min-zoomed-font-size": 14,
       "text-background-opacity": 0.7,
       "text-background-color": "#090b10",
       "text-background-padding": "2px",
@@ -333,6 +333,17 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       "shadow-opacity": 0.8,
     } as any,
   },
+  {
+    selector: "node.search-match",
+    css: {
+      "border-width": 3,
+      "border-color": "#06b6d4",
+      "shadow-blur": 20,
+      "shadow-color": "#06b6d4",
+      "shadow-opacity": 0.5,
+      "z-index": 500,
+    } as any,
+  },
 ];
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -391,6 +402,7 @@ export function GraphExplorer() {
   );
   const [depthFilter, setDepthFilter] = useState<number | null>(null);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
+  const searchMatchIds = useAppStore((s) => s.searchMatchIds);
 
   // Impact overlay: highlight affected nodes when toggled
   const toggleImpactOverlay = useCallback(async () => {
@@ -472,7 +484,7 @@ export function GraphExplorer() {
   );
 
   const handleFit = useCallback(() => {
-    cyRef.current?.fit(undefined, 30);
+    cyRef.current?.animate({ fit: { eles: cyRef.current.elements(), padding: 30 }, duration: 300 });
   }, []);
 
   const handleExportPNG = useCallback(() => {
@@ -515,7 +527,7 @@ export function GraphExplorer() {
       // Ctrl+0 : fit
       if ((e.ctrlKey || e.metaKey) && e.key === "0") {
         e.preventDefault();
-        cyRef.current?.fit(undefined, 30);
+        cyRef.current?.animate({ fit: { eles: cyRef.current.elements(), padding: 30 }, duration: 300 });
       }
       // Escape: clear selection
       if (e.key === "Escape" && !e.ctrlKey && !e.metaKey) {
@@ -869,7 +881,7 @@ export function GraphExplorer() {
   // Listen for keyboard shortcut custom events (F=fit, L=cycle layout)
   useEffect(() => {
     const onFit = () => {
-      cyRef.current?.fit(undefined, 30);
+      cyRef.current?.animate({ fit: { eles: cyRef.current.elements(), padding: 30 }, duration: 300 });
     };
     const onCycleLayout = () => {
       const layouts = ["cose", "grid", "circle", "breadthfirst"];
@@ -946,12 +958,36 @@ export function GraphExplorer() {
     if (!node.length) return;
 
     node.addClass("pulse-highlight");
+
+    // Center camera on the selected node
+    cy.animate({
+      center: { eles: node },
+      duration: 400,
+    });
+
     const timeout = setTimeout(() => {
       node.removeClass("pulse-highlight");
     }, 2000);
 
     return () => clearTimeout(timeout);
   }, [selectedNodeId]);
+
+  // Highlight search-matched nodes in the graph
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    // Clear previous
+    cy.nodes().removeClass("search-match");
+
+    // Apply to matching nodes
+    if (searchMatchIds.length > 0) {
+      searchMatchIds.forEach((id) => {
+        const node = cy.getElementById(id);
+        if (node.length) node.addClass("search-match");
+      });
+    }
+  }, [searchMatchIds]);
 
   if (isLoading) {
     return (
@@ -1538,7 +1574,7 @@ export function GraphExplorer() {
             title="Zoom out (Ctrl+-)"
           >{"\u2212"}</button>
           <button
-            onClick={() => { cyRef.current?.fit(undefined, 30); }}
+            onClick={() => { cyRef.current?.animate({ fit: { eles: cyRef.current.elements(), padding: 30 }, duration: 300 }); }}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold"
             style={{ background: "var(--bg-2)", border: "1px solid var(--surface-border)", color: "var(--text-2)", cursor: "pointer" }}
             title="Fit view (Ctrl+0)"

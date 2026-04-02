@@ -68,6 +68,16 @@ export function SearchModal() {
     [rawResults, query, typeFilter]
   );
 
+  const setSearchMatchIds = useAppStore((s) => s.setSearchMatchIds);
+
+  useEffect(() => {
+    if (isOpen && results && results.length > 0) {
+      setSearchMatchIds(results.slice(0, 20).map((r) => r.nodeId));
+    } else {
+      setSearchMatchIds([]);
+    }
+  }, [results, isOpen, setSearchMatchIds]);
+
   // Sync query from store and reset on open/close (render-time state adjustment)
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
   if (isOpen !== prevIsOpen) {
@@ -114,9 +124,10 @@ export function SearchModal() {
     (nodeId: string, name?: string) => {
       setSelectedNodeId(nodeId, name);
       setSidebarTab("graph");
+      setSearchMatchIds([]);
       setSearchOpen(false);
     },
-    [setSelectedNodeId, setSidebarTab, setSearchOpen]
+    [setSelectedNodeId, setSidebarTab, setSearchMatchIds, setSearchOpen]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -22,6 +22,7 @@ Use whichever is available:
 ```bash
 gitnexus analyze [path]              # Index a repository
 gitnexus analyze [path] --force      # Force re-index
+gitnexus analyze [path] --incremental # Only re-parse changed files
 gitnexus status                       # Check if index exists
 ```
 
@@ -69,26 +70,59 @@ gitnexus coupling --path [path]       # Files that change together
 gitnexus ownership --path [path]      # Code ownership by author
 ```
 
-### 8. Raw Cypher queries
+### 8. Tracing coverage & dead code
+
+```bash
+gitnexus coverage                             # Global tracing + dead code stats
+gitnexus coverage UserService                 # Single class coverage
+gitnexus coverage --json                      # JSON output
+gitnexus coverage UserService --trace         # Flow trace mode
+```
+
+### 9. Raw Cypher queries
 
 ```bash
 gitnexus cypher "MATCH (n:Function) RETURN n.name LIMIT 10"
 gitnexus cypher "MATCH (n:Controller)-[:DEFINES]->(a:ControllerAction) RETURN n.name, a.name"
+gitnexus cypher "MATCH (n:Method) WHERE n.name STARTS WITH 'Get' RETURN DISTINCT n.name"
+gitnexus cypher "MATCH (n:Function) WHERE n.name CONTAINS 'auth' OR n.name CONTAINS 'login' RETURN n"
+gitnexus cypher "MATCH (n:Method) WHERE NOT n.filePath ENDS WITH '.test.cs' RETURN n.name"
+gitnexus cypher "MATCH (n:Method) WHERE n.name <> 'Dispose' RETURN n.name LIMIT 20"
 ```
 
-### 9. Validate LLM config
+Supported Cypher operators:
+- WHERE: `=`, `<>`, `!=`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`
+- Logic: `AND`, `OR`, `NOT` (precedence: NOT > AND > OR)
+- RETURN: `DISTINCT`, `count()`
+- Clauses: `ORDER BY [ASC|DESC]`, `LIMIT`
+
+### 10. Interactive shell
+
+```bash
+gitnexus shell                                # REPL with tab completion
+# Inside the shell:
+#   query auth           — search symbols
+#   context UserService  — 360° view
+#   impact handleLogin   — blast radius
+#   cypher MATCH ...     — Cypher queries (full operator support)
+#   hotspots             — git churn analysis
+#   stats                — graph statistics
+#   help                 — all commands
+```
+
+### 11. Validate LLM config
 
 ```bash
 gitnexus config test                              # Check API key + test connection
 ```
 
-### 10. List indexed repos
+### 12. List indexed repos
 
 ```bash
 gitnexus list                                      # Show all indexed repositories
 ```
 
-### 11. Generate documentation
+### 13. Generate documentation
 
 ```bash
 gitnexus generate html --path [path]                    # HTML site (DeepWiki-style)
@@ -97,7 +131,7 @@ gitnexus generate docs --path [path]                    # Markdown pages
 gitnexus generate all --path [path]                     # All formats
 ```
 
-### 12. Trace files (all sources for a feature)
+### 14. Trace files (all sources for a feature)
 
 ```bash
 gitnexus trace-files CourrierController                  # List all related source files
@@ -105,7 +139,7 @@ gitnexus trace-files BenefService --depth 3              # Limit traversal depth
 gitnexus trace-files CourrierController --json           # JSON output
 ```
 
-### 13. Generate diagrams
+### 15. Generate diagrams
 
 ```bash
 gitnexus diagram CourrierController --type flowchart     # Call flow organigramme
@@ -114,7 +148,7 @@ gitnexus diagram BeneficiaireController --type class     # Class diagram with me
 gitnexus diagram CourrierController --output flow.md     # Write to file
 ```
 
-### 14. Import execution traces
+### 16. Import execution traces
 
 ```bash
 gitnexus trace-import D:\logs\production.log             # Enrich graph with runtime data
@@ -133,6 +167,7 @@ When the user asks about code structure, architecture, dependencies, or impact:
    - "What does X depend on?" → `gitnexus impact X --direction downstream`
    - "How healthy is the code?" → `gitnexus report`
    - "Which files change most?" → `gitnexus hotspots`
+   - "Is this code used?" → `gitnexus coverage` or `gitnexus coverage ClassName`
    - "Explain how X works" → `gitnexus ask "how does X work?"`
    - "Show me the architecture" → `gitnexus generate html` then read the output
    - "Which files are involved in X?" → `gitnexus trace-files X`
@@ -165,5 +200,5 @@ Key relationships in the graph:
 - The `.gitnexus/` directory in the repo root contains the serialized graph (`graph.bin`)
 - Supports 14 languages: JS, TS, Python, Java, C, C++, C#, Go, Rust, Ruby, PHP, Kotlin, Swift, Razor
 - For ASP.NET MVC projects: controllers, views, EF6 entities, Telerik grids, jQuery AJAX are all in the graph
-- Cypher queries use a simplified subset (MATCH/WHERE/RETURN/LIMIT)
+- Cypher supports: MATCH, WHERE (=, <>, !=, CONTAINS, STARTS WITH, ENDS WITH, AND, OR, NOT), RETURN DISTINCT, count(), ORDER BY, LIMIT
 - All `--json` flags output machine-readable JSON

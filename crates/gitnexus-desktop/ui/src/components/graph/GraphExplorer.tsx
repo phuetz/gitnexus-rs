@@ -312,6 +312,7 @@ export function GraphExplorer() {
     returnType?: string;
     isTraced?: boolean;
     isDeadCandidate?: boolean;
+    complexity?: number;
   } | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const [hoverDegrees, setHoverDegrees] = useState<{ inDeg: number; outDeg: number }>({ inDeg: 0, outDeg: 0 });
@@ -321,7 +322,7 @@ export function GraphExplorer() {
   const [impactOverlay, setImpactOverlay] = useState(false);
   const [layoutRunning, setLayoutRunning] = useState(false);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
-  const [hiddenEdgeTypes] = useState<Set<string>>(
+  const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(
     new Set(["IMPORTS", "HAS_METHOD", "HAS_PROPERTY", "CONTAINS"])
   );
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
@@ -433,6 +434,23 @@ export function GraphExplorer() {
       if ((e.ctrlKey || e.metaKey) && e.key === "e") {
         e.preventDefault();
         handleExportPNG();
+      }
+      // Ctrl+= or Ctrl+Plus: zoom in
+      if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        const cy = cyRef.current;
+        if (cy) cy.zoom({ level: cy.zoom() * 1.3, position: { x: (cy.extent().x1 + cy.extent().x2) / 2, y: (cy.extent().y1 + cy.extent().y2) / 2 } });
+      }
+      // Ctrl+- : zoom out
+      if ((e.ctrlKey || e.metaKey) && e.key === "-") {
+        e.preventDefault();
+        const cy = cyRef.current;
+        if (cy) cy.zoom({ level: cy.zoom() / 1.3, position: { x: (cy.extent().x1 + cy.extent().x2) / 2, y: (cy.extent().y1 + cy.extent().y2) / 2 } });
+      }
+      // Ctrl+0 : fit
+      if ((e.ctrlKey || e.metaKey) && e.key === "0") {
+        e.preventDefault();
+        cyRef.current?.fit(undefined, 30);
       }
       // Escape: clear selection
       if (e.key === "Escape" && !e.ctrlKey && !e.metaKey) {
@@ -618,6 +636,7 @@ export function GraphExplorer() {
           returnType: node.data("returnType"),
           isTraced: node.data("isTraced"),
           isDeadCandidate: node.data("isDeadCandidate"),
+          complexity: node.data("complexity"),
         });
         setHoverPos({ x: pos.x, y: pos.y });
         setHoverDegrees({
@@ -787,7 +806,16 @@ export function GraphExplorer() {
           layout={layout}
           onLayoutChange={handleLayoutChange}
           onFit={handleFit}
-            onExport={handleExportPNG}
+          onExport={handleExportPNG}
+          hiddenEdgeTypes={hiddenEdgeTypes}
+          onToggleEdgeType={(type: string) => {
+            setHiddenEdgeTypes(prev => {
+              const next = new Set(prev);
+              if (next.has(type)) next.delete(type);
+              else next.add(type);
+              return next;
+            });
+          }}
         />
         <div className="flex-1">
           <LoadingOrbs label={t("graph.loadingGraph")} />
@@ -804,7 +832,16 @@ export function GraphExplorer() {
           layout={layout}
           onLayoutChange={handleLayoutChange}
           onFit={handleFit}
-            onExport={handleExportPNG}
+          onExport={handleExportPNG}
+          hiddenEdgeTypes={hiddenEdgeTypes}
+          onToggleEdgeType={(type: string) => {
+            setHiddenEdgeTypes(prev => {
+              const next = new Set(prev);
+              if (next.has(type)) next.delete(type);
+              else next.add(type);
+              return next;
+            });
+          }}
         />
         <div
           className="flex-1 relative flex flex-col items-center justify-center gap-4 overflow-hidden"
@@ -837,7 +874,16 @@ export function GraphExplorer() {
           layout={layout}
           onLayoutChange={handleLayoutChange}
           onFit={handleFit}
-            onExport={handleExportPNG}
+          onExport={handleExportPNG}
+          hiddenEdgeTypes={hiddenEdgeTypes}
+          onToggleEdgeType={(type: string) => {
+            setHiddenEdgeTypes(prev => {
+              const next = new Set(prev);
+              if (next.has(type)) next.delete(type);
+              else next.add(type);
+              return next;
+            });
+          }}
         />
         <div
           className="flex-1 relative flex items-center justify-center"
@@ -895,6 +941,15 @@ export function GraphExplorer() {
             onFit={handleFit}
             onExport={handleExportPNG}
             onFlows={() => setFlowsOpen(true)}
+            hiddenEdgeTypes={hiddenEdgeTypes}
+            onToggleEdgeType={(type: string) => {
+              setHiddenEdgeTypes(prev => {
+                const next = new Set(prev);
+                if (next.has(type)) next.delete(type);
+                else next.add(type);
+                return next;
+              });
+            }}
           />
         </div>
         <div style={{ paddingRight: 12 }}>
@@ -1301,6 +1356,31 @@ export function GraphExplorer() {
 
         {/* Cypher query FAB */}
         <CypherQueryFAB />
+
+        {/* Zoom Controls */}
+        <div
+          className="absolute z-20 flex flex-col gap-1"
+          style={{ bottom: legendExpanded ? 200 : 80, right: 16 }}
+        >
+          <button
+            onClick={() => { const cy = cyRef.current; if (cy) cy.zoom({ level: cy.zoom() * 1.3, position: { x: (cy.extent().x1 + cy.extent().x2) / 2, y: (cy.extent().y1 + cy.extent().y2) / 2 } }); }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
+            style={{ background: "var(--bg-2)", border: "1px solid var(--surface-border)", color: "var(--text-2)", cursor: "pointer" }}
+            title="Zoom in (Ctrl+=)"
+          >+</button>
+          <button
+            onClick={() => { const cy = cyRef.current; if (cy) cy.zoom({ level: cy.zoom() / 1.3, position: { x: (cy.extent().x1 + cy.extent().x2) / 2, y: (cy.extent().y1 + cy.extent().y2) / 2 } }); }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
+            style={{ background: "var(--bg-2)", border: "1px solid var(--surface-border)", color: "var(--text-2)", cursor: "pointer" }}
+            title="Zoom out (Ctrl+-)"
+          >{"\u2212"}</button>
+          <button
+            onClick={() => { cyRef.current?.fit(undefined, 30); }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold"
+            style={{ background: "var(--bg-2)", border: "1px solid var(--surface-border)", color: "var(--text-2)", cursor: "pointer" }}
+            title="Fit view (Ctrl+0)"
+          >{"\u229E"}</button>
+        </div>
 
         {/* Legend overlay — bottom-right to avoid graph overlap */}
         <div

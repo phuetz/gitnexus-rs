@@ -64,6 +64,29 @@ const en = {
   "repos.processing": "Processing...",
   "repos.opening": "Opening…",
 
+  // ── Coverage ──
+  "coverage.loading": "Loading coverage data...",
+  "coverage.totalMethods": "Total Methods",
+  "coverage.deadCode": "Dead Code",
+  "coverage.coverageLabel": "Coverage",
+  "coverage.deadCandidates": "Dead Code Candidates",
+  "coverage.noDead": "No dead code candidates found",
+  "coverage.method": "Method",
+  "coverage.class": "Class",
+  "coverage.file": "File",
+
+  // ── Diagram ──
+  "diagram.placeholder": "Enter class, controller, or service name...",
+  "diagram.generate": "Generate",
+  "diagram.generating": "Generating diagram...",
+  "diagram.copied": "Copied!",
+  "diagram.copyMermaid": "Copy Mermaid",
+  "diagram.noDiagram": "No diagram generated. Symbol may not exist.",
+
+  // ── Report ──
+  "report.temporalCoupling": "Temporal Coupling (Top 10)",
+  "report.distributedFiles": "Distributed Files (Top 10)",
+
   // ── Graph Explorer ──
   "graph.packages": { label: "Packages", tip: "Show top-level modules and packages" },
   "graph.modules": { label: "Modules", tip: "Show module-level symbols (structs, traits, classes)" },
@@ -80,6 +103,14 @@ const en = {
   "graph.contextMenu.copyFilePath": { label: "Copy File Path", tip: "Copy the source file path to clipboard" },
   "graph.minimap.toggle": { label: "Minimap", tip: "Toggle the navigation minimap" },
   "graph.legend": { label: "Legend", tip: "Show/hide the color legend for node types" },
+  "graph.noData": "No graph data available",
+  "graph.analyzeFirst": "Analyze a repository first",
+  "graph.computingLayout": "Computing layout...",
+  "graph.backToFull": "Back to full graph",
+  "graph.showingTopNodes": "Showing top {0} nodes by importance. Double-click a node to explore its neighborhood.",
+  "graph.exportPng": "Export graph as PNG (Ctrl+E)",
+  "graph.processFlows": "Process Flows",
+  "graph.edgeFilters": "Edges",
 
   // ── File Explorer ──
   "files.title": "Files",
@@ -301,6 +332,29 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "repos.processing": "Traitement en cours…",
   "repos.opening": "Ouverture…",
 
+  // ── Coverage ──
+  "coverage.loading": "Chargement des données de couverture…",
+  "coverage.totalMethods": "Méthodes totales",
+  "coverage.deadCode": "Code mort",
+  "coverage.coverageLabel": "Couverture",
+  "coverage.deadCandidates": "Candidats code mort",
+  "coverage.noDead": "Aucun candidat code mort trouvé",
+  "coverage.method": "Méthode",
+  "coverage.class": "Classe",
+  "coverage.file": "Fichier",
+
+  // ── Diagram ──
+  "diagram.placeholder": "Entrez un nom de classe, contrôleur ou service…",
+  "diagram.generate": "Générer",
+  "diagram.generating": "Génération du diagramme…",
+  "diagram.copied": "Copié !",
+  "diagram.copyMermaid": "Copier Mermaid",
+  "diagram.noDiagram": "Aucun diagramme généré. Le symbole n'existe peut-être pas.",
+
+  // ── Report ──
+  "report.temporalCoupling": "Couplage temporel (Top 10)",
+  "report.distributedFiles": "Fichiers distribués (Top 10)",
+
   // ── Graph Explorer ──
   "graph.packages": { label: "Packages", tip: "Afficher les modules et packages de premier niveau" },
   "graph.modules": { label: "Modules", tip: "Afficher les symboles au niveau module (structs, traits, classes)" },
@@ -317,6 +371,14 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "graph.contextMenu.copyFilePath": { label: "Copier le chemin", tip: "Copier le chemin du fichier source dans le presse-papier" },
   "graph.minimap.toggle": { label: "Minicarte", tip: "Afficher/masquer la minicarte de navigation" },
   "graph.legend": { label: "Légende", tip: "Afficher/masquer la légende des couleurs par type de nœud" },
+  "graph.noData": "Aucune donnée de graphe disponible",
+  "graph.analyzeFirst": "Analysez un dépôt d'abord",
+  "graph.computingLayout": "Calcul du layout…",
+  "graph.backToFull": "Retour au graphe complet",
+  "graph.showingTopNodes": "Affichage des {0} nœuds les plus importants. Double-cliquez pour explorer le voisinage.",
+  "graph.exportPng": "Exporter le graphe en PNG (Ctrl+E)",
+  "graph.processFlows": "Flux de processus",
+  "graph.edgeFilters": "Arêtes",
 
   // ── File Explorer ──
   "files.title": "Fichiers",

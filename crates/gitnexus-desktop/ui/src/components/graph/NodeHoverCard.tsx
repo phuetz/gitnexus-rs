@@ -37,6 +37,7 @@ export interface NodeHoverCardProps {
     returnType?: string;
     isTraced?: boolean;
     isDeadCandidate?: boolean;
+    complexity?: number;
   } | null;
   position: { x: number; y: number } | null;
   inDegree: number;
@@ -131,6 +132,16 @@ export function NodeHoverCard({
               <span className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
                 style={{ background: "#f7768e20", color: "#f7768e", border: "1px solid #f7768e30" }}>
                 <Skull size={8} /> dead
+              </span>
+            )}
+            {node.complexity != null && node.complexity > 1 && (
+              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                style={{
+                  background: node.complexity > 20 ? "#f7768e20" : node.complexity > 10 ? "#e0af6820" : "#9ece6a20",
+                  color: node.complexity > 20 ? "#f7768e" : node.complexity > 10 ? "#e0af68" : "#9ece6a",
+                  border: `1px solid ${node.complexity > 20 ? "#f7768e30" : node.complexity > 10 ? "#e0af6830" : "#9ece6a30"}`,
+                }}>
+                CC:{node.complexity}
               </span>
             )}
           </div>

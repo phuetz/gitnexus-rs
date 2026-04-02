@@ -26,6 +26,8 @@ export function GraphToolbar({
   onFit,
   onFlows,
   onExport,
+  hiddenEdgeTypes,
+  onToggleEdgeType,
 }: {
   stats?: GraphStats;
   layout: string;
@@ -33,6 +35,8 @@ export function GraphToolbar({
   onFit: () => void;
   onFlows?: () => void;
   onExport?: () => void;
+  hiddenEdgeTypes?: Set<string>;
+  onToggleEdgeType?: (type: string) => void;
 }) {
   const { t, tt } = useI18n();
   const zoomLevel = useAppStore((s) => s.zoomLevel);
@@ -285,6 +289,32 @@ export function GraphToolbar({
               truncated
             </div>
           )}
+        </div>
+      )}
+
+      {/* Edge Type Filters */}
+      {hiddenEdgeTypes && onToggleEdgeType && (
+        <div className="flex items-center gap-1 ml-2 pl-2" style={{ borderLeft: "1px solid var(--surface-border)" }}>
+          <span className="text-[10px] font-medium" style={{ color: "var(--text-3)" }}>Edges:</span>
+          {["CALLS", "IMPORTS", "HAS_METHOD", "EXTENDS", "CALLS_ACTION", "CONTAINS"].map((type) => {
+            const active = !hiddenEdgeTypes.has(type);
+            return (
+              <button
+                key={type}
+                onClick={() => onToggleEdgeType(type)}
+                className="px-1.5 py-0.5 rounded text-[9px] font-medium transition-colors"
+                style={{
+                  background: active ? "var(--accent-subtle)" : "var(--bg-3)",
+                  color: active ? "var(--accent)" : "var(--text-4)",
+                  border: `1px solid ${active ? "var(--accent)" : "var(--surface-border)"}`,
+                  cursor: "pointer",
+                  opacity: active ? 1 : 0.5,
+                }}
+              >
+                {type.replace("_", " ")}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

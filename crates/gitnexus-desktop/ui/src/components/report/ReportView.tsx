@@ -67,7 +67,7 @@ export function ReportView() {
 
       {/* Top couplings */}
       {couplings && couplings.length > 0 && (
-        <Section title={`Temporal Coupling (Top 10)`}>
+        <Section title={t("report.temporalCoupling")}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--bg-2)" }}>
@@ -95,7 +95,7 @@ export function ReportView() {
 
       {/* Ownership summary */}
       {ownership && ownership.length > 0 && (
-        <Section title={`${t("health.ownership")} — Distributed Files (Top 10)`}>
+        <Section title={`${t("health.ownership")} — ${t("report.distributedFiles")}`}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--bg-2)" }}>

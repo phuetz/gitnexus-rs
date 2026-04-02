@@ -19,7 +19,7 @@ export function CoverageView() {
     return (
       <div className="flex items-center justify-center h-full" style={{ color: "var(--text-3)" }}>
         <ShieldCheck size={20} className="animate-pulse" style={{ marginRight: 8 }} />
-        Loading coverage data...
+        {t("coverage.loading")}
       </div>
     );
   }
@@ -35,10 +35,10 @@ export function CoverageView() {
 
       {/* Stats grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
-        <StatCard label="Total Methods" value={stats.totalMethods} />
+        <StatCard label={t("coverage.totalMethods")} value={stats.totalMethods} />
         <StatCard label={t("health.tracing")} value={stats.tracedMethods} color="#73daca" />
-        <StatCard label="Dead Code" value={stats.deadCodeCandidates} color="#f7768e" />
-        <StatCard label="Coverage" value={`${stats.coveragePct}%`} color="#9ece6a" />
+        <StatCard label={t("coverage.deadCode")} value={stats.deadCodeCandidates} color="#f7768e" />
+        <StatCard label={t("coverage.coverageLabel")} value={`${stats.coveragePct}%`} color="#9ece6a" />
       </div>
 
       {/* Dead code candidates */}
@@ -49,7 +49,7 @@ export function CoverageView() {
             style={{ color: "var(--text-1)", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}
           >
             <AlertTriangle size={14} style={{ color: "#f7768e" }} />
-            Dead Code Candidates ({stats.deadCodeCandidates})
+            {t("coverage.deadCandidates")} ({stats.deadCodeCandidates})
           </h3>
           <div
             style={{
@@ -61,9 +61,9 @@ export function CoverageView() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: "var(--bg-2)" }}>
-                  <th style={{ padding: "8px 12px", textAlign: "left", color: "var(--text-2)" }}>Method</th>
-                  <th style={{ padding: "8px 12px", textAlign: "left", color: "var(--text-2)" }}>Class</th>
-                  <th style={{ padding: "8px 12px", textAlign: "left", color: "var(--text-2)" }}>File</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left", color: "var(--text-2)" }}>{t("coverage.method")}</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left", color: "var(--text-2)" }}>{t("coverage.class")}</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left", color: "var(--text-2)" }}>{t("coverage.file")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -111,7 +111,7 @@ export function CoverageView() {
           style={{ color: "#9ece6a", padding: 16, background: "var(--bg-1)", borderRadius: "var(--radius-lg)" }}
         >
           <CheckCircle size={16} />
-          No dead code candidates found
+          {t("coverage.noDead")}
         </div>
       )}
     </div>

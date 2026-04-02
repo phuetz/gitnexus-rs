@@ -89,7 +89,7 @@ export function DiagramView() {
             value={target}
             onChange={(e) => setTarget(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            placeholder="Enter class, controller, or service name..."
+            placeholder={t("diagram.placeholder")}
             style={{
               width: "100%",
               padding: "8px 12px 8px 32px",
@@ -115,13 +115,13 @@ export function DiagramView() {
             cursor: "pointer",
           }}
         >
-          Generate
+          {t("diagram.generate")}
         </button>
       </div>
 
       {isLoading && (
         <div style={{ color: "var(--text-3)", padding: 20, textAlign: "center" }}>
-          Generating diagram...
+          {t("diagram.generating")}
         </div>
       )}
 
@@ -155,7 +155,7 @@ export function DiagramView() {
               }}
             >
               {copied ? <Check size={12} /> : <Copy size={12} />}
-              {copied ? "Copied!" : "Copy Mermaid"}
+              {copied ? t("diagram.copied") : t("diagram.copyMermaid")}
             </button>
           </div>
 
@@ -199,7 +199,7 @@ export function DiagramView() {
 
       {!diagram && !isLoading && searchTarget && (
         <div style={{ color: "var(--text-3)", padding: 20, textAlign: "center" }}>
-          No diagram generated. Symbol may not exist.
+          {t("diagram.noDiagram")}
         </div>
       )}
     </div>

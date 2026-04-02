@@ -43,6 +43,19 @@ pub fn walk_repository(repo_path: &Path) -> Result<Vec<FileEntry>, crate::Ingest
             .to_string_lossy()
             .replace('\\', "/");
 
+        // Skip build output and package directories (often not in .gitignore for legacy repos)
+        {
+            let lower = rel_path.to_lowercase();
+            if lower.contains("/obj/") || lower.contains("/bin/")
+                || lower.starts_with("obj/") || lower.starts_with("bin/")
+                || lower.contains("/node_modules/")
+                || lower.contains("/packages/")
+                || lower.contains("/.nuget/")
+            {
+                continue;
+            }
+        }
+
         // Skip very large files (>2MB likely generated/minified)
         let metadata = std::fs::metadata(abs_path).ok();
         let size = metadata.as_ref().map_or(0, |m| m.len() as usize);

@@ -270,6 +270,7 @@ const en = {
   "health.cohesion": "Cohesion",
   "health.tracing": "Tracing",
   "health.ownership": "Ownership",
+  "health.complexity": "Complexity",
 
   // ── Accessibility ──
   "a11y.skipToContent": "Skip to main content",
@@ -538,6 +539,7 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "health.cohesion": "Cohésion",
   "health.tracing": "Traçabilité",
   "health.ownership": "Propriété",
+  "health.complexity": "Complexité",
 
   // ── Accessibility ──
   "a11y.skipToContent": "Aller au contenu principal",

@@ -176,7 +176,17 @@ export function CodeHealthCard() {
           <ScoreBar label={t("health.cohesion")} value={health.cohesionScore} color="#7aa2f7" />
           <ScoreBar label={t("health.tracing")} value={health.tracingCoverage} color="#73daca" />
           <ScoreBar label={t("health.ownership")} value={health.ownershipScore} color="#bb9af7" />
+          <ScoreBar label={t("health.complexity")} value={Math.min(1 - (health.avgComplexity / 30), 1)} color="#f59e0b" />
         </div>
+
+        {/* Complexity detail */}
+        {health.maxComplexity > 0 && (
+          <div style={{ position: "relative", width: 84, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ fontSize: 10, color: "var(--text-3)", textAlign: "center" }}>
+              Max CC: {health.maxComplexity} · Avg: {health.avgComplexity.toFixed(1)}
+            </div>
+          </div>
+        )}
       </div>
     </AnimatedCard>
   );

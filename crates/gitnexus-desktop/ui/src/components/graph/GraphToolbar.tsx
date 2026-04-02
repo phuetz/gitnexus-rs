@@ -28,6 +28,8 @@ export function GraphToolbar({
   onExport,
   hiddenEdgeTypes,
   onToggleEdgeType,
+  depthFilter,
+  onDepthFilterChange,
 }: {
   stats?: GraphStats;
   layout: string;
@@ -37,6 +39,8 @@ export function GraphToolbar({
   onExport?: () => void;
   hiddenEdgeTypes?: Set<string>;
   onToggleEdgeType?: (type: string) => void;
+  depthFilter?: number | null;
+  onDepthFilterChange?: (depth: number | null) => void;
 }) {
   const { t, tt } = useI18n();
   const zoomLevel = useAppStore((s) => s.zoomLevel);
@@ -312,6 +316,32 @@ export function GraphToolbar({
                 }}
               >
                 {type.replace("_", " ")}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Depth Filter */}
+      {onDepthFilterChange && (
+        <div className="flex items-center gap-1 ml-2 pl-2" style={{ borderLeft: "1px solid var(--surface-border)" }}>
+          <span className="text-[10px] font-medium" style={{ color: "var(--text-3)" }}>Depth:</span>
+          {([1, 2, 3, null] as const).map((d) => {
+            const label = d === null ? "All" : String(d);
+            const active = depthFilter === d;
+            return (
+              <button
+                key={label}
+                onClick={() => onDepthFilterChange(d)}
+                className="px-1.5 py-0.5 rounded text-[9px] font-medium transition-colors"
+                style={{
+                  background: active ? "var(--accent)" : "var(--bg-3)",
+                  color: active ? "white" : "var(--text-3)",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                {label}
               </button>
             );
           })}

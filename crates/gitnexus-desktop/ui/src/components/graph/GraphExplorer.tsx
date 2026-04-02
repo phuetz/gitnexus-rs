@@ -41,29 +41,31 @@ const LABEL_COLORS: Record<string, string> = {
   Namespace: "#414868",
 };
 
-const LABEL_SIZES: Record<string, number> = {
-  Project: 50,
-  Package: 42,
-  Folder: 36,
-  Community: 36,
-  Process: 34,
-  Class: 30,
-  Interface: 28,
-  Struct: 28,
-  Trait: 28,
-  Module: 28,
-  File: 24,
-  Enum: 22,
-  Namespace: 22,
-  Route: 20,
-  Function: 16,
-  Method: 14,
-  Constructor: 14,
-  Property: 12,
-  Tool: 12,
-  Variable: 10,
-  Type: 10,
-  Import: 8,
+const NODE_SIZES: Record<string, number> = {
+  Project: 22,
+  Package: 18,
+  Folder: 18,
+  Module: 14,
+  Community: 14,
+  Controller: 12,
+  Service: 12,
+  Class: 10,
+  Interface: 10,
+  Struct: 10,
+  Enum: 8,
+  File: 8,
+  Method: 6,
+  Function: 6,
+  Constructor: 6,
+  Property: 5,
+  Variable: 4,
+  Type: 4,
+  Import: 3,
+  Route: 5,
+  Tool: 5,
+  Namespace: 10,
+  Process: 12,
+  Trait: 10,
 };
 
 const COMMUNITY_COLORS = [
@@ -84,7 +86,7 @@ function buildElements(nodes: CytoNode[], edges: CytoEdge[], hiddenEdgeTypes?: S
   const elements: cytoscape.ElementDefinition[] = [];
 
   for (const node of nodes) {
-    const size = LABEL_SIZES[node.label] || 16;
+    const size = NODE_SIZES[node.label] || 6;
     const color = node.community
       ? COMMUNITY_COLORS[hashString(node.community) % COMMUNITY_COLORS.length]
       : LABEL_COLORS[node.label] || "#565f89";
@@ -117,7 +119,7 @@ function buildElements(nodes: CytoNode[], edges: CytoEdge[], hiddenEdgeTypes?: S
         source: edge.source,
         target: edge.target,
         label: edge.relType,
-        color: EDGE_COLORS[edge.relType] || "#3b4261",
+        color: EDGE_COLORS[edge.relType] || "#565f89",
       },
     });
   }
@@ -127,14 +129,20 @@ function buildElements(nodes: CytoNode[], edges: CytoEdge[], hiddenEdgeTypes?: S
 
 /** Edge colors by relationship type for better readability */
 const EDGE_COLORS: Record<string, string> = {
-  CALLS: "#7aa2f7",
-  CONTAINS: "#565f89",
-  IMPORTS: "#9ece6a",
-  IMPLEMENTS: "#bb9af7",
-  EXTENDS: "#e0af68",
-  USES: "#7dcfff",
-  DEPENDS_ON: "#ff9e64",
-  REFERENCES: "#73daca",
+  CALLS: "#7c3aed",
+  CALLS_ACTION: "#8b5cf6",
+  CALLS_SERVICE: "#a78bfa",
+  IMPORTS: "#1d4ed8",
+  EXTENDS: "#c2410c",
+  INHERITS: "#ea580c",
+  IMPLEMENTS: "#be185d",
+  CONTAINS: "#2d5a3d",
+  DEFINES: "#0e7490",
+  HAS_METHOD: "#065f46",
+  HAS_PROPERTY: "#064e3b",
+  HAS_ACTION: "#047857",
+  DEPENDS_ON: "#4338ca",
+  RENDERS_VIEW: "#0891b2",
 };
 
 // NOTE: `as any` casts are required — @types/cytoscape is missing many valid CSS properties.
@@ -269,6 +277,62 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
       opacity: 0.2,
     } as any,
   },
+  // Selection highlighting classes
+  {
+    selector: "node.selected-primary",
+    css: {
+      "border-width": 4,
+      "border-color": "#06b6d4",
+      "border-opacity": 1,
+      "shadow-blur": 25,
+      "shadow-color": "#06b6d4",
+      "shadow-opacity": 0.6,
+      "z-index": 999,
+      "font-size": 13,
+      "font-weight": "bold",
+    } as any,
+  },
+  {
+    selector: "node.selected-neighbor",
+    css: {
+      "border-width": 2,
+      "border-color": "#7aa2f7",
+      "border-opacity": 0.8,
+      opacity: 0.85,
+      "z-index": 100,
+    } as any,
+  },
+  {
+    selector: "node.dim-unselected",
+    css: {
+      opacity: 0.15,
+      "font-size": 0,
+    } as any,
+  },
+  {
+    selector: "edge.edge-highlighted",
+    css: {
+      width: 2.5,
+      opacity: 1,
+      "z-index": 100,
+    } as any,
+  },
+  {
+    selector: "edge.dim-unselected",
+    css: {
+      opacity: 0.06,
+    } as any,
+  },
+  {
+    selector: "node.pulse-highlight",
+    css: {
+      "border-width": 4,
+      "border-color": "#06b6d4",
+      "shadow-blur": 30,
+      "shadow-color": "#06b6d4",
+      "shadow-opacity": 0.8,
+    } as any,
+  },
 ];
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -325,6 +389,7 @@ export function GraphExplorer() {
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(
     new Set(["IMPORTS", "HAS_METHOD", "HAS_PROPERTY", "CONTAINS"])
   );
+  const [depthFilter, setDepthFilter] = useState<number | null>(null);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
 
   // Impact overlay: highlight affected nodes when toggled
@@ -605,7 +670,29 @@ export function GraphExplorer() {
         if (evt.target === cy) {
           setSelectedNodeId(null, null);
           setContextMenu(null);
+          // Clear selection highlighting
+          cy.elements().removeClass("selected-primary selected-neighbor dim-unselected edge-highlighted");
         }
+      });
+
+      // Selection highlighting: dim non-neighbors, brighten neighbors
+      cy.on("select", "node", (e) => {
+        const node = e.target;
+        const neighbors = node.neighborhood("node");
+        const connectedEdges = node.connectedEdges();
+
+        // Clear previous
+        cy.elements().removeClass("selected-primary selected-neighbor dim-unselected edge-highlighted");
+
+        // Apply
+        cy.elements().addClass("dim-unselected");
+        node.removeClass("dim-unselected").addClass("selected-primary");
+        neighbors.removeClass("dim-unselected").addClass("selected-neighbor");
+        connectedEdges.removeClass("dim-unselected").addClass("edge-highlighted");
+      });
+
+      cy.on("unselect", "node", () => {
+        cy.elements().removeClass("selected-primary selected-neighbor dim-unselected edge-highlighted");
       });
 
       // Double click → load subgraph centered on this node
@@ -798,6 +885,74 @@ export function GraphExplorer() {
     };
   }, [layout, handleLayoutChange]);
 
+  // Depth filter: hide nodes beyond N hops from selected node
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    // Reset all visibility
+    cy.nodes().style("display", "element");
+    cy.edges().style("display", "element");
+
+    if (depthFilter === null || !selectedNodeId) return;
+
+    const selectedNode = cy.getElementById(selectedNodeId);
+    if (!selectedNode.length) return;
+
+    // BFS to find nodes within N hops
+    const visited = new Set<string>([selectedNodeId]);
+    const queue: { id: string; depth: number }[] = [{ id: selectedNodeId, depth: 0 }];
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      if (depth >= depthFilter) continue;
+
+      const node = cy.getElementById(id);
+      node.neighborhood("node").forEach((neighbor: cytoscape.SingularElementReturnValue) => {
+        if (!visited.has(neighbor.id())) {
+          visited.add(neighbor.id());
+          queue.push({ id: neighbor.id(), depth: depth + 1 });
+        }
+      });
+    }
+
+    // Hide nodes not in range
+    // Hide nodes not in range, show those in range
+    cy.nodes().forEach((node) => {
+      if (!visited.has(node.id())) {
+        (node as cytoscape.NodeSingular).style("display", "none");
+      } else {
+        (node as cytoscape.NodeSingular).style("display", "element");
+      }
+    });
+
+    // Hide edges where either endpoint isn't visible
+    cy.edges().forEach((edge) => {
+      const e = edge as cytoscape.EdgeSingular;
+      if (!visited.has(e.source().id()) || !visited.has(e.target().id())) {
+        (edge as cytoscape.EdgeSingular).style("display", "none");
+      } else {
+        (edge as cytoscape.EdgeSingular).style("display", "element");
+      }
+    });
+  }, [depthFilter, selectedNodeId]);
+
+  // Pulse animation when navigating to a new node
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !selectedNodeId) return;
+
+    const node = cy.getElementById(selectedNodeId);
+    if (!node.length) return;
+
+    node.addClass("pulse-highlight");
+    const timeout = setTimeout(() => {
+      node.removeClass("pulse-highlight");
+    }, 2000);
+
+    return () => clearTimeout(timeout);
+  }, [selectedNodeId]);
+
   if (isLoading) {
     return (
       <div className="h-full flex flex-col">
@@ -816,6 +971,8 @@ export function GraphExplorer() {
               return next;
             });
           }}
+          depthFilter={depthFilter}
+          onDepthFilterChange={setDepthFilter}
         />
         <div className="flex-1">
           <LoadingOrbs label={t("graph.loadingGraph")} />
@@ -842,6 +999,8 @@ export function GraphExplorer() {
               return next;
             });
           }}
+          depthFilter={depthFilter}
+          onDepthFilterChange={setDepthFilter}
         />
         <div
           className="flex-1 relative flex flex-col items-center justify-center gap-4 overflow-hidden"
@@ -884,6 +1043,8 @@ export function GraphExplorer() {
               return next;
             });
           }}
+          depthFilter={depthFilter}
+          onDepthFilterChange={setDepthFilter}
         />
         <div
           className="flex-1 relative flex items-center justify-center"
@@ -950,6 +1111,8 @@ export function GraphExplorer() {
                 return next;
               });
             }}
+            depthFilter={depthFilter}
+            onDepthFilterChange={setDepthFilter}
           />
         </div>
         <div style={{ paddingRight: 12 }}>

@@ -6,19 +6,42 @@ import { useI18n } from "../../hooks/use-i18n";
 import { NodeIcon } from "../shared/NodeIcon";
 import type { SearchResult } from "../../lib/tauri-commands";
 
-/** Re-rank results: exact name > name-contains > path-only, preserving score within tiers */
-function rankResults(results: SearchResult[], query: string): SearchResult[] {
-  if (!query) return results;
+/** Simple fuzzy match: checks if all query chars appear in name in order */
+function fuzzyScore(name: string, query: string): number {
+  const n = name.toLowerCase();
   const q = query.toLowerCase();
-  return [...results].sort((a, b) => {
-    const aExact = a.name.toLowerCase() === q;
-    const bExact = b.name.toLowerCase() === q;
-    if (aExact !== bExact) return aExact ? -1 : 1;
-    const aName = a.name.toLowerCase().includes(q);
-    const bName = b.name.toLowerCase().includes(q);
-    if (aName !== bName) return aName ? -1 : 1;
-    return b.score - a.score;
-  });
+  if (n === q) return 100;
+  if (n.startsWith(q)) return 90;
+  if (n.includes(q)) return 80;
+
+  // Fuzzy: check if all chars of query appear in order in name
+  let qi = 0;
+  let consecutiveBonus = 0;
+  let lastMatchIdx = -2;
+  for (let ni = 0; ni < n.length && qi < q.length; ni++) {
+    if (n[ni] === q[qi]) {
+      if (ni === lastMatchIdx + 1) consecutiveBonus += 5;
+      lastMatchIdx = ni;
+      qi++;
+    }
+  }
+  if (qi < q.length) return 0; // not all chars matched
+  return 50 + consecutiveBonus - (name.length - query.length) * 0.5;
+}
+
+/** Re-rank results: exact > starts-with > contains > fuzzy, with type filter */
+function rankResults(results: SearchResult[], query: string, typeFilter?: string): SearchResult[] {
+  if (!query) return results;
+
+  let filtered = results;
+  if (typeFilter) {
+    filtered = results.filter((r) => r.label === typeFilter);
+  }
+
+  return filtered
+    .map((r) => ({ ...r, _fuzzy: fuzzyScore(r.name, query) }))
+    .filter((r) => r._fuzzy > 0)
+    .sort((a, b) => b._fuzzy - a._fuzzy);
 }
 
 export function SearchModal() {
@@ -32,12 +55,15 @@ export function SearchModal() {
 
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const TYPE_FILTERS = ["Class", "Method", "Function", "Controller", "Service", "Interface"];
 
   const { data: rawResults } = useSearchSymbols(query, query.length >= 1);
   const results = useMemo(
-    () => (rawResults ? rankResults(rawResults, query) : undefined),
-    [rawResults, query]
+    () => (rawResults ? rankResults(rawResults, query, typeFilter) : undefined),
+    [rawResults, query, typeFilter]
   );
 
   // Sync query from store and reset on open/close (render-time state adjustment)
@@ -150,6 +176,39 @@ export function SearchModal() {
             <X size={16} />
           </button>
         </div>
+
+        {/* Type filter pills */}
+        {query.length >= 1 && (
+          <div className="flex items-center gap-1.5 px-4 py-2" style={{ borderBottom: "1px solid var(--surface-border)" }}>
+            <button
+              onClick={() => setTypeFilter(undefined)}
+              className="text-[10px] font-medium px-2 py-1 rounded-full transition-colors"
+              style={{
+                background: !typeFilter ? "var(--accent)" : "var(--bg-3)",
+                color: !typeFilter ? "white" : "var(--text-3)",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              All
+            </button>
+            {TYPE_FILTERS.map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setTypeFilter(typeFilter === tf ? undefined : tf)}
+                className="text-[10px] font-medium px-2 py-1 rounded-full transition-colors"
+                style={{
+                  background: typeFilter === tf ? "var(--accent)" : "var(--bg-3)",
+                  color: typeFilter === tf ? "white" : "var(--text-3)",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Results */}
         <div className="max-h-[400px] overflow-y-auto py-1">

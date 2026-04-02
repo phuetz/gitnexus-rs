@@ -5,6 +5,11 @@ export type SidebarTab = "overview" | "repos" | "search" | "files" | "graph" | "
 export type DetailTab = "context" | "code" | "properties" | "layers" | "health";
 export type ThemeMode = "dark" | "light" | "system";
 
+interface HistoryEntry {
+  nodeId: string;
+  nodeName: string | null;
+}
+
 interface AppState {
   activeRepo: string | null;
   setActiveRepo: (name: string | null) => void;
@@ -12,6 +17,14 @@ interface AppState {
   selectedNodeId: string | null;
   selectedNodeName: string | null;
   setSelectedNodeId: (id: string | null, name?: string | null) => void;
+
+  // Navigation history (browser-style back/forward)
+  navigationHistory: HistoryEntry[];
+  historyIndex: number;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  goBack: () => void;
+  goForward: () => void;
 
   sidebarTab: SidebarTab;
   setSidebarTab: (tab: SidebarTab) => void;
@@ -41,13 +54,69 @@ interface AppState {
   setTheme: (theme: ThemeMode) => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+const MAX_HISTORY = 50;
+
+export const useAppStore = create<AppState>((set, get) => ({
   activeRepo: null,
   setActiveRepo: (name) => set({ activeRepo: name }),
 
   selectedNodeId: null,
   selectedNodeName: null,
-  setSelectedNodeId: (id, name) => set({ selectedNodeId: id, selectedNodeName: name ?? null }),
+  setSelectedNodeId: (id, name) => {
+    const state = get();
+    if (id && id !== state.selectedNodeId) {
+      // Push to navigation history (truncate forward history)
+      const truncated = state.navigationHistory.slice(0, state.historyIndex + 1);
+      const entry: HistoryEntry = { nodeId: id, nodeName: name ?? null };
+      const newHistory = [...truncated, entry].slice(-MAX_HISTORY);
+      const newIndex = newHistory.length - 1;
+      set({
+        selectedNodeId: id,
+        selectedNodeName: name ?? null,
+        navigationHistory: newHistory,
+        historyIndex: newIndex,
+        canGoBack: newIndex > 0,
+        canGoForward: false,
+      });
+    } else {
+      set({ selectedNodeId: id, selectedNodeName: name ?? null });
+    }
+  },
+
+  navigationHistory: [],
+  historyIndex: -1,
+  canGoBack: false,
+  canGoForward: false,
+
+  goBack: () => {
+    const { navigationHistory, historyIndex } = get();
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      const entry = navigationHistory[newIndex];
+      set({
+        selectedNodeId: entry.nodeId,
+        selectedNodeName: entry.nodeName,
+        historyIndex: newIndex,
+        canGoBack: newIndex > 0,
+        canGoForward: true,
+      });
+    }
+  },
+
+  goForward: () => {
+    const { navigationHistory, historyIndex } = get();
+    if (historyIndex < navigationHistory.length - 1) {
+      const newIndex = historyIndex + 1;
+      const entry = navigationHistory[newIndex];
+      set({
+        selectedNodeId: entry.nodeId,
+        selectedNodeName: entry.nodeName,
+        historyIndex: newIndex,
+        canGoBack: true,
+        canGoForward: newIndex < navigationHistory.length - 1,
+      });
+    }
+  },
 
   sidebarTab: "repos",
   setSidebarTab: (tab) => set(() => ({

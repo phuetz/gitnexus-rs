@@ -1,4 +1,5 @@
-import { Search, ChevronRight } from "lucide-react";
+import { useEffect } from "react";
+import { Search, ChevronRight, ArrowLeft, ArrowRight } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 
@@ -9,6 +10,25 @@ export function CommandBar() {
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const selectedNodeName = useAppStore((s) => s.selectedNodeName);
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
+  const canGoBack = useAppStore((s) => s.canGoBack);
+  const canGoForward = useAppStore((s) => s.canGoForward);
+  const goBack = useAppStore((s) => s.goBack);
+  const goForward = useAppStore((s) => s.goForward);
+
+  // Keyboard shortcuts: Alt+Left / Alt+Right for navigation
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.altKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        goBack();
+      } else if (e.altKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        goForward();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [goBack, goForward]);
 
   const tabLabels: Record<string, string> = {
     repos: t("commandBar.tab.repos"),
@@ -32,6 +52,46 @@ export function CommandBar() {
       }}
       data-tauri-drag-region
     >
+      {/* Navigation Back/Forward */}
+      {activeRepo && (
+        <div className="flex items-center" style={{ gap: 2 }}>
+          <button
+            onClick={goBack}
+            disabled={!canGoBack}
+            aria-label="Go back (Alt+←)"
+            className="rounded-md flex items-center justify-center transition-colors"
+            style={{
+              width: 28,
+              height: 28,
+              color: canGoBack ? "var(--text-1)" : "var(--text-4)",
+              background: "transparent",
+              border: "none",
+              cursor: canGoBack ? "pointer" : "default",
+              opacity: canGoBack ? 1 : 0.3,
+            }}
+          >
+            <ArrowLeft size={14} />
+          </button>
+          <button
+            onClick={goForward}
+            disabled={!canGoForward}
+            aria-label="Go forward (Alt+→)"
+            className="rounded-md flex items-center justify-center transition-colors"
+            style={{
+              width: 28,
+              height: 28,
+              color: canGoForward ? "var(--text-1)" : "var(--text-4)",
+              background: "transparent",
+              border: "none",
+              cursor: canGoForward ? "pointer" : "default",
+              opacity: canGoForward ? 1 : 0.3,
+            }}
+          >
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Breadcrumb */}
       <div className="flex items-center text-xs min-w-0 flex-1" style={{ gap: 8 }}>
         {activeRepo ? (

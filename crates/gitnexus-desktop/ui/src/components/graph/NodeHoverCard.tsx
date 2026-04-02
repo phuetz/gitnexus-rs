@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowDownLeft, ArrowUpRight, Code2, Zap } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Code2, Zap, ShieldCheck, Skull } from "lucide-react";
 
 const LABEL_COLORS: Record<string, string> = {
   Function: "#7aa2f7",
@@ -33,6 +33,10 @@ export interface NodeHoverCardProps {
     filePath: string;
     startLine?: number;
     endLine?: number;
+    parameterCount?: number;
+    returnType?: string;
+    isTraced?: boolean;
+    isDeadCandidate?: boolean;
   } | null;
   position: { x: number; y: number } | null;
   inDegree: number;
@@ -99,17 +103,37 @@ export function NodeHoverCard({
             {node.filePath}
           </p>
 
-          {/* Line range */}
-          {node.startLine != null && (
-            <p
-              className="text-[10px] mb-2 font-mono"
-              style={{ color: "var(--text-4)" }}
-            >
-              {node.endLine != null
-                ? `L${node.startLine}\u2013${node.endLine}`
-                : `L${node.startLine}`}
+          {/* Signature / params / return type */}
+          {(node.parameterCount != null || node.returnType) && (
+            <p className="text-[10px] mb-1 font-mono" style={{ color: "var(--text-2)" }}>
+              {node.parameterCount != null && `${node.parameterCount} params`}
+              {node.parameterCount != null && node.returnType && " → "}
+              {node.returnType && <span style={{ color: "var(--accent)" }}>{node.returnType}</span>}
             </p>
           )}
+
+          {/* Line range + status badges */}
+          <div className="flex items-center gap-2 mb-2">
+            {node.startLine != null && (
+              <span className="text-[10px] font-mono" style={{ color: "var(--text-4)" }}>
+                {node.endLine != null
+                  ? `L${node.startLine}\u2013${node.endLine}`
+                  : `L${node.startLine}`}
+              </span>
+            )}
+            {node.isTraced && (
+              <span className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                style={{ background: "#9ece6a20", color: "#9ece6a", border: "1px solid #9ece6a30" }}>
+                <ShieldCheck size={8} /> traced
+              </span>
+            )}
+            {node.isDeadCandidate && (
+              <span className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                style={{ background: "#f7768e20", color: "#f7768e", border: "1px solid #f7768e30" }}>
+                <Skull size={8} /> dead
+              </span>
+            )}
+          </div>
 
           {/* Degree info */}
           <div

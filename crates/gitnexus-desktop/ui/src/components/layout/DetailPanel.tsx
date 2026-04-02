@@ -5,6 +5,7 @@ import { useI18n } from "../../hooks/use-i18n";
 import { CodePanel } from "../code/CodePanel";
 import { LayersTab } from "../detail/LayersTab";
 import { CodeHealthCard } from "../health/CodeHealthCard";
+import { SymbolBreadcrumb } from "../shared/Breadcrumb";
 import { ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -74,6 +75,11 @@ export function DetailPanel() {
       className="h-full flex flex-col"
       style={{ backgroundColor: "rgba(9, 11, 16, 0.85)", backdropFilter: "blur(12px)", borderLeft: "1px solid var(--surface-border)" }}
     >
+      {/* Breadcrumb */}
+      <div className="px-4 pt-2 pb-0" style={{ background: "var(--bg-1)" }}>
+        <SymbolBreadcrumb />
+      </div>
+
       {/* Tab bar */}
       <div
         className="flex gap-1 px-4 py-3 border-b"

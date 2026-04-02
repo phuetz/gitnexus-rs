@@ -15,6 +15,8 @@ pub struct CodeHealth {
     pub file_count: u32,
     pub node_count: u32,
     pub edge_count: u32,
+    pub avg_complexity: f64,
+    pub max_complexity: u32,
 }
 
 #[tauri::command]
@@ -96,6 +98,23 @@ pub async fn get_code_health(
         (avg_pct / 100.0).min(1.0)
     };
 
+    // Cyclomatic complexity metrics
+    let complexity_values: Vec<u32> = graph
+        .iter_nodes()
+        .filter(|n| matches!(n.label,
+            gitnexus_core::graph::types::NodeLabel::Method
+            | gitnexus_core::graph::types::NodeLabel::Function
+            | gitnexus_core::graph::types::NodeLabel::Constructor
+        ))
+        .filter_map(|n| n.properties.complexity)
+        .collect();
+    let max_complexity = complexity_values.iter().copied().max().unwrap_or(0);
+    let avg_complexity = if complexity_values.is_empty() {
+        0.0
+    } else {
+        complexity_values.iter().map(|&v| v as f64).sum::<f64>() / complexity_values.len() as f64
+    };
+
     // Overall = weighted average (all 0.0-1.0)
     let overall = hotspot_score * 0.30
         + cohesion_score * 0.25
@@ -122,5 +141,7 @@ pub async fn get_code_health(
         file_count,
         node_count,
         edge_count,
+        avg_complexity: (avg_complexity * 10.0).round() / 10.0,
+        max_complexity,
     })
 }

@@ -554,6 +554,10 @@ pub struct NodeProperties {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_dead_candidate: Option<bool>,
 
+    /// Cyclomatic complexity (CC) for Method/Function/Constructor nodes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complexity: Option<u32>,
+
     /// External service type (WebAPI, WCF, REST)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_type: Option<String>,

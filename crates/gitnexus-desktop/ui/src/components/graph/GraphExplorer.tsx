@@ -365,6 +365,41 @@ export function GraphExplorer() {
     cyRef.current?.fit(undefined, 30);
   }, []);
 
+  const handleExportPNG = useCallback(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const png = cy.png({ output: "blob", scale: 2, bg: "#090b10" });
+    const url = URL.createObjectURL(png as Blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "gitnexus-graph.png";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ctrl+G: Go to symbol (open search)
+      if ((e.ctrlKey || e.metaKey) && e.key === "g") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+      // Ctrl+E: Export graph PNG
+      if ((e.ctrlKey || e.metaKey) && e.key === "e") {
+        e.preventDefault();
+        handleExportPNG();
+      }
+      // Escape: clear selection
+      if (e.key === "Escape" && !e.ctrlKey && !e.metaKey) {
+        setSelectedNodeId(null);
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleExportPNG, setSearchOpen, setSelectedNodeId]);
+
   const drawMinimap = useCallback(() => {
     const canvas = minimapCanvasRef.current;
     const cy = cyRef.current;
@@ -694,6 +729,7 @@ export function GraphExplorer() {
           layout={layout}
           onLayoutChange={handleLayoutChange}
           onFit={handleFit}
+            onExport={handleExportPNG}
         />
         <div className="flex-1">
           <LoadingOrbs label={t("graph.loadingGraph")} />
@@ -710,6 +746,7 @@ export function GraphExplorer() {
           layout={layout}
           onLayoutChange={handleLayoutChange}
           onFit={handleFit}
+            onExport={handleExportPNG}
         />
         <div
           className="flex-1 relative flex flex-col items-center justify-center gap-4 overflow-hidden"
@@ -742,6 +779,7 @@ export function GraphExplorer() {
           layout={layout}
           onLayoutChange={handleLayoutChange}
           onFit={handleFit}
+            onExport={handleExportPNG}
         />
         <div
           className="flex-1 relative flex items-center justify-center"
@@ -797,6 +835,7 @@ export function GraphExplorer() {
             layout={layout}
             onLayoutChange={handleLayoutChange}
             onFit={handleFit}
+            onExport={handleExportPNG}
             onFlows={() => setFlowsOpen(true)}
           />
         </div>

@@ -196,6 +196,33 @@ pub(super) fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -
         writeln!(f)?;
     }
 
+    // ── Most Complex Functions ──
+    {
+        let mut complex_fns: Vec<(&str, &str, u32)> = graph.iter_nodes()
+            .filter(|n| matches!(n.label, NodeLabel::Method | NodeLabel::Function | NodeLabel::Constructor))
+            .filter_map(|n| {
+                n.properties.complexity.map(|cc| {
+                    (n.properties.name.as_str(), n.properties.file_path.as_str(), cc)
+                })
+            })
+            .collect();
+        complex_fns.sort_by(|a, b| b.2.cmp(&a.2));
+
+        if !complex_fns.is_empty() && complex_fns[0].2 > 1 {
+            writeln!(f, "## Fonctions les plus complexes")?;
+            writeln!(f)?;
+            writeln!(f, "> Complexité cyclomatique (CC) : 1 = linéaire, >10 = complexe, >20 = très complexe.")?;
+            writeln!(f)?;
+
+            writeln!(f, "| Fonction | Fichier | CC |")?;
+            writeln!(f, "|----------|---------|-----|")?;
+            for (name, file_path, cc) in complex_fns.iter().take(15) {
+                writeln!(f, "| `{}` | `{}` | {} |", name, file_path, cc)?;
+            }
+            writeln!(f)?;
+        }
+    }
+
     // ── Dead Code Candidates ──
     if dead_methods > 0 {
         writeln!(f, "## Code mort potentiel")?;
@@ -226,6 +253,36 @@ pub(super) fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -
             let examples: Vec<&str> = methods.iter().take(3).map(|s| s.as_str()).collect();
             writeln!(f, "| `{}` | {} | {} |",
                 file, methods.len(), examples.join(", "))?;
+        }
+        writeln!(f)?;
+    }
+
+    // ── Architecture Analysis ──
+    let arch_result = gitnexus_ingest::phases::architecture::analyze_architecture(graph);
+
+    if !arch_result.circular_deps.is_empty() {
+        writeln!(f, "## Dépendances circulaires")?;
+        writeln!(f)?;
+        writeln!(f, "> [!WARNING]")?;
+        writeln!(f, "> **{} cycle(s)** détecté(s) dans les imports entre fichiers.", arch_result.circular_deps.len())?;
+        writeln!(f)?;
+        for (i, cycle) in arch_result.circular_deps.iter().enumerate().take(10) {
+            writeln!(f, "**Cycle {}:** `{}`", i + 1, cycle.cycle.join("` → `"))?;
+            writeln!(f)?;
+        }
+    }
+
+    if !arch_result.layer_violations.is_empty() {
+        writeln!(f, "## Violations de couche architecturale")?;
+        writeln!(f)?;
+        writeln!(f, "> [!DANGER]")?;
+        writeln!(f, "> **{} violation(s)** : couche présentation accède directement à la couche données.", arch_result.layer_violations.len())?;
+        writeln!(f)?;
+        writeln!(f, "| Source | Couche | Cible | Couche |")?;
+        writeln!(f, "|--------|--------|-------|--------|")?;
+        for v in arch_result.layer_violations.iter().take(20) {
+            writeln!(f, "| `{}` | {} | `{}` | {} |",
+                v.source_name, v.source_layer, v.target_name, v.target_layer)?;
         }
         writeln!(f)?;
     }

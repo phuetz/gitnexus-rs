@@ -1,4 +1,4 @@
-import { Maximize2, ChevronDown, GitBranch } from "lucide-react";
+import { Maximize2, ChevronDown, GitBranch, Download } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 import { Tooltip } from "../shared/Tooltip";
@@ -31,6 +31,7 @@ export function GraphToolbar({
   onLayoutChange: (layout: string) => void;
   onFit: () => void;
   onFlows?: () => void;
+  onExport?: () => void;
 }) {
   const { t, tt } = useI18n();
   const zoomLevel = useAppStore((s) => s.zoomLevel);
@@ -196,6 +197,33 @@ export function GraphToolbar({
           <Maximize2 size={16} />
         </button>
       </Tooltip>
+
+      {/* Export PNG Button */}
+      {onExport && (
+        <Tooltip content="Export graph as PNG (Ctrl+E)">
+          <button
+            onClick={onExport}
+            aria-label="Export graph as PNG"
+            className="p-2 rounded-md transition-all"
+            style={{
+              color: "var(--text-3)",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.backgroundColor =
+                "var(--surface-hover)";
+              (e.currentTarget as HTMLElement).style.color = "var(--text-2)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.backgroundColor =
+                "transparent";
+              (e.currentTarget as HTMLElement).style.color = "var(--text-3)";
+            }}
+          >
+            <Download size={16} />
+          </button>
+        </Tooltip>
+      )}
 
       {/* Flows Button */}
       {onFlows && (

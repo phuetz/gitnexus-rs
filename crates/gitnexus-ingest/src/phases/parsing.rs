@@ -977,6 +977,15 @@ fn create_definition_node(
         .map(|p| p.end_position().row as u32 + 1)
         .unwrap_or(start_line);
 
+    // Compute cyclomatic complexity for callable nodes
+    let complexity = if matches!(label, NodeLabel::Method | NodeLabel::Function | NodeLabel::Constructor) {
+        // Walk up to the definition node (parent of the name node) to get the full body
+        let def_node = node.parent().unwrap_or(*node);
+        Some(compute_complexity(def_node, file.content.as_bytes()))
+    } else {
+        None
+    };
+
     let graph_node = GraphNode {
         id: node_id.clone(),
         label,
@@ -988,6 +997,7 @@ fn create_definition_node(
             language: Some(lang),
             is_exported: Some(is_exported),
             parameter_count,
+            complexity,
             ..Default::default()
         },
     };
@@ -1025,6 +1035,74 @@ fn create_definition_node(
         reason: "ast".to_string(),
         step: None,
     });
+}
+
+/// Compute cyclomatic complexity (CC) for a tree-sitter AST node.
+///
+/// CC = 1 + number of decision points found in the subtree.
+/// Decision points: if, for, foreach, while, do, case/switch-arm, catch,
+/// ternary/conditional expressions, and `&&`/`||` binary operators.
+fn compute_complexity(node: tree_sitter::Node, content: &[u8]) -> u32 {
+    let mut cc = 1u32;
+    let mut cursor = node.walk();
+    walk_tree_for_complexity(&mut cursor, content, &mut cc);
+    cc
+}
+
+/// Recursively walk the AST via TreeCursor counting decision points.
+fn walk_tree_for_complexity(
+    cursor: &mut tree_sitter::TreeCursor,
+    content: &[u8],
+    cc: &mut u32,
+) {
+    let kind = cursor.node().kind();
+    match kind {
+        // Branching
+        "if_statement" | "if_expression" => *cc += 1,
+
+        // Loops
+        "for_statement" | "for_expression" | "foreach_statement"
+        | "for_in_statement" | "for_each_statement"
+        | "enhanced_for_statement" => *cc += 1,
+
+        "while_statement" | "while_expression" => *cc += 1,
+
+        "do_statement" => *cc += 1,
+
+        // Case clauses (NOT the switch/match itself)
+        "case_clause" | "switch_expression_arm" | "match_arm" => *cc += 1,
+
+        // Exception handling
+        "catch_clause" | "catch_declaration" => *cc += 1,
+
+        // Ternary / conditional expressions
+        "conditional_expression" | "ternary_expression" => *cc += 1,
+
+        // Logical operators in binary expressions
+        "binary_expression" | "logical_expression" => {
+            // Check if the operator is && or ||
+            if let Some(op_node) = cursor.node().child_by_field_name("operator") {
+                if let Ok(op_text) = op_node.utf8_text(content) {
+                    if op_text == "&&" || op_text == "||" || op_text == "and" || op_text == "or" {
+                        *cc += 1;
+                    }
+                }
+            }
+        }
+
+        _ => {}
+    }
+
+    // Recurse into children
+    if cursor.goto_first_child() {
+        loop {
+            walk_tree_for_complexity(cursor, content, cc);
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+        cursor.goto_parent();
+    }
 }
 
 /// Walk up the tree-sitter AST from `node` to find the nearest enclosing class/struct/interface

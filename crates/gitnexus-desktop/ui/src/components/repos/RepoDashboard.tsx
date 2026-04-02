@@ -683,6 +683,48 @@ export function RepoDashboard() {
           </div>
         </div>
       )}
+
+      {/* ── Top Complex Functions ──────────────────────────────── */}
+      {data && (() => {
+        const complexNodes = data.nodes
+          .filter(n => n.complexity && n.complexity > 5)
+          .sort((a, b) => (b.complexity || 0) - (a.complexity || 0))
+          .slice(0, 8);
+
+        if (complexNodes.length === 0) return null;
+
+        return (
+          <AnimatedCard>
+            <div style={{ padding: "16px 20px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border)", background: "var(--bg-1)" }}>
+              <h3 className="text-sm font-semibold" style={{ color: "var(--text-0)", marginBottom: 12 }}>
+                Most Complex Functions
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {complexNodes.map(n => (
+                  <button
+                    key={n.id}
+                    onClick={() => { setSelectedNodeId(n.id, n.name); setSidebarTab("graph"); }}
+                    className="flex items-center gap-2 text-left rounded-md transition-colors"
+                    style={{ padding: "6px 8px", fontSize: 11 }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-2)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span className="font-mono font-medium" style={{ color: "var(--text-0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {n.name}
+                    </span>
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{
+                      background: (n.complexity || 0) > 20 ? "#ef444420" : (n.complexity || 0) > 10 ? "#f59e0b20" : "#22c55e20",
+                      color: (n.complexity || 0) > 20 ? "#ef4444" : (n.complexity || 0) > 10 ? "#f59e0b" : "#22c55e",
+                    }}>
+                      CC:{n.complexity}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </AnimatedCard>
+        );
+      })()}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Terminal, Play, X, ChevronRight } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
 
 const EXAMPLES = [
   {
@@ -40,6 +41,7 @@ const EXAMPLES = [
 ];
 
 export function CypherQueryFAB() {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<unknown[] | null>(null);
@@ -102,7 +104,7 @@ export function CypherQueryFAB() {
           cursor: "pointer",
           boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
         }}
-        title="Cypher Query (Ctrl+Enter to run)"
+        title={`${t("cypher.title")} (${t("cypher.hint")})`}
       >
         {open ? <X size={18} /> : <Terminal size={18} />}
       </motion.button>
@@ -145,7 +147,7 @@ export function CypherQueryFAB() {
               }}
             >
               <Terminal size={14} />
-              Cypher Query
+              {t("cypher.title")}
               <span
                 style={{
                   marginLeft: "auto",
@@ -153,7 +155,7 @@ export function CypherQueryFAB() {
                   color: "var(--text-3)",
                 }}
               >
-                Ctrl+Enter to run
+                {t("cypher.hint")}
               </span>
             </div>
 
@@ -239,7 +241,7 @@ export function CypherQueryFAB() {
                 }}
               >
                 <Play size={12} />
-                {running ? "Running..." : "Run Query"}
+                {running ? t("cypher.running") : t("cypher.run")}
               </button>
             </div>
 
@@ -274,7 +276,7 @@ export function CypherQueryFAB() {
                     marginBottom: 6,
                   }}
                 >
-                  {results.length} result{results.length !== 1 ? "s" : ""}
+                  {results.length} {results.length !== 1 ? t("cypher.results") : t("cypher.result")}
                 </div>
                 <ResultsView data={results} />
               </div>

@@ -284,6 +284,14 @@ const en = {
   "health.ownership": "Ownership",
   "health.complexity": "Complexity",
 
+  // ── Cypher Query FAB ──
+  "cypher.title": "Cypher Query",
+  "cypher.hint": "Ctrl+Enter to run",
+  "cypher.run": "Run Query",
+  "cypher.running": "Running...",
+  "cypher.results": "results",
+  "cypher.result": "result",
+
   // ── Accessibility ──
   "a11y.skipToContent": "Skip to main content",
   "a11y.codeIntelligencePlatform": "GitNexus — Code Intelligence Platform",
@@ -564,6 +572,14 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "health.tracing": "Traçabilité",
   "health.ownership": "Propriété",
   "health.complexity": "Complexité",
+
+  // ── Cypher Query FAB ──
+  "cypher.title": "Requ\u00eate Cypher",
+  "cypher.hint": "Ctrl+Entr\u00e9e pour ex\u00e9cuter",
+  "cypher.run": "Ex\u00e9cuter",
+  "cypher.running": "Ex\u00e9cution\u2026",
+  "cypher.results": "r\u00e9sultats",
+  "cypher.result": "r\u00e9sultat",
 
   // ── Accessibility ──
   "a11y.skipToContent": "Aller au contenu principal",

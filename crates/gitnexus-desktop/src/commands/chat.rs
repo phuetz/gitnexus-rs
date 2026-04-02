@@ -87,13 +87,23 @@ pub async fn chat_ask(
         return Ok(build_graph_only_response(&search_results, &sources, &graph));
     }
 
-    let answer = call_llm_streaming(&config, &messages, &app).await?;
-
-    Ok(ChatResponse {
-        answer,
-        sources,
-        model: Some(config.model.clone()),
-    })
+    match call_llm_streaming(&config, &messages, &app).await {
+        Ok(answer) => Ok(ChatResponse {
+            answer,
+            sources,
+            model: Some(config.model.clone()),
+        }),
+        Err(llm_error) => {
+            // LLM failed — fall back to graph-only response
+            let _ = app.emit("chat-stream-done", ());
+            let mut fallback = build_graph_only_response(&search_results, &sources, &graph);
+            fallback.answer = format!(
+                "> **Note:** LLM unavailable ({}). Showing graph-based results.\n\n{}",
+                llm_error, fallback.answer
+            );
+            Ok(fallback)
+        }
+    }
 }
 
 /// Get the current chat configuration.

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Workflow, Copy, Check, Search } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
@@ -9,6 +9,8 @@ export function DiagramView() {
   const [target, setTarget] = useState("");
   const [searchTarget, setSearchTarget] = useState("");
   const [copied, setCopied] = useState(false);
+  const [renderError, setRenderError] = useState(false);
+  const mermaidRef = useRef<HTMLDivElement>(null);
 
   const { data: diagram, isLoading } = useQuery({
     queryKey: ["diagram", searchTarget],
@@ -16,6 +18,44 @@ export function DiagramView() {
     enabled: searchTarget.length > 0,
     staleTime: 60_000,
   });
+
+  // Render Mermaid diagram as SVG
+  useEffect(() => {
+    if (!diagram?.mermaid || !mermaidRef.current) return;
+
+    let cancelled = false;
+    setRenderError(false);
+
+    (async () => {
+      try {
+        const mermaid = await import("mermaid");
+        mermaid.default.initialize({
+          startOnLoad: false,
+          theme: "dark",
+          themeVariables: {
+            primaryColor: "#7aa2f7",
+            primaryTextColor: "#c0caf5",
+            lineColor: "#565f89",
+            secondaryColor: "#bb9af7",
+          },
+        });
+
+        const id = `mermaid-diagram-${Date.now()}`;
+        const { svg } = await mermaid.default.render(id, diagram.mermaid);
+        if (!cancelled && mermaidRef.current) {
+          mermaidRef.current.innerHTML = svg;
+        }
+      } catch {
+        if (!cancelled) {
+          setRenderError(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [diagram]);
 
   const handleSearch = () => {
     if (target.trim()) {
@@ -119,23 +159,41 @@ export function DiagramView() {
             </button>
           </div>
 
-          {/* Mermaid source */}
-          <pre
+          {/* Rendered Mermaid diagram */}
+          <div
+            ref={mermaidRef}
             style={{
               padding: 16,
               borderRadius: "var(--radius-lg)",
               border: "1px solid var(--surface-border)",
               background: "var(--bg-2)",
-              color: "var(--text-0)",
-              fontSize: 12,
-              fontFamily: "var(--font-mono)",
               overflow: "auto",
-              whiteSpace: "pre-wrap",
-              lineHeight: 1.6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 200,
             }}
-          >
-            {diagram.mermaid}
-          </pre>
+          />
+
+          {renderError && (
+            <pre
+              style={{
+                marginTop: 12,
+                padding: 16,
+                borderRadius: "var(--radius-lg)",
+                border: "1px solid var(--surface-border)",
+                background: "var(--bg-2)",
+                color: "var(--text-2)",
+                fontSize: 12,
+                fontFamily: "var(--font-mono)",
+                overflow: "auto",
+                whiteSpace: "pre-wrap",
+                lineHeight: 1.6,
+              }}
+            >
+              {diagram.mermaid}
+            </pre>
+          )}
         </div>
       )}
 

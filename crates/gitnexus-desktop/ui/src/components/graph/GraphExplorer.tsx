@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect, useState } from "react";
+import { useCallback, useMemo, useRef, useEffect, useState } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import type cytoscape from "cytoscape";
 import { AlertCircle, Copy, EyeOff, Network, Zap } from "lucide-react";
@@ -304,6 +304,7 @@ export function GraphExplorer() {
   const [mountId] = useState(() => Date.now());
   const [viewMode, setViewMode] = useState<ViewMode>("graph");
   const [impactOverlay, setImpactOverlay] = useState(false);
+  const [layoutRunning, setLayoutRunning] = useState(false);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
 
   // Impact overlay: highlight affected nodes when toggled
@@ -367,7 +368,14 @@ export function GraphExplorer() {
   };
 
   const { data, isLoading, error } = useGraphData(filter, true);
-  const elements = data ? buildElements(data.nodes, data.edges) : [];
+  const elements = useMemo(
+    () => (data ? buildElements(data.nodes, data.edges) : []),
+    [data]
+  );
+  const dataVersion = useMemo(
+    () => (data ? `${data.stats.nodeCount}-${data.stats.edgeCount}-${zoomLevel}` : ""),
+    [data, zoomLevel]
+  );
 
   const handleFit = useCallback(() => {
     cyRef.current?.fit(undefined, 30);
@@ -469,6 +477,15 @@ export function GraphExplorer() {
     ctx.strokeRect(vpX, vpY, vpW, vpH);
   }, []);
 
+  const minimapRafRef = useRef<number | null>(null);
+  const drawMinimapThrottled = useCallback(() => {
+    if (minimapRafRef.current) return;
+    minimapRafRef.current = requestAnimationFrame(() => {
+      drawMinimap();
+      minimapRafRef.current = null;
+    });
+  }, [drawMinimap]);
+
   const handleMinimapPan = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = minimapCanvasRef.current;
     const cy = cyRef.current;
@@ -512,10 +529,11 @@ export function GraphExplorer() {
                   name: "cose",
                   animate: false,
                   nodeOverlap: 40,
-                  nodeRepulsion: () => 8000,
-                  idealEdgeLength: () => 120,
-                  edgeElasticity: () => 100,
-                  gravity: 0.25,
+                  nodeRepulsion: () => 3500,
+                  idealEdgeLength: () => 70,
+                  edgeElasticity: () => 40,
+                  gravity: 0.4,
+                  numIter: 1500,
                   padding: 50,
                   randomize: true,
                   componentSpacing: 80,
@@ -620,13 +638,12 @@ export function GraphExplorer() {
         edge.removeStyle();
       });
 
-      // Minimap events
-      cy.on("render", drawMinimap);
-      cy.on("pan", drawMinimap);
-      cy.on("zoom", drawMinimap);
-      cy.on("layoutstop", drawMinimap);
+      // Minimap events (no "render" — too frequent, causes jank)
+      cy.on("pan", drawMinimapThrottled);
+      cy.on("zoom", drawMinimapThrottled);
+      cy.on("layoutstop", drawMinimapThrottled);
     },
-    [setSelectedNodeId, setZoomLevel, drawMinimap]
+    [setSelectedNodeId, setZoomLevel, drawMinimapThrottled]
   );
 
   // Clean up Cytoscape listeners on unmount
@@ -653,6 +670,8 @@ export function GraphExplorer() {
         });
       });
 
+      setLayoutRunning(true);
+
       const layoutOpts: cytoscape.LayoutOptions =
         zoomLevel === "package"
           ? { name: "grid", rows: Math.ceil(Math.sqrt(elements.length)), padding: 40 }
@@ -660,10 +679,11 @@ export function GraphExplorer() {
               name: layout === "cose" ? "cose" : layout,
               animate: false,
               nodeOverlap: 40,
-              nodeRepulsion: () => 8000,
-              idealEdgeLength: () => 120,
-              edgeElasticity: () => 100,
-              gravity: 0.25,
+              nodeRepulsion: () => 3500,
+              idealEdgeLength: () => 70,
+              edgeElasticity: () => 40,
+              gravity: 0.4,
+              numIter: 1500,
               padding: 50,
               randomize: false,
               componentSpacing: 80,
@@ -672,10 +692,11 @@ export function GraphExplorer() {
       const l = cy.layout(layoutOpts);
       l.on("layoutstop", () => {
         cy.fit(undefined, 40);
+        setLayoutRunning(false);
       });
       l.run();
     }
-  }, [elements.length, zoomLevel, layout, mountId]);
+  }, [dataVersion, layout, mountId]);
 
   // Resize observer: auto-fit when container resizes
   useEffect(() => {
@@ -684,7 +705,6 @@ export function GraphExplorer() {
     const ro = new ResizeObserver(() => {
       if (cyRef.current && !cyRef.current.destroyed()) {
         cyRef.current.resize();
-        cyRef.current.fit(undefined, 30);
       }
     });
     ro.observe(el);
@@ -861,26 +881,17 @@ export function GraphExplorer() {
         </div>
       ) : (
       <div ref={containerRef} className="flex-1 relative cytoscape-container" role="img" aria-label="Knowledge graph visualization">
+        {layoutRunning && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center"
+            style={{ backgroundColor: "rgba(9, 11, 16, 0.5)", backdropFilter: "blur(2px)" }}>
+            <div style={{ color: "var(--text-2)", fontSize: 13 }}>Computing layout...</div>
+          </div>
+        )}
         <CytoscapeComponent
           key={mountId}
           elements={elements}
           stylesheet={stylesheet}
-          layout={{
-            name: zoomLevel === "package" ? "grid" : (layout === "cose" ? "cose" : layout),
-            ...(zoomLevel === "package"
-              ? { rows: Math.ceil(Math.sqrt(elements.length)), padding: 40 }
-              : {
-                  animate: false,
-                  nodeOverlap: 40,
-                  nodeRepulsion: () => 8000,
-                  idealEdgeLength: () => 120,
-                  edgeElasticity: () => 100,
-                  gravity: 0.25,
-                  padding: 50,
-                  randomize: true,
-                  componentSpacing: 80,
-                }),
-          } as cytoscape.LayoutOptions}
+          layout={{ name: "preset" } as cytoscape.LayoutOptions}
           cy={handleCyInit}
           style={{ width: "100%", height: "100%" }}
         />

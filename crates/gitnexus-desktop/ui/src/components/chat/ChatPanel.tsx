@@ -242,7 +242,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       const errorMessage: Message = {
         id: `msg-${Date.now()}`,
         role: "assistant",
-        content: `**Error:** ${(error as Error).message}\n\nMake sure an LLM provider is configured in Settings, or use Ollama for local inference.`,
+        content: `**Error:** ${(error as Error).message}\n\nCould not get an AI response. Check your LLM configuration in Chat Settings (\u2699\uFE0F button), or use Ollama for local inference.`,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, errorMessage]);

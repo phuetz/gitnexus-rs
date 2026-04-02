@@ -81,6 +81,13 @@ pub async fn run_pipeline(
             let process_count = phases::process::detect_processes(&mut graph)?;
             phases::dead_code::mark_dead_code(&mut graph);
 
+            // Save updated snapshot to disk
+            gitnexus_db::snapshot::save_snapshot(&graph, &snap_path)
+                .map_err(|e| crate::IngestError::PhaseError {
+                    phase: "incremental".into(),
+                    message: format!("Failed to save snapshot: {e}"),
+                })?;
+
             tracing::info!(
                 added = inc_result.added,
                 modified = inc_result.modified,

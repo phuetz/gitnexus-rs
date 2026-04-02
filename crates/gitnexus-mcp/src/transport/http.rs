@@ -15,6 +15,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
+use tower_http::cors::CorsLayer;
 
 use crate::backend::local::LocalBackend;
 use crate::jsonrpc::JsonRpcRequest;
@@ -40,6 +41,7 @@ pub fn mcp_http_router(backend: SharedBackend) -> Router {
         .route("/api/repos/{name}/search", get(search_handler))
         .route("/api/repos/{name}/stats", get(stats_handler))
         .route("/api/repos/{name}/hotspots", get(hotspots_handler))
+        .layer(CorsLayer::permissive())
         .with_state(backend)
 }
 
@@ -95,6 +97,19 @@ async fn search_handler(
     Path(name): Path<String>,
     Query(params): Query<SearchParams>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if params.q.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Query parameter 'q' is required" })),
+        ));
+    }
+    if params.q.len() > 1000 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Query too long (max 1000 chars)" })),
+        ));
+    }
+
     let mut backend_guard = backend.lock().await;
     let args = json!({
         "query": params.q,

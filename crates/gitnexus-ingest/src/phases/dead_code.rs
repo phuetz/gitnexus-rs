@@ -89,7 +89,11 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
 
     let is_test_file = |path: &str| -> bool {
         let lower = path.to_lowercase();
-        lower.contains("test") || lower.contains("tests")
+        // Match test directories and test file patterns, not substrings
+        lower.contains("/test/") || lower.contains("\\test\\")
+            || lower.contains("/tests/") || lower.contains("\\tests\\")
+            || lower.contains(".test.") || lower.contains("_test.")
+            || lower.ends_with("test.cs") || lower.ends_with("test.js") || lower.ends_with("test.ts")
             || lower.contains(".spec.") || lower.contains("_spec.")
     };
 
@@ -98,6 +102,10 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
     // have paths like "Views/Foo.cshtml#script-0".
     let is_script_or_view = |path: &str| -> bool {
         let lower = path.to_lowercase();
+        // Don't exclude code-behind files (.cshtml.cs, .razor.cs)
+        if lower.ends_with(".cs") || lower.ends_with(".ts") {
+            return false;
+        }
         lower.contains(".cshtml") || lower.contains(".razor")
             || lower.ends_with(".js") || lower.ends_with(".jsx")
             || lower.ends_with(".vue")

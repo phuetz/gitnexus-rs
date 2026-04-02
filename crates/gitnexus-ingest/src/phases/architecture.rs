@@ -59,7 +59,7 @@ pub fn detect_circular_dependencies(graph: &KnowledgeGraph) -> Vec<CircularDepen
 
     for file in adj.keys() {
         if !visited.contains(file) {
-            dfs_find_cycles(file, &adj, &mut visited, &mut rec_stack, &mut path, &mut cycles);
+            dfs_find_cycles(file, &adj, &mut visited, &mut rec_stack, &mut path, &mut cycles, 0);
         }
     }
 
@@ -77,6 +77,8 @@ pub fn detect_circular_dependencies(graph: &KnowledgeGraph) -> Vec<CircularDepen
     cycles
 }
 
+const MAX_DFS_DEPTH: usize = 100;
+
 fn dfs_find_cycles(
     node: &str,
     adj: &HashMap<String, HashSet<String>>,
@@ -84,7 +86,12 @@ fn dfs_find_cycles(
     rec_stack: &mut HashSet<String>,
     path: &mut Vec<String>,
     cycles: &mut Vec<CircularDependency>,
+    depth: usize,
 ) {
+    if depth > MAX_DFS_DEPTH {
+        return;
+    }
+
     visited.insert(node.to_string());
     rec_stack.insert(node.to_string());
     path.push(node.to_string());
@@ -92,7 +99,7 @@ fn dfs_find_cycles(
     if let Some(neighbors) = adj.get(node) {
         for neighbor in neighbors {
             if !visited.contains(neighbor.as_str()) {
-                dfs_find_cycles(neighbor, adj, visited, rec_stack, path, cycles);
+                dfs_find_cycles(neighbor, adj, visited, rec_stack, path, cycles, depth + 1);
             } else if rec_stack.contains(neighbor.as_str()) {
                 // Found a cycle — extract it from path
                 if let Some(start_idx) = path.iter().position(|p| p == neighbor) {

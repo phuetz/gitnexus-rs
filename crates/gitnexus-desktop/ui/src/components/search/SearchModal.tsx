@@ -6,6 +6,8 @@ import { useI18n } from "../../hooks/use-i18n";
 import { NodeIcon } from "../shared/NodeIcon";
 import type { SearchResult } from "../../lib/tauri-commands";
 
+type RankedResult = SearchResult & { _fuzzy: number };
+
 /** Simple fuzzy match: checks if all query chars appear in name in order */
 function fuzzyScore(name: string, query: string): number {
   const n = name.toLowerCase();
@@ -30,7 +32,7 @@ function fuzzyScore(name: string, query: string): number {
 }
 
 /** Re-rank results: exact > starts-with > contains > fuzzy, with type filter */
-function rankResults(results: SearchResult[], query: string, typeFilter?: string): SearchResult[] {
+function rankResults(results: SearchResult[], query: string, typeFilter?: string): RankedResult[] {
   if (!query) return results;
 
   let filtered = results;

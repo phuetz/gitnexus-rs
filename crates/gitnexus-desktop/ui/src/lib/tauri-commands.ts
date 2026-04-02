@@ -334,6 +334,8 @@ export interface CodeHealth {
   fileCount: number;
   nodeCount: number;
   edgeCount: number;
+  avgComplexity: number;
+  maxComplexity: number;
 }
 
 export interface FileQuickPick {

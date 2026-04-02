@@ -32,8 +32,8 @@ export function SymbolBreadcrumb() {
   }
 
   // File
-  if (context.symbol.filePath) {
-    const fileName = context.symbol.filePath.split("/").pop() || context.symbol.filePath;
+  if (context.node.filePath) {
+    const fileName = context.node.filePath.split("/").pop() || context.node.filePath;
     crumbs.push({
       label: fileName,
       icon: <FileCode size={11} />,
@@ -43,7 +43,7 @@ export function SymbolBreadcrumb() {
   // Container class (from callers that have HasMethod edge to this symbol)
   if (context.callers) {
     const container = context.callers.find(
-      (c: { relType: string }) => c.relType === "HAS_METHOD" || c.relType === "HAS_ACTION" || c.relType === "HAS_PROPERTY"
+      (c) => c.label === "Class" || c.label === "Controller" || c.label === "Service" || c.label === "Interface"
     );
     if (container) {
       crumbs.push({
@@ -56,7 +56,7 @@ export function SymbolBreadcrumb() {
 
   // Current symbol (always last)
   crumbs.push({
-    label: context.symbol.name,
+    label: context.node.name,
     icon: <FolderOpen size={11} />,
   });
 

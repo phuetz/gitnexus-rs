@@ -59,6 +59,9 @@ const en = {
   "repos.nodes": "nodes",
   "repos.edges": "edges",
   "repos.communities": "communities",
+  "repos.loading": "Loading repositories...",
+  "repos.error": "Failed to load repositories",
+  "repos.processing": "Processing...",
   "repos.opening": "Opening…",
 
   // ── Graph Explorer ──
@@ -293,6 +296,9 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "repos.nodes": "nœuds",
   "repos.edges": "arêtes",
   "repos.communities": "communautés",
+  "repos.loading": "Chargement des dépôts…",
+  "repos.error": "Impossible de charger les dépôts",
+  "repos.processing": "Traitement en cours…",
   "repos.opening": "Ouverture…",
 
   // ── Graph Explorer ──

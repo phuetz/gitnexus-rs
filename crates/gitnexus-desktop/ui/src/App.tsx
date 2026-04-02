@@ -14,6 +14,7 @@ import { ErrorBoundary } from "./components/shared/ErrorBoundary";
 import { useAppStore } from "./stores/app-store";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useResponsive } from "./hooks/use-responsive";
+import { useScreenCapture } from "./hooks/use-screen-capture";
 import { useI18n } from "./hooks/use-i18n";
 
 /** Tabs where the 2-column detail panel is relevant (not graph — graph uses 3 columns) */
@@ -25,6 +26,7 @@ function App() {
   const sidebarTab = useAppStore((s) => s.sidebarTab);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   useKeyboardShortcuts();
+  useScreenCapture();
 
   const { isCompact, isNarrow } = useResponsive();
 

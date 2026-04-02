@@ -233,11 +233,12 @@ function StepStatusIcon({ status }: { status: StepStatus }) {
 // ─── Complexity Badge ───────────────────────────────────────────────
 
 function ComplexityBadge({ complexity }: { complexity: QueryComplexity }) {
-  const config = {
+  const configs: Record<string, { label: string; color: string; icon: typeof Zap }> = {
     simple: { label: "Simple", color: "var(--green)", icon: Zap },
     medium: { label: "Medium", color: "var(--orange)", icon: AlertTriangle },
     complex: { label: "Complex", color: "var(--purple)", icon: Microscope },
-  }[complexity];
+  };
+  const config = configs[complexity] ?? configs.simple;
 
   const Icon = config.icon;
 

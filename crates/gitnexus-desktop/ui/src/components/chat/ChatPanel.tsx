@@ -74,7 +74,18 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
       const saved = localStorage.getItem(storageKey);
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return [];
+      // Validate each message has required fields to prevent render crashes
+      return parsed.filter(
+        (m: unknown): m is Message =>
+          typeof m === "object" &&
+          m !== null &&
+          typeof (m as Message).id === "string" &&
+          typeof (m as Message).role === "string" &&
+          typeof (m as Message).content === "string"
+      );
     } catch {
       return [];
     }
@@ -108,7 +119,19 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(storageKey);
-      setMessages(saved ? JSON.parse(saved) : []);
+      if (!saved) { setMessages([]); return; }
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) { setMessages([]); return; }
+      setMessages(
+        parsed.filter(
+          (m: unknown): m is Message =>
+            typeof m === "object" &&
+            m !== null &&
+            typeof (m as Message).id === "string" &&
+            typeof (m as Message).role === "string" &&
+            typeof (m as Message).content === "string"
+        )
+      );
     } catch {
       setMessages([]);
     }
@@ -624,11 +647,12 @@ function MessageBubble({
 // ─── ComplexityIndicator ────────────────────────────────────────────
 
 function ComplexityIndicator({ complexity }: { complexity: QueryComplexity }) {
-  const config = {
+  const configs: Record<string, { label: string; color: string; icon: typeof Zap }> = {
     simple: { label: "Quick answer", color: "var(--green)", icon: Zap },
     medium: { label: "Multi-source", color: "var(--orange)", icon: Sparkles },
     complex: { label: "Deep research", color: "var(--purple)", icon: Microscope },
-  }[complexity];
+  };
+  const config = configs[complexity] ?? configs.simple;
 
   const Icon = config.icon;
 

@@ -14,6 +14,7 @@ import { ChatPanel } from "../chat/ChatPanel";
 import { CoverageView } from "../coverage/CoverageView";
 import { DiagramView } from "../diagram/DiagramView";
 import { ReportView } from "../report/ReportView";
+import { ErrorBoundary } from "../shared/ErrorBoundary";
 
 export function MainView() {
   const activeRepo = useAppStore((s) => s.activeRepo);
@@ -81,7 +82,7 @@ export function MainView() {
       case "report":
         return <ReportView />;
       case "chat":
-        return <ChatPanel />;
+        return <ErrorBoundary><ChatPanel /></ErrorBoundary>;
       case "graph":
       default:
         return <GraphExplorer />;

@@ -4,10 +4,11 @@
  */
 
 import { useState } from "react";
-import { Code2, ChevronDown, ChevronRight, FileCode } from "lucide-react";
+import { Code2, ChevronDown, ChevronRight, FileCode, Package } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { useSymbolContext, useFileContent } from "../../hooks/use-tauri-query";
 import { useShikiTokens } from "../../hooks/use-shiki";
+import type { RelatedNode } from "../../lib/tauri-commands";
 
 /** A single collapsible code section with file path header + source code */
 function CodeSection({
@@ -224,12 +225,125 @@ function CodeSection({
   );
 }
 
+/** Collapsible list of dependency nodes (imports) with click-to-navigate */
+function DependenciesSection({
+  items,
+  color,
+}: {
+  items: RelatedNode[];
+  color: string;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
+
+  return (
+    <div style={{ borderBottom: "1px solid var(--border)" }}>
+      {/* Section header */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          width: "100%",
+          padding: "6px 12px",
+          background: "var(--bg-2)",
+          border: "none",
+          borderLeft: `3px solid ${color}`,
+          color: "var(--text-3)",
+          fontSize: 10,
+          fontWeight: 600,
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          textAlign: "left",
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+        }}
+      >
+        {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        <Package size={10} style={{ color, flexShrink: 0 }} />
+        Dependencies ({items.length})
+      </button>
+
+      {/* Item list */}
+      {expanded && (
+        <div style={{ background: "var(--bg-0)" }}>
+          {items.map((dep) => (
+            <button
+              key={dep.id}
+              onClick={() => setSelectedNodeId(dep.id, dep.name)}
+              style={{
+                width: "100%",
+                padding: "6px 12px",
+                background: "transparent",
+                border: "none",
+                borderBottom: "1px solid var(--border)",
+                color: "var(--text-1)",
+                fontSize: 11,
+                cursor: "pointer",
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+                textAlign: "left",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "var(--bg-2)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "transparent";
+              }}
+            >
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <FileCode size={11} style={{ color, flexShrink: 0 }} />
+                <span style={{ fontWeight: 500 }}>{dep.name}</span>
+                <span
+                  style={{
+                    fontSize: 9,
+                    padding: "1px 5px",
+                    borderRadius: 3,
+                    background: "var(--bg-3)",
+                    color: "var(--text-3)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {dep.label}
+                </span>
+              </span>
+              {dep.filePath && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-4)",
+                    fontFamily: "var(--font-mono)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    paddingLeft: 17,
+                  }}
+                >
+                  {dep.filePath.replace(/\\/g, "/")}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CodeInspectorPanel() {
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const selectedNodeName = useAppStore((s) => s.selectedNodeName);
   const { data: context } = useSymbolContext(selectedNodeId);
 
   const node = context?.node;
+  const imports = context?.imports || [];
   const callers = context?.callers || [];
   const callees = context?.callees || [];
 
@@ -305,6 +419,11 @@ export function CodeInspectorPanel() {
             color="var(--accent)"
             defaultExpanded={true}
           />
+        )}
+
+        {/* Dependencies (imports) */}
+        {imports.length > 0 && (
+          <DependenciesSection items={imports} color="#3b82f6" />
         )}
 
         {/* Callers */}

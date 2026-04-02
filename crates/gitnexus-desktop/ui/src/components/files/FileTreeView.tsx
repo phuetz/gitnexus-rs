@@ -298,17 +298,17 @@ export function FileTreeView() {
             type="text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search files..."
+            placeholder={t("files.searchPlaceholder")}
             className="flex-1 text-[12px] outline-none bg-transparent"
             style={{ color: "var(--text-1)", minWidth: 0 }}
-            aria-label="Search files"
+            aria-label={t("files.searchFiles")}
           />
           {searchInput && (
             <button
               onClick={clearSearch}
               className="rounded p-0.5 transition-colors"
               style={{ color: "var(--text-3)", background: "transparent", border: "none", cursor: "pointer" }}
-              aria-label="Clear search"
+              aria-label={t("files.clearSearch")}
             >
               <X size={12} />
             </button>
@@ -320,8 +320,8 @@ export function FileTreeView() {
             style={{ color: "var(--text-3)" }}
           >
             {filteredFileCount === 0
-              ? "No files found"
-              : `${filteredFileCount} file${filteredFileCount === 1 ? "" : "s"} found`}
+              ? t("files.noMatchingFiles")
+              : t("files.matchingFiles").replace("{0}", String(filteredFileCount))}
           </div>
         )}
       </div>

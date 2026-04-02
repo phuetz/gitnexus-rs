@@ -156,6 +156,8 @@ const en = {
   "impact.directionUpstream": "Upstream",
   "impact.directionBoth": "Both",
   "impact.directionDownstream": "Downstream",
+  "impact.impactDistribution": "Impact Distribution",
+  "impact.moreItems": "+{0} more",
 
   // ── Command Bar ──
   "search.placeholder": "Search symbols, files, classes...",
@@ -217,6 +219,11 @@ const en = {
   "analyze.nodes": "nodes",
 
   // ── File Explorer ──
+  "files.searchPlaceholder": "Search files...",
+  "files.searchFiles": "Search files",
+  "files.clearSearch": "Clear search",
+  "files.noMatchingFiles": "No files found",
+  "files.matchingFiles": "{0} file(s) found",
   "files.errorLoadingTree": "Error loading file tree",
   "files.noFilesFound": "No files found",
   "files.selectFileToPreview": "Select a file to preview its contents",
@@ -445,6 +452,8 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "impact.directionUpstream": "Amont",
   "impact.directionBoth": "Les deux",
   "impact.directionDownstream": "Aval",
+  "impact.impactDistribution": "Distribution d'impact",
+  "impact.moreItems": "+{0} de plus",
 
   // ── Command Bar ──
   "search.placeholder": "Rechercher symboles, fichiers, classes…",
@@ -506,8 +515,13 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "analyze.nodes": "nœuds",
 
   // ── File Explorer ──
+  "files.searchPlaceholder": "Rechercher des fichiers\u2026",
+  "files.searchFiles": "Rechercher des fichiers",
+  "files.clearSearch": "Effacer la recherche",
+  "files.noMatchingFiles": "Aucun fichier trouv\u00e9",
+  "files.matchingFiles": "{0} fichier(s) trouv\u00e9(s)",
   "files.errorLoadingTree": "Erreur de chargement de l'arborescence",
-  "files.noFilesFound": "Aucun fichier trouvé",
+  "files.noFilesFound": "Aucun fichier trouv\u00e9",
   "files.selectFileToPreview": "Sélectionnez un fichier pour afficher son contenu",
   "files.closePreview": "Fermer l'aperçu",
   "files.loadingFile": "Chargement du fichier…",

@@ -192,7 +192,7 @@ function ImpactResults({
       {impactNodes.length > 0 && (
         <div>
           <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
-            Impact Distribution
+            {t("impact.impactDistribution")}
           </h3>
           <div className="space-y-1">
             {impactNodes.slice(0, 15).map((item) => {
@@ -234,7 +234,7 @@ function ImpactResults({
           </div>
           {impactNodes.length > 15 && (
             <p className="text-[10px] mt-1" style={{ color: "var(--text-3)" }}>
-              +{impactNodes.length - 15} more
+              {t("impact.moreItems").replace("{0}", String(impactNodes.length - 15))}
             </p>
           )}
         </div>

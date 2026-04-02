@@ -328,6 +328,56 @@ function ContextTab() {
         </div>
       )}
 
+      {/* Cyclomatic complexity */}
+      {context.node.complexity != null && context.node.complexity > 1 && (
+        <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-1)" }}>
+          <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-2)" }}>
+            Cyclomatic Complexity
+          </h3>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold" style={{
+              color: context.node.complexity > 20 ? "#ef4444" : context.node.complexity > 10 ? "#f59e0b" : "#22c55e"
+            }}>
+              {context.node.complexity}
+            </span>
+            <span className="text-xs" style={{ color: "var(--text-3)" }}>
+              {context.node.complexity > 20 ? "Very complex — consider refactoring" :
+               context.node.complexity > 10 ? "Complex — review for simplification" :
+               "Acceptable complexity"}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Dead code warning */}
+      {context.node.isDeadCandidate && (
+        <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-1)", borderLeft: "3px solid #ef4444" }}>
+          <p className="text-xs font-medium" style={{ color: "#ef4444" }}>
+            ⚠ Dead Code Candidate
+          </p>
+          <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>
+            No incoming calls detected. This method may be unused.
+          </p>
+        </div>
+      )}
+
+      {/* Architecture layer */}
+      {context.node.layerType && (
+        <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-1)" }}>
+          <h3 className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-2)" }}>
+            Architecture Layer
+          </h3>
+          <span className="text-xs px-2 py-1 rounded-full font-medium" style={{
+            backgroundColor: context.node.layerType === "Presentation" ? "#a855f720" :
+                             context.node.layerType === "Business" ? "#06b6d420" : "#22c55e20",
+            color: context.node.layerType === "Presentation" ? "#a855f7" :
+                   context.node.layerType === "Business" ? "#06b6d4" : "#22c55e",
+          }}>
+            {context.node.layerType}
+          </span>
+        </div>
+      )}
+
       {context.callers.length > 0 && (
         <CollapsibleSection title={t("detail.callers")} count={context.callers.length} defaultExpanded>
           <RelationSection title={t("detail.callers")} items={context.callers} onSelect={setSelectedNodeId} />

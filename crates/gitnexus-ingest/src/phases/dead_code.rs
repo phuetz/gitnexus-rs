@@ -93,7 +93,12 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
         lower.contains("/test/") || lower.contains("\\test\\")
             || lower.contains("/tests/") || lower.contains("\\tests\\")
             || lower.contains(".test.") || lower.contains("_test.")
-            || lower.ends_with("test.cs") || lower.ends_with("test.js") || lower.ends_with("test.ts")
+            || lower.ends_with("/test.cs") || lower.ends_with("\\test.cs")
+            || lower.ends_with("_test.cs") || lower.ends_with(".test.cs")
+            || lower.ends_with("/test.js") || lower.ends_with("\\test.js")
+            || lower.ends_with("_test.js") || lower.ends_with(".test.js")
+            || lower.ends_with("/test.ts") || lower.ends_with("\\test.ts")
+            || lower.ends_with("_test.ts") || lower.ends_with(".test.ts")
             || lower.contains(".spec.") || lower.contains("_spec.")
     };
 

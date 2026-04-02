@@ -84,6 +84,10 @@ function buildElements(nodes: CytoNode[], edges: CytoEdge[]) {
         filePath: node.filePath,
         startLine: node.startLine,
         endLine: node.endLine,
+        parameterCount: node.parameterCount,
+        returnType: node.returnType,
+        isTraced: node.isTraced,
+        isDeadCandidate: node.isDeadCandidate,
         color: LABEL_COLORS[node.label] || "#565f89",
         size,
       },
@@ -289,6 +293,10 @@ export function GraphExplorer() {
     filePath: string;
     startLine?: number;
     endLine?: number;
+    parameterCount?: number;
+    returnType?: string;
+    isTraced?: boolean;
+    isDeadCandidate?: boolean;
   } | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const [hoverDegrees, setHoverDegrees] = useState<{ inDeg: number; outDeg: number }>({ inDeg: 0, outDeg: 0 });
@@ -562,6 +570,10 @@ export function GraphExplorer() {
           filePath: node.data("filePath"),
           startLine: node.data("startLine"),
           endLine: node.data("endLine"),
+          parameterCount: node.data("parameterCount"),
+          returnType: node.data("returnType"),
+          isTraced: node.data("isTraced"),
+          isDeadCandidate: node.data("isDeadCandidate"),
         });
         setHoverPos({ x: pos.x, y: pos.y });
         setHoverDegrees({

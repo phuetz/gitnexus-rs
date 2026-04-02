@@ -33,7 +33,7 @@ function fuzzyScore(name: string, query: string): number {
 
 /** Re-rank results: exact > starts-with > contains > fuzzy, with type filter */
 function rankResults(results: SearchResult[], query: string, typeFilter?: string): RankedResult[] {
-  if (!query) return results;
+  if (!query) return results.map((r) => ({ ...r, _fuzzy: 0 }));
 
   let filtered = results;
   if (typeFilter) {

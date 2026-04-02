@@ -92,6 +92,8 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
         // Match test directories and test file patterns, not substrings
         lower.contains("/test/") || lower.contains("\\test\\")
             || lower.contains("/tests/") || lower.contains("\\tests\\")
+            || lower.contains(".test/") || lower.contains(".test\\")
+            || lower.contains(".tests/") || lower.contains(".tests\\")
             || lower.contains(".test.") || lower.contains("_test.")
             || lower.ends_with("/test.cs") || lower.ends_with("\\test.cs")
             || lower.ends_with("_test.cs") || lower.ends_with(".test.cs")

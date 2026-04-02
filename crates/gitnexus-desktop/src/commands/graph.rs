@@ -257,6 +257,8 @@ fn node_to_cyto(node: &gitnexus_core::graph::types::GraphNode) -> CytoNode {
         entry_point_reason: node.properties.entry_point_reason.clone(),
         is_traced: node.properties.is_traced,
         trace_call_count: node.properties.trace_call_count,
+        is_dead_candidate: node.properties.is_dead_candidate,
+        complexity: node.properties.complexity,
     }
 }
 

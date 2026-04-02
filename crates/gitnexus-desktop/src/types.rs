@@ -50,6 +50,10 @@ pub struct CytoNode {
     pub is_traced: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_call_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_dead_candidate: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complexity: Option<u32>,
 }
 
 /// An edge in Cytoscape format.

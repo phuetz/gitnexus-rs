@@ -45,8 +45,8 @@ export function useScreenCapture() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Ctrl+Shift+S (or Cmd+Shift+S on Mac)
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "S") {
+      // F12 or Ctrl+Shift+S: capture screenshot
+      if (e.key === "F12" || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "S")) {
         e.preventDefault();
         captureScreen();
       }

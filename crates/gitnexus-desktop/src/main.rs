@@ -24,6 +24,7 @@ fn main() {
             // Graph
             commands::graph::get_graph_data,
             commands::graph::get_subgraph,
+            commands::graph::get_features,
             // Search
             commands::search::search_symbols,
             // Context

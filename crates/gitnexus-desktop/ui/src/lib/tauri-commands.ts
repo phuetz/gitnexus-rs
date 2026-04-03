@@ -340,6 +340,14 @@ export interface CodeHealth {
   maxComplexity: number;
 }
 
+export interface FeatureInfo {
+  id: string;
+  name: string;
+  description?: string;
+  memberCount: number;
+  cohesion?: number;
+}
+
 export interface FileQuickPick {
   path: string;
   name: string;
@@ -518,6 +526,10 @@ export const commands = {
     invoke<GitCoupling[]>("get_coupling", { minShared }),
   getOwnership: () =>
     invoke<GitOwnership[]>("get_ownership"),
+
+  // Features (community-based)
+  getFeatures: () =>
+    invoke<FeatureInfo[]>("get_features"),
 
   // Coverage & Diagrams
   getCoverageStats: () =>

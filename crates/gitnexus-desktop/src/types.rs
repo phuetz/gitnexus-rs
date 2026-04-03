@@ -542,6 +542,19 @@ pub struct SymbolQuickPick {
     pub start_line: Option<u32>,
 }
 
+/// A detected feature/community in the knowledge graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeatureInfo {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub member_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cohesion: Option<f64>,
+}
+
 /// Module quick-pick result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

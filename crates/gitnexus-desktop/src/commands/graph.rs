@@ -236,6 +236,47 @@ pub async fn get_subgraph(
     })
 }
 
+/// Get all detected features/communities with stats.
+#[tauri::command]
+pub async fn get_features(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::types::FeatureInfo>, String> {
+    let (graph, _, _, _) = state.get_repo(None).await?;
+
+    let mut features: Vec<crate::types::FeatureInfo> = Vec::new();
+
+    for node in graph.iter_nodes() {
+        if node.label == NodeLabel::Community {
+            let community_name = &node.properties.name;
+
+            // Use symbol_count from the Community node if available,
+            // otherwise count nodes whose heuristic_label matches this community name.
+            let member_count = node.properties.symbol_count.unwrap_or_else(|| {
+                graph
+                    .iter_nodes()
+                    .filter(|n| n.properties.heuristic_label.as_deref() == Some(community_name))
+                    .count() as u32
+            });
+
+            features.push(crate::types::FeatureInfo {
+                id: node.id.clone(),
+                name: node.properties.name.clone(),
+                description: node.properties.description.clone(),
+                member_count,
+                cohesion: node.properties.cohesion,
+            });
+        }
+    }
+
+    // Sort by member count descending
+    features.sort_by(|a, b| b.member_count.cmp(&a.member_count));
+
+    // Limit to top 50
+    features.truncate(50);
+
+    Ok(features)
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 fn node_to_cyto(node: &gitnexus_core::graph::types::GraphNode) -> CytoNode {

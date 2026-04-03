@@ -246,6 +246,39 @@ export function filterGraphByDepth(
 
 // ─── Color Utilities ────────────────────────────────────────────────
 
+// ─── Community Filter ──────────────────────────────────────────────
+
+export function filterGraphByCommunities(
+  graph: Graph<SigmaNodeAttributes, SigmaEdgeAttributes>,
+  selectedCommunities: Set<string>,
+): void {
+  if (selectedCommunities.size === 0) {
+    // Show all
+    graph.forEachNode((nodeId) => {
+      graph.setNodeAttribute(nodeId, "hidden", false);
+    });
+    graph.forEachEdge((edgeId) => {
+      graph.setEdgeAttribute(edgeId, "hidden", false);
+    });
+    return;
+  }
+
+  // Hide nodes not in selected communities
+  const visibleNodes = new Set<string>();
+  graph.forEachNode((nodeId, attrs) => {
+    const inCommunity = attrs.community && selectedCommunities.has(attrs.community);
+    graph.setNodeAttribute(nodeId, "hidden", !inCommunity);
+    if (inCommunity) visibleNodes.add(nodeId);
+  });
+
+  // Hide edges where either endpoint is hidden
+  graph.forEachEdge((edgeId, _attrs, source, target) => {
+    graph.setEdgeAttribute(edgeId, "hidden", !visibleNodes.has(source) || !visibleNodes.has(target));
+  });
+}
+
+// ─── Color Utilities ────────────────────────────────────────────────
+
 export function dimColor(hex: string, amount: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);

@@ -8,8 +8,10 @@ import { commands } from "../../lib/tauri-commands";
 import {
   buildGraphologyGraph,
   filterGraphByDepth,
+  filterGraphByCommunities,
   NODE_COLORS,
 } from "../../lib/graph-adapter";
+import { FeatureNavigator } from "./FeatureNavigator";
 import { GraphToolbar } from "./GraphToolbar";
 import { NodeHoverCard } from "./NodeHoverCard";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
@@ -48,6 +50,7 @@ export function GraphExplorer() {
   const [depthFilter, setDepthFilter] = useState<number | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [layout, setLayout] = useState("forceatlas2");
+  const [selectedFeatures, setSelectedFeatures] = useState<Set<string>>(new Set());
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<{
@@ -276,6 +279,28 @@ export function GraphExplorer() {
       // silently fail
     }
   }, [selectedNodeId, impactOverlay, refresh]);
+
+  // ── Feature navigator handlers ──────────────────────────────────
+  const handleToggleFeature = useCallback((name: string) => {
+    setSelectedFeatures(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+
+  const handleResetFeatures = useCallback(() => {
+    setSelectedFeatures(new Set());
+  }, []);
+
+  // ── Filter graph by selected features ───────────────────────────
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    filterGraphByCommunities(graph, selectedFeatures);
+    refresh();
+  }, [selectedFeatures, refresh]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────
   useEffect(() => {
@@ -553,7 +578,13 @@ export function GraphExplorer() {
           <TreemapView data={data} isLoading={isLoading} />
         </div>
       ) : (
-        <div className="flex-1 relative" style={{ backgroundColor: "#06060a" }}>
+        <div className="flex flex-1 min-h-0">
+          <FeatureNavigator
+            selectedFeatures={selectedFeatures}
+            onToggleFeature={handleToggleFeature}
+            onReset={handleResetFeatures}
+          />
+          <div className="flex-1 relative" style={{ backgroundColor: "#06060a" }}>
           {/* Sigma container */}
           <div
             ref={containerRef}
@@ -1039,6 +1070,7 @@ export function GraphExplorer() {
               </div>
             )}
           </div>
+        </div>
         </div>
       )}
 

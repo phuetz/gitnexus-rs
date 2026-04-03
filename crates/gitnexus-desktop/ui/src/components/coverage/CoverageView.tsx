@@ -7,7 +7,7 @@ import { useAppStore } from "../../stores/app-store";
 export function CoverageView() {
   const { t } = useI18n();
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
-  const setSidebarTab = useAppStore((s) => s.setSidebarTab);
+  const setMode = useAppStore((s) => s.setMode);
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ["coverage-stats"],
@@ -76,7 +76,7 @@ export function CoverageView() {
                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                     onClick={() => {
                       setSelectedNodeId(m.nodeId, m.name);
-                      setSidebarTab("graph");
+                      setMode("explorer");
                     }}
                   >
                     <td style={{ padding: "6px 12px", color: "var(--text-0)", fontFamily: "var(--font-mono)" }}>

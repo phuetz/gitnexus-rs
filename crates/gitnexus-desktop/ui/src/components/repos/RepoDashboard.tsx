@@ -228,7 +228,7 @@ function qualityGradient(totalNodes: number): {
 export function RepoDashboard() {
   const activeRepo = useAppStore((s) => s.activeRepo);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
-  const setSidebarTab = useAppStore((s) => s.setSidebarTab);
+  const setMode = useAppStore((s) => s.setMode);
 
   // Fetch graph data at symbol zoom level to get all nodes
   const { data, isLoading, error } = useQuery<GraphPayload>({
@@ -311,7 +311,7 @@ export function RepoDashboard() {
   // ── Navigate to graph with node selected ────────────────────────
   const navigateToNode = (nodeId: string, name: string) => {
     setSelectedNodeId(nodeId, name);
-    setSidebarTab("graph");
+    setMode("explorer");
   };
 
   return (
@@ -703,7 +703,7 @@ export function RepoDashboard() {
                 {complexNodes.map(n => (
                   <button
                     key={n.id}
-                    onClick={() => { setSelectedNodeId(n.id, n.name); setSidebarTab("graph"); }}
+                    onClick={() => { setSelectedNodeId(n.id, n.name); setMode("explorer"); }}
                     className="flex items-center gap-2 text-left rounded-md transition-colors"
                     style={{ padding: "6px 8px", fontSize: 11 }}
                     onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-2)")}

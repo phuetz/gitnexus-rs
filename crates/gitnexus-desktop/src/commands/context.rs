@@ -37,6 +37,7 @@ pub async fn get_symbol_context(
         trace_call_count: node.properties.trace_call_count,
         is_dead_candidate: node.properties.is_dead_candidate,
         complexity: node.properties.complexity,
+        depth: None,
     };
 
     // Collect related nodes by relationship type

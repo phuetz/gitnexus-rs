@@ -126,7 +126,7 @@ function buildTree(nodes: CytoNode[]): TreeNode {
 export function TreemapView({ data, isLoading }: TreemapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
-  const setSidebarTab = useAppStore((s) => s.setSidebarTab);
+  const setMode = useAppStore((s) => s.setMode);
 
   const [tooltip, setTooltip] = useState<{
     x: number;
@@ -272,7 +272,7 @@ export function TreemapView({ data, isLoading }: TreemapViewProps) {
               padding: showLabel ? 4 : 0,
             }}
             onClick={() => {
-              setSidebarTab("files");
+              setMode("explorer");
               setSelectedNodeId("File:" + d.path, d.name);
             }}
             onMouseEnter={(e) => {

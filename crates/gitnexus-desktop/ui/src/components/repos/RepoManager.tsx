@@ -40,7 +40,7 @@ export function RepoManager() {
   const { data: repos, isLoading, error, refetch } = useRepos();
   const openRepo = useOpenRepo();
   const setActiveRepo = useAppStore((s) => s.setActiveRepo);
-  const setSidebarTab = useAppStore((s) => s.setSidebarTab);
+  const setMode = useAppStore((s) => s.setMode);
 
   // Analysis state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -51,7 +51,7 @@ export function RepoManager() {
     try {
       await openRepo.mutateAsync(name);
       setActiveRepo(name);
-      setSidebarTab("graph");
+      setMode("explorer");
       toast.success("Opened " + name);
     } catch (e) {
       console.error("Failed to open repo:", e);

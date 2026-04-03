@@ -11,11 +11,13 @@ function isInputElement(target: HTMLElement): boolean {
 }
 
 export function useKeyboardShortcuts() {
-  const setSidebarTab = useAppStore((s) => s.setSidebarTab);
+  const setMode = useAppStore((s) => s.setMode);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const setSearchOpen = useAppStore((s) => s.setSearchOpen);
   const setZoomLevel = useAppStore((s) => s.setZoomLevel);
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
+  const setExplorerLeftCollapsed = useAppStore((s) => s.setExplorerLeftCollapsed);
+  const explorerLeftCollapsed = useAppStore((s) => s.explorerLeftCollapsed);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -34,40 +36,34 @@ export function useKeyboardShortcuts() {
         useAppStore.getState().setSelectedNodeId(null);
       }
 
-      // Ctrl+1 → Switch to Repositories tab
+      // Ctrl+1 → Switch to Explorer mode
       if ((e.ctrlKey || e.metaKey) && e.key === "1") {
         e.preventDefault();
-        setSidebarTab("repos");
+        setMode("explorer");
       }
 
-      // Ctrl+2 → Switch to File Explorer tab
+      // Ctrl+2 → Switch to Analyze mode
       if ((e.ctrlKey || e.metaKey) && e.key === "2") {
         e.preventDefault();
-        setSidebarTab("files");
+        setMode("analyze");
       }
 
-      // Ctrl+3 → Switch to Graph Explorer tab
+      // Ctrl+3 → Switch to Chat mode
       if ((e.ctrlKey || e.metaKey) && e.key === "3") {
         e.preventDefault();
-        setSidebarTab("graph");
+        setMode("chat");
       }
 
-      // Ctrl+4 → Switch to Impact Analysis tab
+      // Ctrl+4 → Switch to Manage mode
       if ((e.ctrlKey || e.metaKey) && e.key === "4") {
         e.preventDefault();
-        setSidebarTab("impact");
+        setMode("manage");
       }
 
-      // Ctrl+5 → Switch to Documentation tab
-      if ((e.ctrlKey || e.metaKey) && e.key === "5") {
-        e.preventDefault();
-        setSidebarTab("docs");
-      }
-
-      // Ctrl+B → toggle sidebar
+      // Ctrl+B → toggle explorer left panel
       if ((e.ctrlKey || e.metaKey) && e.key === "b") {
         e.preventDefault();
-        useAppStore.getState().toggleSidebar();
+        setExplorerLeftCollapsed(!explorerLeftCollapsed);
       }
 
       // Escape → close chat modals, deselect, close search/palette
@@ -127,10 +123,12 @@ export function useKeyboardShortcuts() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [
-    setSidebarTab,
+    setMode,
     setSelectedNodeId,
     setSearchOpen,
     setZoomLevel,
     setSettingsOpen,
+    setExplorerLeftCollapsed,
+    explorerLeftCollapsed,
   ]);
 }

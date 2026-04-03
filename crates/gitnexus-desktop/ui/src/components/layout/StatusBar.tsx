@@ -12,17 +12,15 @@ function Sep() {
 export function StatusBar() {
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
-  const sidebarTab = useAppStore((s) => s.sidebarTab);
+  const mode = useAppStore((s) => s.mode);
+  const analyzeView = useAppStore((s) => s.analyzeView);
   const zoomLevel = useAppStore((s) => s.zoomLevel);
 
-  const TAB_LABELS: Record<string, string> = useMemo(() => ({
-    repos: t("sidebar.repositories"),
-    files: t("sidebar.fileExplorer"),
-    graph: t("sidebar.graphExplorer"),
-    impact: t("sidebar.impactAnalysis"),
-    docs: t("sidebar.documentation"),
-    search: t("commandBar.tab.search"),
-    export: t("sidebar.export"),
+  const MODE_LABELS: Record<string, string> = useMemo(() => ({
+    explorer: t("sidebar.graphExplorer"),
+    analyze: "Analyze",
+    chat: "Chat",
+    manage: "Manage",
   }), [t]);
 
   const { data: chatConfig } = useQuery({
@@ -39,12 +37,11 @@ export function StatusBar() {
 
   const llmModelName = chatConfig?.model || null;
 
-  /** Contextual info that changes per page */
+  /** Contextual info that changes per mode */
   const ctxInfo = useMemo(() => {
     if (!activeRepo) return null;
-    switch (sidebarTab) {
-      case "graph":
-      case "search": {
+    switch (mode) {
+      case "explorer": {
         const levelName = {
           "package": t("status.packageLevel"),
           "module": t("status.moduleLevel"),
@@ -57,34 +54,29 @@ export function StatusBar() {
           </span>
         );
       }
-      case "files":
+      case "analyze":
         return (
           <span style={{ color: "var(--text-3)" }}>
-            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>{t("status.browse")}:</span> {t("status.browseSourceTree")}
+            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>View:</span>{" "}
+            {analyzeView.charAt(0).toUpperCase() + analyzeView.slice(1)}
           </span>
         );
-      case "impact":
+      case "chat":
         return (
           <span style={{ color: "var(--text-3)" }}>
-            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>{t("status.mode")}:</span> {t("status.modeDependencyAnalysis")}
+            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>AI:</span> Code Intelligence Chat
           </span>
         );
-      case "docs":
+      case "manage":
         return (
           <span style={{ color: "var(--text-3)" }}>
-            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>{t("status.docs")}:</span> {t("status.docsWikiViewer")}
-          </span>
-        );
-      case "export":
-        return (
-          <span style={{ color: "var(--text-3)" }}>
-            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>Export:</span> DOCX & ASP.NET
+            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>Manage:</span> Repos & Settings
           </span>
         );
       default:
         return null;
     }
-  }, [activeRepo, sidebarTab, zoomLevel, t]);
+  }, [activeRepo, mode, analyzeView, zoomLevel, t]);
 
   return (
     <div
@@ -120,7 +112,7 @@ export function StatusBar() {
 
           {/* Current page */}
           <span style={{ color: "var(--text-3)" }}>
-            {TAB_LABELS[sidebarTab] || sidebarTab}
+            {MODE_LABELS[mode] || mode}
           </span>
 
           {/* Contextual info per page */}

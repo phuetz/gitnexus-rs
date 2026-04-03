@@ -13,6 +13,8 @@ import {
 } from "../../lib/graph-adapter";
 import { FeatureNavigator } from "./FeatureNavigator";
 import { GraphToolbar } from "./GraphToolbar";
+import { LensSelector } from "../explorer/LensSelector";
+import { EgoDepthSlider } from "../explorer/EgoDepthSlider";
 import { NodeHoverCard } from "./NodeHoverCard";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 import { TreemapView } from "./TreemapView";
@@ -30,7 +32,7 @@ export function GraphExplorer() {
   const { t, tt } = useI18n();
   const zoomLevel = useAppStore((s) => s.zoomLevel);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
-  const setSidebarTab = useAppStore((s) => s.setSidebarTab);
+  const setMode = useAppStore((s) => s.setMode);
   const setSearchOpen = useAppStore((s) => s.setSearchOpen);
   const setSearchQuery = useAppStore((s) => s.setSearchQuery);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
@@ -51,6 +53,9 @@ export function GraphExplorer() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [layout, setLayout] = useState("forceatlas2");
   const [selectedFeatures, setSelectedFeatures] = useState<Set<string>>(new Set());
+
+  // Lens-filtered edge types (null = show all)
+  const [visibleEdgeTypes, setVisibleEdgeTypes] = useState<string[] | null>(null);
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<{
@@ -202,22 +207,43 @@ export function GraphExplorer() {
 
   const activeData = focusNodeId && subgraphData ? subgraphData : data;
 
+  // ── Effective hidden edge types (merge manual toggles + lens filter) ──
+  const effectiveHiddenEdgeTypes = useMemo(() => {
+    if (!visibleEdgeTypes) return hiddenEdgeTypes;
+    // When a lens is active, hide any edge type NOT in the visible set
+    // (but still respect manual hiddenEdgeTypes overrides)
+    const allKnownTypes = [
+      "CALLS", "IMPORTS", "DEPENDS_ON", "HAS_METHOD", "HAS_PROPERTY",
+      "CONTAINED_IN", "DEFINED_IN", "EXTENDS", "IMPLEMENTS", "INHERITS",
+      "CONTAINS", "REFERENCES",
+    ];
+    const next = new Set(hiddenEdgeTypes);
+    for (const t of allKnownTypes) {
+      if (!visibleEdgeTypes.includes(t)) {
+        next.add(t);
+      } else {
+        next.delete(t);
+      }
+    }
+    return next;
+  }, [hiddenEdgeTypes, visibleEdgeTypes]);
+
   // ── Build + set graph when data changes ──────────────────────────
   const prevDataKeyRef = useRef("");
   useEffect(() => {
     if (!activeData || activeData.nodes.length === 0) return;
-    const key = `${activeData.stats.nodeCount}-${activeData.stats.edgeCount}-${zoomLevel}-${focusNodeId ?? ""}-${[...hiddenEdgeTypes].sort().join(",")}`;
+    const key = `${activeData.stats.nodeCount}-${activeData.stats.edgeCount}-${zoomLevel}-${focusNodeId ?? ""}-${[...effectiveHiddenEdgeTypes].sort().join(",")}`;
     if (key === prevDataKeyRef.current) return;
     prevDataKeyRef.current = key;
 
     const graph = buildGraphologyGraph(
       activeData.nodes,
       activeData.edges,
-      hiddenEdgeTypes,
+      effectiveHiddenEdgeTypes,
     );
     setGraph(graph);
     runLayout();
-  }, [activeData, zoomLevel, hiddenEdgeTypes, focusNodeId, setGraph, runLayout]);
+  }, [activeData, zoomLevel, effectiveHiddenEdgeTypes, focusNodeId, setGraph, runLayout]);
 
   // ── Depth filter ─────────────────────────────────────────────────
   useEffect(() => {
@@ -354,6 +380,16 @@ export function GraphExplorer() {
       window.removeEventListener("gitnexus:cycle-layout", onCycle);
     };
   }, [layout, fitView]);
+
+  // Listen for lens change events dispatched by LensSelector
+  useEffect(() => {
+    const onLensChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ lens: string; edgeTypes: string[] | null }>).detail;
+      setVisibleEdgeTypes(detail.edgeTypes);
+    };
+    window.addEventListener("gitnexus:lens-change", onLensChange);
+    return () => window.removeEventListener("gitnexus:lens-change", onLensChange);
+  }, []);
 
   // ── Minimap drawing ──────────────────────────────────────────────
   const drawMinimap = useCallback(() => {
@@ -568,6 +604,10 @@ export function GraphExplorer() {
             onFlows={() => setFlowsOpen(true)}
           />
         </div>
+        <div className="flex items-center gap-3" style={{ paddingRight: 8 }}>
+          <LensSelector />
+          <EgoDepthSlider />
+        </div>
         <div style={{ paddingRight: 12 }}>
           <ViewModeToggle mode={viewMode} onChange={setViewMode} />
         </div>
@@ -653,7 +693,7 @@ export function GraphExplorer() {
             outDegree={hoverDegrees.outDeg}
             onViewSource={() => {
               if (hoveredNode) {
-                setSidebarTab("files");
+                setMode("explorer");
                 setSelectedNodeId(
                   "File:" + hoveredNode.filePath,
                   hoveredNode.name,
@@ -663,7 +703,7 @@ export function GraphExplorer() {
             onImpact={() => {
               if (hoveredNode) {
                 setSelectedNodeId(hoveredNode.id, hoveredNode.name);
-                setSidebarTab("impact");
+                setMode("explorer");
               }
             }}
           />
@@ -685,7 +725,7 @@ export function GraphExplorer() {
               <Tooltip content={tt("graph.contextMenu.goToDefinition").tip}>
                 <ContextMenuButton
                   onClick={() => {
-                    setSidebarTab("files");
+                    setMode("explorer");
                     setSelectedNodeId(
                       "File:" + contextMenu.filePath,
                       contextMenu.name,
@@ -717,7 +757,7 @@ export function GraphExplorer() {
               <ContextMenuButton
                 onClick={() => {
                   setSelectedNodeId(contextMenu.nodeId, contextMenu.name);
-                  setSidebarTab("impact");
+                  setMode("explorer");
                   setContextMenu(null);
                 }}
               >

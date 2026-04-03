@@ -30,7 +30,7 @@ export function SearchView() {
   const [query, setQuery] = useState("");
   const { data: results, isLoading } = useSearchSymbols(query, query.length >= 2);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
-  const setSidebarTab = useAppStore((s) => s.setSidebarTab);
+  const setMode = useAppStore((s) => s.setMode);
 
   const rankedResults = useMemo(
     () => (results ? rankResults(results, query) : undefined),
@@ -39,7 +39,7 @@ export function SearchView() {
 
   const handleSelect = (nodeId: string, name?: string) => {
     setSelectedNodeId(nodeId, name);
-    setSidebarTab("graph");
+    setMode("explorer");
   };
 
   return (

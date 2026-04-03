@@ -177,11 +177,13 @@ pub async fn get_subgraph(
     let (graph, indexes, _fts, _repo_path) = state.get_repo(None).await?;
     let max_depth = depth.unwrap_or(2);
 
-    // BFS to collect neighborhood
+    // BFS to collect neighborhood, tracking depth per node
     let mut visited = std::collections::HashSet::new();
+    let mut depth_map = std::collections::HashMap::new();
     let mut queue = std::collections::VecDeque::new();
 
     visited.insert(center_node_id.clone());
+    depth_map.insert(center_node_id.clone(), 0u32);
     queue.push_back((center_node_id, 0u32));
 
     while let Some((node_id, d)) = queue.pop_front() {
@@ -193,6 +195,7 @@ pub async fn get_subgraph(
         if let Some(outs) = indexes.outgoing.get(&node_id) {
             for (target, _) in outs {
                 if visited.insert(target.clone()) {
+                    depth_map.insert(target.clone(), d + 1);
                     queue.push_back((target.clone(), d + 1));
                 }
             }
@@ -202,6 +205,7 @@ pub async fn get_subgraph(
         if let Some(ins) = indexes.incoming.get(&node_id) {
             for (source, _) in ins {
                 if visited.insert(source.clone()) {
+                    depth_map.insert(source.clone(), d + 1);
                     queue.push_back((source.clone(), d + 1));
                 }
             }
@@ -212,7 +216,8 @@ pub async fn get_subgraph(
     let mut nodes = Vec::new();
     for id in &visited {
         if let Some(node) = graph.get_node(id) {
-            nodes.push(node_to_cyto(node));
+            let d = depth_map.get(id).copied();
+            nodes.push(node_to_cyto_with_depth(node, d));
         }
     }
 
@@ -280,6 +285,10 @@ pub async fn get_features(
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 fn node_to_cyto(node: &gitnexus_core::graph::types::GraphNode) -> CytoNode {
+    node_to_cyto_with_depth(node, None)
+}
+
+fn node_to_cyto_with_depth(node: &gitnexus_core::graph::types::GraphNode, depth: Option<u32>) -> CytoNode {
     CytoNode {
         id: node.id.clone(),
         label: node.label.as_str().to_string(),
@@ -300,6 +309,7 @@ fn node_to_cyto(node: &gitnexus_core::graph::types::GraphNode) -> CytoNode {
         trace_call_count: node.properties.trace_call_count,
         is_dead_candidate: node.properties.is_dead_candidate,
         complexity: node.properties.complexity,
+        depth,
     }
 }
 

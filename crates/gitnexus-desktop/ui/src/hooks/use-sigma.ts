@@ -27,6 +27,8 @@ export interface UseSigmaOptions {
   selectedNodeId?: string | null;
   highlightedNodeIds?: Set<string>;
   impactNodeIds?: Map<string, number>; // nodeId -> depth
+  egoNodeIds?: Set<string>;
+  egoDepthMap?: Map<string, number>;
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────
@@ -46,6 +48,8 @@ export function useSigma(options: UseSigmaOptions) {
   const selectedRef = useRef(options.selectedNodeId);
   const highlightedRef = useRef(options.highlightedNodeIds);
   const impactRef = useRef(options.impactNodeIds);
+  const egoNodeIdsRef = useRef<Set<string> | undefined>(undefined);
+  const egoDepthMapRef = useRef<Map<string, number> | undefined>(undefined);
 
   useEffect(() => {
     selectedRef.current = options.selectedNodeId;
@@ -56,6 +60,12 @@ export function useSigma(options: UseSigmaOptions) {
   useEffect(() => {
     impactRef.current = options.impactNodeIds;
   }, [options.impactNodeIds]);
+  useEffect(() => {
+    egoNodeIdsRef.current = options.egoNodeIds;
+  }, [options.egoNodeIds]);
+  useEffect(() => {
+    egoDepthMapRef.current = options.egoDepthMap;
+  }, [options.egoDepthMap]);
 
   // Store callbacks in refs so we can read latest without re-init
   const onNodeClickRef = useRef(options.onNodeClick);
@@ -145,6 +155,32 @@ export function useSigma(options: UseSigmaOptions) {
         const highlighted = highlightedRef.current;
         const impact = impactRef.current;
 
+        // Ego-network overlay
+        const egoNodes = egoNodeIdsRef.current;
+        const egoDepths = egoDepthMapRef.current;
+        if (egoNodes && egoNodes.size > 0) {
+          if (egoNodes.has(node)) {
+            const d = egoDepths?.get(node) ?? 0;
+            if (d <= 1) {
+              // Full opacity, normal size
+              res.zIndex = 10 - d;
+            } else if (d === 2) {
+              res.color = dimColor(data.color || "#64748b", 0.8);
+              res.zIndex = 3;
+            } else {
+              res.color = dimColor(data.color || "#64748b", 0.6);
+              res.zIndex = 2;
+            }
+          } else {
+            // Context node — heavily dimmed
+            res.color = dimColor(data.color || "#64748b", 0.10);
+            res.size = (data.size || 6) * 0.4;
+            res.label = "";
+            res.zIndex = 0;
+          }
+          return res;
+        }
+
         // Impact overlay
         if (impact && impact.size > 0) {
           const depth = impact.get(node);
@@ -210,6 +246,28 @@ export function useSigma(options: UseSigmaOptions) {
         const selected = selectedRef.current;
         const g = graphRef.current;
 
+        // Ego-network edge overlay
+        const egoNodes2 = egoNodeIdsRef.current;
+        if (egoNodes2 && egoNodes2.size > 0 && g) {
+          const [source, target] = g.extremities(edge);
+          const srcIn = egoNodes2.has(source);
+          const tgtIn = egoNodes2.has(target);
+          if (srcIn && tgtIn) {
+            // Both in ego — full
+            res.size = Math.max(1, (data.size || 0.5) * 2);
+            res.zIndex = 5;
+          } else if (srcIn || tgtIn) {
+            // One in ego — partial
+            res.color = dimColor(data.color || "#2a2a3a", 0.3);
+            res.size = (data.size || 0.5) * 0.8;
+          } else {
+            // Neither in ego — near invisible
+            res.color = dimColor(data.color || "#2a2a3a", 0.05);
+            res.size = 0.1;
+          }
+          return res;
+        }
+
         if (selected && g) {
           const [source, target] = g.extremities(edge);
           if (source === selected || target === selected) {
@@ -234,8 +292,12 @@ export function useSigma(options: UseSigmaOptions) {
     sigmaRef.current = sigma;
 
     // ── Events ─────────────────────────────────────────────────
+    let clickDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     sigma.on("clickNode", ({ node }) => {
-      onNodeClickRef.current?.(node);
+      if (clickDebounceTimer) clearTimeout(clickDebounceTimer);
+      clickDebounceTimer = setTimeout(() => {
+        onNodeClickRef.current?.(node);
+      }, 150);
     });
     sigma.on("clickStage", () => {
       onNodeClickRef.current?.(null);
@@ -257,6 +319,9 @@ export function useSigma(options: UseSigmaOptions) {
     });
 
     return () => {
+      if (clickDebounceTimer) {
+        clearTimeout(clickDebounceTimer);
+      }
       if (layoutRef.current) {
         layoutRef.current.stop();
         layoutRef.current = null;
@@ -355,7 +420,7 @@ export function useSigma(options: UseSigmaOptions) {
     const attrs = graph.getNodeAttributes(nodeId);
     sigma
       .getCamera()
-      .animate({ x: attrs.x, y: attrs.y, ratio: 0.15 }, { duration: 400 });
+      .animate({ x: attrs.x, y: attrs.y, ratio: 0.15 }, { duration: 200 });
   }, []);
 
   // ── Fit view ─────────────────────────────────────────────────────

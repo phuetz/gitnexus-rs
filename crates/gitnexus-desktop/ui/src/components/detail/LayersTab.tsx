@@ -35,7 +35,7 @@ const LAYER_DESCRIPTIONS: Record<string, string> = {
 
 export function LayersTab() {
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
-  const setSidebarTab = useAppStore((s) => s.setSidebarTab);
+  const setMode = useAppStore((s) => s.setMode);
 
   const { data } = useGraphData(
     { zoomLevel: "symbol" as const, maxNodes: 5000 },
@@ -92,7 +92,7 @@ export function LayersTab() {
 
   function handleNodeClick(nodeId: string) {
     setSelectedNodeId(nodeId);
-    setSidebarTab("graph");
+    setMode("explorer");
   }
 
   return (

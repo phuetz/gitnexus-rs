@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import type { ZoomLevel } from "../lib/tauri-commands";
 
-export type SidebarTab = "overview" | "repos" | "search" | "files" | "graph" | "impact" | "docs" | "export" | "git-analytics" | "chat" | "coverage" | "diagram" | "report";
 export type DetailTab = "context" | "code" | "properties" | "layers" | "health";
 export type ThemeMode = "dark" | "light" | "system";
+export type AppMode = 'explorer' | 'analyze' | 'chat' | 'manage';
+export type AnalyzeView = 'overview' | 'hotspots' | 'coupling' | 'ownership' | 'coverage' | 'diagram' | 'report' | 'health';
+export type LensType = 'all' | 'calls' | 'structure' | 'heritage' | 'impact' | 'dead-code' | 'tracing';
 
 interface HistoryEntry {
   nodeId: string;
@@ -25,12 +27,6 @@ interface AppState {
   canGoForward: boolean;
   goBack: () => void;
   goForward: () => void;
-
-  sidebarTab: SidebarTab;
-  setSidebarTab: (tab: SidebarTab) => void;
-
-  sidebarCollapsed: boolean;
-  toggleSidebar: () => void;
 
   detailTab: DetailTab;
   setDetailTab: (tab: DetailTab) => void;
@@ -55,6 +51,19 @@ interface AppState {
 
   theme: ThemeMode;
   setTheme: (theme: ThemeMode) => void;
+
+  mode: AppMode;
+  setMode: (mode: AppMode) => void;
+  analyzeView: AnalyzeView;
+  setAnalyzeView: (view: AnalyzeView) => void;
+  activeLens: LensType;
+  setActiveLens: (lens: LensType) => void;
+  egoDepth: 1 | 2 | 3;
+  setEgoDepth: (depth: 1 | 2 | 3) => void;
+  explorerLeftCollapsed: boolean;
+  setExplorerLeftCollapsed: (collapsed: boolean) => void;
+  explorerRightCollapsed: boolean;
+  setExplorerRightCollapsed: (collapsed: boolean) => void;
 }
 
 const MAX_HISTORY = 50;
@@ -121,18 +130,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  sidebarTab: "repos",
-  setSidebarTab: (tab) => set(() => ({
-    sidebarTab: tab,
-    // Clear node selection when leaving graph-related tabs
-    ...(tab !== "graph" && tab !== "impact" && tab !== "search"
-      ? { selectedNodeId: null, selectedNodeName: null }
-      : {}),
-  })),
-
-  sidebarCollapsed: false,
-  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-
   detailTab: "context",
   setDetailTab: (tab) => set({ detailTab: tab }),
 
@@ -160,4 +157,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     document.documentElement.setAttribute("data-theme", theme);
     set({ theme });
   },
+
+  mode: 'explorer',
+  setMode: (mode) => set({ mode }),
+  analyzeView: 'overview',
+  setAnalyzeView: (view) => set({ analyzeView: view }),
+  activeLens: 'all',
+  setActiveLens: (lens) => set({ activeLens: lens }),
+  egoDepth: 2,
+  setEgoDepth: (depth) => set({ egoDepth: depth }),
+  explorerLeftCollapsed: false,
+  setExplorerLeftCollapsed: (collapsed) => set({ explorerLeftCollapsed: collapsed }),
+  explorerRightCollapsed: false,
+  setExplorerRightCollapsed: (collapsed) => set({ explorerRightCollapsed: collapsed }),
 }));

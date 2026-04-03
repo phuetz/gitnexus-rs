@@ -53,7 +53,7 @@ export function SearchModal() {
   const storeQuery = useAppStore((s) => s.searchQuery);
   const setStoreQuery = useAppStore((s) => s.setSearchQuery);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
-  const setSidebarTab = useAppStore((s) => s.setSidebarTab);
+  const setMode = useAppStore((s) => s.setMode);
 
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -123,11 +123,11 @@ export function SearchModal() {
   const selectResult = useCallback(
     (nodeId: string, name?: string) => {
       setSelectedNodeId(nodeId, name);
-      setSidebarTab("graph");
+      setMode("explorer");
       setSearchMatchIds([]);
       setSearchOpen(false);
     },
-    [setSelectedNodeId, setSidebarTab, setSearchMatchIds, setSearchOpen]
+    [setSelectedNodeId, setMode, setSearchMatchIds, setSearchOpen]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

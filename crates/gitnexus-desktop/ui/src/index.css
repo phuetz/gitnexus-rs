@@ -87,10 +87,39 @@
   --transition-fast: 120ms ease-out;
   --transition-base: 180ms ease-out;
   --transition-slow: 280ms ease-out;
+
+  /* Glass morphism */
+  --glass-bg: rgba(13, 16, 23, 0.72);
+  --glass-border: rgba(148, 163, 194, 0.12);
+  --glass-blur: 16px;
+
+  /* Glow effects */
+  --glow-accent: 0 0 20px rgba(106, 161, 248, 0.15);
+  --glow-success: 0 0 16px rgba(74, 222, 128, 0.12);
+  --glow-danger: 0 0 16px rgba(251, 113, 133, 0.12);
+
+  /* Mode bar */
+  --mode-bar-width: 48px;
+  --mode-bar-bg: var(--bg-0);
+  --mode-icon-size: 20px;
+
+  /* Ego-network */
+  --ego-full-opacity: 1.0;
+  --ego-depth2-opacity: 0.8;
+  --ego-depth3-opacity: 0.6;
+  --ego-context-opacity: 0.10;
+  --ego-context-edge-opacity: 0.05;
+
+  /* Transitions */
+  --transition-mode: 200ms ease-out;
+  --transition-ego-focus: 200ms ease-out;
 }
 
 /* ── Daylight Observatory — light theme ── */
 [data-theme="light"] {
+  --glass-bg: rgba(248, 249, 252, 0.80);
+  --glass-border: rgba(100, 116, 139, 0.12);
+
   /* Background layers (lightest → darker) */
   --bg-0: #f8f9fc;
   --bg-1: #f0f2f7;

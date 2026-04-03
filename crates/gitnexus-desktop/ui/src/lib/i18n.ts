@@ -293,6 +293,11 @@ const en = {
   "graph.loadingGraph": "Loading graph...",
   "graph.failedToLoad": "Failed to load graph",
 
+  // ── Communities Panel ──
+  "communities.title": "Functional Groups",
+  "communities.showAll": "Show all",
+  "communities.hint": "Click to isolate · Ctrl+Click to combine",
+
   // ── Code Health ──
   "health.title": "Code Health",
   "health.hotspots": "Hotspots",
@@ -642,6 +647,11 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   // ── Graph Explorer ──
   "graph.loadingGraph": "Chargement du graphe…",
   "graph.failedToLoad": "Impossible de charger le graphe",
+
+  // ── Communities Panel ──
+  "communities.title": "Groupes fonctionnels",
+  "communities.showAll": "Tout afficher",
+  "communities.hint": "Clic pour isoler · Ctrl+Clic pour combiner",
 
   // ── Code Health ──
   "health.title": "Santé du code",

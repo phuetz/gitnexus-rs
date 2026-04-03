@@ -25,7 +25,7 @@ export function GraphZoomControls({
       className="absolute z-20 flex flex-col gap-1"
       style={{ bottom: legendExpanded ? 200 : 80, right: 16 }}
     >
-      <Tooltip content="Zoom in (Ctrl+=)" side="left">
+      <Tooltip content="Zoom in (Ctrl+=)">
         <button
           onClick={onZoomIn}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
@@ -35,7 +35,7 @@ export function GraphZoomControls({
           +
         </button>
       </Tooltip>
-      <Tooltip content="Zoom out (Ctrl+-)" side="left">
+      <Tooltip content="Zoom out (Ctrl+-)">
         <button
           onClick={onZoomOut}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
@@ -45,7 +45,7 @@ export function GraphZoomControls({
           {"\u2212"}
         </button>
       </Tooltip>
-      <Tooltip content="Fit view (Ctrl+0)" side="left">
+      <Tooltip content="Fit view (Ctrl+0)">
         <button
           onClick={onFitView}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold"

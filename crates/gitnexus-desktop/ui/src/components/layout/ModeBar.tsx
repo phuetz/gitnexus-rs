@@ -26,7 +26,7 @@ export const ModeBar = memo(function ModeBar() {
       }}
     >
       {modes.map(({ mode: m, icon: Icon, label, shortcut }) => (
-        <Tooltip key={m} content={`${label} (${shortcut})`} side="right">
+        <Tooltip key={m} content={`${label} (${shortcut})`}>
           <button
             onClick={() => setMode(m)}
             className="relative flex items-center justify-center w-10 h-10 mb-1 rounded-lg transition-colors"
@@ -52,7 +52,7 @@ export const ModeBar = memo(function ModeBar() {
       <div className="flex-1" />
 
       {/* Command palette trigger */}
-      <Tooltip content="Command Palette (Ctrl+K)" side="right">
+      <Tooltip content="Command Palette (Ctrl+K)">
         <button
           onClick={() => setCommandPaletteOpen(true)}
           className="flex items-center justify-center w-10 h-10 mb-2 rounded-lg transition-colors"

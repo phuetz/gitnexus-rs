@@ -93,7 +93,7 @@ export function useGraphEffects({
   useEffect(() => {
     const g = graphRef.current;
     if (!g) return;
-    filterGraphByCommunities(g, selectedFeatures);
+    filterGraphByCommunities(g, selectedFeatures instanceof Set ? selectedFeatures : new Set(selectedFeatures));
     refresh();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFeatures, refresh]);

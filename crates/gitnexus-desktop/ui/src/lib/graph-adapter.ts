@@ -122,7 +122,7 @@ function getScaledNodeSize(baseSize: number, nodeCount: number): number {
   return baseSize;
 }
 
-function getCommunityColor(community: string): string {
+export function getCommunityColor(community: string): string {
   return COMMUNITY_COLORS[hashString(community) % COMMUNITY_COLORS.length];
 }
 

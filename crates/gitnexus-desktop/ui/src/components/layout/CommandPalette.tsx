@@ -251,16 +251,6 @@ function CommandItem({ item, onSelect }: { item: CommandItem; onSelect: () => vo
   );
 }
 
-const GROUP_HEADING_STYLE: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 600,
-  color: "var(--text-3)",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  padding: "8px 12px 4px",
-  fontFamily: "var(--font-display)",
-};
-
 export function CommandPalette() {
   const commandPaletteOpen = useAppStore((s) => s.commandPaletteOpen);
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);

@@ -17,6 +17,7 @@ import { useGraphState } from "./useGraphState";
 import { useGraphEffects } from "./useGraphEffects";
 import { GraphContextMenu } from "./GraphContextMenu";
 import { GraphLegend } from "./GraphLegend";
+import { CommunitiesPanel } from "./CommunitiesPanel";
 import { GraphMinimap } from "./GraphMinimap";
 import { GraphToolbarRow } from "./GraphToolbarRow";
 import { GraphShortcutsOverlay } from "./GraphShortcutsOverlay";
@@ -125,7 +126,7 @@ export function GraphExplorer() {
   }, [activeData, zoomLevel, effectiveHiddenEdgeTypes, gs.focusNodeId, setGraph, runLayout]);
 
   // ── All other effects ─────────────────────────────────────────────
-  useGraphEffects({ gs, selectedNodeId, searchMatchIds, selectedFeatures, egoDepth, graphRef, focusNode, refresh, fitView, zoomIn, zoomOut, exportPNG, setSearchOpen, setSelectedNodeId });
+  useGraphEffects({ gs, selectedNodeId, searchMatchIds, selectedFeatures: [...selectedFeatures], egoDepth, graphRef, focusNode, refresh, fitView, zoomIn, zoomOut, exportPNG, setSearchOpen, setSelectedNodeId });
 
   // ── Impact overlay ────────────────────────────────────────────────
   const toggleImpactOverlay = useCallback(async () => {
@@ -218,6 +219,7 @@ export function GraphExplorer() {
             <GraphZoomControls onZoomIn={zoomIn} onZoomOut={zoomOut} onFitView={fitView} legendExpanded={gs.legendExpanded} />
             <GraphLegend nodes={data?.nodes ?? []} expanded={gs.legendExpanded} onExpand={() => gs.setLegendExpanded(true)} onCollapse={() => gs.setLegendExpanded(false)} />
           </div>
+          <CommunitiesPanel />
         </div>
       )}
 

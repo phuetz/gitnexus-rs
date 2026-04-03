@@ -110,19 +110,41 @@ gitnexus shell                                # REPL with tab completion
 #   help                 — all commands
 ```
 
-### 11. Validate LLM config
+### 11. MCP server (for AI agents)
+
+```bash
+gitnexus mcp                                       # Start MCP server (stdio, JSON-RPC 2.0)
+# 13 tools: list_repos, query, context, impact, detect_changes, rename,
+#           cypher, hotspots, coupling, ownership, coverage, diagram, report
+# 5 prompts: detect_impact, generate_map, analyze_hotspots, find_dead_code, trace_dependencies
+```
+
+### 12. HTTP server (REST API)
+
+```bash
+gitnexus serve --port 3000                         # Start HTTP server
+# Endpoints:
+#   POST /mcp                        — JSON-RPC 2.0 MCP bridge
+#   GET  /health                     — Liveness check
+#   GET  /api/repos                  — List repositories
+#   GET  /api/repos/:name/search?q=  — Search symbols
+#   GET  /api/repos/:name/stats      — Repository statistics
+#   GET  /api/repos/:name/hotspots   — File hotspots
+```
+
+### 13. Validate LLM config
 
 ```bash
 gitnexus config test                              # Check API key + test connection
 ```
 
-### 12. List indexed repos
+### 14. List indexed repos
 
 ```bash
 gitnexus list                                      # Show all indexed repositories
 ```
 
-### 13. Generate documentation
+### 15. Generate documentation
 
 ```bash
 gitnexus generate html --path [path]                    # HTML site (DeepWiki-style)
@@ -131,7 +153,7 @@ gitnexus generate docs --path [path]                    # Markdown pages
 gitnexus generate all --path [path]                     # All formats
 ```
 
-### 14. Trace files (all sources for a feature)
+### 16. Trace files (all sources for a feature)
 
 ```bash
 gitnexus trace-files CourrierController                  # List all related source files
@@ -139,7 +161,7 @@ gitnexus trace-files BenefService --depth 3              # Limit traversal depth
 gitnexus trace-files CourrierController --json           # JSON output
 ```
 
-### 15. Generate diagrams
+### 17. Generate diagrams
 
 ```bash
 gitnexus diagram CourrierController --type flowchart     # Call flow organigramme
@@ -148,7 +170,7 @@ gitnexus diagram BeneficiaireController --type class     # Class diagram with me
 gitnexus diagram CourrierController --output flow.md     # Write to file
 ```
 
-### 16. Import execution traces
+### 18. Import execution traces
 
 ```bash
 gitnexus trace-import D:\logs\production.log             # Enrich graph with runtime data
@@ -195,10 +217,30 @@ Key relationships in the graph:
 - `DependsOn`, `RendersComponent`, `IncludesScript` — UI dependencies
 - `HasAssociation`, `HasNavigationProperty` — data model links
 
+## Code quality metrics (computed during analysis)
+
+- **Cyclomatic complexity (CC)**: Counted per Method/Function/Constructor via tree-sitter AST (if, for, while, switch case, &&, ||, catch, ternary). Shown in health reports and desktop hover cards.
+- **Dead code detection**: Methods with 0 incoming Calls edges (excludes constructors, tests, entry points, interface methods, JS in views)
+- **Circular dependencies**: DFS on file-level imports/DependsOn edges
+- **Layer violations**: Detects Presentation → Data bypassing Business layer (ASP.NET)
+- **Tracing coverage**: StackLogger.BeginMethodScope() detection
+
+## Desktop app (Tauri v2 + React 19)
+
+```bash
+# Launch (two terminals):
+cd crates/gitnexus-desktop/ui && npm run dev    # Frontend (Vite)
+cd crates/gitnexus-desktop && cargo tauri dev    # Backend (Tauri)
+```
+
+Features: Sigma.js WebGL graph (ForceAtlas2), fuzzy search, navigation history (Alt+←/→), breadcrumbs, impact overlay, code snippet preview, Cypher panel, coverage/diagram/report views, PNG export (Ctrl+E), dark/light theme.
+
 ## Tips
 
 - The `.gitnexus/` directory in the repo root contains the serialized graph (`graph.bin`)
 - Supports 14 languages: JS, TS, Python, Java, C, C++, C#, Go, Rust, Ruby, PHP, Kotlin, Swift, Razor
+- Skips `obj/`, `bin/`, `node_modules/`, `packages/` directories during analysis
 - For ASP.NET MVC projects: controllers, views, EF6 entities, Telerik grids, jQuery AJAX are all in the graph
 - Cypher supports: MATCH, WHERE (=, <>, !=, CONTAINS, STARTS WITH, ENDS WITH, AND, OR, NOT), RETURN DISTINCT, count(), ORDER BY, LIMIT
 - All `--json` flags output machine-readable JSON
+- Graph nodes sorted by importance (connectivity + entry point score + exported/traced status)

@@ -335,7 +335,6 @@ export function CommandPalette() {
               if (items.length === 0) return null;
               return (
                 <Command.Group key={group} heading={group} style={{ marginBottom: 4 }}>
-                  <div style={GROUP_HEADING_STYLE} aria-hidden="true" />
                   {items.map((item) => (
                     <CommandItem
                       key={item.id}

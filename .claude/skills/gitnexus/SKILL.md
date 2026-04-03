@@ -125,6 +125,7 @@ gitnexus mcp                                       # Start MCP server (stdio, JS
 
 ```bash
 gitnexus serve --port 3000                         # Start HTTP server
+gitnexus serve --port 3000 --host 0.0.0.0          # Expose on all interfaces
 # Endpoints:
 #   POST /mcp                        — JSON-RPC 2.0 MCP bridge
 #   GET  /health                     — Liveness check

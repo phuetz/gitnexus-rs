@@ -13,10 +13,10 @@ const ZOOM_LEVELS: { id: ZoomLevel; i18nKey: string }[] = [
 ];
 
 const LAYOUTS = [
-  { id: "cose", label: "Force" },
+  { id: "forceatlas2", label: "Force" },
   { id: "grid", label: "Grid" },
   { id: "circle", label: "Circle" },
-  { id: "breadthfirst", label: "Tree" },
+  { id: "random", label: "Random" },
 ];
 
 export function GraphToolbar({

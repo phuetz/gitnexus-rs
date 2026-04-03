@@ -47,7 +47,7 @@ export function GraphExplorer() {
   );
   const [depthFilter, setDepthFilter] = useState<number | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [layout, setLayout] = useState("force");
+  const [layout, setLayout] = useState("forceatlas2");
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<{
@@ -317,7 +317,7 @@ export function GraphExplorer() {
   useEffect(() => {
     const onFit = () => fitView();
     const onCycle = () => {
-      const layouts = ["force", "grid", "circle", "breadthfirst"];
+      const layouts = ["forceatlas2", "grid", "circle", "random"];
       const idx = layouts.indexOf(layout);
       const next = layouts[(idx + 1) % layouts.length];
       setLayout(next);

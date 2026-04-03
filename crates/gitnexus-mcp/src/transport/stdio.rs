@@ -100,6 +100,13 @@ impl StdioTransport {
             .parse()
             .map_err(|_| McpError::Transport(format!("Invalid Content-Length value: {length_str}")))?;
 
+        const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
+        if length > MAX_MESSAGE_SIZE {
+            return Err(McpError::Transport(format!(
+                "Content-Length {length} exceeds maximum allowed size of {MAX_MESSAGE_SIZE} bytes"
+            )));
+        }
+
         // Read the blank line separator
         let mut blank = String::new();
         self.reader

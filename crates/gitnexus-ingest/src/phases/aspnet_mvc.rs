@@ -1035,315 +1035,17 @@ pub fn enrich_aspnet_mvc(
     // ──────────────────────────────────────────────────────────────────────
     // Pass 9: Telerik/Kendo UI components
     // ──────────────────────────────────────────────────────────────────────
-
-    // 9a: Extract from .cshtml view files
-    for entry in &view_files {
-        let view_id = format!("View:{}", entry.path);
-        let components = extract_telerik_components(&entry.content);
-
-        for comp in &components {
-            let comp_id = format!(
-                "UiComponent:{}:{}:{}",
-                entry.path, comp.component_type, comp.line_number
-            );
-
-            let col_desc = if comp.columns.is_empty() {
-                None
-            } else {
-                Some(comp.columns.iter().map(|c| {
-                    let title = c.title.as_deref().unwrap_or(&c.property_name);
-                    if c.has_client_template { format!("{}*", title) } else { title.to_string() }
-                }).collect::<Vec<_>>().join(", "))
-            };
-
-            graph.add_node(GraphNode {
-                id: comp_id.clone(),
-                label: NodeLabel::UiComponent,
-                properties: NodeProperties {
-                    name: format!("{}.{}", comp.vendor, comp.component_type),
-                    file_path: entry.path.clone(),
-                    start_line: Some(comp.line_number),
-                    component_type: Some(format!("{}.{}", comp.vendor, comp.component_type)),
-                    bound_model: comp.model_type.clone(),
-                    description: col_desc,
-                    ..Default::default()
-                },
-            });
-
-            // View → RendersComponent → UiComponent
-            graph.add_relationship(GraphRelationship {
-                id: format!(
-                    "renders_comp:{}:{}:{}",
-                    entry.path, comp.component_type, comp.line_number
-                ),
-                source_id: view_id.clone(),
-                target_id: comp_id.clone(),
-                rel_type: RelationshipType::RendersComponent,
-                confidence: 1.0,
-                reason: format!("{}_{}", comp.vendor.to_lowercase(), comp.component_type),
-                step: None,
-            });
-
-            // DataSource actions → link UiComponent → ControllerAction
-            for ds_action in &comp.data_source_actions {
-                if let Some((action_node_id, confidence)) = resolve_action_node_id(
-                    &all_controllers,
-                    &ds_action.controller_name,
-                    &ds_action.action_name,
-                ) {
-                    graph.add_relationship(GraphRelationship {
-                        id: format!(
-                            "ds_action:{}:{}:{}:{}",
-                            entry.path,
-                            comp.component_type,
-                            ds_action.controller_name,
-                            ds_action.action_name
-                        ),
-                        source_id: comp_id.clone(),
-                        target_id: action_node_id,
-                        rel_type: RelationshipType::CallsAction,
-                        confidence,
-                        reason: format!("datasource_{}", ds_action.operation.to_lowercase()),
-                        step: None,
-                    });
-                }
-            }
-
-            stats.ui_components += 1;
-        }
-    }
-
-    // 9b: Extract Kendo jQuery widgets from .js files
-    for entry in &js_files {
-        let script_id = format!("ScriptFile:{}", entry.path);
-        let components = extract_telerik_components(&entry.content);
-
-        for comp in &components {
-            let comp_id = format!(
-                "UiComponent:{}:{}:{}",
-                entry.path, comp.component_type, comp.line_number
-            );
-
-            graph.add_node(GraphNode {
-                id: comp_id.clone(),
-                label: NodeLabel::UiComponent,
-                properties: NodeProperties {
-                    name: format!("{}.{}", comp.vendor, comp.component_type),
-                    file_path: entry.path.clone(),
-                    start_line: Some(comp.line_number),
-                    component_type: Some(format!("{}.{}", comp.vendor, comp.component_type)),
-                    bound_model: comp.model_type.clone(),
-                    ..Default::default()
-                },
-            });
-
-            // ScriptFile → RendersComponent → UiComponent
-            graph.add_relationship(GraphRelationship {
-                id: format!(
-                    "renders_comp:{}:{}:{}",
-                    entry.path, comp.component_type, comp.line_number
-                ),
-                source_id: script_id.clone(),
-                target_id: comp_id.clone(),
-                rel_type: RelationshipType::RendersComponent,
-                confidence: 1.0,
-                reason: format!("jquery_{}", comp.component_type.to_lowercase()),
-                step: None,
-            });
-
-            // DataSource actions → link UiComponent → ControllerAction
-            for ds_action in &comp.data_source_actions {
-                if let Some((action_node_id, confidence)) = resolve_action_node_id(
-                    &all_controllers,
-                    &ds_action.controller_name,
-                    &ds_action.action_name,
-                ) {
-                    graph.add_relationship(GraphRelationship {
-                        id: format!(
-                            "ds_action:{}:{}:{}:{}",
-                            entry.path,
-                            comp.component_type,
-                            ds_action.controller_name,
-                            ds_action.action_name
-                        ),
-                        source_id: comp_id.clone(),
-                        target_id: action_node_id,
-                        rel_type: RelationshipType::CallsAction,
-                        confidence,
-                        reason: format!("datasource_{}", ds_action.operation.to_lowercase()),
-                        step: None,
-                    });
-                }
-            }
-
-            stats.ui_components += 1;
-        }
-    }
+    run_pass_9_telerik_components(graph, &mut stats, &view_files, &js_files, &all_controllers);
 
     // ──────────────────────────────────────────────────────────────────────
     // Pass 10: Service/Repository layer detection
     // ──────────────────────────────────────────────────────────────────────
-
-    // Map from class name → node ID for services/repositories for dependency linking
-    let mut service_map: HashMap<String, String> = HashMap::new();
-    // Map from interface name → node ID for interface → service resolution
-    let mut interface_to_service: HashMap<String, String> = HashMap::new();
-
-    // 10a: Extract services and repositories from all .cs files
-    for entry in &cs_files {
-        let services = extract_services_and_repositories(&entry.content);
-
-        for svc in &services {
-            let label = if svc.layer_type == "Repository" {
-                NodeLabel::Repository
-            } else {
-                NodeLabel::Service
-            };
-
-            let svc_id = format!("{}:{}:{}", svc.layer_type, entry.path, svc.class_name);
-
-            graph.add_node(GraphNode {
-                id: svc_id.clone(),
-                label,
-                properties: NodeProperties {
-                    name: svc.class_name.clone(),
-                    file_path: entry.path.clone(),
-                    layer_type: Some(svc.layer_type.clone()),
-                    implements_interface: svc.implements_interface.clone(),
-                    ..Default::default()
-                },
-            });
-
-            service_map.insert(svc.class_name.clone(), svc_id.clone());
-
-            // Create Interface node and Implements relationship if an interface is present
-            if let Some(iface_name) = &svc.implements_interface {
-                let iface_id = format!("Interface:{}:{}", entry.path, iface_name);
-
-                if graph.get_node(&iface_id).is_none() {
-                    graph.add_node(GraphNode {
-                        id: iface_id.clone(),
-                        label: NodeLabel::Interface,
-                        properties: NodeProperties {
-                            name: iface_name.clone(),
-                            file_path: entry.path.clone(),
-                            ..Default::default()
-                        },
-                    });
-                }
-
-                graph.add_relationship(GraphRelationship {
-                    id: format!("implements:{}:{}", svc.class_name, iface_name),
-                    source_id: svc_id.clone(),
-                    target_id: iface_id.clone(),
-                    rel_type: RelationshipType::Implements,
-                    confidence: 1.0,
-                    reason: "class_implements".to_string(),
-                    step: None,
-                });
-
-                interface_to_service.insert(iface_name.clone(), svc_id.clone());
-            }
-
-            if svc.layer_type == "Repository" {
-                stats.repositories += 1;
-            } else {
-                stats.services += 1;
-            }
-        }
-    }
-
-    // 10b: Detect constructor dependencies in controllers → DependsOn services/repositories
-    for (file_path, ctrl) in &all_controllers {
-        let ctrl_id = format!("Controller:{}:{}", file_path, ctrl.class_name);
-
-        let content = file_entries
-            .iter()
-            .find(|f| f.path == *file_path)
-            .map(|f| f.content.as_str())
-            .unwrap_or("");
-        let deps = extract_constructor_dependencies(content, &ctrl.class_name);
-
-        for (iface_type, _param_name) in &deps {
-            // Try to resolve via interface → service mapping, then by class name
-            let target_id = interface_to_service
-                .get(iface_type)
-                .cloned()
-                .or_else(|| {
-                    // Try stripping leading 'I' to find matching service by name
-                    let concrete_name = iface_type.strip_prefix('I').unwrap_or(iface_type);
-                    service_map.get(concrete_name).cloned()
-                });
-
-            if let Some(target_id) = target_id {
-                graph.add_relationship(GraphRelationship {
-                    id: format!(
-                        "depends:{}:{}:{}",
-                        ctrl.class_name, iface_type, target_id
-                    ),
-                    source_id: ctrl_id.clone(),
-                    target_id,
-                    rel_type: RelationshipType::DependsOn,
-                    confidence: 0.95,
-                    reason: format!("constructor_injection:{}", iface_type),
-                    step: None,
-                });
-            }
-        }
-    }
+    run_pass_10_services(graph, &mut stats, &cs_files, file_entries, &all_controllers);
 
     // ──────────────────────────────────────────────────────────────────────
     // Pass 11: StackLogger tracing coverage detection
     // ──────────────────────────────────────────────────────────────────────
-
-    let mut total_cs_files: usize = 0;
-
-    for entry in &cs_files {
-        total_cs_files += 1;
-        let tracing_info = extract_tracing_info(&entry.content);
-
-        if tracing_info.is_traced {
-            stats.traced_files += 1;
-            stats.trace_calls += tracing_info.call_count as usize;
-
-            // Find the File node for this .cs file and annotate it with tracing metadata
-            let file_node_id = format!("File:{}", entry.path);
-            if let Some(node) = graph.get_node_mut(&file_node_id) {
-                node.properties.is_traced = Some(true);
-                node.properties.trace_call_count = Some(tracing_info.call_count);
-            }
-
-            // Propagate is_traced to individual Method nodes (from BeginMethodScope detection)
-            for method_name in &tracing_info.traced_methods {
-                let method_id = gitnexus_core::id::generate_id(
-                    "Method",
-                    &format!("{}:{}", entry.path, method_name),
-                );
-                if let Some(method_node) = graph.get_node_mut(&method_id) {
-                    method_node.properties.is_traced = Some(true);
-                }
-                // Also try Constructor label
-                let ctor_id = gitnexus_core::id::generate_id(
-                    "Constructor",
-                    &format!("{}:{}", entry.path, method_name),
-                );
-                if let Some(ctor_node) = graph.get_node_mut(&ctor_id) {
-                    ctor_node.properties.is_traced = Some(true);
-                }
-            }
-        }
-    }
-
-    if total_cs_files > 0 && stats.traced_files > 0 {
-        let coverage_pct = (stats.traced_files as f64 / total_cs_files as f64) * 100.0;
-        tracing::info!(
-            traced_files = stats.traced_files,
-            total_files = total_cs_files,
-            trace_calls = stats.trace_calls,
-            coverage_pct = format!("{:.1}%", coverage_pct),
-            "StackLogger tracing coverage"
-        );
-    }
+    run_pass_11_tracing(graph, &mut stats, &cs_files);
 
     // ──────────────────────────────────────────────────────────────────────
     // Pass 12: External service calls (WebAPI + WCF)
@@ -1486,6 +1188,329 @@ pub fn enrich_aspnet_mvc(
     );
 
     Ok(stats)
+}
+
+// ─── Extracted Pass Functions ────────────────────────────────────────────
+
+/// Pass 9: Telerik/Kendo UI component extraction from views and JS files.
+fn run_pass_9_telerik_components(
+    graph: &mut KnowledgeGraph,
+    stats: &mut AspNetMvcStats,
+    view_files: &[&FileEntry],
+    js_files: &[&FileEntry],
+    all_controllers: &[(String, ControllerInfo)],
+) {
+    // 9a: Extract from .cshtml view files
+    for entry in view_files {
+        let view_id = format!("View:{}", entry.path);
+        let components = extract_telerik_components(&entry.content);
+
+        for comp in &components {
+            let comp_id = format!(
+                "UiComponent:{}:{}:{}",
+                entry.path, comp.component_type, comp.line_number
+            );
+
+            let col_desc = if comp.columns.is_empty() {
+                None
+            } else {
+                Some(
+                    comp.columns
+                        .iter()
+                        .map(|c| {
+                            let title = c.title.as_deref().unwrap_or(&c.property_name);
+                            if c.has_client_template {
+                                format!("{}*", title)
+                            } else {
+                                title.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                )
+            };
+
+            graph.add_node(GraphNode {
+                id: comp_id.clone(),
+                label: NodeLabel::UiComponent,
+                properties: NodeProperties {
+                    name: format!("{}.{}", comp.vendor, comp.component_type),
+                    file_path: entry.path.clone(),
+                    start_line: Some(comp.line_number),
+                    component_type: Some(format!("{}.{}", comp.vendor, comp.component_type)),
+                    bound_model: comp.model_type.clone(),
+                    description: col_desc,
+                    ..Default::default()
+                },
+            });
+
+            graph.add_relationship(GraphRelationship {
+                id: format!(
+                    "renders_comp:{}:{}:{}",
+                    entry.path, comp.component_type, comp.line_number
+                ),
+                source_id: view_id.clone(),
+                target_id: comp_id.clone(),
+                rel_type: RelationshipType::RendersComponent,
+                confidence: 1.0,
+                reason: format!("{}_{}", comp.vendor.to_lowercase(), comp.component_type),
+                step: None,
+            });
+
+            for ds_action in &comp.data_source_actions {
+                if let Some((action_node_id, confidence)) = resolve_action_node_id(
+                    all_controllers,
+                    &ds_action.controller_name,
+                    &ds_action.action_name,
+                ) {
+                    graph.add_relationship(GraphRelationship {
+                        id: format!(
+                            "ds_action:{}:{}:{}:{}",
+                            entry.path,
+                            comp.component_type,
+                            ds_action.controller_name,
+                            ds_action.action_name
+                        ),
+                        source_id: comp_id.clone(),
+                        target_id: action_node_id,
+                        rel_type: RelationshipType::CallsAction,
+                        confidence,
+                        reason: format!("datasource_{}", ds_action.operation.to_lowercase()),
+                        step: None,
+                    });
+                }
+            }
+
+            stats.ui_components += 1;
+        }
+    }
+
+    // 9b: Extract Kendo jQuery widgets from .js files
+    for entry in js_files {
+        let script_id = format!("ScriptFile:{}", entry.path);
+        let components = extract_telerik_components(&entry.content);
+
+        for comp in &components {
+            let comp_id = format!(
+                "UiComponent:{}:{}:{}",
+                entry.path, comp.component_type, comp.line_number
+            );
+
+            graph.add_node(GraphNode {
+                id: comp_id.clone(),
+                label: NodeLabel::UiComponent,
+                properties: NodeProperties {
+                    name: format!("{}.{}", comp.vendor, comp.component_type),
+                    file_path: entry.path.clone(),
+                    start_line: Some(comp.line_number),
+                    component_type: Some(format!("{}.{}", comp.vendor, comp.component_type)),
+                    bound_model: comp.model_type.clone(),
+                    ..Default::default()
+                },
+            });
+
+            graph.add_relationship(GraphRelationship {
+                id: format!(
+                    "renders_comp:{}:{}:{}",
+                    entry.path, comp.component_type, comp.line_number
+                ),
+                source_id: script_id.clone(),
+                target_id: comp_id.clone(),
+                rel_type: RelationshipType::RendersComponent,
+                confidence: 1.0,
+                reason: format!("jquery_{}", comp.component_type.to_lowercase()),
+                step: None,
+            });
+
+            for ds_action in &comp.data_source_actions {
+                if let Some((action_node_id, confidence)) = resolve_action_node_id(
+                    all_controllers,
+                    &ds_action.controller_name,
+                    &ds_action.action_name,
+                ) {
+                    graph.add_relationship(GraphRelationship {
+                        id: format!(
+                            "ds_action:{}:{}:{}:{}",
+                            entry.path,
+                            comp.component_type,
+                            ds_action.controller_name,
+                            ds_action.action_name
+                        ),
+                        source_id: comp_id.clone(),
+                        target_id: action_node_id,
+                        rel_type: RelationshipType::CallsAction,
+                        confidence,
+                        reason: format!("datasource_{}", ds_action.operation.to_lowercase()),
+                        step: None,
+                    });
+                }
+            }
+
+            stats.ui_components += 1;
+        }
+    }
+}
+
+/// Pass 10: Service/Repository layer detection and constructor dependency injection.
+fn run_pass_10_services(
+    graph: &mut KnowledgeGraph,
+    stats: &mut AspNetMvcStats,
+    cs_files: &[&FileEntry],
+    file_entries: &[FileEntry],
+    all_controllers: &[(String, ControllerInfo)],
+) {
+    let mut service_map: HashMap<String, String> = HashMap::new();
+    let mut interface_to_service: HashMap<String, String> = HashMap::new();
+
+    // 10a: Extract services and repositories from all .cs files
+    for entry in cs_files {
+        let services = extract_services_and_repositories(&entry.content);
+
+        for svc in &services {
+            let label = if svc.layer_type == "Repository" {
+                NodeLabel::Repository
+            } else {
+                NodeLabel::Service
+            };
+
+            let svc_id = format!("{}:{}:{}", svc.layer_type, entry.path, svc.class_name);
+
+            graph.add_node(GraphNode {
+                id: svc_id.clone(),
+                label,
+                properties: NodeProperties {
+                    name: svc.class_name.clone(),
+                    file_path: entry.path.clone(),
+                    layer_type: Some(svc.layer_type.clone()),
+                    implements_interface: svc.implements_interface.clone(),
+                    ..Default::default()
+                },
+            });
+
+            service_map.insert(svc.class_name.clone(), svc_id.clone());
+
+            if let Some(iface_name) = &svc.implements_interface {
+                let iface_id = format!("Interface:{}:{}", entry.path, iface_name);
+
+                if graph.get_node(&iface_id).is_none() {
+                    graph.add_node(GraphNode {
+                        id: iface_id.clone(),
+                        label: NodeLabel::Interface,
+                        properties: NodeProperties {
+                            name: iface_name.clone(),
+                            file_path: entry.path.clone(),
+                            ..Default::default()
+                        },
+                    });
+                }
+
+                graph.add_relationship(GraphRelationship {
+                    id: format!("implements:{}:{}", svc.class_name, iface_name),
+                    source_id: svc_id.clone(),
+                    target_id: iface_id.clone(),
+                    rel_type: RelationshipType::Implements,
+                    confidence: 1.0,
+                    reason: "class_implements".to_string(),
+                    step: None,
+                });
+
+                interface_to_service.insert(iface_name.clone(), svc_id.clone());
+            }
+
+            if svc.layer_type == "Repository" {
+                stats.repositories += 1;
+            } else {
+                stats.services += 1;
+            }
+        }
+    }
+
+    // 10b: Detect constructor dependencies in controllers → DependsOn services/repositories
+    for (file_path, ctrl) in all_controllers {
+        let ctrl_id = format!("Controller:{}:{}", file_path, ctrl.class_name);
+
+        let content = file_entries
+            .iter()
+            .find(|f| f.path == *file_path)
+            .map(|f| f.content.as_str())
+            .unwrap_or("");
+        let deps = extract_constructor_dependencies(content, &ctrl.class_name);
+
+        for (iface_type, _param_name) in &deps {
+            let target_id = interface_to_service.get(iface_type).cloned().or_else(|| {
+                let concrete_name = iface_type.strip_prefix('I').unwrap_or(iface_type);
+                service_map.get(concrete_name).cloned()
+            });
+
+            if let Some(target_id) = target_id {
+                graph.add_relationship(GraphRelationship {
+                    id: format!(
+                        "depends:{}:{}:{}",
+                        ctrl.class_name, iface_type, target_id
+                    ),
+                    source_id: ctrl_id.clone(),
+                    target_id,
+                    rel_type: RelationshipType::DependsOn,
+                    confidence: 0.95,
+                    reason: format!("constructor_injection:{}", iface_type),
+                    step: None,
+                });
+            }
+        }
+    }
+}
+
+/// Pass 11: StackLogger tracing coverage detection and propagation.
+fn run_pass_11_tracing(
+    graph: &mut KnowledgeGraph,
+    stats: &mut AspNetMvcStats,
+    cs_files: &[&FileEntry],
+) {
+    let mut total_cs_files: usize = 0;
+
+    for entry in cs_files {
+        total_cs_files += 1;
+        let tracing_info = extract_tracing_info(&entry.content);
+
+        if tracing_info.is_traced {
+            stats.traced_files += 1;
+            stats.trace_calls += tracing_info.call_count as usize;
+
+            let file_node_id = format!("File:{}", entry.path);
+            if let Some(node) = graph.get_node_mut(&file_node_id) {
+                node.properties.is_traced = Some(true);
+                node.properties.trace_call_count = Some(tracing_info.call_count);
+            }
+
+            for method_name in &tracing_info.traced_methods {
+                let method_id = gitnexus_core::id::generate_id(
+                    "Method",
+                    &format!("{}:{}", entry.path, method_name),
+                );
+                if let Some(method_node) = graph.get_node_mut(&method_id) {
+                    method_node.properties.is_traced = Some(true);
+                }
+                let ctor_id = gitnexus_core::id::generate_id(
+                    "Constructor",
+                    &format!("{}:{}", entry.path, method_name),
+                );
+                if let Some(ctor_node) = graph.get_node_mut(&ctor_id) {
+                    ctor_node.properties.is_traced = Some(true);
+                }
+            }
+        }
+    }
+
+    if total_cs_files > 0 && stats.traced_files > 0 {
+        let coverage_pct = (stats.traced_files as f64 / total_cs_files as f64) * 100.0;
+        tracing::info!(
+            traced_files = stats.traced_files,
+            total_files = total_cs_files,
+            trace_calls = stats.trace_calls,
+            coverage_pct = format!("{:.1}%", coverage_pct),
+            "StackLogger tracing coverage"
+        );
+    }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────

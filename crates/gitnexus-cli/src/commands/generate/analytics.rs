@@ -72,7 +72,7 @@ pub(super) fn generate_git_analytics_pages(docs_dir: &Path, repo_path: &Path) ->
     }
 
     // ── Temporal Coupling ──
-    match gitnexus_git::coupling::analyze_coupling(repo_path, 3) {
+    match gitnexus_git::coupling::analyze_coupling(repo_path, 3, Some(180)) {
         Ok(couplings) if !couplings.is_empty() => {
             let out_path = docs_dir.join("coupling.md");
             let mut f = std::fs::File::create(&out_path)?;

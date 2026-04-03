@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderValue, Method, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -41,7 +41,16 @@ pub fn mcp_http_router(backend: SharedBackend) -> Router {
         .route("/api/repos/{name}/search", get(search_handler))
         .route("/api/repos/{name}/stats", get(stats_handler))
         .route("/api/repos/{name}/hotspots", get(hotspots_handler))
-        .layer(CorsLayer::permissive())
+        .layer(
+            CorsLayer::new()
+                .allow_origin([
+                    "http://localhost".parse::<HeaderValue>().unwrap(),
+                    "http://127.0.0.1".parse::<HeaderValue>().unwrap(),
+                    "http://localhost:1420".parse::<HeaderValue>().unwrap(),
+                ])
+                .allow_methods([Method::GET, Method::POST])
+                .allow_headers(tower_http::cors::Any),
+        )
         .with_state(backend)
 }
 

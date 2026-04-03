@@ -20,7 +20,6 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-bincode = "1"
 kuzu = { workspace = true, optional = true }
 
 [build-dependencies]

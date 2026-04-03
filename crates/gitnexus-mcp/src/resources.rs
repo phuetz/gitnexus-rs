@@ -193,6 +193,9 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
             "files" => {
                 // gitnexus://repos/{repo}/files/{path}
                 let file_path = parts.get(2).copied().unwrap_or("");
+                if file_path.contains("..") {
+                    return None;
+                }
                 let node = graph.iter_nodes().find(|n| {
                     n.label == NodeLabel::File && n.properties.file_path == file_path
                 });

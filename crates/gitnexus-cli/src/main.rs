@@ -46,6 +46,9 @@ enum Commands {
         /// Port to listen on
         #[arg(short, long, default_value = "3000")]
         port: u16,
+        /// Host address to bind (default: 127.0.0.1)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
     },
     /// List indexed repositories
     List,
@@ -286,7 +289,7 @@ async fn main() -> anyhow::Result<()> {
             commands::analyze::run(&path, force, embeddings, verbose, skip_git, incremental).await
         }
         Commands::Mcp => commands::mcp::run().await,
-        Commands::Serve { port } => commands::serve::run(port).await,
+        Commands::Serve { port, host } => commands::serve::run(port, &host).await,
         Commands::List => commands::list::run(),
         Commands::Status => commands::status::run(),
         Commands::Clean { force, all } => commands::clean::run(force, all),

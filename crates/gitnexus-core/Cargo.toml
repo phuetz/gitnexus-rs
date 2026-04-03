@@ -7,13 +7,11 @@ rust-version.workspace = true
 description = "Core types, graph, symbol table, and resolution for GitNexus"
 
 [dependencies]
-gitnexus-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 regex.workspace = true
-bincode = "1"
 toml.workspace = true
 tracing.workspace = true
 

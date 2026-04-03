@@ -40,19 +40,19 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
 
     // Git analytics
     let hotspots = gitnexus_git::hotspots::analyze_hotspots(&repo_path, 90).unwrap_or_default();
-    let couplings = gitnexus_git::coupling::analyze_coupling(&repo_path, 3).unwrap_or_default();
+    let couplings = gitnexus_git::coupling::analyze_coupling(&repo_path, 3, Some(180)).unwrap_or_default();
     let ownerships = gitnexus_git::ownership::analyze_ownership(&repo_path).unwrap_or_default();
 
-    // Compute score (0-100)
-    let mut score: f64 = 70.0;
+    // Compute score (0-100); healthy projects score ~85-95
+    let mut score: f64 = 100.0;
 
     // Penalize for high-churn hotspots
     let hot_files = hotspots.iter().filter(|h| h.score > 0.7).count();
-    score -= (hot_files as f64) * 2.0;
+    score -= (hot_files as f64) * 3.0;
 
     // Penalize for strong coupling
     let strong_couples = couplings.iter().filter(|c| c.coupling_strength > 0.7).count();
-    score -= (strong_couples as f64) * 1.5;
+    score -= (strong_couples as f64) * 2.0;
 
     // Penalize for low ownership
     let orphan_files = ownerships.iter().filter(|o| o.ownership_pct < 50.0).count();
@@ -134,11 +134,11 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
     println!();
 
     // Hotspots
-    println!("  {} Hotspots (90 jours)", "─".repeat(20).dimmed());
+    println!("  {} Hotspots (90 days)", "─".repeat(20).dimmed());
     if hotspots.is_empty() {
         println!("    No git history available");
     } else {
-        println!("    {} fichiers analysés, {} fichiers à risque (score > 70%)",
+        println!("    {} files analyzed, {} high-risk files (score > 70%)",
             hotspots.len(), hot_files);
         for h in hotspots.iter().take(5) {
             let bar = "█".repeat((h.score * 10.0) as usize);
@@ -153,7 +153,7 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
     if couplings.is_empty() {
         println!("    No coupling data available");
     } else {
-        println!("    {} paires détectées, {} fortement couplées (>70%)",
+        println!("    {} pairs detected, {} highly coupled (>70%)",
             couplings.len(), strong_couples);
         for c in couplings.iter().take(5) {
             println!("    {:.0}%  {} <-> {}",
@@ -169,7 +169,7 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
     if ownerships.is_empty() {
         println!("    No ownership data available");
     } else {
-        println!("    {} fichiers analysés, {} sans propriétaire clair (<50%)",
+        println!("    {} files analyzed, {} without clear ownership (<50%)",
             ownerships.len(), orphan_files);
         // Show top orphans
         let mut orphans: Vec<_> = ownerships.iter()

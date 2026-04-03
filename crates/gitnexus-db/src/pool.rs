@@ -82,16 +82,18 @@ impl ConnectionPool {
     }
 
     /// Disconnect and remove a connection from the pool.
+    ///
+    /// Calls `close()` on the adapter if this pool holds the last reference.
     pub fn disconnect(&self, db_path: &Path) -> Result<()> {
         let canonical = db_path
             .canonicalize()
             .unwrap_or_else(|_| db_path.to_path_buf());
 
-        if let Some((path, _adapter)) = self.connections.remove(&canonical) {
+        if let Some((path, adapter)) = self.connections.remove(&canonical) {
             info!("ConnectionPool: disconnected {}", path.display());
-            // The Arc<DbAdapter> will be dropped when all references are released.
-            // Since DbAdapter doesn't implement Drop with close(), callers should
-            // call adapter.close() before disconnect if needed.
+            if let Ok(mut adapter) = Arc::try_unwrap(adapter) {
+                let _ = adapter.close();
+            }
         }
         Ok(())
     }

@@ -55,6 +55,8 @@ impl KnowledgeGraph {
                     self.file_index.remove(&node.properties.file_path);
                 }
             }
+            // Remove dangling relationships that reference this node
+            self.relationships.retain(|_, rel| rel.source_id != id && rel.target_id != id);
             true
         } else {
             false

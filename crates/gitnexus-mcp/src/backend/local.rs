@@ -2,11 +2,14 @@
 //! to the appropriate handler.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 use serde_json::{json, Value};
 use std::time::Instant;
 use tracing::info;
 
 use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
+use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::storage::repo_manager::{self, RegistryEntry};
 use gitnexus_db::pool::ConnectionPool;
 use gitnexus_db::query;
@@ -18,6 +21,8 @@ use crate::hints;
 pub struct LocalBackend {
     pool: ConnectionPool,
     registry: Vec<RegistryEntry>,
+    /// Cached snapshots keyed by absolute snapshot path, shared across tool calls.
+    snapshot_cache: HashMap<PathBuf, Arc<KnowledgeGraph>>,
 }
 
 impl LocalBackend {
@@ -26,7 +31,21 @@ impl LocalBackend {
         Self {
             pool: ConnectionPool::new(),
             registry: Vec::new(),
+            snapshot_cache: HashMap::new(),
         }
+    }
+
+    /// Load a snapshot from disk, returning a cached `Arc<KnowledgeGraph>` if already loaded.
+    fn load_cached_snapshot(&mut self, snap_path: &std::path::Path) -> Result<Arc<KnowledgeGraph>> {
+        let key = snap_path.to_path_buf();
+        if let Some(cached) = self.snapshot_cache.get(&key) {
+            return Ok(Arc::clone(cached));
+        }
+        let graph = gitnexus_db::snapshot::load_snapshot(snap_path)
+            .map_err(|e| McpError::Internal(format!("Failed to load graph: {e}")))?;
+        let arc = Arc::new(graph);
+        self.snapshot_cache.insert(key, Arc::clone(&arc));
+        Ok(arc)
     }
 
     /// Initialize the backend: load the global registry and discover repos.
@@ -553,7 +572,7 @@ impl LocalBackend {
         let entry = self.resolve_repo(repo_name)?;
         let repo_path = std::path::Path::new(&entry.path);
 
-        let mut couplings = gitnexus_git::coupling::analyze_coupling(repo_path, min_shared)
+        let mut couplings = gitnexus_git::coupling::analyze_coupling(repo_path, min_shared, Some(180))
             .map_err(|e| McpError::Internal(e.to_string()))?;
 
         couplings.truncate(limit);
@@ -608,15 +627,16 @@ impl LocalBackend {
         }))
     }
 
-    async fn tool_coverage(&self, args: &Value) -> Result<Value> {
+    async fn tool_coverage(&mut self, args: &Value) -> Result<Value> {
         let repo_name = args.get("repo").and_then(|v| v.as_str());
         let target = args.get("target").and_then(|v| v.as_str());
 
-        let entry = self.resolve_repo(repo_name)?;
-        let snap_path = std::path::Path::new(&entry.storage_path).join("graph.bin");
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
 
-        let graph = gitnexus_db::snapshot::load_snapshot(&snap_path)
-            .map_err(|e| McpError::Internal(format!("Failed to load graph: {e}")))?;
+        let graph = self.load_cached_snapshot(&snap_path)?;
 
         // Build incoming calls index
         let mut incoming_calls: HashMap<String, Vec<String>> = HashMap::new();
@@ -696,7 +716,7 @@ impl LocalBackend {
         }))
     }
 
-    async fn tool_diagram(&self, args: &Value) -> Result<Value> {
+    async fn tool_diagram(&mut self, args: &Value) -> Result<Value> {
         let target = args
             .get("target")
             .and_then(|v| v.as_str())
@@ -708,11 +728,12 @@ impl LocalBackend {
         let repo_name = args.get("repo").and_then(|v| v.as_str());
         let diagram_type = args.get("type").and_then(|v| v.as_str()).unwrap_or("flowchart");
 
-        let entry = self.resolve_repo(repo_name)?;
-        let snap_path = std::path::Path::new(&entry.storage_path).join("graph.bin");
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
 
-        let graph = gitnexus_db::snapshot::load_snapshot(&snap_path)
-            .map_err(|e| McpError::Internal(format!("Failed to load graph: {e}")))?;
+        let graph = self.load_cached_snapshot(&snap_path)?;
 
         // Find the target symbol
         let target_lower = target.to_lowercase();
@@ -739,13 +760,15 @@ impl LocalBackend {
         let node_name = &start_node.properties.name;
         lines.push(format!("    {}[\"{}\"]", sanitize_mermaid_id(node_id), node_name));
 
+        // Pre-build set of child IDs to avoid O(E^2) inner loop
+        let child_ids: std::collections::HashSet<&str> = graph.iter_relationships()
+            .filter(|r| r.source_id == *node_id && matches!(r.rel_type, RelationshipType::HasMethod | RelationshipType::HasAction))
+            .map(|r| r.target_id.as_str())
+            .collect();
+
         // Find methods and their calls
         for rel in graph.iter_relationships() {
-            if &rel.source_id == node_id || graph.iter_relationships().any(|parent|
-                parent.source_id == *node_id
-                && parent.target_id == rel.source_id
-                && matches!(parent.rel_type, RelationshipType::HasMethod | RelationshipType::HasAction)
-            ) {
+            if &rel.source_id == node_id || child_ids.contains(rel.source_id.as_str()) {
                 if matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
                     if let Some(target_node) = graph.get_node(&rel.target_id) {
                         let src_name = graph.get_node(&rel.source_id)
@@ -792,14 +815,18 @@ impl LocalBackend {
         }))
     }
 
-    async fn tool_report(&self, args: &Value) -> Result<Value> {
+    async fn tool_report(&mut self, args: &Value) -> Result<Value> {
         let repo_name = args.get("repo").and_then(|v| v.as_str());
-        let entry = self.resolve_repo(repo_name)?;
-        let repo_path = std::path::Path::new(&entry.path);
-        let snap_path = std::path::Path::new(&entry.storage_path).join("graph.bin");
+        let (repo_path, snap_path) = {
+            let entry = self.resolve_repo(repo_name)?;
+            (
+                std::path::PathBuf::from(&entry.path),
+                std::path::Path::new(&entry.storage_path).join("graph.bin"),
+            )
+        };
+        let repo_path = repo_path.as_path();
 
-        let graph = gitnexus_db::snapshot::load_snapshot(&snap_path)
-            .map_err(|e| McpError::Internal(format!("Failed to load graph: {e}")))?;
+        let graph = self.load_cached_snapshot(&snap_path)?;
 
         let node_count = graph.iter_nodes().count();
         let edge_count = graph.iter_relationships().count();
@@ -810,15 +837,15 @@ impl LocalBackend {
 
         // Git analytics
         let hotspots = gitnexus_git::hotspots::analyze_hotspots(repo_path, 90).unwrap_or_default();
-        let couplings = gitnexus_git::coupling::analyze_coupling(repo_path, 3).unwrap_or_default();
+        let couplings = gitnexus_git::coupling::analyze_coupling(repo_path, 3, Some(180)).unwrap_or_default();
         let ownerships = gitnexus_git::ownership::analyze_ownership(repo_path).unwrap_or_default();
 
-        // Compute health score (0-100)
-        let mut score: f64 = 70.0;
+        // Compute health score (0-100); healthy projects score ~85-95
+        let mut score: f64 = 100.0;
         let hot_files = hotspots.iter().filter(|h| h.score > 0.7).count();
-        score -= (hot_files as f64) * 2.0;
+        score -= (hot_files as f64) * 3.0;
         let strong_couples = couplings.iter().filter(|c| c.coupling_strength > 0.7).count();
-        score -= (strong_couples as f64) * 1.5;
+        score -= (strong_couples as f64) * 2.0;
         let orphan_files = ownerships.iter().filter(|o| o.ownership_pct < 50.0).count();
         score -= (orphan_files as f64) * 0.5;
         score = score.clamp(0.0, 100.0);

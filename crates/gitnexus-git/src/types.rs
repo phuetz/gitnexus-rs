@@ -41,6 +41,6 @@ pub struct FileOwnership {
 pub struct AuthorContribution {
     pub name: String,
     pub email: String,
-    pub lines: u32,
+    pub commits: u32,
     pub pct: f64,
 }

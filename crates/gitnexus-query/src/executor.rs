@@ -730,9 +730,12 @@ fn eval_binary_op(left: &Value, op: BinaryOperator, right: &Value) -> Result<Val
         BinaryOperator::RegexMatch => {
             match (left, right) {
                 (Value::String(text), Value::String(pattern)) => {
-                    let re = regex::Regex::new(pattern).map_err(|e| {
-                        ExecutionError::TypeError(format!("Invalid regex: {e}"))
-                    })?;
+                    let re = regex::RegexBuilder::new(pattern)
+                        .size_limit(1 << 20)
+                        .build()
+                        .map_err(|e| {
+                            ExecutionError::TypeError(format!("Invalid regex: {e}"))
+                        })?;
                     Ok(Value::Bool(re.is_match(text)))
                 }
                 _ => Ok(Value::Bool(false)),

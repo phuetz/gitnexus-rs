@@ -315,7 +315,7 @@ export interface GitCoupling {
 export interface GitAuthorContribution {
   name: string;
   email: string;
-  lines: number;
+  commits: number;
   pct: number;
 }
 

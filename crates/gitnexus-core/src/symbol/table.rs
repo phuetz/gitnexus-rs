@@ -1,24 +1,25 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::definition::SymbolDefinition;
 
 /// Symbol table with multiple indexes for fast lookup during resolution.
 ///
 /// Mirrors the TypeScript SymbolTable with 4 indexes:
-/// 1. File index: file_path → name → Vec<SymbolDefinition>
-/// 2. Global index: name → Vec<SymbolDefinition>
-/// 3. Callable index (lazy): name → Vec<SymbolDefinition> (only Function/Method/Constructor)
-/// 4. Field-by-owner: "ownerNodeId\0fieldName" → SymbolDefinition
+/// 1. File index: file_path → name → Vec<Arc<SymbolDefinition>>
+/// 2. Global index: name → Vec<Arc<SymbolDefinition>>
+/// 3. Callable index (lazy): name → Vec<Arc<SymbolDefinition>> (only Function/Method/Constructor)
+/// 4. Field-by-owner: "ownerNodeId\0fieldName" → Arc<SymbolDefinition>
 #[derive(Debug, Default)]
 pub struct SymbolTable {
-    /// file_path → (name → Vec<SymbolDefinition>)
-    file_index: HashMap<String, HashMap<String, Vec<SymbolDefinition>>>,
-    /// name → Vec<SymbolDefinition> (all files)
-    global_index: HashMap<String, Vec<SymbolDefinition>>,
-    /// "ownerNodeId\0fieldName" → SymbolDefinition
-    field_by_owner: HashMap<String, SymbolDefinition>,
+    /// file_path → (name → Vec<Arc<SymbolDefinition>>)
+    file_index: HashMap<String, HashMap<String, Vec<Arc<SymbolDefinition>>>>,
+    /// name → Vec<Arc<SymbolDefinition>> (all files)
+    global_index: HashMap<String, Vec<Arc<SymbolDefinition>>>,
+    /// "ownerNodeId\0fieldName" → Arc<SymbolDefinition>
+    field_by_owner: HashMap<String, Arc<SymbolDefinition>>,
     /// Callable-only index (lazy, built on first access)
-    callable_index: Option<HashMap<String, Vec<SymbolDefinition>>>,
+    callable_index: Option<HashMap<String, Vec<Arc<SymbolDefinition>>>>,
 }
 
 impl SymbolTable {
@@ -31,29 +32,31 @@ impl SymbolTable {
         // Invalidate callable index cache
         self.callable_index = None;
 
+        let arc = Arc::new(def);
+
         // File index
         self.file_index
-            .entry(def.file_path.clone())
+            .entry(arc.file_path.clone())
             .or_default()
             .entry(name.clone())
             .or_default()
-            .push(def.clone());
+            .push(Arc::clone(&arc));
 
         // Global index
         self.global_index
             .entry(name)
             .or_default()
-            .push(def);
+            .push(arc);
     }
 
     /// Register a field/property owned by a class/struct.
     pub fn add_field(&mut self, owner_id: &str, field_name: &str, def: SymbolDefinition) {
         let key = format!("{owner_id}\0{field_name}");
-        self.field_by_owner.insert(key, def);
+        self.field_by_owner.insert(key, Arc::new(def));
     }
 
     /// Exact lookup in a specific file: O(1).
-    pub fn lookup_in_file(&self, file_path: &str, name: &str) -> Option<&[SymbolDefinition]> {
+    pub fn lookup_in_file(&self, file_path: &str, name: &str) -> Option<&[Arc<SymbolDefinition>]> {
         self.file_index
             .get(file_path)
             .and_then(|names| names.get(name))
@@ -61,22 +64,22 @@ impl SymbolTable {
     }
 
     /// Global fuzzy lookup by name: O(1) in the global index.
-    pub fn lookup_global(&self, name: &str) -> Option<&[SymbolDefinition]> {
+    pub fn lookup_global(&self, name: &str) -> Option<&[Arc<SymbolDefinition>]> {
         self.global_index.get(name).map(|v| v.as_slice())
     }
 
     /// Lookup a field by owner and name.
-    pub fn lookup_field(&self, owner_id: &str, field_name: &str) -> Option<&SymbolDefinition> {
+    pub fn lookup_field(&self, owner_id: &str, field_name: &str) -> Option<&Arc<SymbolDefinition>> {
         let key = format!("{owner_id}\0{field_name}");
         self.field_by_owner.get(&key)
     }
 
     /// Get or build the callable-only index (Function, Method, Constructor).
-    pub fn callable_index(&mut self) -> &HashMap<String, Vec<SymbolDefinition>> {
+    pub fn callable_index(&mut self) -> &HashMap<String, Vec<Arc<SymbolDefinition>>> {
         if self.callable_index.is_none() {
-            let mut index: HashMap<String, Vec<SymbolDefinition>> = HashMap::new();
+            let mut index: HashMap<String, Vec<Arc<SymbolDefinition>>> = HashMap::new();
             for (name, defs) in &self.global_index {
-                let callables: Vec<SymbolDefinition> = defs
+                let callables: Vec<Arc<SymbolDefinition>> = defs
                     .iter()
                     .filter(|d| d.symbol_type.is_callable())
                     .cloned()
@@ -98,6 +101,36 @@ impl SymbolTable {
 
     pub fn is_empty(&self) -> bool {
         self.global_index.is_empty()
+    }
+
+    /// Set the owner_id for all definitions with the given node_id.
+    ///
+    /// Called after the initial table build to propagate HasMethod/HasProperty
+    /// edge information into symbol definitions.
+    pub fn set_owner_id(&mut self, node_id: &str, owner_id: String) {
+        // Invalidate callable index cache since definitions change
+        self.callable_index = None;
+
+        for defs in self.global_index.values_mut() {
+            for arc in defs.iter_mut() {
+                if arc.node_id == node_id {
+                    if let Some(def) = Arc::get_mut(arc) {
+                        def.owner_id = Some(owner_id.clone());
+                    }
+                }
+            }
+        }
+        for name_map in self.file_index.values_mut() {
+            for defs in name_map.values_mut() {
+                for arc in defs.iter_mut() {
+                    if arc.node_id == node_id {
+                        if let Some(def) = Arc::get_mut(arc) {
+                            def.owner_id = Some(owner_id.clone());
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// All names registered in the file index for a file.

@@ -123,7 +123,7 @@ enum Token {
     Eof,
 }
 
-fn tokenize(input: &str) -> Vec<Token> {
+fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
     let chars: Vec<char> = input.chars().collect();
     let len = chars.len();
@@ -213,22 +213,20 @@ fn tokenize(input: &str) -> Vec<Token> {
                 let word: String = chars[start..i].iter().collect();
                 tokens.push(Token::Ident(word));
             }
-            _ => {
-                // Skip unknown characters
-                i += 1;
-            }
+            _ => return Err(format!("Unexpected character '{}' at position {}", c, i)),
         }
     }
 
     tokens.push(Token::Eof);
-    tokens
+    Ok(tokens)
 }
 
 // ─── Parser ─────────────────────────────────────────────────────────────
 
 /// Parse a Cypher-like query string into a `CypherStatement`.
 pub fn parse(input: &str) -> Result<CypherStatement, DbError> {
-    let mut parser = CypherParser::new(input);
+    let tokens = tokenize(input).map_err(|e| parse_err(e))?;
+    let mut parser = CypherParser { tokens, pos: 0 };
     parser.parse()
 }
 
@@ -239,13 +237,6 @@ struct CypherParser {
 }
 
 impl CypherParser {
-    fn new(input: &str) -> Self {
-        Self {
-            tokens: tokenize(input),
-            pos: 0,
-        }
-    }
-
     fn peek(&self) -> &Token {
         self.tokens.get(self.pos).unwrap_or(&Token::Eof)
     }
@@ -899,10 +890,13 @@ fn execute_match(
         bindings.sort_by(|a, b| {
             let va = a.get(var).and_then(|id| get_field_str(graph, id, field));
             let vb = b.get(var).and_then(|id| get_field_str(graph, id, field));
-            let cmp = va
-                .as_deref()
-                .unwrap_or("")
-                .cmp(vb.as_deref().unwrap_or(""));
+            let a_str = va.as_deref().unwrap_or("");
+            let b_str = vb.as_deref().unwrap_or("");
+            let cmp = if let (Ok(na), Ok(nb)) = (a_str.parse::<f64>(), b_str.parse::<f64>()) {
+                na.partial_cmp(&nb).unwrap_or(std::cmp::Ordering::Equal)
+            } else {
+                a_str.cmp(b_str)
+            };
             if *ascending {
                 cmp
             } else {
@@ -1067,31 +1061,18 @@ fn eval_where(expr: &WhereExpr, binding: &HashMap<String, String>, graph: &Knowl
 
 fn get_node_field_str(node: &GraphNode, field: &str) -> Option<String> {
     match field {
-        "name" => Some(node.properties.name.clone()),
-        "filePath" | "file_path" => Some(node.properties.file_path.clone()),
-        "startLine" | "start_line" => node.properties.start_line.map(|v| v.to_string()),
-        "endLine" | "end_line" => node.properties.end_line.map(|v| v.to_string()),
-        "label" | "_label" => Some(node.label.as_str().to_string()),
-        "id" | "_id" => Some(node.id.clone()),
-        "isExported" | "is_exported" => node.properties.is_exported.map(|v| v.to_string()),
-        "description" => node.properties.description.clone(),
-        "heuristicLabel" | "heuristic_label" => node.properties.heuristic_label.clone(),
-        "parameterCount" | "parameter_count" => {
-            node.properties.parameter_count.map(|v| v.to_string())
+        "_label" | "label" => Some(node.label.as_str().to_string()),
+        "_id" | "id" => Some(node.id.clone()),
+        _ => {
+            let val = serde_json::to_value(&node.properties).ok()?;
+            match val.get(field)? {
+                Value::String(s) => Some(s.clone()),
+                Value::Number(n) => Some(n.to_string()),
+                Value::Bool(b) => Some(b.to_string()),
+                Value::Null => None,
+                other => Some(other.to_string()),
+            }
         }
-        "returnType" | "return_type" => node.properties.return_type.clone(),
-        "entryPointScore" | "entry_point_score" => {
-            node.properties.entry_point_score.map(|v| v.to_string())
-        }
-        "entryPointReason" | "entry_point_reason" => node.properties.entry_point_reason.clone(),
-        "isTraced" | "is_traced" => node.properties.is_traced.map(|v| v.to_string()),
-        "traceCallCount" | "trace_call_count" => {
-            node.properties.trace_call_count.map(|v| v.to_string())
-        }
-        "isDeadCandidate" | "is_dead_candidate" => {
-            node.properties.is_dead_candidate.map(|v| v.to_string())
-        }
-        _ => None,
     }
 }
 
@@ -1102,51 +1083,12 @@ fn get_field_str(graph: &KnowledgeGraph, node_id: &str, field: &str) -> Option<S
 fn get_field_value(graph: &KnowledgeGraph, node_id: &str, field: &str) -> Value {
     if let Some(node) = graph.get_node(node_id) {
         match field {
-            "name" => Value::String(node.properties.name.clone()),
-            "filePath" | "file_path" => Value::String(node.properties.file_path.clone()),
-            "startLine" | "start_line" => {
-                node.properties.start_line.map_or(Value::Null, |v| serde_json::json!(v))
+            "_label" | "label" => Value::String(node.label.as_str().to_string()),
+            "_id" | "id" => Value::String(node.id.clone()),
+            _ => {
+                let val = serde_json::to_value(&node.properties).unwrap_or(Value::Null);
+                val.get(field).cloned().unwrap_or(Value::Null)
             }
-            "endLine" | "end_line" => {
-                node.properties.end_line.map_or(Value::Null, |v| serde_json::json!(v))
-            }
-            "label" | "_label" => Value::String(node.label.as_str().to_string()),
-            "id" | "_id" => Value::String(node.id.clone()),
-            "isExported" | "is_exported" => {
-                node.properties.is_exported.map_or(Value::Null, |v| serde_json::json!(v))
-            }
-            "description" => node
-                .properties
-                .description
-                .as_ref()
-                .map_or(Value::Null, |s| Value::String(s.clone())),
-            "heuristicLabel" | "heuristic_label" => node
-                .properties
-                .heuristic_label
-                .as_ref()
-                .map_or(Value::Null, |s| Value::String(s.clone())),
-            "parameterCount" | "parameter_count" => {
-                node.properties.parameter_count.map_or(Value::Null, |v| serde_json::json!(v))
-            }
-            "returnType" | "return_type" => node
-                .properties
-                .return_type
-                .as_ref()
-                .map_or(Value::Null, |s| Value::String(s.clone())),
-            "entryPointScore" | "entry_point_score" => {
-                node.properties.entry_point_score.map_or(Value::Null, |v| serde_json::json!(v))
-            }
-            "entryPointReason" | "entry_point_reason" => node
-                .properties
-                .entry_point_reason
-                .as_ref()
-                .map_or(Value::Null, |s| Value::String(s.clone())),
-            "keywords" => node
-                .properties
-                .keywords
-                .as_ref()
-                .map_or(Value::Null, |v| serde_json::json!(v)),
-            _ => Value::Null,
         }
     } else {
         Value::Null
@@ -1154,63 +1096,12 @@ fn get_field_value(graph: &KnowledgeGraph, node_id: &str, field: &str) -> Value 
 }
 
 fn node_to_json(node: &GraphNode) -> Value {
-    // Serialize the node to a JSON object with _label and _id fields
-    let mut map = serde_json::Map::new();
+    let mut map = match serde_json::to_value(&node.properties) {
+        Ok(Value::Object(m)) => m,
+        _ => serde_json::Map::new(),
+    };
     map.insert("_label".to_string(), Value::String(node.label.as_str().to_string()));
     map.insert("_id".to_string(), Value::String(node.id.clone()));
-    map.insert("name".to_string(), Value::String(node.properties.name.clone()));
-    map.insert(
-        "filePath".to_string(),
-        Value::String(node.properties.file_path.clone()),
-    );
-    if let Some(sl) = node.properties.start_line {
-        map.insert("startLine".to_string(), serde_json::json!(sl));
-    }
-    if let Some(el) = node.properties.end_line {
-        map.insert("endLine".to_string(), serde_json::json!(el));
-    }
-    if let Some(exported) = node.properties.is_exported {
-        map.insert("isExported".to_string(), serde_json::json!(exported));
-    }
-    if let Some(ref lang) = node.properties.language {
-        map.insert("language".to_string(), serde_json::json!(lang));
-    }
-    if let Some(ref desc) = node.properties.description {
-        map.insert("description".to_string(), Value::String(desc.clone()));
-    }
-    if let Some(ref hl) = node.properties.heuristic_label {
-        map.insert("heuristicLabel".to_string(), Value::String(hl.clone()));
-    }
-    if let Some(coh) = node.properties.cohesion {
-        map.insert("cohesion".to_string(), serde_json::json!(coh));
-    }
-    if let Some(sc) = node.properties.symbol_count {
-        map.insert("symbolCount".to_string(), serde_json::json!(sc));
-    }
-    if let Some(ref kw) = node.properties.keywords {
-        map.insert("keywords".to_string(), serde_json::json!(kw));
-    }
-    if let Some(ref rt) = node.properties.return_type {
-        map.insert("returnType".to_string(), Value::String(rt.clone()));
-    }
-    if let Some(pc) = node.properties.parameter_count {
-        map.insert("parameterCount".to_string(), serde_json::json!(pc));
-    }
-    if let Some(eps) = node.properties.entry_point_score {
-        map.insert("entryPointScore".to_string(), serde_json::json!(eps));
-    }
-    if let Some(ref epr) = node.properties.entry_point_reason {
-        map.insert("entryPointReason".to_string(), Value::String(epr.clone()));
-    }
-    if let Some(traced) = node.properties.is_traced {
-        map.insert("isTraced".to_string(), serde_json::json!(traced));
-    }
-    if let Some(tcc) = node.properties.trace_call_count {
-        map.insert("traceCallCount".to_string(), serde_json::json!(tcc));
-    }
-    if let Some(dead) = node.properties.is_dead_candidate {
-        map.insert("isDeadCandidate".to_string(), serde_json::json!(dead));
-    }
     Value::Object(map)
 }
 

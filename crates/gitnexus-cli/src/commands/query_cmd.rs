@@ -11,8 +11,7 @@ pub async fn run(query: &str, repo: Option<&str>, limit: usize) -> anyhow::Resul
     let snap = gitnexus_db::snapshot::snapshot_path(&storage.storage_path);
 
     if !snap.exists() {
-        eprintln!("No graph snapshot found. Run 'gitnexus analyze' first.");
-        std::process::exit(1);
+        return Err(anyhow::anyhow!("No graph snapshot found. Run 'gitnexus analyze' first."));
     }
 
     let graph = gitnexus_db::snapshot::load_snapshot(&snap)?;

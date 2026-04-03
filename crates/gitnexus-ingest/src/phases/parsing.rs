@@ -1196,6 +1196,11 @@ fn find_enclosing_method_id(
                 let method_name = name_node.utf8_text(content).ok()?;
                 let label_str = if kind.contains("constructor") {
                     "Constructor"
+                } else if kind == "function_declaration"
+                    || kind == "function_definition"
+                    || kind == "function_item"
+                {
+                    "Function"
                 } else {
                     "Method"
                 };
@@ -1606,6 +1611,20 @@ pub fn build_symbol_table(graph: &KnowledgeGraph, table: &mut SymbolTable) {
             _ => {}
         }
     });
+
+    // Populate owner_id from HasMethod / HasProperty edges so that
+    // call resolution can match methods to their containing class.
+    for rel in graph.iter_relationships() {
+        if !matches!(
+            rel.rel_type,
+            RelationshipType::HasMethod | RelationshipType::HasProperty
+        ) {
+            continue;
+        }
+        let owner_id = rel.source_id.clone();
+        let target_id = &rel.target_id;
+        table.set_owner_id(target_id, owner_id);
+    }
 }
 
 #[cfg(test)]

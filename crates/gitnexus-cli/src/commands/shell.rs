@@ -1692,7 +1692,7 @@ fn cmd_hotspots(args: &str, ctx: &ShellContext) -> anyhow::Result<()> {
 fn cmd_coupling(args: &str, ctx: &ShellContext) -> anyhow::Result<()> {
     let min_shared: u32 = args.trim().parse().unwrap_or(3);
 
-    let couplings = gitnexus_git::coupling::analyze_coupling(&ctx.repo_path, min_shared)
+    let couplings = gitnexus_git::coupling::analyze_coupling(&ctx.repo_path, min_shared, Some(180))
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if couplings.is_empty() {

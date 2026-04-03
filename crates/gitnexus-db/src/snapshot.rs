@@ -48,6 +48,11 @@ pub fn save_snapshot(graph: &KnowledgeGraph, path: &Path) -> Result<(), DbError>
 
     // Atomic rename: temp file becomes the real snapshot
     // This ensures the old snapshot is only replaced when the new one is fully written
+    // On Windows, rename fails if the destination exists; remove it first.
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::fs::remove_file(path);
+    }
     std::fs::rename(&temp_path, path)
         .map_err(|e| snapshot_err(format!("Failed to finalize snapshot (rename): {e}")))?;
 

@@ -54,17 +54,15 @@ pub const NODE_LABELS: &[&str] = &[
     "DbContext",
     "Area",
     // ASP.NET additional node types
+    "Filter",
+    "WebConfig",
+    "PartialView",
     "ScriptFile",
     "AjaxCall",
     "UiComponent",
     "Service",
     "Repository",
     "ExternalService",
-    "BasicBlock",
-    "BranchPoint",
-    "LoopHead",
-    "ExitPoint",
-    "Author",
 ];
 
 /// Base columns shared by all node tables.

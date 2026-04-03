@@ -126,6 +126,13 @@ impl DatabaseBackend for InMemoryBackend {
     }
 
     fn execute_query(&self, query: &str) -> Result<Vec<Value>> {
+        if crate::query::is_write_query(query) {
+            return Err(DbError::QueryError {
+                query: query.to_string(),
+                cause: "Write queries are not allowed".into(),
+            });
+        }
+
         let graph = self.graph.as_ref().ok_or_else(|| DbError::QueryError {
             query: query.to_string(),
             cause: "Database not open".into(),

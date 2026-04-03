@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::symbol::SymbolDefinition;
 
@@ -50,7 +51,7 @@ impl std::fmt::Display for ResolutionTier {
 #[derive(Debug, Clone)]
 pub struct TieredCandidates {
     pub tier: ResolutionTier,
-    pub candidates: Vec<SymbolDefinition>,
+    pub candidates: Vec<Arc<SymbolDefinition>>,
 }
 
 /// Named import binding: tracks `import { X as Y }`.

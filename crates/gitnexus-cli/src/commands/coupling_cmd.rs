@@ -15,7 +15,7 @@ pub fn run(min_shared: u32, path: Option<&str>, json: bool) -> anyhow::Result<()
         None => std::env::current_dir()?,
     };
 
-    let couplings = analyze_coupling(&repo_path, min_shared)
+    let couplings = analyze_coupling(&repo_path, min_shared, Some(180))
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if couplings.is_empty() {

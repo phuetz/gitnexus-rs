@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use once_cell::sync::Lazy;
+use regex::Regex;
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::resolution::context::ResolutionContext;
@@ -9,6 +11,34 @@ use gitnexus_core::symbol::SymbolTable;
 use crate::phases::parsing::ExtractedData;
 use crate::IngestError;
 
+// Pattern 1: Field declarations like "CourriersService courriersService = null;"
+static FIELD_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?:private|protected|public|internal)?\s*([A-Z]\w+(?:Service|Repository|Manager|Helper|Provider|Client|Handler))\s+(\w+)\s*[=;]"
+    ).expect("FIELD_RE must compile")
+});
+
+// Pattern 2: Constructor DI params like "public Foo(ICourriersService courriersService)"
+static CLASS_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?:public|internal|private)?\s*(?:partial\s+)?class\s+(\w+)"
+    ).expect("CLASS_RE must compile")
+});
+
+// Pattern 3: C# 'using' statement: using (var x = new CourriersService(...))
+static USING_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"using\s*\(\s*(?:var|[A-Z]\w+)\s+(\w+)\s*=\s*new\s+([A-Z]\w+)\s*\("
+    ).expect("USING_RE must compile")
+});
+
+// Pattern 4: Local variable instantiation: var x = new SomeService(...)
+static LOCAL_NEW_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?:var|[A-Z]\w+)\s+(\w+)\s*=\s*new\s+([A-Z]\w+)\s*[\(\{]"
+    ).expect("LOCAL_NEW_RE must compile")
+});
+
 /// Build a map of (file_path, field_name) → interface_type from constructor parameters.
 /// Scans .cs files for class constructors with DI-injected parameters.
 fn build_field_type_map(
@@ -17,26 +47,6 @@ fn build_field_type_map(
     let mut map = HashMap::new();
     let mut class_count = 0u32;
 
-    // Pattern 1: Field declarations like "CourriersService courriersService = null;"
-    let field_re = regex::Regex::new(
-        r"(?:private|protected|public|internal)?\s*([A-Z]\w+(?:Service|Repository|Manager|Helper|Provider|Client|Handler))\s+(\w+)\s*[=;]"
-    ).ok();
-
-    // Pattern 2: Constructor DI params like "public Foo(ICourriersService courriersService)"
-    let class_re = regex::Regex::new(
-        r"(?:public|internal|private)?\s*(?:partial\s+)?class\s+(\w+)"
-    ).ok();
-
-    // Pattern 3: C# 'using' statement: using (var x = new CourriersService(...))
-    let using_re = regex::Regex::new(
-        r"using\s*\(\s*(?:var|[A-Z]\w+)\s+(\w+)\s*=\s*new\s+([A-Z]\w+)\s*\("
-    ).ok();
-
-    // Pattern 4: Local variable instantiation: var x = new SomeService(...)
-    let local_new_re = regex::Regex::new(
-        r"(?:var|[A-Z]\w+)\s+(\w+)\s*=\s*new\s+([A-Z]\w+)\s*[\(\{]"
-    ).ok();
-
     for file in file_entries {
         if !file.path.ends_with(".cs") {
             continue;
@@ -44,50 +54,42 @@ fn build_field_type_map(
         let fp = file.path.clone();
 
         // Extract field declarations (legacy ASP.NET pattern without DI)
-        if let Some(ref re) = field_re {
-            for cap in re.captures_iter(&file.content) {
-                if let (Some(type_name), Some(field_name)) = (cap.get(1), cap.get(2)) {
-                    let type_name = type_name.as_str().to_string();
-                    let field_name = field_name.as_str().to_string();
-                    map.insert((fp.clone(), field_name.clone()), type_name.clone());
-                    // Also with _ prefix
-                    map.insert((fp.clone(), format!("_{}", field_name)), type_name.clone());
-                    class_count += 1;
-                }
+        for cap in FIELD_RE.captures_iter(&file.content) {
+            if let (Some(type_name), Some(field_name)) = (cap.get(1), cap.get(2)) {
+                let type_name = type_name.as_str().to_string();
+                let field_name = field_name.as_str().to_string();
+                map.insert((fp.clone(), field_name.clone()), type_name.clone());
+                // Also with _ prefix
+                map.insert((fp.clone(), format!("_{}", field_name)), type_name.clone());
+                class_count += 1;
             }
         }
 
         // Extract constructor DI params (modern pattern)
-        if let Some(ref re) = class_re {
-            for cap in re.captures_iter(&file.content) {
-                if let Some(class_name) = cap.get(1) {
-                    let deps = gitnexus_lang::route_extractors::csharp::extract_constructor_dependencies(
-                        &file.content,
-                        class_name.as_str(),
-                    );
-                    for (iface_type, param_name) in deps {
-                        map.insert((fp.clone(), param_name.clone()), iface_type.clone());
-                        map.insert((fp.clone(), format!("_{}", param_name)), iface_type.clone());
-                    }
+        for cap in CLASS_RE.captures_iter(&file.content) {
+            if let Some(class_name) = cap.get(1) {
+                let deps = gitnexus_lang::route_extractors::csharp::extract_constructor_dependencies(
+                    &file.content,
+                    class_name.as_str(),
+                );
+                for (iface_type, param_name) in deps {
+                    map.insert((fp.clone(), param_name.clone()), iface_type.clone());
+                    map.insert((fp.clone(), format!("_{}", param_name)), iface_type.clone());
                 }
             }
         }
 
         // Extract 'using' pattern: using (var svc = new CourriersService(...))
-        if let Some(ref re) = using_re {
-            for cap in re.captures_iter(&file.content) {
-                if let (Some(var_name), Some(type_name)) = (cap.get(1), cap.get(2)) {
-                    map.insert((fp.clone(), var_name.as_str().to_string()), type_name.as_str().to_string());
-                }
+        for cap in USING_RE.captures_iter(&file.content) {
+            if let (Some(var_name), Some(type_name)) = (cap.get(1), cap.get(2)) {
+                map.insert((fp.clone(), var_name.as_str().to_string()), type_name.as_str().to_string());
             }
         }
 
         // Extract local instantiation: var x = new SomeService(...)
-        if let Some(ref re) = local_new_re {
-            for cap in re.captures_iter(&file.content) {
-                if let (Some(var_name), Some(type_name)) = (cap.get(1), cap.get(2)) {
-                    map.insert((fp.clone(), var_name.as_str().to_string()), type_name.as_str().to_string());
-                }
+        for cap in LOCAL_NEW_RE.captures_iter(&file.content) {
+            if let (Some(var_name), Some(type_name)) = (cap.get(1), cap.get(2)) {
+                map.insert((fp.clone(), var_name.as_str().to_string()), type_name.as_str().to_string());
             }
         }
     }

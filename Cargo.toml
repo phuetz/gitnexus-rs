@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/*"]
-exclude = ["crates/gitnexus-lsp", "crates/gitnexus-storage"]
+exclude = ["crates/gitnexus-lsp", "crates/gitnexus-storage", "crates/gitnexus-types"]
 resolver = "2"
 
 [workspace.package]
@@ -116,7 +116,6 @@ ort = "2.0.0-rc.12"
 ndarray = "0.16"
 
 # Internal crates
-gitnexus-types = { path = "crates/gitnexus-types" }
 gitnexus-core = { path = "crates/gitnexus-core" }
 gitnexus-lang = { path = "crates/gitnexus-lang" }
 gitnexus-ingest = { path = "crates/gitnexus-ingest" }

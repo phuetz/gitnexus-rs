@@ -23,6 +23,32 @@ pub fn escape_cypher_string(s: &str) -> String {
     escaped
 }
 
+/// Strip single-line (`//`) and block (`/* */`) comments from a Cypher query.
+fn strip_cypher_comments(query: &str) -> String {
+    let mut result = String::with_capacity(query.len());
+    let chars: Vec<char> = query.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if i + 1 < chars.len() && chars[i] == '/' && chars[i + 1] == '/' {
+            // Skip line comment
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+        } else if i + 1 < chars.len() && chars[i] == '/' && chars[i + 1] == '*' {
+            // Skip block comment
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i += 2; // skip */
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+    result
+}
+
 /// Check if a Cypher query is a write/mutation query.
 ///
 /// Returns `true` if the query contains any write operations:
@@ -30,8 +56,10 @@ pub fn escape_cypher_string(s: &str) -> String {
 /// Uses case-insensitive word-boundary matching to avoid false positives
 /// (e.g., matching "CREATE" inside a string literal is acceptable for
 /// safety since we err on the side of caution).
+/// Comments are stripped before checking to prevent bypass via comment injection.
 pub fn is_write_query(query: &str) -> bool {
-    let upper = query.to_uppercase();
+    let cleaned = strip_cypher_comments(query);
+    let upper = cleaned.to_uppercase();
     // Check for write keywords as whole words (preceded by whitespace or start-of-string)
     let write_patterns = [
         "CREATE", "DELETE", "SET ", "MERGE", "DROP", "REMOVE", "DETACH", "ALTER",

@@ -70,7 +70,7 @@ pub async fn get_coupling(
     let repo_path = std::path::PathBuf::from(repo_path_str);
 
     let result = tokio::task::spawn_blocking(move || {
-        gitnexus_git::coupling::analyze_coupling(&repo_path, min)
+        gitnexus_git::coupling::analyze_coupling(&repo_path, min, Some(180))
     })
     .await
     .map_err(|e| format!("Task error: {}", e))?
@@ -94,7 +94,7 @@ pub async fn get_coupling(
 pub struct AuthorContribution {
     pub name: String,
     pub email: String,
-    pub lines: u32,
+    pub commits: u32,
     pub pct: f64,
 }
 
@@ -135,7 +135,7 @@ pub async fn get_ownership(
                 .map(|a| AuthorContribution {
                     name: a.name,
                     email: a.email,
-                    lines: a.lines,
+                    commits: a.commits,
                     pct: a.pct,
                 })
                 .collect(),

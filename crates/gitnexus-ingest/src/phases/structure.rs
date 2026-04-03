@@ -68,7 +68,13 @@ pub fn walk_repository(repo_path: &Path) -> Result<Vec<FileEntry>, crate::Ingest
 
         // Only include files with supported languages
         if language.is_some() {
-            let content = std::fs::read_to_string(abs_path).unwrap_or_default();
+            let content = match std::fs::read_to_string(abs_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!("Cannot read {}: {}", rel_path, e);
+                    String::new()
+                }
+            };
             entries.push(FileEntry {
                 path: rel_path,
                 content,

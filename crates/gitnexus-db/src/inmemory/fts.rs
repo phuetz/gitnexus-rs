@@ -85,8 +85,12 @@ impl FtsIndex {
                 continue;
             }
 
-            // Build document text from name + file_path
-            let text = format!("{} {}", node.properties.name, node.properties.file_path);
+            // Build document text from name + file_path + optional description
+            let mut text = format!("{} {}", node.properties.name, node.properties.file_path);
+            if let Some(ref desc) = node.properties.description {
+                text.push(' ');
+                text.push_str(desc);
+            }
             let tokens = tokenize(&text);
             let doc_len = tokens.len() as u32;
 

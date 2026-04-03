@@ -23,17 +23,24 @@ pub enum CouplingError {
 ///
 /// Returns pairs of files that have been changed together in at least
 /// `min_shared` commits, sorted by coupling strength descending.
+///
+/// `since_days` limits the git history to the last N days. Defaults to all history when `None`.
 pub fn analyze_coupling(
     repo_path: &Path,
     min_shared: u32,
+    since_days: Option<u32>,
 ) -> Result<Vec<ChangeCoupling>, CouplingError> {
     // Get commit hashes with associated files
-    let log_output = Command::new("git")
-        .args([
-            "log",
-            "--pretty=format:COMMIT:%H",
-            "--name-only",
-        ])
+    let mut cmd = Command::new("git");
+    cmd.args([
+        "log",
+        "--pretty=format:COMMIT:%H",
+        "--name-only",
+    ]);
+    if let Some(days) = since_days {
+        cmd.arg(format!("--since={} days ago", days));
+    }
+    let log_output = cmd
         .current_dir(repo_path)
         .output()
         .map_err(|e| CouplingError::GitCommand(e.to_string()))?;
@@ -142,7 +149,7 @@ mod tests {
             return;
         }
 
-        let result = analyze_coupling(repo, 2);
+        let result = analyze_coupling(repo, 2, Some(180));
         assert!(result.is_ok(), "analyze_coupling should not error: {:?}", result.err());
 
         let couplings = result.unwrap();

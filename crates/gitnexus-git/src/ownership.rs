@@ -92,7 +92,7 @@ pub fn analyze_ownership(repo_path: &Path) -> Result<Vec<FileOwnership>, Ownersh
             .map(|((name, email), &count)| AuthorContribution {
                 name: name.clone(),
                 email: email.clone(),
-                lines: count, // using commit count as proxy for contribution
+                commits: count,
                 pct: count as f64 / total_commits as f64 * 100.0,
             })
             .collect();

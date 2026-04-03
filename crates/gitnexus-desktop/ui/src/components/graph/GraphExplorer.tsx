@@ -70,6 +70,23 @@ const NODE_SIZES: Record<string, number> = {
   Trait: 10,
 };
 
+const EDGE_WIDTHS: Record<string, number> = {
+  CALLS: 1.2,
+  CALLS_ACTION: 1.0,
+  CALLS_SERVICE: 1.0,
+  EXTENDS: 1.5,
+  INHERITS: 1.5,
+  IMPLEMENTS: 1.3,
+  IMPORTS: 0.8,
+  CONTAINS: 0.5,
+  DEFINES: 0.6,
+  HAS_METHOD: 0.4,
+  HAS_PROPERTY: 0.4,
+  HAS_ACTION: 0.4,
+  DEPENDS_ON: 0.9,
+  RENDERS_VIEW: 0.7,
+};
+
 const COMMUNITY_COLORS = [
   "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4",
   "#3b82f6", "#8b5cf6", "#d946ef", "#ec4899", "#f43f5e",
@@ -84,11 +101,19 @@ function hashString(s: string): number {
   return Math.abs(hash);
 }
 
+function getDensityScale(nodeCount: number): number {
+  if (nodeCount > 300) return 0.6;
+  if (nodeCount > 150) return 0.8;
+  if (nodeCount > 50) return 0.9;
+  return 1.0;
+}
+
 function buildElements(nodes: CytoNode[], edges: CytoEdge[], hiddenEdgeTypes?: Set<string>) {
   const elements: cytoscape.ElementDefinition[] = [];
+  const densityScale = getDensityScale(nodes.length);
 
   for (const node of nodes) {
-    const size = NODE_SIZES[node.label] || 6;
+    const size = (NODE_SIZES[node.label] || 6) * densityScale;
     const color = node.community
       ? COMMUNITY_COLORS[hashString(node.community) % COMMUNITY_COLORS.length]
       : LABEL_COLORS[node.label] || "#565f89";
@@ -122,6 +147,7 @@ function buildElements(nodes: CytoNode[], edges: CytoEdge[], hiddenEdgeTypes?: S
         target: edge.target,
         label: edge.relType,
         color: EDGE_COLORS[edge.relType] || "#565f89",
+        size: EDGE_WIDTHS[edge.relType] || 0.6,
       },
     });
   }
@@ -207,7 +233,7 @@ const stylesheet: cytoscape.StylesheetCSS[] = [
   {
     selector: "edge",
     css: {
-      width: 0.8,
+      width: "data(size)" as any,
       "line-color": "data(color)" as any,
       "target-arrow-color": "data(color)" as any,
       "target-arrow-shape": "triangle",
@@ -646,6 +672,11 @@ export function GraphExplorer() {
     (newLayout: string) => {
       setLayout(newLayout);
       if (!cyRef.current) return;
+      const nodeCount = elements.length;
+      const repulsion = nodeCount > 200 ? 20000 : nodeCount > 100 ? 15000 : 10000;
+      const edgeLength = nodeCount > 200 ? 300 : nodeCount > 100 ? 250 : 200;
+      const grav = nodeCount > 200 ? 0.02 : nodeCount > 100 ? 0.05 : 0.1;
+
       const layoutOpts: cytoscape.LayoutOptions =
         newLayout === "grid"
           ? { name: "grid", rows: Math.ceil(Math.sqrt(elements.length)), padding: 40 }
@@ -657,10 +688,10 @@ export function GraphExplorer() {
                   name: "cose",
                   animate: false,
                   nodeOverlap: 150,
-                  nodeRepulsion: () => 15000,
-                  idealEdgeLength: () => 250,
+                  nodeRepulsion: () => repulsion,
+                  idealEdgeLength: () => edgeLength,
                   edgeElasticity: () => 40,
-                  gravity: 0.05,
+                  gravity: grav,
                   numIter: 2000,
                   padding: 80,
                   randomize: true,
@@ -706,6 +737,10 @@ export function GraphExplorer() {
         node.removeClass("dim-unselected").addClass("selected-primary");
         neighbors.removeClass("dim-unselected").addClass("selected-neighbor");
         connectedEdges.removeClass("dim-unselected").addClass("edge-highlighted");
+
+        // Edges between the selected node's neighbors should also be visible
+        const neighborEdges = neighbors.edgesWith(neighbors);
+        neighborEdges.removeClass("dim-unselected");
       });
 
       cy.on("unselect", "node", () => {
@@ -787,6 +822,18 @@ export function GraphExplorer() {
         edge.removeStyle();
       });
 
+      // Hide edges while panning/zooming for performance
+      let panTimeout: ReturnType<typeof setTimeout> | null = null;
+      cy.on("viewport", () => {
+        if (cy.edges().length > 100) {
+          cy.edges().style("opacity", 0);
+          if (panTimeout) clearTimeout(panTimeout);
+          panTimeout = setTimeout(() => {
+            cy.edges().style("opacity", "");  // Reset to stylesheet default
+          }, 150);
+        }
+      });
+
       // Minimap events (no "render" — too frequent, causes jank)
       cy.on("pan", drawMinimapThrottled);
       cy.on("zoom", drawMinimapThrottled);
@@ -821,6 +868,11 @@ export function GraphExplorer() {
 
       setLayoutRunning(true);
 
+      const nodeCount = elements.length;
+      const repulsion = nodeCount > 200 ? 20000 : nodeCount > 100 ? 15000 : 10000;
+      const edgeLength = nodeCount > 200 ? 300 : nodeCount > 100 ? 250 : 200;
+      const grav = nodeCount > 200 ? 0.02 : nodeCount > 100 ? 0.05 : 0.1;
+
       const layoutOpts: cytoscape.LayoutOptions =
         zoomLevel === "package"
           ? { name: "grid", rows: Math.ceil(Math.sqrt(elements.length)), padding: 40 }
@@ -828,10 +880,10 @@ export function GraphExplorer() {
               name: layout === "cose" ? "cose" : layout,
               animate: false,
               nodeOverlap: 150,
-              nodeRepulsion: () => 15000,
-              idealEdgeLength: () => 250,
+              nodeRepulsion: () => repulsion,
+              idealEdgeLength: () => edgeLength,
               edgeElasticity: () => 40,
-              gravity: 0.05,
+              gravity: grav,
               numIter: 2000,
               padding: 80,
               randomize: false,

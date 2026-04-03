@@ -11,9 +11,11 @@ You have access to GitNexus, a code intelligence tool that builds a knowledge gr
 
 ## Binary location
 
-Use whichever is available:
-- Release: `target/release/gitnexus.exe` (Windows) or `target/release/gitnexus`
-- Dev: `cargo run -p gitnexus-cli --`
+```
+C:/Users/patri/CascadeProjects/gitnexus-rs/target/release/gitnexus.exe
+```
+
+Always use the full path when invoking from other projects. Within the gitnexus-rs project, `cargo run -p gitnexus-cli --` also works.
 
 ## Available commands
 

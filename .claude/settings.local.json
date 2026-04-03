@@ -6,7 +6,13 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(GNX=\"C:/Users/patri/CascadeProjects/gitnexus-rs/target/release/gitnexus.exe\")",
+      "Read(//d/taf/Alise_v2/**)",
+      "Bash(\"$GNX\" trace-files:*)",
+      "Bash(\"C:\\\\Users\\\\patri\\\\CascadeProjects\\\\gitnexus-rs\\\\target\\\\release\\\\gitnexus.exe\" list:*)",
+      "Bash(\"C:\\\\Users\\\\patri\\\\CascadeProjects\\\\gitnexus-rs\\\\target\\\\release\\\\gitnexus.exe\" analyze:*)"
     ]
   }
 }

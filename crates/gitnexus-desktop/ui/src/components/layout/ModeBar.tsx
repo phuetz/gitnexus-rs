@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Compass, BarChart3, MessageSquare, Settings, Search } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import type { AppMode } from "../../stores/app-store";
@@ -10,7 +11,7 @@ const modes: { mode: AppMode; icon: typeof Compass; label: string; shortcut: str
   { mode: "manage", icon: Settings, label: "Manage", shortcut: "Ctrl+4" },
 ];
 
-export function ModeBar() {
+export const ModeBar = memo(function ModeBar() {
   const mode = useAppStore((s) => s.mode);
   const setMode = useAppStore((s) => s.setMode);
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
@@ -63,4 +64,4 @@ export function ModeBar() {
       </Tooltip>
     </div>
   );
-}
+});

@@ -1,0 +1,205 @@
+import { useEffect, useRef } from "react";
+import { Copy } from "lucide-react";
+import { Tooltip } from "../shared/Tooltip";
+import { useI18n } from "../../hooks/use-i18n";
+
+export interface ContextMenuData {
+  x: number;
+  y: number;
+  nodeId: string;
+  name: string;
+  filePath: string;
+}
+
+interface GraphContextMenuProps {
+  contextMenu: ContextMenuData | null;
+  onClose: () => void;
+  onGoToDefinition: (filePath: string, name: string) => void;
+  onFindReferences: (name: string) => void;
+  onViewImpact: (nodeId: string, name: string) => void;
+  onExpandNeighbors: () => void;
+  onHideNode: (nodeId: string) => void;
+  onCopyName: (name: string) => void;
+  onCopyFilePath: (filePath: string) => void;
+}
+
+export function GraphContextMenu({
+  contextMenu,
+  onClose,
+  onGoToDefinition,
+  onFindReferences,
+  onViewImpact,
+  onExpandNeighbors,
+  onHideNode,
+  onCopyName,
+  onCopyFilePath,
+}: GraphContextMenuProps) {
+  const { t, tt } = useI18n();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const firstItemRef = useRef<HTMLButtonElement>(null);
+
+  // Auto-focus first item on open
+  useEffect(() => {
+    if (contextMenu) {
+      firstItemRef.current?.focus();
+    }
+  }, [contextMenu]);
+
+  // Close on click outside
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [contextMenu, onClose]);
+
+  // Arrow key navigation
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!menuRef.current) return;
+    const items = Array.from(
+      menuRef.current.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'),
+    );
+    const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      items[(idx + 1) % items.length]?.focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(idx - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === "Escape") {
+      onClose();
+    }
+  };
+
+  if (!contextMenu) return null;
+
+  return (
+    <div
+      ref={menuRef}
+      role="menu"
+      aria-label="Node context menu"
+      className="absolute z-50 pointer-events-auto rounded-lg text-xs"
+      style={{
+        left: contextMenu.x,
+        top: contextMenu.y,
+        backgroundColor: "var(--bg-3)",
+        border: "1px solid var(--surface-border-hover)",
+        boxShadow: "var(--shadow-lg)",
+        minWidth: "200px",
+        overflow: "hidden",
+      }}
+      onKeyDown={handleKeyDown}
+    >
+      <Tooltip content={tt("graph.contextMenu.goToDefinition").tip}>
+        <ContextMenuButton
+          ref={firstItemRef}
+          onClick={() => {
+            onGoToDefinition(contextMenu.filePath, contextMenu.name);
+            onClose();
+          }}
+        >
+          {tt("graph.contextMenu.goToDefinition").label}
+        </ContextMenuButton>
+      </Tooltip>
+      <Tooltip content={tt("graph.contextMenu.findReferences").tip}>
+        <ContextMenuButton
+          onClick={() => {
+            onFindReferences(contextMenu.name);
+            onClose();
+          }}
+        >
+          {tt("graph.contextMenu.findReferences").label}
+        </ContextMenuButton>
+      </Tooltip>
+      <div
+        style={{ borderTop: "1px solid var(--surface-border)", margin: "4px 0" }}
+      />
+      <ContextMenuButton
+        onClick={() => {
+          onViewImpact(contextMenu.nodeId, contextMenu.name);
+          onClose();
+        }}
+      >
+        {t("graph.viewImpact")}
+      </ContextMenuButton>
+      <Tooltip content={tt("graph.contextMenu.expandNeighbors").tip}>
+        <ContextMenuButton onClick={() => { onExpandNeighbors(); onClose(); }}>
+          {tt("graph.contextMenu.expandNeighbors").label}
+        </ContextMenuButton>
+      </Tooltip>
+      <Tooltip content={tt("graph.contextMenu.hideNode").tip}>
+        <ContextMenuButton
+          onClick={() => {
+            onHideNode(contextMenu.nodeId);
+            onClose();
+          }}
+        >
+          {tt("graph.contextMenu.hideNode").label}
+        </ContextMenuButton>
+      </Tooltip>
+      <div
+        style={{ borderTop: "1px solid var(--surface-border)", margin: "4px 0" }}
+      />
+      <Tooltip content={tt("graph.contextMenu.copyName").tip}>
+        <ContextMenuButton
+          onClick={() => {
+            onCopyName(contextMenu.name);
+            onClose();
+          }}
+        >
+          <Copy size={14} style={{ marginRight: "8px" }} />
+          {tt("graph.contextMenu.copyName").label}
+        </ContextMenuButton>
+      </Tooltip>
+      <Tooltip content={tt("graph.contextMenu.copyFilePath").tip}>
+        <ContextMenuButton
+          onClick={() => {
+            onCopyFilePath(contextMenu.filePath);
+            onClose();
+          }}
+        >
+          <Copy size={14} style={{ marginRight: "8px" }} />
+          {tt("graph.contextMenu.copyFilePath").label}
+        </ContextMenuButton>
+      </Tooltip>
+    </div>
+  );
+}
+
+// ─── Context menu button helper ───────────────────────────────────
+
+const ContextMenuButton = ({
+  onClick,
+  children,
+  ref,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+  ref?: React.Ref<HTMLButtonElement>;
+}) => (
+  <button
+    ref={ref}
+    role="menuitem"
+    onClick={onClick}
+    className="w-full text-left transition-colors flex items-center"
+    style={{
+      padding: "8px 16px",
+      color: "var(--text-2)",
+      backgroundColor: "var(--bg-3)",
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.backgroundColor = "var(--surface-hover)";
+      e.currentTarget.style.color = "var(--text-0)";
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.backgroundColor = "var(--bg-3)";
+      e.currentTarget.style.color = "var(--text-2)";
+    }}
+  >
+    {children}
+  </button>
+);

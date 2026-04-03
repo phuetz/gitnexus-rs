@@ -37,6 +37,7 @@ export interface CytoNode {
   traceCallCount?: number;
   isDeadCandidate?: boolean;
   complexity?: number;
+  depth?: number;
 }
 
 export interface CytoEdge {

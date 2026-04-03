@@ -1,14 +1,32 @@
-import { Group, Panel } from "react-resizable-panels";
+import { useEffect, useRef } from "react";
+import { Group, Panel, type ImperativePanelHandle } from "react-resizable-panels";
 import { PanelSeparator } from "../layout/PanelSeparator";
 import { ExplorerLeftPanel } from "./ExplorerLeftPanel";
 import { ExplorerRightPanel } from "./ExplorerRightPanel";
 import { GraphExplorer } from "../graph/GraphExplorer";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { useAppStore } from "../../stores/app-store";
+import { useResponsive } from "../../hooks/use-responsive";
+import { useI18n } from "../../hooks/use-i18n";
 
 export function ExplorerMode() {
   const activeRepo = useAppStore((s) => s.activeRepo);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
+  const { isCompact, isNarrow } = useResponsive();
+  const { t } = useI18n();
+
+  const leftPanelRef = useRef<ImperativePanelHandle>(null);
+  const rightPanelRef = useRef<ImperativePanelHandle>(null);
+
+  useEffect(() => {
+    if (isCompact) leftPanelRef.current?.collapse();
+    else leftPanelRef.current?.expand();
+  }, [isCompact]);
+
+  useEffect(() => {
+    if (isNarrow) rightPanelRef.current?.collapse();
+    else if (selectedNodeId) rightPanelRef.current?.expand();
+  }, [isNarrow, selectedNodeId]);
 
   if (!activeRepo) {
     return (
@@ -24,7 +42,7 @@ export function ExplorerMode() {
               fontWeight: 600,
             }}
           >
-            No repository loaded
+            {t("explorer.noRepo")}
           </p>
           <p
             style={{
@@ -33,7 +51,7 @@ export function ExplorerMode() {
               color: "var(--text-3)",
             }}
           >
-            Open a repository from the Manage tab to start exploring
+            {t("explorer.noRepoHint")}
           </p>
         </div>
       </div>
@@ -42,7 +60,7 @@ export function ExplorerMode() {
 
   return (
     <Group orientation="horizontal" className="h-full">
-      <Panel defaultSize={20} minSize={12} maxSize={25} collapsible>
+      <Panel ref={leftPanelRef} defaultSize={20} minSize={12} maxSize={25} collapsible>
         <ErrorBoundary>
           <ExplorerLeftPanel />
         </ErrorBoundary>
@@ -55,6 +73,7 @@ export function ExplorerMode() {
       </Panel>
       <PanelSeparator />
       <Panel
+        ref={rightPanelRef}
         defaultSize={selectedNodeId ? 28 : 0}
         minSize={0}
         maxSize={35}

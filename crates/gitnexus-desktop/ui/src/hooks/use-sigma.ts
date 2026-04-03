@@ -84,17 +84,23 @@ export function useSigma(options: UseSigmaOptions) {
 
     const graph = graphRef.current;
 
+    // Read theme-aware colors from CSS custom properties
+    const cssVars = getComputedStyle(document.documentElement);
+    const labelColor = cssVars.getPropertyValue("--text-1").trim() || "#e4e4ed";
+    const defaultNodeColor = cssVars.getPropertyValue("--text-4").trim() || "#64748b";
+    const defaultEdgeColor = cssVars.getPropertyValue("--surface-border").trim() || "#2a2a3a";
+
     const sigma = new Sigma(graph, containerRef.current, {
       renderLabels: true,
       labelFont: "JetBrains Mono, Fira Code, monospace",
       labelSize: 11,
       labelWeight: "500",
-      labelColor: { color: "#e4e4ed" },
+      labelColor: { color: labelColor },
       labelRenderedSizeThreshold: 6,
       labelDensity: 0.15,
       labelGridCellSize: 60,
-      defaultNodeColor: "#64748b",
-      defaultEdgeColor: "#2a2a3a",
+      defaultNodeColor,
+      defaultEdgeColor,
       defaultEdgeType: "curved",
       hideEdgesOnMove: true,
       zIndex: true,
@@ -291,6 +297,19 @@ export function useSigma(options: UseSigmaOptions) {
 
     sigmaRef.current = sigma;
 
+    // ── Theme change observer ────────────────────────────────────
+    const themeObserver = new MutationObserver(() => {
+      const s = getComputedStyle(document.documentElement);
+      sigma.setSetting("labelColor", { color: s.getPropertyValue("--text-1").trim() || "#e4e4ed" });
+      sigma.setSetting("defaultNodeColor", s.getPropertyValue("--text-4").trim() || "#64748b");
+      sigma.setSetting("defaultEdgeColor", s.getPropertyValue("--surface-border").trim() || "#2a2a3a");
+      sigma.refresh();
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+
     // ── Events ─────────────────────────────────────────────────
     let clickDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     sigma.on("clickNode", ({ node }) => {
@@ -319,6 +338,7 @@ export function useSigma(options: UseSigmaOptions) {
     });
 
     return () => {
+      themeObserver.disconnect();
       if (clickDebounceTimer) {
         clearTimeout(clickDebounceTimer);
       }

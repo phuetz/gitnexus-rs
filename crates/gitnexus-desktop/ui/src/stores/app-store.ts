@@ -62,8 +62,10 @@ interface AppState {
   setEgoDepth: (depth: 1 | 2 | 3) => void;
   explorerLeftCollapsed: boolean;
   setExplorerLeftCollapsed: (collapsed: boolean) => void;
-  explorerRightCollapsed: boolean;
-  setExplorerRightCollapsed: (collapsed: boolean) => void;
+
+  selectedFeatures: Set<string>;
+  toggleFeature: (id: string) => void;
+  resetFeatures: () => void;
 }
 
 const MAX_HISTORY = 50;
@@ -168,6 +170,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   setEgoDepth: (depth) => set({ egoDepth: depth }),
   explorerLeftCollapsed: false,
   setExplorerLeftCollapsed: (collapsed) => set({ explorerLeftCollapsed: collapsed }),
-  explorerRightCollapsed: false,
-  setExplorerRightCollapsed: (collapsed) => set({ explorerRightCollapsed: collapsed }),
+
+  selectedFeatures: new Set<string>(),
+  toggleFeature: (id) => set((s) => {
+    const next = new Set(s.selectedFeatures);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return { selectedFeatures: next };
+  }),
+  resetFeatures: () => set({ selectedFeatures: new Set<string>() }),
 }));

@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { toast } from "sonner";
 import App from "./App";
 import { Toaster } from "./components/shared/Toaster";
 import "./index.css";
@@ -14,6 +15,11 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
+    },
+    mutations: {
+      onError: (error) => {
+        toast.error(error instanceof Error ? error.message : "An error occurred");
+      },
     },
   },
 });

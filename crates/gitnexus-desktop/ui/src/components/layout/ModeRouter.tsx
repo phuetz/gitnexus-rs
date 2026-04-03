@@ -1,9 +1,24 @@
+import { lazy, Suspense } from "react";
 import { useAppStore } from "../../stores/app-store";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { ExplorerMode } from "../explorer/ExplorerMode";
-import { AnalyzeMode } from "../analyze/AnalyzeMode";
-import { ManageMode } from "../manage/ManageMode";
-import { ChatMode } from "../chat/ChatMode";
+import { LoadingOrbs } from "../shared/LoadingOrbs";
+
+const AnalyzeMode = lazy(() =>
+  import("../analyze/AnalyzeMode").then((m) => ({ default: m.AnalyzeMode })),
+);
+const ChatMode = lazy(() =>
+  import("../chat/ChatMode").then((m) => ({ default: m.ChatMode })),
+);
+const ManageMode = lazy(() =>
+  import("../manage/ManageMode").then((m) => ({ default: m.ManageMode })),
+);
+
+const LazyFallback = (
+  <div className="flex items-center justify-center h-full">
+    <LoadingOrbs />
+  </div>
+);
 
 export function ModeRouter() {
   const mode = useAppStore((s) => s.mode);
@@ -29,17 +44,23 @@ export function ModeRouter() {
 
       {mode === "analyze" && (
         <ErrorBoundary>
-          <AnalyzeMode />
+          <Suspense fallback={LazyFallback}>
+            <AnalyzeMode />
+          </Suspense>
         </ErrorBoundary>
       )}
       {mode === "chat" && (
         <ErrorBoundary>
-          <ChatMode />
+          <Suspense fallback={LazyFallback}>
+            <ChatMode />
+          </Suspense>
         </ErrorBoundary>
       )}
       {mode === "manage" && (
         <ErrorBoundary>
-          <ManageMode />
+          <Suspense fallback={LazyFallback}>
+            <ManageMode />
+          </Suspense>
         </ErrorBoundary>
       )}
     </>

@@ -1,3 +1,4 @@
+pub mod shared;
 pub mod repos;
 pub mod graph;
 pub mod search;

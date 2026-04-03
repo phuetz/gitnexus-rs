@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Command } from "cmdk";
 import {
   Compass,
@@ -266,7 +267,7 @@ export function CommandPalette() {
 
   const close = () => setCommandPaletteOpen(false);
 
-  const commands = buildCommands();
+  const commands = useMemo(() => buildCommands(), []);
 
   // Group items
   const groups = ["Modes", "Analyze Views", "Lenses", "Actions"] as const;

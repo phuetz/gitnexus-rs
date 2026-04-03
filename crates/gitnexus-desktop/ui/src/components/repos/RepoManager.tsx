@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   Clock,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRepos, useOpenRepo } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { commands } from "../../lib/tauri-commands";
@@ -37,6 +38,7 @@ function timeAgo(ts: string): string {
 
 export function RepoManager() {
   const { t, tt } = useI18n();
+  const queryClient = useQueryClient();
   const { data: repos, isLoading, error, refetch } = useRepos();
   const openRepo = useOpenRepo();
   const setActiveRepo = useAppStore((s) => s.setActiveRepo);
@@ -94,7 +96,8 @@ export function RepoManager() {
   const handleAnalyzeComplete = useCallback(() => {
     setIsAnalyzing(false);
     refetch(); // Refresh the repo list to show the new entry
-  }, [refetch]);
+    queryClient.invalidateQueries(); // Clear all cached graph/search data
+  }, [refetch, queryClient]);
 
   const handleDismissProgress = useCallback(() => {
     setIsAnalyzing(false);

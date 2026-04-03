@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
@@ -9,7 +9,7 @@ function Sep() {
   return <div style={{ width: "1px", height: "12px", background: "var(--surface-border)" }} />;
 }
 
-export function StatusBar() {
+export const StatusBar = memo(function StatusBar() {
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const mode = useAppStore((s) => s.mode);
@@ -152,4 +152,4 @@ export function StatusBar() {
       </div>
     </div>
   );
-}
+});

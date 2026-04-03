@@ -34,18 +34,19 @@ const LANGUAGES: { code: Locale; label: string; flag: string }[] = [
   { code: "en", label: "English", flag: "EN" },
 ];
 
-const THEMES: { mode: ThemeMode; icon: typeof Sun; label: string; labelFr: string }[] = [
-  { mode: "dark", icon: Moon, label: "Dark", labelFr: "Sombre" },
-  { mode: "light", icon: Sun, label: "Light", labelFr: "Clair" },
-  { mode: "system", icon: Monitor, label: "System", labelFr: "Système" },
+const THEMES: { mode: ThemeMode; icon: typeof Sun; labelKey: string }[] = [
+  { mode: "dark", icon: Moon, labelKey: "manage.theme.dark" },
+  { mode: "light", icon: Sun, labelKey: "manage.theme.light" },
+  { mode: "system", icon: Monitor, labelKey: "manage.theme.system" },
 ];
 
 function SettingsContent() {
-  const { locale, setLocale, tt } = useI18n();
+  const { locale, setLocale, tt, t } = useI18n();
   const theme = useAppStore((s) => s.theme);
   const setTheme = useAppStore((s) => s.setTheme);
 
   const langEntry = tt("settings.language");
+  const themeEntry = tt("settings.theme");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -107,17 +108,17 @@ function SettingsContent() {
         <div className="flex items-center" style={{ gap: 10, marginBottom: 12 }}>
           <Sun size={16} style={{ color: "var(--amber)" }} />
           <p className="text-sm font-medium" style={{ color: "var(--text-0)" }}>
-            {locale === "fr" ? "Thème" : "Theme"}
+            {themeEntry.label}
           </p>
         </div>
         <div className="flex" style={{ gap: 8 }}>
-          {THEMES.map((t) => {
-            const isActive = theme === t.mode;
-            const Icon = t.icon;
+          {THEMES.map((themeOption) => {
+            const isActive = theme === themeOption.mode;
+            const Icon = themeOption.icon;
             return (
               <button
-                key={t.mode}
-                onClick={() => setTheme(t.mode)}
+                key={themeOption.mode}
+                onClick={() => setTheme(themeOption.mode)}
                 className="rounded-md text-xs font-medium transition-all"
                 style={{
                   padding: "8px 16px",
@@ -133,7 +134,7 @@ function SettingsContent() {
                 }}
               >
                 <Icon size={14} />
-                {locale === "fr" ? t.labelFr : t.label}
+                {t(themeOption.labelKey)}
               </button>
             );
           })}
@@ -146,25 +147,27 @@ function SettingsContent() {
 // ─── ManageMode ───────────────────────────────────────────────────────
 
 export function ManageMode() {
+  const { t } = useI18n();
+
   return (
     <div className="h-full overflow-auto p-6" style={{ maxWidth: 900, margin: "0 auto" }}>
       <h1 className="mb-6" style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, color: "var(--text-0)" }}>
-        Manage
+        {t("manage.title")}
       </h1>
 
-      <Section icon={Database} title="Repositories">
+      <Section icon={Database} title={t("manage.repositories")}>
         <RepoManager />
       </Section>
 
-      <Section icon={Download} title="Export">
+      <Section icon={Download} title={t("manage.export")}>
         <ExportPanel />
       </Section>
 
-      <Section icon={BookOpen} title="Documentation">
+      <Section icon={BookOpen} title={t("manage.documentation")}>
         <DocsViewer />
       </Section>
 
-      <Section icon={Settings} title="Settings">
+      <Section icon={Settings} title={t("manage.settings")}>
         <SettingsContent />
       </Section>
     </div>

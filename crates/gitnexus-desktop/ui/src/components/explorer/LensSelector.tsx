@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Eye } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import type { LensType } from "../../stores/app-store";
@@ -23,7 +24,7 @@ export const LENS_EDGE_TYPES: Record<LensType, string[] | null> = {
   tracing: null, // show all, but highlight traced
 };
 
-export function LensSelector() {
+export const LensSelector = memo(function LensSelector() {
   const activeLens = useAppStore((s) => s.activeLens);
   const setActiveLens = useAppStore((s) => s.setActiveLens);
 
@@ -35,12 +36,6 @@ export function LensSelector() {
         onChange={(e) => {
           const lens = e.target.value as LensType;
           setActiveLens(lens);
-          // Dispatch event for GraphExplorer to pick up
-          window.dispatchEvent(
-            new CustomEvent("gitnexus:lens-change", {
-              detail: { lens, edgeTypes: LENS_EDGE_TYPES[lens] },
-            }),
-          );
         }}
         className="text-xs rounded px-1.5 py-1 border-none outline-none cursor-pointer"
         style={{
@@ -57,4 +52,4 @@ export function LensSelector() {
       </select>
     </div>
   );
-}
+});

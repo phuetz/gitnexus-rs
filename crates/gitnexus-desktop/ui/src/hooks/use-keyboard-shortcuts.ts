@@ -17,7 +17,6 @@ export function useKeyboardShortcuts() {
   const setZoomLevel = useAppStore((s) => s.setZoomLevel);
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
   const setExplorerLeftCollapsed = useAppStore((s) => s.setExplorerLeftCollapsed);
-  const explorerLeftCollapsed = useAppStore((s) => s.explorerLeftCollapsed);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -63,7 +62,7 @@ export function useKeyboardShortcuts() {
       // Ctrl+B → toggle explorer left panel
       if ((e.ctrlKey || e.metaKey) && e.key === "b") {
         e.preventDefault();
-        setExplorerLeftCollapsed(!explorerLeftCollapsed);
+        setExplorerLeftCollapsed(!useAppStore.getState().explorerLeftCollapsed);
       }
 
       // Escape → close chat modals, deselect, close search/palette
@@ -89,34 +88,44 @@ export function useKeyboardShortcuts() {
         useChatStore.getState().toggleDeepResearch();
       }
 
-      // F → Fit graph to screen (when not in an input)
+      // F → Fit graph to screen (when not in an input, explorer mode only)
       if (!isInput && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent("gitnexus:fit-graph"));
+        if (useAppStore.getState().mode === "explorer") {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent("gitnexus:fit-graph"));
+        }
       }
 
-      // 1 → Switch zoom level to package (when not in an input)
+      // 1 → Switch zoom level to package (when not in an input, explorer mode only)
       if (!isInput && e.key === "1" && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        setZoomLevel("package");
+        if (useAppStore.getState().mode === "explorer") {
+          e.preventDefault();
+          setZoomLevel("package");
+        }
       }
 
-      // 2 → Switch zoom level to module (when not in an input)
+      // 2 → Switch zoom level to module (when not in an input, explorer mode only)
       if (!isInput && e.key === "2" && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        setZoomLevel("module");
+        if (useAppStore.getState().mode === "explorer") {
+          e.preventDefault();
+          setZoomLevel("module");
+        }
       }
 
-      // 3 → Switch zoom level to symbol (when not in an input)
+      // 3 → Switch zoom level to symbol (when not in an input, explorer mode only)
       if (!isInput && e.key === "3" && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        setZoomLevel("symbol");
+        if (useAppStore.getState().mode === "explorer") {
+          e.preventDefault();
+          setZoomLevel("symbol");
+        }
       }
 
-      // L → Cycle graph layouts (when not in an input)
+      // L → Cycle graph layouts (when not in an input, explorer mode only)
       if (!isInput && e.key.toLowerCase() === "l") {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent("gitnexus:cycle-layout"));
+        if (useAppStore.getState().mode === "explorer") {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent("gitnexus:cycle-layout"));
+        }
       }
     };
 
@@ -129,6 +138,5 @@ export function useKeyboardShortcuts() {
     setZoomLevel,
     setSettingsOpen,
     setExplorerLeftCollapsed,
-    explorerLeftCollapsed,
   ]);
 }

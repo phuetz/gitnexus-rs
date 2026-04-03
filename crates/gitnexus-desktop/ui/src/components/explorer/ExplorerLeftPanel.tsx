@@ -1,22 +1,11 @@
-import { useState, useCallback } from "react";
 import { FileTreeView } from "../files/FileTreeView";
 import { FeatureNavigator } from "../graph/FeatureNavigator";
+import { useAppStore } from "../../stores/app-store";
 
 export function ExplorerLeftPanel() {
-  const [selectedFeatures, setSelectedFeatures] = useState<Set<string>>(new Set());
-
-  const handleToggleFeature = useCallback((name: string) => {
-    setSelectedFeatures((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  }, []);
-
-  const handleResetFeatures = useCallback(() => {
-    setSelectedFeatures(new Set());
-  }, []);
+  const selectedFeatures = useAppStore((s) => s.selectedFeatures);
+  const toggleFeature = useAppStore((s) => s.toggleFeature);
+  const resetFeatures = useAppStore((s) => s.resetFeatures);
 
   return (
     <div
@@ -43,8 +32,8 @@ export function ExplorerLeftPanel() {
       >
         <FeatureNavigator
           selectedFeatures={selectedFeatures}
-          onToggleFeature={handleToggleFeature}
-          onReset={handleResetFeatures}
+          onToggleFeature={toggleFeature}
+          onReset={resetFeatures}
         />
       </div>
     </div>

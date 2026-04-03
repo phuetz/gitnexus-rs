@@ -177,6 +177,16 @@ const en = {
   "commandBar.tab.impact": "Impact Analysis",
   "commandBar.tab.docs": "Documentation",
 
+  // ── Manage ──
+  "manage.title": "Manage",
+  "manage.repositories": "Repositories",
+  "manage.export": "Export",
+  "manage.documentation": "Documentation",
+  "manage.settings": "Settings",
+  "manage.theme.dark": "Dark",
+  "manage.theme.light": "Light",
+  "manage.theme.system": "System",
+
   // ── Settings ──
   "settings.title": "Settings",
   "settings.language": { label: "Language", tip: "Choose the display language for the interface" },
@@ -516,6 +526,16 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "commandBar.tab.graph": "Explorateur de graphe",
   "commandBar.tab.impact": "Analyse d'impact",
   "commandBar.tab.docs": "Documentation",
+
+  // ── Manage ──
+  "manage.title": "Gérer",
+  "manage.repositories": "Dépôts",
+  "manage.export": "Export",
+  "manage.documentation": "Documentation",
+  "manage.settings": "Paramètres",
+  "manage.theme.dark": "Sombre",
+  "manage.theme.light": "Clair",
+  "manage.theme.system": "Système",
 
   // ── Settings ──
   "settings.title": "Paramètres",

@@ -59,6 +59,7 @@ export function DiagramView() {
 
   const handleSearch = () => {
     if (target.trim()) {
+      setRenderError(false);
       setSearchTarget(target.trim());
     }
   };

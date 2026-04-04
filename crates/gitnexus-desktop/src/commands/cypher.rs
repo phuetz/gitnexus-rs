@@ -21,8 +21,7 @@ pub async fn execute_cypher(
         }
     }
     // SET with any whitespace after it
-    if upper.contains("SET") {
-        let set_idx = upper.find("SET").unwrap();
+    if let Some(set_idx) = upper.find("SET") {
         let after = &upper[set_idx + 3..];
         if after.starts_with(|c: char| c.is_whitespace()) {
             return Err("Only read-only queries are allowed".to_string());

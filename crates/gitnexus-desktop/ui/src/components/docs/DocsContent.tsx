@@ -181,31 +181,30 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
     let cancelled = false;
 
     (async () => {
+      let highlighter: Awaited<ReturnType<typeof import("shiki")["createHighlighter"]>> | null = null;
       try {
         const shiki = await import("shiki");
         if (cancelled) return;
 
-        const highlighter = await shiki.createHighlighter({
+        highlighter = await shiki.createHighlighter({
           themes: ["github-dark"],
           langs: [lang],
         });
 
-        if (cancelled || !ref.current) {
-          highlighter.dispose();
-          return;
-        }
+        if (cancelled || !ref.current) return;
 
-        const html = highlighter.codeToHtml(code, { lang, theme: "github-dark" });
-        const match = html.match(/<code[^>]*>([\s\S]*)<\/code>/);
+        const highlighted = highlighter.codeToHtml(code, { lang, theme: "github-dark" });
+        const match = highlighted.match(/<code[^>]*>([\s\S]*)<\/code>/);
         if (match && ref.current) {
+          // Shiki output is sanitized syntax-highlighted HTML; CSP blocks script execution
           ref.current.innerHTML = match[1];
         }
-
-        highlighter.dispose();
       } catch {
         if (!cancelled && ref.current) {
           ref.current.textContent = code;
         }
+      } finally {
+        highlighter?.dispose();
       }
     })();
 
@@ -514,7 +513,7 @@ export function DocsContent({ content, title, onNavigate }: DocsContentProps) {
           >
             {t("docs.onThisPage")}
           </p>
-          <nav className="space-y-1">
+          <nav className="space-y-1" aria-label="Table of contents">
             {toc.map((heading) => (
               <a
                 key={heading.id}

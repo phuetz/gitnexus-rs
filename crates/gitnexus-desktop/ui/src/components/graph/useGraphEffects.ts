@@ -40,12 +40,18 @@ export function useGraphEffects({
   setSearchOpen,
   setSelectedNodeId,
 }: GraphEffectsOptions) {
+  // Destructure stable setters for exhaustive-deps compliance
+  const {
+    setEgoNodeIds, setEgoDepthMap, depthFilter,
+    setContextMenu, setShortcutsOpen, layout, setLayout,
+  } = gs;
+
   // Ego-network BFS
   useEffect(() => {
     const graph = graphRef.current;
     if (!selectedNodeId || !graph || !graph.hasNode(selectedNodeId)) {
-      gs.setEgoNodeIds(undefined);
-      gs.setEgoDepthMap(undefined);
+      setEgoNodeIds(undefined);
+      setEgoDepthMap(undefined);
       return;
     }
     const nodeIds = new Set<string>();
@@ -64,19 +70,17 @@ export function useGraphEffects({
         }
       });
     }
-    gs.setEgoNodeIds(nodeIds);
-    gs.setEgoDepthMap(depthMap);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNodeId, egoDepth]);
+    setEgoNodeIds(nodeIds);
+    setEgoDepthMap(depthMap);
+  }, [selectedNodeId, egoDepth, setEgoNodeIds, setEgoDepthMap, graphRef]);
 
   // Depth filter
   useEffect(() => {
     const g = graphRef.current;
     if (!g || g.order === 0) return;
-    filterGraphByDepth(g, selectedNodeId ?? null, gs.depthFilter);
+    filterGraphByDepth(g, selectedNodeId ?? null, depthFilter);
     refresh();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gs.depthFilter, selectedNodeId, refresh]);
+  }, [depthFilter, selectedNodeId, refresh, graphRef]);
 
   // Camera focus on selection
   useEffect(() => {
@@ -95,8 +99,7 @@ export function useGraphEffects({
     if (!g) return;
     filterGraphByCommunities(g, selectedFeatures instanceof Set ? selectedFeatures : new Set(selectedFeatures));
     refresh();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFeatures, refresh]);
+  }, [selectedFeatures, refresh, graphRef]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -108,22 +111,21 @@ export function useGraphEffects({
       if ((e.ctrlKey || e.metaKey) && e.key === "0") { e.preventDefault(); fitView(); }
       if (e.key === "Escape" && !e.ctrlKey && !e.metaKey) {
         setSelectedNodeId(null, null);
-        gs.setContextMenu(null);
-        gs.setShortcutsOpen(false);
+        setContextMenu(null);
+        setShortcutsOpen(false);
       }
-      if (e.key === "?" && !e.ctrlKey && !e.metaKey) gs.setShortcutsOpen((p) => !p);
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey) setShortcutsOpen((p) => !p);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exportPNG, zoomIn, zoomOut, fitView, setSearchOpen, setSelectedNodeId]);
+  }, [exportPNG, zoomIn, zoomOut, fitView, setSearchOpen, setSelectedNodeId, setContextMenu, setShortcutsOpen]);
 
   // Custom window events
   useEffect(() => {
     const onFit = () => fitView();
     const onCycle = () => {
       const ls = ["forceatlas2", "grid", "circle", "random"];
-      gs.setLayout(ls[(ls.indexOf(gs.layout) + 1) % ls.length]);
+      setLayout(ls[(ls.indexOf(layout) + 1) % ls.length]);
     };
     window.addEventListener("gitnexus:fit-graph", onFit);
     window.addEventListener("gitnexus:cycle-layout", onCycle);
@@ -131,6 +133,5 @@ export function useGraphEffects({
       window.removeEventListener("gitnexus:fit-graph", onFit);
       window.removeEventListener("gitnexus:cycle-layout", onCycle);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gs.layout, fitView]);
+  }, [layout, fitView, setLayout]);
 }

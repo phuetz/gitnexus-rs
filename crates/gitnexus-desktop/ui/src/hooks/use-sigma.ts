@@ -112,7 +112,7 @@ export function useSigma(options: UseSigmaOptions) {
       },
 
       // ── Custom hover: dark pill with colored border ──────────
-      defaultDrawNodeHover: (context, data, _settings) => {
+      defaultDrawNodeHover: (context, data) => {
         const label = data.label;
         if (!label) return;
         const fontSize = 11;
@@ -353,7 +353,6 @@ export function useSigma(options: UseSigmaOptions) {
       sigma.kill();
       sigmaRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // ONE TIME init
 
   // ── Set graph data ───────────────────────────────────────────────
@@ -400,9 +399,9 @@ export function useSigma(options: UseSigmaOptions) {
     layout.start();
     setIsLayoutRunning(true);
 
-    // Auto-stop
+    // Auto-stop — scale with graph size (small graphs settle fast)
     const duration =
-      nodeCount > 2000 ? 30000 : nodeCount > 500 ? 25000 : 20000;
+      nodeCount > 2000 ? 15000 : nodeCount > 500 ? 8000 : nodeCount > 50 ? 4000 : 2000;
     layoutTimerRef.current = setTimeout(() => {
       if (layoutRef.current) {
         layoutRef.current.stop();
@@ -412,6 +411,12 @@ export function useSigma(options: UseSigmaOptions) {
           settings: { ratio: 1.1, margin: 5 },
         });
         sigmaRef.current?.refresh();
+        // Auto-fit view after layout — wait one frame so Sigma can
+        // recompute the graph extent before the camera resets
+        requestAnimationFrame(() => {
+          const camera = sigmaRef.current?.getCamera();
+          if (camera) camera.animatedReset({ duration: 300 });
+        });
         setIsLayoutRunning(false);
       }
     }, duration);
@@ -446,9 +451,8 @@ export function useSigma(options: UseSigmaOptions) {
   // ── Fit view ─────────────────────────────────────────────────────
 
   const fitView = useCallback(() => {
-    sigmaRef.current
-      ?.getCamera()
-      .animate({ x: 0.5, y: 0.5, ratio: 1 }, { duration: 300 });
+    const camera = sigmaRef.current?.getCamera();
+    if (camera) camera.animatedReset({ duration: 300 });
   }, []);
 
   // ── Zoom ─────────────────────────────────────────────────────────

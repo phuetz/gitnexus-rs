@@ -611,7 +611,7 @@ fn generate_controllers_doc(
                 RelationshipType::Calls))
             .filter(|r| {
                 let other_id = if r.source_id == ctrl.id { &r.target_id } else { &r.source_id };
-                graph.get_node(other_id).map_or(false, |n| matches!(n.label,
+                graph.get_node(other_id).is_some_and(|n| matches!(n.label,
                     NodeLabel::Service | NodeLabel::DbContext | NodeLabel::ExternalService))
             })
             .collect();

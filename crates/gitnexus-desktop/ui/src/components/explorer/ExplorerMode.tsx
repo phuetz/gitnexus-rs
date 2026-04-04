@@ -1,4 +1,5 @@
-import { Group, Panel } from "react-resizable-panels";
+import { useRef, useEffect } from "react";
+import { Group, Panel, type PanelImperativeHandle } from "react-resizable-panels";
 import { PanelSeparator } from "../layout/PanelSeparator";
 import { ExplorerLeftPanel } from "./ExplorerLeftPanel";
 import { ExplorerRightPanel } from "./ExplorerRightPanel";
@@ -6,42 +7,25 @@ import { GraphExplorer } from "../graph/GraphExplorer";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { useAppStore } from "../../stores/app-store";
 import { useResponsive } from "../../hooks/use-responsive";
-import { useI18n } from "../../hooks/use-i18n";
+import { WelcomeScreen } from "./WelcomeScreen";
 
 export function ExplorerMode() {
   const activeRepo = useAppStore((s) => s.activeRepo);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const { isCompact } = useResponsive();
-  const { t } = useI18n();
+  const rightPanelRef = useRef<PanelImperativeHandle>(null);
+
+  // Auto-expand/collapse right panel when node selection changes
+  useEffect(() => {
+    if (selectedNodeId) {
+      rightPanelRef.current?.expand();
+    } else {
+      rightPanelRef.current?.collapse();
+    }
+  }, [selectedNodeId]);
 
   if (!activeRepo) {
-    return (
-      <div
-        className="flex items-center justify-center h-full"
-        style={{ color: "var(--text-2)" }}
-      >
-        <div className="text-center">
-          <p
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: 20,
-              fontWeight: 600,
-            }}
-          >
-            {t("explorer.noRepo")}
-          </p>
-          <p
-            style={{
-              fontSize: 13,
-              marginTop: 8,
-              color: "var(--text-3)",
-            }}
-          >
-            {t("explorer.noRepoHint")}
-          </p>
-        </div>
-      </div>
-    );
+    return <WelcomeScreen />;
   }
 
   return (
@@ -59,7 +43,8 @@ export function ExplorerMode() {
       </Panel>
       <PanelSeparator />
       <Panel
-        defaultSize={selectedNodeId ? 28 : 0}
+        panelRef={rightPanelRef}
+        defaultSize={0}
         minSize={0}
         maxSize={35}
         collapsible

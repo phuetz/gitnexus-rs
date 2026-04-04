@@ -113,7 +113,7 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
     // Text output
     println!();
     println!("{}", "═══════════════════════════════════════════════════════════".cyan());
-    println!("  {} Code Health Report", "📊".to_string());
+    println!("  \u{1f4ca} Code Health Report");
     println!("{}", "═══════════════════════════════════════════════════════════".cyan());
     println!();
 

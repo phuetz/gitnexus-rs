@@ -77,12 +77,19 @@ function ScoreBar({
 
 export function CodeHealthCard() {
   const { t } = useI18n();
-  const { data: health } = useQuery({
+  const { data: health, isLoading } = useQuery({
     queryKey: ["code-health"],
     queryFn: () => commands.getCodeHealth(),
     staleTime: 60_000,
   });
 
+  if (isLoading) {
+    return (
+      <div style={{ padding: "20px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div className="shimmer" style={{ width: 80, height: 80, borderRadius: "50%", background: "var(--bg-3)" }} />
+      </div>
+    );
+  }
   if (!health) return null;
 
   const color = gradeColor(health.grade);

@@ -69,7 +69,7 @@ pub fn run_test() -> Result<()> {
             if status.is_success() {
                 println!("{} Connection successful (HTTP {})", "OK".green(), status);
                 if let Ok(json) = resp.json::<serde_json::Value>() {
-                    if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
+                    if let Some(content) = json.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("message")).and_then(|m| m.get("content")).and_then(|v| v.as_str()) {
                         println!("  Response: {}", content.trim());
                     }
                 }

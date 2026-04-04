@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence } from "framer-motion";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 import { commands } from "../../lib/tauri-commands";
+import { AnimatedPage } from "../shared/motion";
 import { AnalyzeNav } from "./AnalyzeNav";
 import { OverviewView } from "./OverviewView";
 import { HotspotsView } from "../git/HotspotsView";
@@ -40,13 +43,14 @@ function OwnershipWrapper() {
 }
 
 export function AnalyzeMode() {
+  const { t } = useI18n();
   const analyzeView = useAppStore((s) => s.analyzeView);
   const activeRepo = useAppStore((s) => s.activeRepo);
 
   if (!activeRepo) {
     return (
       <div className="flex items-center justify-center h-full" style={{ color: "var(--text-2)" }}>
-        <p style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>Open a repository to view analytics</p>
+        <p style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>{t("analyze.openRepo")}</p>
       </div>
     );
   }
@@ -64,7 +68,7 @@ export function AnalyzeMode() {
         return (
           <div className="p-6" style={{ maxWidth: 800, margin: "0 auto" }}>
             <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, color: "var(--text-0)", marginBottom: 16 }}>
-              Code Health
+              {t("analyze.codeHealth")}
             </h2>
             <CodeHealthCard />
           </div>
@@ -77,7 +81,11 @@ export function AnalyzeMode() {
     <div className="flex h-full">
       <AnalyzeNav />
       <div className="flex-1 min-w-0 overflow-auto">
-        {renderView()}
+        <AnimatePresence mode="wait">
+          <AnimatedPage key={analyzeView}>
+            {renderView()}
+          </AnimatedPage>
+        </AnimatePresence>
       </div>
     </div>
   );

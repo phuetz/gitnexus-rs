@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { Code2, ChevronDown, ChevronRight, FileCode, Package } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 import { useSymbolContext, useFileContent } from "../../hooks/use-tauri-query";
 import { useShikiTokens } from "../../hooks/use-shiki";
 import type { RelatedNode } from "../../lib/tauri-commands";
@@ -338,6 +339,7 @@ function DependenciesSection({
 }
 
 export function CodeInspectorPanel() {
+  const { t } = useI18n();
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const selectedNodeName = useAppStore((s) => s.selectedNodeName);
   const { data: context } = useSymbolContext(selectedNodeId);
@@ -366,7 +368,7 @@ export function CodeInspectorPanel() {
           style={{ color: "var(--text-4)", marginBottom: 8 }}
         />
         <p style={{ color: "var(--text-3)", fontSize: 12, textAlign: "center" }}>
-          Select a node in the graph to inspect its code
+          {t("codeInspector.selectNode")}
         </p>
       </div>
     );
@@ -378,7 +380,7 @@ export function CodeInspectorPanel() {
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        background: "rgba(9, 11, 16, 0.85)",
+        background: "var(--glass-bg)",
         backdropFilter: "blur(12px)",
         borderRight: "1px solid var(--border)",
       }}
@@ -402,7 +404,7 @@ export function CodeInspectorPanel() {
             color: "var(--text-0)",
           }}
         >
-          Code Inspector
+          {t("codeInspector.title")}
         </span>
       </div>
 
@@ -440,7 +442,7 @@ export function CodeInspectorPanel() {
                 background: "var(--bg-2)",
               }}
             >
-              Callers ({callers.length})
+              {t("detail.callers")} ({callers.length})
             </div>
             {callers.slice(0, 5).map((c) => (
               <CodeSection
@@ -471,7 +473,7 @@ export function CodeInspectorPanel() {
                 background: "var(--bg-2)",
               }}
             >
-              Callees ({callees.length})
+              {t("detail.callees")} ({callees.length})
             </div>
             {callees.slice(0, 5).map((c) => (
               <CodeSection

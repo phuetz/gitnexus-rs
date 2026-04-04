@@ -81,7 +81,7 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
     }
 
     relevant_nodes
-        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        .sort_by(|a, b| b.1.total_cmp(&a.1));
     let top_nodes = &relevant_nodes[..relevant_nodes.len().min(10)];
 
     if top_nodes.is_empty() {
@@ -182,7 +182,7 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
         if let Some(data) = line.strip_prefix("data: ") {
             if data.trim() == "[DONE]" { break; }
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
+                if let Some(delta) = json.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")).and_then(|d| d.get("content")).and_then(|v| v.as_str()) {
                     print!("{}", delta);
                     std::io::stdout().flush()?;
                     full_answer.push_str(delta);

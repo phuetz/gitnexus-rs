@@ -14,7 +14,7 @@ export function GraphShortcutsOverlay({ visible }: GraphShortcutsOverlayProps) {
     ["Ctrl+E", t("graph.shortcut.exportPng")],
     ["Ctrl+Shift+S", t("graph.shortcut.screenshot")],
     ["Ctrl+=/\u2212/0", t("graph.shortcut.zoomInOutFit")],
-    ["Alt+\u2190/\u2192", t("graph.shortcut.navigateBackForward")],
+    ["Ctrl+\\", t("graph.shortcut.clearSelection")],
     ["Escape", t("graph.shortcut.clearSelection")],
     ["Double-click", t("graph.shortcut.focusSubgraph")],
     ["?", t("graph.shortcut.toggleHelp")],

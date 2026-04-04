@@ -1,4 +1,5 @@
 import { Tooltip } from "../shared/Tooltip";
+import { useI18n } from "../../hooks/use-i18n";
 
 interface GraphZoomControlsProps {
   onZoomIn: () => void;
@@ -13,6 +14,7 @@ export function GraphZoomControls({
   onFitView,
   legendExpanded,
 }: GraphZoomControlsProps) {
+  const { t } = useI18n();
   const btnStyle = {
     background: "var(--bg-2)",
     border: "1px solid var(--surface-border)",
@@ -25,32 +27,32 @@ export function GraphZoomControls({
       className="absolute z-20 flex flex-col gap-1"
       style={{ bottom: legendExpanded ? 200 : 80, right: 16 }}
     >
-      <Tooltip content="Zoom in (Ctrl+=)">
+      <Tooltip content={t("zoom.in")}>
         <button
           onClick={onZoomIn}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
           style={btnStyle}
-          aria-label="Zoom in"
+          aria-label={t("zoom.inLabel")}
         >
           +
         </button>
       </Tooltip>
-      <Tooltip content="Zoom out (Ctrl+-)">
+      <Tooltip content={t("zoom.out")}>
         <button
           onClick={onZoomOut}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
           style={btnStyle}
-          aria-label="Zoom out"
+          aria-label={t("zoom.outLabel")}
         >
           {"\u2212"}
         </button>
       </Tooltip>
-      <Tooltip content="Fit view (Ctrl+0)">
+      <Tooltip content={t("zoom.fit")}>
         <button
           onClick={onFitView}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold"
           style={btnStyle}
-          aria-label="Fit view"
+          aria-label={t("zoom.fitLabel")}
         >
           {"\u229E"}
         </button>

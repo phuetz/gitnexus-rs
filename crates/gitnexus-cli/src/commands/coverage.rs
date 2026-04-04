@@ -154,9 +154,9 @@ fn run_single_class(
 
 fn run_global(
     graph: &gitnexus_core::graph::KnowledgeGraph,
-    incoming_calls: &HashMap<String, Vec<String>>,
+    _incoming_calls: &HashMap<String, Vec<String>>,
     class_methods: &HashMap<String, Vec<String>>,
-    method_class: &HashMap<String, String>,
+    _method_class: &HashMap<String, String>,
     json: bool,
 ) -> Result<()> {
     // Collect all classes with their coverage stats
@@ -209,7 +209,7 @@ fn run_global(
     class_stats.sort_by(|a, b| {
         let pct_a = if a.method_count > 0 { a.traced_count as f64 / a.method_count as f64 } else { 0.0 };
         let pct_b = if b.method_count > 0 { b.traced_count as f64 / b.method_count as f64 } else { 0.0 };
-        pct_a.partial_cmp(&pct_b).unwrap_or(std::cmp::Ordering::Equal)
+        pct_a.total_cmp(&pct_b)
     });
 
     if json {
@@ -455,11 +455,9 @@ fn run_flow_trace(
                 rel.rel_type,
                 RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction
             )
-        {
-            if visited.insert(rel.target_id.clone()) {
+            && visited.insert(rel.target_id.clone()) {
                 queue.push_back((rel.target_id.clone(), 0usize));
             }
-        }
     }
 
     // BFS following Calls edges, collecting all traversed methods
@@ -490,8 +488,7 @@ fn run_flow_trace(
         for rel in graph.iter_relationships() {
             if rel.source_id == node_id
                 && matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService)
-            {
-                if visited.insert(rel.target_id.clone()) {
+                && visited.insert(rel.target_id.clone()) {
                     if let Some(target) = graph.get_node(&rel.target_id) {
                         if matches!(target.label, NodeLabel::Method | NodeLabel::Constructor | NodeLabel::ControllerAction) {
                             // Skip StackLogger methods for cleaner output
@@ -511,7 +508,6 @@ fn run_flow_trace(
                         }
                     }
                 }
-            }
         }
     }
 

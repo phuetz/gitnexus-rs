@@ -57,6 +57,7 @@ export function NodeIcon({ label, size = 16 }: { label: string; size?: number })
   return (
     <div
       className="flex items-center justify-center rounded-md shrink-0"
+      aria-hidden="true"
       style={{
         width: size + 8,
         height: size + 8,

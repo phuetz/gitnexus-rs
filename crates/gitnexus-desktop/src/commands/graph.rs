@@ -183,7 +183,8 @@ pub async fn get_subgraph(
     depth: Option<u32>,
 ) -> Result<GraphPayload, String> {
     let (graph, indexes, _fts, _repo_path) = state.get_repo(None).await?;
-    let max_depth = depth.unwrap_or(2);
+    let max_depth = depth.unwrap_or(2).min(5); // Cap depth to prevent explosion
+    const MAX_NODES: usize = 500; // Cap total nodes
 
     // BFS to collect neighborhood, tracking depth per node
     let mut visited = std::collections::HashSet::new();
@@ -195,7 +196,7 @@ pub async fn get_subgraph(
     queue.push_back((center_node_id, 0u32));
 
     while let Some((node_id, d)) = queue.pop_front() {
-        if d >= max_depth {
+        if d >= max_depth || visited.len() >= MAX_NODES {
             continue;
         }
 

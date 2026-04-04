@@ -1,24 +1,29 @@
+import { MousePointerClick } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { DetailPanel } from "../layout/DetailPanel";
 import { CodeInspectorPanel } from "../layout/CodeInspectorPanel";
+import { EmptyState } from "../shared/EmptyState";
+import { useI18n } from "../../hooks/use-i18n";
 
 export function ExplorerRightPanel() {
+  const { t } = useI18n();
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
 
   if (!selectedNodeId) {
     return (
       <div
-        className="flex items-center justify-center h-full"
+        className="h-full"
         style={{
           background: "var(--glass-bg)",
           backdropFilter: "blur(var(--glass-blur))",
           borderLeft: "1px solid var(--glass-border)",
-          color: "var(--text-3)",
         }}
       >
-        <p className="text-sm" style={{ fontFamily: "var(--font-body)" }}>
-          Select a symbol to inspect
-        </p>
+        <EmptyState
+          icon={MousePointerClick}
+          title={t("detail.noSelection")}
+          description={t("detail.noSelectionHint")}
+        />
       </div>
     );
   }
@@ -26,6 +31,7 @@ export function ExplorerRightPanel() {
   return (
     <div
       className="flex flex-col h-full overflow-hidden"
+      aria-label="Symbol inspector"
       style={{
         background: "var(--glass-bg)",
         backdropFilter: "blur(var(--glass-blur))",

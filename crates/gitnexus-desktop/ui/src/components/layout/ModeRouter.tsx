@@ -1,7 +1,9 @@
 import { lazy, Suspense } from "react";
+import { AnimatePresence } from "framer-motion";
 import { useAppStore } from "../../stores/app-store";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { ExplorerMode } from "../explorer/ExplorerMode";
+import { AnimatedPage } from "../shared/motion";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
 
 const AnalyzeMode = lazy(() =>
@@ -42,27 +44,35 @@ export function ModeRouter() {
         </ErrorBoundary>
       </div>
 
-      {mode === "analyze" && (
-        <ErrorBoundary>
-          <Suspense fallback={LazyFallback}>
-            <AnalyzeMode />
-          </Suspense>
-        </ErrorBoundary>
-      )}
-      {mode === "chat" && (
-        <ErrorBoundary>
-          <Suspense fallback={LazyFallback}>
-            <ChatMode />
-          </Suspense>
-        </ErrorBoundary>
-      )}
-      {mode === "manage" && (
-        <ErrorBoundary>
-          <Suspense fallback={LazyFallback}>
-            <ManageMode />
-          </Suspense>
-        </ErrorBoundary>
-      )}
+      <AnimatePresence mode="wait">
+        {mode === "analyze" && (
+          <AnimatedPage key="analyze">
+            <ErrorBoundary>
+              <Suspense fallback={LazyFallback}>
+                <AnalyzeMode />
+              </Suspense>
+            </ErrorBoundary>
+          </AnimatedPage>
+        )}
+        {mode === "chat" && (
+          <AnimatedPage key="chat">
+            <ErrorBoundary>
+              <Suspense fallback={LazyFallback}>
+                <ChatMode />
+              </Suspense>
+            </ErrorBoundary>
+          </AnimatedPage>
+        )}
+        {mode === "manage" && (
+          <AnimatedPage key="manage">
+            <ErrorBoundary>
+              <Suspense fallback={LazyFallback}>
+                <ManageMode />
+              </Suspense>
+            </ErrorBoundary>
+          </AnimatedPage>
+        )}
+      </AnimatePresence>
     </>
   );
 }

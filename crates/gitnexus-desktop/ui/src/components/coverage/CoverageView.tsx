@@ -3,6 +3,7 @@ import { ShieldCheck, AlertTriangle, CheckCircle } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 import { useAppStore } from "../../stores/app-store";
+import { LoadingOrbs } from "../shared/LoadingOrbs";
 
 export function CoverageView() {
   const { t } = useI18n();
@@ -17,9 +18,8 @@ export function CoverageView() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full" style={{ color: "var(--text-3)" }}>
-        <ShieldCheck size={20} className="animate-pulse" style={{ marginRight: 8 }} />
-        {t("coverage.loading")}
+      <div className="flex items-center justify-center h-full">
+        <LoadingOrbs />
       </div>
     );
   }
@@ -70,10 +70,8 @@ export function CoverageView() {
                 {stats.deadMethods.map((m) => (
                   <tr
                     key={m.nodeId}
-                    className="cursor-pointer transition-colors"
+                    className="cursor-pointer transition-colors hover:brightness-110"
                     style={{ borderTop: "1px solid var(--surface-border)" }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-2)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                     onClick={() => {
                       setSelectedNodeId(m.nodeId, m.name);
                       setMode("explorer");

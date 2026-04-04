@@ -74,7 +74,8 @@ export function SymbolBreadcrumb() {
           {crumb.nodeId ? (
             <button
               onClick={() => setSelectedNodeId(crumb.nodeId!, crumb.label)}
-              className="flex items-center gap-1 rounded px-1 py-0.5 transition-colors truncate"
+              className="flex items-center gap-1 rounded px-1 py-0.5 transition-colors truncate hover:brightness-110"
+              title={crumb.label}
               style={{
                 color: "var(--text-2)",
                 background: "transparent",
@@ -82,8 +83,6 @@ export function SymbolBreadcrumb() {
                 cursor: "pointer",
                 maxWidth: 140,
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-3)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             >
               {crumb.icon}
               <span className="truncate">{crumb.label}</span>
@@ -91,6 +90,7 @@ export function SymbolBreadcrumb() {
           ) : (
             <span
               className="flex items-center gap-1 truncate"
+              title={crumb.label}
               style={{
                 color: i === crumbs.length - 1 ? "var(--text-0)" : "var(--text-2)",
                 fontWeight: i === crumbs.length - 1 ? 600 : 400,

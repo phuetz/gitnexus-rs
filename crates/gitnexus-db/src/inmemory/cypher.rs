@@ -225,7 +225,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
 
 /// Parse a Cypher-like query string into a `CypherStatement`.
 pub fn parse(input: &str) -> Result<CypherStatement, DbError> {
-    let tokens = tokenize(input).map_err(|e| parse_err(e))?;
+    let tokens = tokenize(input).map_err(parse_err)?;
     let mut parser = CypherParser { tokens, pos: 0 };
     parser.parse()
 }

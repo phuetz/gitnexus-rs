@@ -7,6 +7,7 @@ import { CodePanel } from "../code/CodePanel";
 import { LayersTab } from "../detail/LayersTab";
 import { CodeHealthCard } from "../health/CodeHealthCard";
 import { SymbolBreadcrumb } from "../shared/Breadcrumb";
+import { SkeletonLine } from "../shared/motion";
 import { commands } from "../../lib/tauri-commands";
 import { ChevronDown, Code2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -48,7 +49,7 @@ export function DetailPanel() {
     return (
       <div
         className="h-full flex flex-col items-center justify-center p-6 text-center"
-        style={{ backgroundColor: "rgba(9, 11, 16, 0.85)", backdropFilter: "blur(12px)", borderLeft: "1px solid var(--surface-border)" }}
+        style={{ backgroundColor: "var(--glass-bg)", backdropFilter: "blur(12px)", borderLeft: "1px solid var(--surface-border)" }}
       >
         <div
           className="w-12 h-12 rounded-lg mb-3 flex items-center justify-center"
@@ -75,7 +76,7 @@ export function DetailPanel() {
   return (
     <div
       className="h-full flex flex-col"
-      style={{ backgroundColor: "rgba(9, 11, 16, 0.85)", backdropFilter: "blur(12px)", borderLeft: "1px solid var(--surface-border)" }}
+      style={{ backgroundColor: "var(--glass-bg)", backdropFilter: "blur(12px)", borderLeft: "1px solid var(--surface-border)" }}
     >
       {/* Breadcrumb */}
       <div className="px-4 pt-2 pb-0" style={{ background: "var(--bg-1)" }}>
@@ -94,8 +95,10 @@ export function DetailPanel() {
         {TABS.map(({ id, i18nKey }) => (
           <button
             key={id}
+            id={`detail-tab-${id}`}
             role="tab"
             aria-selected={detailTab === id}
+            aria-controls="detail-tabpanel"
             onClick={() => setDetailTab(id)}
             className="px-3 py-1.5 text-xs font-medium rounded transition-all"
             style={{
@@ -111,7 +114,7 @@ export function DetailPanel() {
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 min-h-0 overflow-hidden" role="tabpanel">
+      <div className="flex-1 min-h-0 overflow-hidden" role="tabpanel" id="detail-tabpanel" aria-labelledby={`detail-tab-${detailTab}`}>
         {detailTab === "context" && <ContextTab />}
         {detailTab === "code" && <CodePanel />}
         {detailTab === "properties" && <PropertiesTab />}
@@ -297,42 +300,11 @@ function ContextTab() {
         </div>
       )}
 
-      {/* Community membership */}
-      {context.community && (
-        <div
-          className="rounded-lg p-3"
-          style={{ backgroundColor: "var(--bg-1)" }}
-        >
-          <div className="text-[10px] font-semibold uppercase mb-1" style={{ color: "var(--text-3)", letterSpacing: "0.05em" }}>
-            Module
-          </div>
-          <div className="text-xs font-medium" style={{ color: "var(--text-0)" }}>
-            {context.community.name}
-          </div>
-          {context.community.description && (
-            <div className="text-[11px] mt-1" style={{ color: "var(--text-2)" }}>
-              {context.community.description}
-            </div>
-          )}
-          {context.community.cohesion != null && (
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-[10px]" style={{ color: "var(--text-3)" }}>Cohesion</span>
-              <div style={{ flex: 1, height: 4, borderRadius: 2, background: "var(--bg-3)" }}>
-                <div style={{ width: `${(context.community.cohesion ?? 0) * 100}%`, height: "100%", borderRadius: 2, background: "var(--accent)" }} />
-              </div>
-              <span className="text-[10px]" style={{ color: "var(--text-2)" }}>
-                {Math.round((context.community.cohesion ?? 0) * 100)}%
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Cyclomatic complexity */}
       {context.node.complexity != null && context.node.complexity > 1 && (
         <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-1)" }}>
           <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-2)" }}>
-            Cyclomatic Complexity
+            {t("detail.cyclomaticComplexity")}
           </h3>
           <div className="flex items-center gap-2">
             <span className="text-2xl font-bold" style={{
@@ -389,23 +361,23 @@ function ContextTab() {
         </CollapsibleSection>
       )}
       {context.imports.length > 0 && (
-        <CollapsibleSection title="Imports" count={context.imports.length}>
-          <RelationSection title="Imports" items={context.imports} onSelect={setSelectedNodeId} />
+        <CollapsibleSection title={t("detail.imports")} count={context.imports.length}>
+          <RelationSection title={t("detail.imports")} items={context.imports} onSelect={setSelectedNodeId} />
         </CollapsibleSection>
       )}
       {context.importedBy.length > 0 && (
-        <CollapsibleSection title="Imported By" count={context.importedBy.length}>
-          <RelationSection title="Imported By" items={context.importedBy} onSelect={setSelectedNodeId} />
+        <CollapsibleSection title={t("detail.importedBy")} count={context.importedBy.length}>
+          <RelationSection title={t("detail.importedBy")} items={context.importedBy} onSelect={setSelectedNodeId} />
         </CollapsibleSection>
       )}
       {context.inherits.length > 0 && (
-        <CollapsibleSection title="Inherits" count={context.inherits.length}>
-          <RelationSection title="Inherits" items={context.inherits} onSelect={setSelectedNodeId} />
+        <CollapsibleSection title={t("detail.inherits")} count={context.inherits.length}>
+          <RelationSection title={t("detail.inherits")} items={context.inherits} onSelect={setSelectedNodeId} />
         </CollapsibleSection>
       )}
       {context.inheritedBy.length > 0 && (
-        <CollapsibleSection title="Inherited By" count={context.inheritedBy.length}>
-          <RelationSection title="Inherited By" items={context.inheritedBy} onSelect={setSelectedNodeId} />
+        <CollapsibleSection title={t("detail.inheritedBy")} count={context.inheritedBy.length}>
+          <RelationSection title={t("detail.inheritedBy")} items={context.inheritedBy} onSelect={setSelectedNodeId} />
         </CollapsibleSection>
       )}
 
@@ -453,8 +425,22 @@ function ContextTab() {
 
 function PropertiesTab() {
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
-  const { data: context } = useSymbolContext(selectedNodeId);
+  const { data: context, isLoading } = useSymbolContext(selectedNodeId);
 
+  if (isLoading) {
+    return (
+      <div className="h-full overflow-y-auto p-4" style={{ backgroundColor: "var(--bg-0)" }}>
+        <div className="grid gap-2">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="rounded-lg p-3 border" style={{ backgroundColor: "var(--bg-1)", borderColor: "var(--surface-border)" }}>
+              <SkeletonLine width="60px" height="10px" className="mb-2" />
+              <SkeletonLine width={`${70 + (i % 3) * 15}%`} height="12px" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
   if (!context) return null;
 
   const node = context.node;
@@ -535,16 +521,10 @@ function RelationSection({
           <button
             key={item.id}
             onClick={() => onSelect(item.id, item.name)}
-            className="w-full flex items-start gap-2 px-3 py-2 rounded-lg border transition-colors text-left"
+            className="w-full flex items-start gap-2 px-3 py-2 rounded-lg border transition-colors text-left hover:brightness-110"
             style={{
               backgroundColor: "var(--bg-1)",
               borderColor: "var(--surface-border)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--surface-hover)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--bg-1)";
             }}
           >
             <span
@@ -586,6 +566,7 @@ function InlineCodeSnippet({
   startLine: number;
   endLine?: number;
 }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const maxPreviewLines = 8;
   const snippetEnd = endLine ?? startLine + maxPreviewLines;
@@ -623,9 +604,9 @@ function InlineCodeSnippet({
         }}
       >
         <Code2 size={10} />
-        <span>{expanded ? "Collapse" : "Preview"}</span>
+        <span>{expanded ? t("detail.collapse") : t("detail.preview")}</span>
         {hasMore && !expanded && (
-          <span style={{ color: "var(--text-4)", marginLeft: "auto" }}>
+          <span style={{ color: "var(--text-3)", marginLeft: "auto" }}>
             {endLine != null ? endLine - startLine + 1 : "?"} lines
           </span>
         )}

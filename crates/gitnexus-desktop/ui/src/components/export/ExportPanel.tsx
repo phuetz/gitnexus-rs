@@ -285,8 +285,8 @@ export function ExportPanel() {
               style={{
                 marginTop: 12,
                 padding: "10px 12px",
-                background: "rgba(52, 211, 153, 0.1)",
-                color: "#34d399",
+                background: "color-mix(in srgb, var(--green) 10%, transparent)",
+                color: "var(--green)",
                 fontSize: 12,
               }}
             >
@@ -311,8 +311,8 @@ export function ExportPanel() {
               style={{
                 marginTop: 12,
                 padding: "10px 12px",
-                background: "rgba(251, 113, 133, 0.1)",
-                color: "#fb7185",
+                background: "color-mix(in srgb, var(--rose) 10%, transparent)",
+                color: "var(--rose)",
                 fontSize: 12,
               }}
             >
@@ -353,8 +353,8 @@ export function ExportPanel() {
                 className="text-[10px] font-medium rounded-full"
                 style={{
                   padding: "2px 8px",
-                  background: "rgba(52, 211, 153, 0.15)",
-                  color: "#34d399",
+                  background: "color-mix(in srgb, var(--green) 15%, transparent)",
+                  color: "var(--green)",
                 }}
               >
                 {totalItems} {t("export.elements")}

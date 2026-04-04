@@ -28,7 +28,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
       return structuredClone(value) as T;
     }
     console.warn(`[GitNexus mock] No mock data for command "${cmd}"`, args);
-    return undefined as T;
+    throw new Error(`[GitNexus mock] No mock data for command "${cmd}". Add it to mock-data.ts for browser dev.`);
   }
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);

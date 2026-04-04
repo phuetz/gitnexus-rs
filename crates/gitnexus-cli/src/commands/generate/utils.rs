@@ -142,7 +142,7 @@ pub(super) fn extract_params_from_content(params_str: &str, _method_name: &str) 
     let params: Vec<String> = params_str
         .split(',')
         .map(|p| {
-            let parts: Vec<&str> = p.trim().split_whitespace().collect();
+            let parts: Vec<&str> = p.split_whitespace().collect();
             if parts.len() >= 2 {
                 format!("`{}` {}", parts[0], parts[parts.len() - 1])
             } else if parts.len() == 1 {
@@ -166,7 +166,7 @@ pub(super) fn extract_params_linked(params_str: &str, known_types: &HashSet<Stri
     let params: Vec<String> = params_str
         .split(',')
         .map(|p| {
-            let parts: Vec<&str> = p.trim().split_whitespace().collect();
+            let parts: Vec<&str> = p.split_whitespace().collect();
             if parts.len() >= 2 {
                 let type_name = parts[0];
                 let param_name = parts[parts.len() - 1];

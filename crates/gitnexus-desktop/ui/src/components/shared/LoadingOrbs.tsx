@@ -12,6 +12,9 @@ interface LoadingOrbsProps {
 export function LoadingOrbs({ label, stats }: LoadingOrbsProps) {
   return (
     <div
+      role="status"
+      aria-label={label || "Loading"}
+      aria-live="polite"
       style={{
         position: "relative",
         width: "100%",

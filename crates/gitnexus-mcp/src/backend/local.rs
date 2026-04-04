@@ -672,7 +672,7 @@ impl LocalBackend {
                 let methods = class_methods.get(&cn.id).cloned().unwrap_or_default();
                 let total = methods.len();
                 let traced = methods.iter().filter(|mid| {
-                    graph.get_node(mid).map_or(false, |n| n.properties.is_traced == Some(true))
+                    graph.get_node(mid).is_some_and(|n| n.properties.is_traced == Some(true))
                 }).count();
                 let dead = methods.iter().filter(|mid| {
                     !incoming_calls.contains_key(*mid)
@@ -754,7 +754,7 @@ impl LocalBackend {
 
         // Generate simple flowchart showing calls from this symbol's methods
         let mut lines = Vec::new();
-        lines.push(format!("graph TD"));
+        lines.push("graph TD".to_string());
 
         let node_id = &start_node.id;
         let node_name = &start_node.properties.name;
@@ -768,8 +768,8 @@ impl LocalBackend {
 
         // Find methods and their calls
         for rel in graph.iter_relationships() {
-            if &rel.source_id == node_id || child_ids.contains(rel.source_id.as_str()) {
-                if matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
+            if (&rel.source_id == node_id || child_ids.contains(rel.source_id.as_str()))
+                && matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
                     if let Some(target_node) = graph.get_node(&rel.target_id) {
                         let src_name = graph.get_node(&rel.source_id)
                             .map(|n| n.properties.name.as_str())
@@ -781,7 +781,6 @@ impl LocalBackend {
                         ));
                     }
                 }
-            }
         }
 
         if lines.len() == 2 {

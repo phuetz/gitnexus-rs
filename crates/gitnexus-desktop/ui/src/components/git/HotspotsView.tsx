@@ -2,9 +2,11 @@
  * Hotspots view — most changed files with risk scoring.
  */
 
+import { Flame } from "lucide-react";
 import type { GitHotspot } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
+import { EmptyState } from "../shared/EmptyState";
 
 interface Props {
   data: GitHotspot[];
@@ -24,16 +26,11 @@ export function HotspotsView({ data, loading }: Props) {
 
   if (data.length === 0) {
     return (
-      <div
-        style={{
-          padding: 40,
-          textAlign: "center",
-          color: "var(--text-3)",
-          fontSize: 13,
-        }}
-      >
-        {t("hotspots.noData")}
-      </div>
+      <EmptyState
+        icon={Flame}
+        title={t("hotspots.noData")}
+        description={t("hotspots.noDataHint")}
+      />
     );
   }
 
@@ -71,15 +68,10 @@ export function HotspotsView({ data, loading }: Props) {
           {data.slice(0, 30).map((h, i) => (
             <tr
               key={h.path}
+              className="hover:brightness-110"
               style={{
                 borderBottom: "1px solid var(--border)",
                 color: "var(--text-1)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-2)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "transparent";
               }}
             >
               <td style={{ padding: "6px 8px", color: "var(--text-3)" }}>

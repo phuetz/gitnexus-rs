@@ -3,9 +3,11 @@
  */
 
 import { useMemo } from "react";
+import { Users } from "lucide-react";
 import type { GitOwnership } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
+import { EmptyState } from "../shared/EmptyState";
 
 interface Props {
   data: GitOwnership[];
@@ -26,25 +28,9 @@ const AUTHOR_COLORS = [
 export function OwnershipView({ data, loading }: Props) {
   const { t } = useI18n();
 
-  if (loading) return <LoadingOrbs label={t("ownership.loading")} />;
-
-  if (data.length === 0) {
-    return (
-      <div
-        style={{
-          padding: 40,
-          textAlign: "center",
-          color: "var(--text-3)",
-          fontSize: 13,
-        }}
-      >
-        {t("ownership.noData")}
-      </div>
-    );
-  }
-
-  // Author summary
+  // All hooks must be called before any early return (rules-of-hooks)
   const authorSummary = useMemo(() => {
+    if (data.length === 0) return [];
     const map = new Map<string, number>();
     for (const o of data) {
       map.set(o.primaryAuthor, (map.get(o.primaryAuthor) || 0) + 1);
@@ -53,7 +39,19 @@ export function OwnershipView({ data, loading }: Props) {
       .sort((a, b) => b[1] - a[1]);
   }, [data]);
 
-  const orphans = data.filter((o) => o.ownershipPct < 50);
+  const orphans = useMemo(() => data.filter((o) => o.ownershipPct < 50), [data]);
+
+  if (loading) return <LoadingOrbs label={t("ownership.loading")} />;
+
+  if (data.length === 0) {
+    return (
+      <EmptyState
+        icon={Users}
+        title={t("ownership.noData")}
+        description={t("ownership.noDataHint")}
+      />
+    );
+  }
 
   return (
     <div style={{ padding: 16 }}>
@@ -107,11 +105,11 @@ export function OwnershipView({ data, loading }: Props) {
           style={{
             padding: "8px 12px",
             borderRadius: 8,
-            border: "1px solid rgba(247,118,142,0.3)",
-            background: "rgba(247,118,142,0.05)",
+            border: "1px solid color-mix(in srgb, var(--rose) 30%, transparent)",
+            background: "color-mix(in srgb, var(--rose) 5%, transparent)",
             marginBottom: 16,
             fontSize: 12,
-            color: "#f7768e",
+            color: "var(--rose)",
           }}
         >
           {t("ownership.orphanWarning").replace("{0}", String(orphans.length))}
@@ -138,15 +136,10 @@ export function OwnershipView({ data, loading }: Props) {
           {data.slice(0, 30).map((o) => (
             <tr
               key={o.path}
+              className="hover:brightness-110"
               style={{
                 borderBottom: "1px solid var(--border)",
                 color: "var(--text-1)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-2)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "transparent";
               }}
             >
               <td

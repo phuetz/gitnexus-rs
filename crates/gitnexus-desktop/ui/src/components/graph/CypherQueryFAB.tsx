@@ -10,32 +10,32 @@ import { useI18n } from "../../hooks/use-i18n";
 
 const EXAMPLES = [
   {
-    label: "All Functions",
+    i18nKey: "cypher.preset.allFunctions",
     query: "MATCH (n:Function) RETURN n.name, n.filePath LIMIT 20",
   },
   {
-    label: "Call Graph",
+    i18nKey: "cypher.preset.callGraph",
     query: "MATCH (n)-[:CALLS]->(m) RETURN n.name, m.name LIMIT 30",
   },
   {
-    label: "Controllers",
+    i18nKey: "cypher.preset.controllers",
     query:
       "MATCH (n:Controller)-[:DEFINES]->(a:ControllerAction) RETURN n.name, a.name LIMIT 30",
   },
   {
-    label: "Dead Code",
+    i18nKey: "cypher.preset.deadCode",
     query: "MATCH (n:Method) WHERE n.name STARTS WITH 'Get' RETURN DISTINCT n.name, n.filePath LIMIT 20",
   },
   {
-    label: "Top Callers",
+    i18nKey: "cypher.preset.topCallers",
     query: "MATCH (n)-[:CALLS]->(m) RETURN m.name, count(n) ORDER BY count(n) LIMIT 10",
   },
   {
-    label: "Services",
+    i18nKey: "cypher.preset.services",
     query: "MATCH (n:Service) RETURN n.name, n.filePath LIMIT 20",
   },
   {
-    label: "Communities",
+    i18nKey: "cypher.preset.communities",
     query: "MATCH (n:Community) RETURN n.name LIMIT 20",
   },
 ];
@@ -48,6 +48,12 @@ export function CypherQueryFAB() {
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (open && inputRef.current) {
@@ -62,11 +68,11 @@ export function CypherQueryFAB() {
     setResults(null);
     try {
       const res = await commands.executeCypher(query.trim());
-      setResults(res);
+      if (mountedRef.current) setResults(res);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (mountedRef.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setRunning(false);
+      if (mountedRef.current) setRunning(false);
     }
   }
 
@@ -105,6 +111,8 @@ export function CypherQueryFAB() {
           boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
         }}
         title={`${t("cypher.title")} (${t("cypher.hint")})`}
+        aria-label={open ? "Close Cypher query" : t("cypher.title")}
+        aria-expanded={open}
       >
         {open ? <X size={18} /> : <Terminal size={18} />}
       </motion.button>
@@ -177,7 +185,6 @@ export function CypherQueryFAB() {
                 fontFamily: "var(--font-mono)",
                 fontSize: 12,
                 resize: "none",
-                outline: "none",
               }}
             />
 
@@ -193,7 +200,7 @@ export function CypherQueryFAB() {
             >
               {EXAMPLES.map((ex) => (
                 <button
-                  key={ex.label}
+                  key={ex.i18nKey}
                   onClick={() => {
                     setQuery(ex.query);
                     setResults(null);
@@ -213,7 +220,7 @@ export function CypherQueryFAB() {
                   }}
                 >
                   <ChevronRight size={10} />
-                  {ex.label}
+                  {t(ex.i18nKey)}
                 </button>
               ))}
             </div>

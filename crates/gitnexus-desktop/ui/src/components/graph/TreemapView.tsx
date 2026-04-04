@@ -2,6 +2,7 @@ import { useMemo, useState, useRef, useCallback } from "react";
 import { hierarchy, treemap, treemapSquarify, type HierarchyRectangularNode } from "d3-hierarchy";
 import { SkeletonBlock } from "../shared/motion";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 import type { GraphPayload, CytoNode } from "../../lib/tauri-commands";
 
 // ─── Color mapping (matches GraphExplorer LABEL_COLORS) ──────────────
@@ -124,6 +125,7 @@ function buildTree(nodes: CytoNode[]): TreeNode {
 // ─── Component ───────────────────────────────────────────────────────
 
 export function TreemapView({ data, isLoading }: TreemapViewProps) {
+  const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const setMode = useAppStore((s) => s.setMode);
@@ -217,7 +219,7 @@ export function TreemapView({ data, isLoading }: TreemapViewProps) {
           fontSize: 14,
         }}
       >
-        No graph data to display as treemap.
+{t("graph.noTreemapData")}
       </div>
     );
   }
@@ -271,9 +273,19 @@ export function TreemapView({ data, isLoading }: TreemapViewProps) {
               alignItems: "flex-end",
               padding: showLabel ? 4 : 0,
             }}
+            role="button"
+            tabIndex={0}
+            aria-label={`${d.name} — ${d.dominantLabel}, ${d.nodeCount} nodes`}
             onClick={() => {
               setMode("explorer");
               setSelectedNodeId("File:" + d.path, d.name);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setMode("explorer");
+                setSelectedNodeId("File:" + d.path, d.name);
+              }
             }}
             onMouseEnter={(e) => {
               setHoveredPath(d.path);

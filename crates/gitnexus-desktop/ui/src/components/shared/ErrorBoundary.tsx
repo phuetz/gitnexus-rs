@@ -8,15 +8,16 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  resetKey: number;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, resetKey: 0 };
   }
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
   }
 
@@ -38,7 +39,7 @@ export class ErrorBoundary extends Component<Props, State> {
               {this.state.error?.message}
             </p>
             <button
-              onClick={() => this.setState({ hasError: false, error: null })}
+              onClick={() => this.setState((s) => ({ hasError: false, error: null, resetKey: s.resetKey + 1 }))}
               className="px-3 py-1.5 rounded bg-[var(--accent)] text-white text-xs hover:opacity-90 transition-opacity"
             >
               Retry
@@ -48,6 +49,6 @@ export class ErrorBoundary extends Component<Props, State> {
       );
     }
 
-    return this.props.children;
+    return <React.Fragment key={this.state.resetKey}>{this.props.children}</React.Fragment>;
   }
 }

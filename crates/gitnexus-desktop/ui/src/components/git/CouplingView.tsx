@@ -2,9 +2,11 @@
  * Temporal Coupling view — file pairs that change together.
  */
 
+import { Link2 } from "lucide-react";
 import type { GitCoupling } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
+import { EmptyState } from "../shared/EmptyState";
 
 interface Props {
   data: GitCoupling[];
@@ -24,16 +26,11 @@ export function CouplingView({ data, loading }: Props) {
 
   if (data.length === 0) {
     return (
-      <div
-        style={{
-          padding: 40,
-          textAlign: "center",
-          color: "var(--text-3)",
-          fontSize: 13,
-        }}
-      >
-        {t("coupling.noData")}
-      </div>
+      <EmptyState
+        icon={Link2}
+        title={t("coupling.noData")}
+        description={t("coupling.noDataHint")}
+      />
     );
   }
 
@@ -78,15 +75,10 @@ export function CouplingView({ data, loading }: Props) {
           {data.slice(0, 30).map((c, i) => (
             <tr
               key={`${c.fileA}-${c.fileB}`}
+              className="hover:brightness-110"
               style={{
                 borderBottom: "1px solid var(--border)",
                 color: "var(--text-1)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-2)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "transparent";
               }}
             >
               <td style={{ padding: "6px 8px", color: "var(--text-3)" }}>

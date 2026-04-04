@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Layers, Check, RotateCcw } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
@@ -18,14 +19,34 @@ interface FeatureNavigatorProps {
   onReset: () => void;
 }
 
-export function FeatureNavigator({ selectedFeatures, onToggleFeature, onReset }: FeatureNavigatorProps) {
+export const FeatureNavigator = memo(function FeatureNavigator({ selectedFeatures, onToggleFeature, onReset }: FeatureNavigatorProps) {
   const { data: features } = useQuery({
     queryKey: ["features"],
     queryFn: () => commands.getFeatures(),
     staleTime: 60_000,
   });
 
-  if (!features || features.length === 0) return null;
+  // Pre-compute feature→color map once when features change
+  const colorMap = useMemo(() => {
+    if (!features) return new Map<string, string>();
+    const map = new Map<string, string>();
+    for (const f of features) {
+      map.set(f.name, COMMUNITY_COLORS[hashString(f.name) % COMMUNITY_COLORS.length]);
+    }
+    return map;
+  }, [features]);
+
+  if (!features || features.length === 0) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center h-full p-4 text-center"
+        style={{ width: 220, background: "var(--bg-1)", borderRight: "1px solid var(--surface-border)" }}
+      >
+        <Layers size={20} style={{ color: "var(--text-4)", marginBottom: 8 }} />
+        <p className="text-[11px]" style={{ color: "var(--text-3)" }}>No features detected</p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -69,7 +90,7 @@ export function FeatureNavigator({ selectedFeatures, onToggleFeature, onReset }:
       <div className="flex-1 overflow-y-auto py-1">
         {features.map((feature) => {
           const isSelected = selectedFeatures.has(feature.name);
-          const color = COMMUNITY_COLORS[hashString(feature.name) % COMMUNITY_COLORS.length];
+          const color = colorMap.get(feature.name) || "#565f89";
 
           return (
             <button
@@ -119,4 +140,4 @@ export function FeatureNavigator({ selectedFeatures, onToggleFeature, onReset }:
       </div>
     </div>
   );
-}
+});

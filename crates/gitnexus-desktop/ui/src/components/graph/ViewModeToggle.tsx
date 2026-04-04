@@ -16,6 +16,8 @@ const options: { id: ViewMode; label: string; icon: typeof Network }[] = [
 export function ViewModeToggle({ mode, onChange }: ViewModeToggleProps) {
   return (
     <div
+      role="radiogroup"
+      aria-label="View mode"
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -33,6 +35,8 @@ export function ViewModeToggle({ mode, onChange }: ViewModeToggleProps) {
           <button
             key={id}
             onClick={() => onChange(id)}
+            aria-pressed={isActive}
+            aria-label={label}
             style={{
               position: "relative",
               display: "flex",
@@ -49,14 +53,6 @@ export function ViewModeToggle({ mode, onChange }: ViewModeToggleProps) {
               color: isActive ? "var(--text-0)" : "var(--text-3)",
               zIndex: isActive ? 1 : 0,
               transition: "color 0.15s ease",
-            }}
-            onMouseEnter={(e) => {
-              if (!isActive)
-                e.currentTarget.style.color = "var(--text-2)";
-            }}
-            onMouseLeave={(e) => {
-              if (!isActive)
-                e.currentTarget.style.color = "var(--text-3)";
             }}
           >
             {isActive && (

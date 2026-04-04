@@ -28,6 +28,15 @@ const en = {
   "sidebar.export": "Export",
   "sidebar.gitAnalytics": "Git Analytics",
   "sidebar.chat": "Chat",
+  "chat.conversationCleared": "Conversation cleared",
+  "chat.executingResearch": "executing research plan...",
+  "chat.searchingContext": "searching filtered context...",
+  "chat.thinking": "thinking...",
+  "chat.you": "You",
+  "chat.copiedToClipboard": "Copied to clipboard",
+  "chat.quickAnswer": "Quick answer",
+  "chat.multiSource": "Multi-source",
+  "chat.deepResearch": "Deep research",
   "sidebar.coverage": "Coverage",
   "sidebar.diagram": "Diagrams",
   "sidebar.report": "Health Report",
@@ -41,6 +50,7 @@ const en = {
   "repos.repository": "repository",
   "repos.repositories": "repositories",
   "repos.analyzeProject": { label: "Analyze Project", tip: "Select a folder to scan and build its knowledge graph" },
+  "welcome.tauriRequired": "Folder picker requires the Tauri desktop app.",
   "repos.refresh": { label: "Refresh", tip: "Reload the list of indexed repositories" },
   "repos.noRepos": "No repositories indexed",
   "repos.noReposDesc": "Start by analyzing a project to explore its code graph.",
@@ -86,6 +96,17 @@ const en = {
   // ── Report ──
   "report.temporalCoupling": "Temporal Coupling (Top 10)",
   "report.distributedFiles": "Distributed Files (Top 10)",
+  "report.file": "File",
+  "report.commits": "Commits",
+  "report.churn": "Churn",
+  "report.score": "Score",
+  "report.fileA": "File A",
+  "report.fileB": "File B",
+  "report.shared": "Shared",
+  "report.strength": "Strength",
+  "report.primaryAuthor": "Primary Author",
+  "report.authors": "Authors",
+  "report.ownership": "Ownership",
 
   // ── Graph Explorer ──
   "graph.packages": { label: "Packages", tip: "Show top-level modules and packages" },
@@ -103,6 +124,7 @@ const en = {
   "graph.contextMenu.copyFilePath": { label: "Copy File Path", tip: "Copy the source file path to clipboard" },
   "graph.minimap.toggle": { label: "Minimap", tip: "Toggle the navigation minimap" },
   "graph.legend": { label: "Legend", tip: "Show/hide the color legend for node types" },
+  "graph.noTreemapData": "No graph data to display as treemap.",
   "graph.noData": "No graph data available",
   "graph.analyzeFirst": "Analyze a repository first",
   "graph.computingLayout": "Computing layout...",
@@ -114,15 +136,22 @@ const en = {
   "graph.keyboardShortcuts": "Keyboard Shortcuts",
   "graph.viewImpact": "View Impact",
   "graph.clearImpact": "Clear Impact",
+  "graph.copiedToClipboard": "Copied to clipboard",
   "graph.impactOverlay": "Impact Overlay",
+  "graph.edges": "Edges",
+  "graph.depth": "Depth",
+  "graph.all": "All",
   "graph.shortcut.goToSymbol": "Go to symbol",
   "graph.shortcut.exportPng": "Export graph PNG",
   "graph.shortcut.screenshot": "Screenshot",
   "graph.shortcut.zoomInOutFit": "Zoom in/out/fit",
-  "graph.shortcut.navigateBackForward": "Navigate back/forward",
   "graph.shortcut.clearSelection": "Clear selection",
   "graph.shortcut.focusSubgraph": "Focus subgraph",
   "graph.shortcut.toggleHelp": "Toggle this help",
+
+  // ── Explorer Mode ──
+  "explorer.noRepo": "No repository selected",
+  "explorer.noRepoHint": "Open a repo from the Manage tab to start exploring.",
 
   // ── File Explorer ──
   "files.title": "Files",
@@ -130,17 +159,33 @@ const en = {
   "files.backToTree": { label: "Back", tip: "Return to the file tree" },
 
   // ── Detail Panel ──
+  "detail.noSelection": "Select a symbol",
+  "detail.noSelectionHint": "Click a node in the graph or file tree to inspect its callers, dependencies, and code.",
   "detail.context": "Context",
   "detail.code": "Code",
   "detail.codeProperties": "Properties",
   "detail.layers": "Layers",
   "detail.health": "Health",
+  "detail.collapse": "Collapse",
+  "detail.preview": "Preview",
   "detail.callers": "CALLERS",
+  "codeInspector.title": "Code Inspector",
+  "codeInspector.selectNode": "Select a node in the graph to inspect its code",
+  "codeInspector.loading": "Loading...",
+  "code.selectSymbol": "Select a symbol to view its code",
+  "code.noFile": "No file associated with this symbol",
+  "code.loading": "Loading code...",
   "detail.callees": "CALLEES",
   "detail.community": "COMMUNITY",
   "detail.members": "members",
   "detail.cohesion": "Cohesion",
-  "detail.noSelection": "Select a node in the graph to see its details here.",
+  "detail.imports": "Imports",
+  "detail.importedBy": "Imported By",
+  "detail.inherits": "Inherits",
+  "detail.inheritedBy": "Inherited By",
+  "analyze.openRepo": "Open a repository to view analytics",
+  "analyze.codeHealth": "Code Health",
+  "detail.cyclomaticComplexity": "Cyclomatic Complexity",
 
   // ── Impact Analysis ──
   "impact.title": { label: "Impact Analysis", tip: "Understand how changes to a symbol ripple through your codebase" },
@@ -204,8 +249,22 @@ const en = {
   "status.modeDependencyAnalysis": "Dependency analysis",
   "status.docsWikiViewer": "Wiki viewer",
   "status.mode": "Mode",
+  "status.nodes": "nodes",
   "status.docs": "Docs",
   "status.browse": "Browse",
+  "status.aiChat": "Code Intelligence Chat",
+  "status.reposSettings": "Repos & Settings",
+
+  // ── Analyze Nav ──
+  "analyze.nav.title": "Analytics",
+  "analyze.nav.overview": "Overview",
+  "analyze.nav.hotspots": "Hotspots",
+  "analyze.nav.coupling": "Coupling",
+  "analyze.nav.ownership": "Ownership",
+  "analyze.nav.coverage": "Coverage",
+  "analyze.nav.diagrams": "Diagrams",
+  "analyze.nav.report": "Report",
+  "analyze.nav.health": "Health",
 
   // ── Analyze Progress ──
   "analyze.analyzing": "Analyzing",
@@ -221,6 +280,7 @@ const en = {
   "analyze.phase.calls": "Analyzing calls",
   "analyze.phase.heritage": "Class hierarchy",
   "analyze.phase.communities": "Detecting communities",
+  "analyze.insights": "Insights",
   "analyze.phase.processes": "Tracing processes",
   "analyze.phase.enriching": "Enriching",
   "analyze.phase.complete": "Complete",
@@ -314,6 +374,65 @@ const en = {
   "cypher.results": "results",
   "cypher.result": "result",
 
+  // ── Mode Bar ──
+  "mode.explorer": "Explorer",
+  "mode.analyze": "Analyze",
+  "mode.chat": "Chat",
+  "mode.manage": "Manage",
+  "mode.commandPalette": "Command Palette",
+  "mode.collapse": "Collapse",
+
+  // ── Lens Selector ──
+  "lens.all": "All",
+  "lens.all.desc": "Show all relationships",
+  "lens.calls": "Calls",
+  "lens.calls.desc": "Function/method calls",
+  "lens.structure": "Structure",
+  "lens.structure.desc": "HasMethod, HasProperty, ContainedIn",
+  "lens.heritage": "Heritage",
+  "lens.heritage.desc": "Extends, Implements",
+  "lens.impact": "Impact",
+  "lens.impact.desc": "Calls, Imports, DependsOn",
+  "lens.deadCode": "Dead Code",
+  "lens.deadCode.desc": "Highlight dead code candidates",
+  "lens.tracing": "Tracing",
+  "lens.tracing.desc": "Highlight traced methods",
+  "lens.ariaLabel": "Graph lens filter",
+
+  // ── Cypher Presets ──
+  "cypher.preset.allFunctions": "All Functions",
+  "cypher.preset.callGraph": "Call Graph",
+  "cypher.preset.controllers": "Controllers",
+  "cypher.preset.deadCode": "Dead Code",
+  "cypher.preset.topCallers": "Top Callers",
+  "cypher.preset.services": "Services",
+  "cypher.preset.communities": "Communities",
+
+  // ── Graph Zoom ──
+  "zoom.in": "Zoom in (Ctrl+=)",
+  "zoom.out": "Zoom out (Ctrl+-)",
+  "zoom.fit": "Fit view (Ctrl+0)",
+  "zoom.inLabel": "Zoom in",
+  "zoom.outLabel": "Zoom out",
+  "zoom.fitLabel": "Fit view",
+
+  // ── Graph Toolbar extras ──
+  "graph.truncated": "truncated",
+  "graph.granularity": "Graph granularity level",
+  "graph.collapseLegend": "Collapse legend",
+
+  // ── Command Palette ──
+  "cmd.placeholder": "Type a command or search...",
+  "cmd.switchTo": "Switch to",
+  "cmd.view": "View",
+  "cmd.lens": "Lens:",
+  "cmd.openSettings": "Open Settings",
+  "cmd.toggleDeepResearch": "Toggle Deep Research",
+  "cmd.group.modes": "Modes",
+  "cmd.group.analyzeViews": "Analyze Views",
+  "cmd.group.lenses": "Lenses",
+  "cmd.group.actions": "Actions",
+
   // ── Accessibility ──
   "a11y.skipToContent": "Skip to main content",
   "a11y.codeIntelligencePlatform": "GitNexus — Code Intelligence Platform",
@@ -325,7 +444,8 @@ const en = {
 
   // ── Hotspots View ──
   "hotspots.loading": "Analyzing hotspots...",
-  "hotspots.noData": "No hotspot data available. Make sure the repository has git history.",
+  "hotspots.noData": "No hotspot data available",
+  "hotspots.noDataHint": "Make sure the repository has git history to analyze file change frequency.",
   "hotspots.filesAnalyzed": "{0} files analyzed (last 90 days)",
   "hotspots.colRank": "#",
   "hotspots.colFile": "File",
@@ -336,7 +456,8 @@ const en = {
 
   // ── Coupling View ──
   "coupling.loading": "Analyzing coupling...",
-  "coupling.noData": "No temporal coupling detected. Files change independently.",
+  "coupling.noData": "No temporal coupling detected",
+  "coupling.noDataHint": "Files change independently. Coupling is detected when files are frequently modified together.",
   "coupling.pairsDetected": "{0} coupled pairs detected",
   "coupling.stronglyCoupled": "{0} strongly coupled (>70%)",
   "coupling.colRank": "#",
@@ -347,7 +468,8 @@ const en = {
 
   // ── Ownership View ──
   "ownership.loading": "Analyzing ownership...",
-  "ownership.noData": "No ownership data available.",
+  "ownership.noData": "No ownership data available",
+  "ownership.noDataHint": "Analyze a repository with git history to see author distribution per file.",
   "ownership.authors": "Authors ({0})",
   "ownership.files": "files",
   "ownership.orphanWarning": "{0} files with no clear owner (<50% ownership)",
@@ -383,6 +505,15 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "sidebar.export": "Export",
   "sidebar.gitAnalytics": "Git Analytics",
   "sidebar.chat": "Chat",
+  "chat.conversationCleared": "Conversation effacée",
+  "chat.executingResearch": "exécution du plan de recherche...",
+  "chat.searchingContext": "recherche du contexte filtré...",
+  "chat.thinking": "réflexion...",
+  "chat.you": "Vous",
+  "chat.copiedToClipboard": "Copié dans le presse-papiers",
+  "chat.quickAnswer": "Réponse rapide",
+  "chat.multiSource": "Multi-source",
+  "chat.deepResearch": "Recherche approfondie",
   "sidebar.coverage": "Couverture",
   "sidebar.diagram": "Diagrammes",
   "sidebar.report": "Rapport santé",
@@ -396,6 +527,7 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "repos.repository": "dépôt",
   "repos.repositories": "dépôts",
   "repos.analyzeProject": { label: "Analyser un projet", tip: "Sélectionnez un dossier pour scanner et construire son graphe de connaissances" },
+  "welcome.tauriRequired": "Le sélecteur de dossier nécessite l'application Tauri.",
   "repos.refresh": { label: "Actualiser", tip: "Recharger la liste des dépôts indexés" },
   "repos.noRepos": "Aucun dépôt indexé",
   "repos.noReposDesc": "Commencez par analyser un projet pour explorer son graphe de code.",
@@ -441,6 +573,17 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   // ── Report ──
   "report.temporalCoupling": "Couplage temporel (Top 10)",
   "report.distributedFiles": "Fichiers distribués (Top 10)",
+  "report.file": "Fichier",
+  "report.commits": "Commits",
+  "report.churn": "Churn",
+  "report.score": "Score",
+  "report.fileA": "Fichier A",
+  "report.fileB": "Fichier B",
+  "report.shared": "Partagés",
+  "report.strength": "Force",
+  "report.primaryAuthor": "Auteur principal",
+  "report.authors": "Auteurs",
+  "report.ownership": "Propriété",
 
   // ── Graph Explorer ──
   "graph.packages": { label: "Packages", tip: "Afficher les modules et packages de premier niveau" },
@@ -458,6 +601,7 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "graph.contextMenu.copyFilePath": { label: "Copier le chemin", tip: "Copier le chemin du fichier source dans le presse-papier" },
   "graph.minimap.toggle": { label: "Minicarte", tip: "Afficher/masquer la minicarte de navigation" },
   "graph.legend": { label: "Légende", tip: "Afficher/masquer la légende des couleurs par type de nœud" },
+  "graph.noTreemapData": "Aucune donnée de graphe à afficher en treemap.",
   "graph.noData": "Aucune donnée de graphe disponible",
   "graph.analyzeFirst": "Analysez un dépôt d'abord",
   "graph.computingLayout": "Calcul du layout…",
@@ -469,15 +613,22 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "graph.keyboardShortcuts": "Raccourcis clavier",
   "graph.viewImpact": "Voir l'impact",
   "graph.clearImpact": "Effacer l'impact",
+  "graph.copiedToClipboard": "Copié dans le presse-papiers",
   "graph.impactOverlay": "Overlay d'impact",
+  "graph.edges": "Arêtes",
+  "graph.depth": "Profondeur",
+  "graph.all": "Tout",
   "graph.shortcut.goToSymbol": "Aller au symbole",
   "graph.shortcut.exportPng": "Exporter le graphe PNG",
   "graph.shortcut.screenshot": "Capture d'écran",
   "graph.shortcut.zoomInOutFit": "Zoom avant/arrière/ajuster",
-  "graph.shortcut.navigateBackForward": "Naviguer précédent/suivant",
   "graph.shortcut.clearSelection": "Effacer la sélection",
   "graph.shortcut.focusSubgraph": "Focus sous-graphe",
   "graph.shortcut.toggleHelp": "Afficher/masquer cette aide",
+
+  // ── Explorer Mode ──
+  "explorer.noRepo": "Aucun dépôt sélectionné",
+  "explorer.noRepoHint": "Ouvrez un dépôt depuis l'onglet Gérer pour commencer.",
 
   // ── File Explorer ──
   "files.title": "Fichiers",
@@ -485,17 +636,33 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "files.backToTree": { label: "Retour", tip: "Revenir à l'arborescence des fichiers" },
 
   // ── Detail Panel ──
+  "detail.noSelection": "Sélectionnez un symbole",
+  "detail.noSelectionHint": "Cliquez sur un nœud du graphe ou de l'arborescence des fichiers pour inspecter ses appelants, dépendances et code.",
   "detail.context": "Contexte",
   "detail.code": "Code",
   "detail.codeProperties": "Propriétés",
   "detail.layers": "Couches",
   "detail.health": "Santé",
+  "detail.collapse": "Réduire",
+  "detail.preview": "Aperçu",
   "detail.callers": "APPELANTS",
+  "codeInspector.title": "Inspecteur de code",
+  "codeInspector.selectNode": "Sélectionnez un nœud du graphe pour inspecter son code",
+  "codeInspector.loading": "Chargement...",
+  "code.selectSymbol": "Sélectionnez un symbole pour voir son code",
+  "code.noFile": "Aucun fichier associé à ce symbole",
+  "code.loading": "Chargement du code...",
   "detail.callees": "APPELÉS",
   "detail.community": "COMMUNAUTÉ",
   "detail.members": "membres",
   "detail.cohesion": "Cohésion",
-  "detail.noSelection": "Sélectionnez un nœud dans le graphe pour voir ses détails ici.",
+  "detail.imports": "Imports",
+  "detail.importedBy": "Importé par",
+  "detail.inherits": "Hérite de",
+  "detail.inheritedBy": "Hérité par",
+  "analyze.openRepo": "Ouvrez un dépôt pour voir les analytics",
+  "analyze.codeHealth": "Santé du code",
+  "detail.cyclomaticComplexity": "Complexité cyclomatique",
 
   // ── Impact Analysis ──
   "impact.title": { label: "Analyse d'impact", tip: "Comprendre comment les modifications d'un symbole se propagent dans votre codebase" },
@@ -559,10 +726,24 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "status.modeDependencyAnalysis": "Analyse de dépendances",
   "status.docsWikiViewer": "Visionneuse wiki",
   "status.mode": "Mode",
+  "status.nodes": "nœuds",
   "status.docs": "Docs",
   "status.browse": "Parcourir",
+  "status.aiChat": "Chat Intelligence de Code",
+  "status.reposSettings": "Dépôts & Paramètres",
 
   // ── Analyze Progress ──
+  // ── Analyze Nav ──
+  "analyze.nav.title": "Analytiques",
+  "analyze.nav.overview": "Vue d'ensemble",
+  "analyze.nav.hotspots": "Points chauds",
+  "analyze.nav.coupling": "Couplage",
+  "analyze.nav.ownership": "Propriété",
+  "analyze.nav.coverage": "Couverture",
+  "analyze.nav.diagrams": "Diagrammes",
+  "analyze.nav.report": "Rapport",
+  "analyze.nav.health": "Santé",
+
   "analyze.analyzing": "Analyse en cours",
   "analyze.analysisFailed": "Échec de l'analyse",
   "analyze.analysisComplete": "Analyse terminée",
@@ -576,6 +757,7 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "analyze.phase.calls": "Analyse des appels",
   "analyze.phase.heritage": "Hiérarchie de classes",
   "analyze.phase.communities": "Détection de communautés",
+  "analyze.insights": "Insights",
   "analyze.phase.processes": "Traçage des processus",
   "analyze.phase.enriching": "Enrichissement",
   "analyze.phase.complete": "Terminé",
@@ -669,6 +851,65 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "cypher.results": "r\u00e9sultats",
   "cypher.result": "r\u00e9sultat",
 
+  // ── Mode Bar ──
+  "mode.explorer": "Explorateur",
+  "mode.analyze": "Analyser",
+  "mode.chat": "Chat",
+  "mode.manage": "Gérer",
+  "mode.commandPalette": "Palette de commandes",
+  "mode.collapse": "Réduire",
+
+  // ── Lens Selector ──
+  "lens.all": "Tout",
+  "lens.all.desc": "Afficher toutes les relations",
+  "lens.calls": "Appels",
+  "lens.calls.desc": "Appels de fonctions/méthodes",
+  "lens.structure": "Structure",
+  "lens.structure.desc": "HasMethod, HasProperty, ContainedIn",
+  "lens.heritage": "Héritage",
+  "lens.heritage.desc": "Extends, Implements",
+  "lens.impact": "Impact",
+  "lens.impact.desc": "Appels, Imports, DependsOn",
+  "lens.deadCode": "Code mort",
+  "lens.deadCode.desc": "Mettre en surbrillance les candidats code mort",
+  "lens.tracing": "Traçage",
+  "lens.tracing.desc": "Mettre en surbrillance les méthodes tracées",
+  "lens.ariaLabel": "Filtre de lentille du graphe",
+
+  // ── Cypher Presets ──
+  "cypher.preset.allFunctions": "Toutes les fonctions",
+  "cypher.preset.callGraph": "Graphe d'appels",
+  "cypher.preset.controllers": "Contrôleurs",
+  "cypher.preset.deadCode": "Code mort",
+  "cypher.preset.topCallers": "Top appelants",
+  "cypher.preset.services": "Services",
+  "cypher.preset.communities": "Communautés",
+
+  // ── Graph Zoom ──
+  "zoom.in": "Zoom avant (Ctrl+=)",
+  "zoom.out": "Zoom arrière (Ctrl+-)",
+  "zoom.fit": "Ajuster la vue (Ctrl+0)",
+  "zoom.inLabel": "Zoom avant",
+  "zoom.outLabel": "Zoom arrière",
+  "zoom.fitLabel": "Ajuster la vue",
+
+  // ── Graph Toolbar extras ──
+  "graph.truncated": "tronqué",
+  "graph.granularity": "Niveau de granularité du graphe",
+  "graph.collapseLegend": "Réduire la légende",
+
+  // ── Command Palette ──
+  "cmd.placeholder": "Tapez une commande ou recherchez…",
+  "cmd.switchTo": "Basculer vers",
+  "cmd.view": "Voir",
+  "cmd.lens": "Lentille :",
+  "cmd.openSettings": "Ouvrir les paramètres",
+  "cmd.toggleDeepResearch": "Activer/désactiver la recherche approfondie",
+  "cmd.group.modes": "Modes",
+  "cmd.group.analyzeViews": "Vues d'analyse",
+  "cmd.group.lenses": "Lentilles",
+  "cmd.group.actions": "Actions",
+
   // ── Accessibility ──
   "a11y.skipToContent": "Aller au contenu principal",
   "a11y.codeIntelligencePlatform": "GitNexus — Plateforme d'intelligence de code",
@@ -680,7 +921,8 @@ const fr: Record<keyof typeof en, TranslationValue> = {
 
   // ── Hotspots View ──
   "hotspots.loading": "Analyse des points chauds…",
-  "hotspots.noData": "Aucune donnée de points chauds disponible. Assurez-vous que le dépôt possède un historique git.",
+  "hotspots.noData": "Aucune donnée de points chauds",
+  "hotspots.noDataHint": "Assurez-vous que le dépôt possède un historique git pour analyser la fréquence de changement.",
   "hotspots.filesAnalyzed": "{0} fichiers analysés (90 derniers jours)",
   "hotspots.colRank": "#",
   "hotspots.colFile": "Fichier",
@@ -691,7 +933,8 @@ const fr: Record<keyof typeof en, TranslationValue> = {
 
   // ── Coupling View ──
   "coupling.loading": "Analyse du couplage…",
-  "coupling.noData": "Aucun couplage temporel détecté. Les fichiers changent indépendamment.",
+  "coupling.noData": "Aucun couplage temporel détecté",
+  "coupling.noDataHint": "Les fichiers changent indépendamment. Le couplage est détecté quand des fichiers sont modifiés ensemble.",
   "coupling.pairsDetected": "{0} paires couplées détectées",
   "coupling.stronglyCoupled": "{0} fortement couplées (>70%)",
   "coupling.colRank": "#",
@@ -702,7 +945,8 @@ const fr: Record<keyof typeof en, TranslationValue> = {
 
   // ── Ownership View ──
   "ownership.loading": "Analyse de la propriété…",
-  "ownership.noData": "Aucune donnée de propriété disponible.",
+  "ownership.noData": "Aucune donnée de propriété",
+  "ownership.noDataHint": "Analysez un dépôt avec historique git pour voir la distribution par auteur.",
   "ownership.authors": "Auteurs ({0})",
   "ownership.files": "fichiers",
   "ownership.orphanWarning": "{0} fichiers sans propriétaire clair (<50% de propriété)",
@@ -728,7 +972,16 @@ const dictionaries: Record<Locale, Record<string, TranslationValue>> = { en, fr 
 
 // ─── Runtime state ───
 
-let currentLocale: Locale = (typeof localStorage !== "undefined" && localStorage.getItem("gitnexus-locale") as Locale) || "fr";
+function detectDefaultLocale(): Locale {
+  if (typeof localStorage !== "undefined") {
+    const saved = localStorage.getItem("gitnexus-locale") as Locale | null;
+    if (saved && (saved === "en" || saved === "fr")) return saved;
+  }
+  if (typeof navigator !== "undefined" && navigator.language?.startsWith("fr")) return "fr";
+  return "en";
+}
+
+let currentLocale: Locale = detectDefaultLocale();
 const listeners = new Set<() => void>();
 
 export function getLocale(): Locale {

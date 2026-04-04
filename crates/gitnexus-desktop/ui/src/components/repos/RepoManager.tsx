@@ -64,7 +64,6 @@ export function RepoManager() {
   const handleAnalyze = useCallback(async () => {
     try {
       if (!isTauri()) {
-        console.warn("[GitNexus] Folder picker requires the Tauri desktop app.");
         return;
       }
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -205,7 +204,7 @@ export function RepoManager() {
                   textAlign: "left",
                 }}
               >
-                {t("repos.onboarding.step1")}
+                {t("repos.onboarding.step1.desc")}
               </span>
             </div>
 
@@ -239,7 +238,7 @@ export function RepoManager() {
                   textAlign: "left",
                 }}
               >
-                {t("repos.onboarding.step2")}
+                {t("repos.onboarding.step2.desc")}
               </span>
             </div>
 
@@ -272,7 +271,7 @@ export function RepoManager() {
                   textAlign: "left",
                 }}
               >
-                {t("repos.onboarding.step3")}
+                {t("repos.onboarding.step3.desc")}
               </span>
             </div>
           </div>
@@ -317,7 +316,7 @@ export function RepoManager() {
             <Tooltip content={tt("repos.refresh").tip}>
               <button
                 onClick={() => refetch()}
-                className="flex items-center rounded-lg text-xs font-medium transition-all"
+                className="flex items-center rounded-lg text-xs font-medium transition-all hover:brightness-110"
                 style={{
                   gap: 6,
                   paddingLeft: 14,
@@ -327,12 +326,6 @@ export function RepoManager() {
                   background: "var(--bg-3)",
                   color: "var(--text-2)",
                   border: "1px solid var(--surface-border)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--surface-border-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--surface-border)";
                 }}
               >
                 <RefreshCw size={13} /> {tt("repos.refresh").label}
@@ -451,18 +444,10 @@ function RepoCard({
 
   return (
     <div
-      className="rounded-xl transition-all duration-200 group"
+      className="rounded-xl transition-all duration-200 group hover:shadow-md hover:brightness-105"
       style={{
         background: "var(--surface)",
         border: "1px solid var(--surface-border)",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "var(--surface-border-hover)";
-        e.currentTarget.style.boxShadow = "var(--shadow-md)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "var(--surface-border)";
-        e.currentTarget.style.boxShadow = "none";
       }}
     >
       <div
@@ -470,14 +455,8 @@ function RepoCard({
         tabIndex={0}
         onClick={() => { if (!isOpening && !busy) onOpen(); }}
         onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !isOpening && !busy) { e.preventDefault(); onOpen(); } }}
-        className="flex items-start w-full text-left transition-colors cursor-pointer"
+        className="flex items-start w-full text-left transition-colors cursor-pointer hover:brightness-105"
         style={{ gap: 16, paddingLeft: 24, paddingRight: 24, paddingTop: 20, paddingBottom: 20, opacity: isOpening || busy ? 0.6 : 1 }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "var(--surface-hover)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = "transparent";
-        }}
       >
         {/* Avatar */}
         <div
@@ -572,14 +551,11 @@ function RepoCard({
               }
               setShowMenu(!showMenu);
             }}
-            className="rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+            className="rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
             style={{ padding: 6, color: "var(--text-3)" }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "var(--bg-4)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
-            }}
+            aria-label={`Actions for ${repo.name}`}
+            aria-haspopup="menu"
+            aria-expanded={showMenu}
           >
             <MoreHorizontal size={16} />
           </button>
@@ -710,17 +686,9 @@ function MenuItem({
         e.stopPropagation();
         onClick();
       }}
-      className="w-full flex items-center text-[12px] text-left transition-colors"
+      className="w-full flex items-center text-[12px] text-left transition-colors hover:brightness-125"
       style={{ gap: 10, paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, color: "var(--text-2)" }}
       title={title}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = "var(--surface-hover)";
-        e.currentTarget.style.color = "var(--text-0)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "transparent";
-        e.currentTarget.style.color = "var(--text-2)";
-      }}
     >
       {icon}
       {label}

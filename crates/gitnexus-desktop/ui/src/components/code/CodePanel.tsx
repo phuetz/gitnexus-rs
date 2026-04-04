@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useFileContent } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { useSymbolContext } from "../../hooks/use-tauri-query";
+import { useI18n } from "../../hooks/use-i18n";
 
 export function CodePanel() {
+  const { t } = useI18n();
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const { data: context } = useSymbolContext(selectedNodeId);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -22,26 +24,23 @@ export function CodePanel() {
     let cancelled = false;
 
     (async () => {
+      let highlighter: Awaited<ReturnType<typeof import("shiki")["createHighlighter"]>> | null = null;
       try {
         const shiki = await import("shiki");
-        const highlighter = await shiki.createHighlighter({
+        highlighter = await shiki.createHighlighter({
           themes: ["tokyo-night"],
           langs: [
             fileContent.language ?? "text",
           ],
         });
 
-        if (cancelled) {
-          highlighter.dispose();
-          return;
-        }
+        if (cancelled) return;
 
         const html = highlighter.codeToHtml(fileContent.content, {
           lang: fileContent.language ?? "text",
           theme: "tokyo-night",
         });
 
-        highlighter.dispose();
         if (!cancelled) {
           setHighlightedHtml(html);
         }
@@ -57,6 +56,8 @@ export function CodePanel() {
             .join("\n");
           setHighlightedHtml(`<pre class="fallback-code">${html}</pre>`);
         }
+      } finally {
+        highlighter?.dispose();
       }
     })();
 
@@ -81,7 +82,7 @@ export function CodePanel() {
   if (!selectedNodeId) {
     return (
       <div className="h-full flex items-center justify-center text-[var(--text-muted)]">
-        Select a symbol to view its code
+        {t("code.selectSymbol")}
       </div>
     );
   }
@@ -89,7 +90,7 @@ export function CodePanel() {
   if (!filePath) {
     return (
       <div className="h-full flex items-center justify-center text-[var(--text-muted)]">
-        No file associated with this symbol
+        {t("code.noFile")}
       </div>
     );
   }
@@ -97,7 +98,7 @@ export function CodePanel() {
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center text-[var(--text-muted)]">
-        Loading code...
+        {t("code.loading")}
       </div>
     );
   }

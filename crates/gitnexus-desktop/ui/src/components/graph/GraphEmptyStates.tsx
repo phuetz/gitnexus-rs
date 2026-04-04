@@ -16,9 +16,9 @@ interface ToolbarProps {
   onDepthFilterChange: (d: number | null) => void;
 }
 
-interface GraphLoadingProps extends ToolbarProps {}
-interface GraphEmptyProps extends ToolbarProps {}
-interface GraphErrorProps extends ToolbarProps { error: unknown; }
+type GraphLoadingProps = ToolbarProps;
+type GraphEmptyProps = ToolbarProps;
+type GraphErrorProps = ToolbarProps & { error: unknown };
 
 export function GraphLoading(props: GraphLoadingProps) {
   const { t } = useI18n();
@@ -80,7 +80,7 @@ export function GraphError({ error, ...props }: GraphErrorProps) {
             <p style={{ color: "var(--text-2)", fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
               {t("graph.failedToLoad")}
             </p>
-            <p style={{ color: "var(--text-4)", fontSize: 12 }}>{String(error)}</p>
+            <p style={{ color: "var(--text-3)", fontSize: 12 }}>{String(error)}</p>
           </div>
         </div>
       </div>

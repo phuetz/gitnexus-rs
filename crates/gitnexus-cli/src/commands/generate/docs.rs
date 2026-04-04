@@ -91,7 +91,7 @@ pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<
     )?;
 
     // 5b. Generate deployment guide
-    generate_deployment_guide(&docs_dir, repo_name, &graph)?;
+    generate_deployment_guide(&docs_dir, repo_name, graph)?;
 
     // 5d. Generate git analytics pages (hotspots, coupling, ownership)
     let git_analytics_count = generate_git_analytics_pages(&docs_dir, repo_path)?;
@@ -949,11 +949,12 @@ fn generate_docs_modules(
         }
     }
 
-    let mut page_order: Vec<(String, String)> = Vec::new();
-    page_order.push(("../overview".to_string(), "Overview".to_string()));
-    page_order.push(("../project-health".to_string(), "Santé du Projet".to_string()));
-    page_order.push(("../architecture".to_string(), "Architecture".to_string()));
-    page_order.push(("../getting-started".to_string(), "Getting Started".to_string()));
+    let mut page_order: Vec<(String, String)> = vec![
+        ("../overview".to_string(), "Overview".to_string()),
+        ("../project-health".to_string(), "Santé du Projet".to_string()),
+        ("../architecture".to_string(), "Architecture".to_string()),
+        ("../getting-started".to_string(), "Getting Started".to_string()),
+    ];
 
     let mut merged_communities: BTreeMap<String, CommunityInfo> = BTreeMap::new();
     for info in communities.values() {

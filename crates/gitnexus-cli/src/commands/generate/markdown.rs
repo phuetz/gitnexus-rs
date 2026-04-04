@@ -80,7 +80,7 @@ pub(super) fn markdown_to_html(md: &str) -> String {
         // Tables
         if line.contains('|') && line.trim().starts_with('|') {
             // Separator row (e.g., |---|---|)
-            if line.replace('|', "").replace('-', "").replace(' ', "").replace(':', "").is_empty() {
+            if line.replace(['|', '-', ' ', ':'], "").is_empty() {
                 // Mark that we should switch from thead to tbody
                 if in_table {
                     html.push_str("</thead><tbody>\n");
@@ -127,22 +127,22 @@ pub(super) fn markdown_to_html(md: &str) -> String {
         }
 
         // Headings
-        if line.starts_with("### ") {
+        if let Some(rest) = line.strip_prefix("### ") {
             if in_list { html.push_str("</ul>\n"); in_list = false; }
             if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
-            html.push_str(&format!("<h3>{}</h3>\n", inline_md(&line[4..])));
+            html.push_str(&format!("<h3>{}</h3>\n", inline_md(rest)));
             continue;
         }
-        if line.starts_with("## ") {
+        if let Some(rest) = line.strip_prefix("## ") {
             if in_list { html.push_str("</ul>\n"); in_list = false; }
             if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
-            html.push_str(&format!("<h2>{}</h2>\n", inline_md(&line[3..])));
+            html.push_str(&format!("<h2>{}</h2>\n", inline_md(rest)));
             continue;
         }
-        if line.starts_with("# ") {
+        if let Some(rest) = line.strip_prefix("# ") {
             if in_list { html.push_str("</ul>\n"); in_list = false; }
             if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
-            html.push_str(&format!("<h1>{}</h1>\n", inline_md(&line[2..])));
+            html.push_str(&format!("<h1>{}</h1>\n", inline_md(rest)));
             continue;
         }
 
@@ -217,12 +217,12 @@ pub(super) fn markdown_to_html(md: &str) -> String {
         }
 
         // Blockquotes
-        if line.starts_with("> ") {
+        if let Some(rest) = line.strip_prefix("> ") {
             if in_list { html.push_str("</ul>\n"); in_list = false; }
             if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
             html.push_str(&format!(
                 "<blockquote>{}</blockquote>\n",
-                inline_md(&line[2..])
+                inline_md(rest)
             ));
             continue;
         }
@@ -415,8 +415,8 @@ pub(super) fn html_escape(text: &str) -> String {
 /// Extract the first `# Title` from Markdown content.
 pub(super) fn extract_title_from_md(content: &str) -> Option<String> {
     for line in content.lines() {
-        if line.starts_with("# ") {
-            return Some(line[2..].trim().to_string());
+        if let Some(rest) = line.strip_prefix("# ") {
+            return Some(rest.trim().to_string());
         }
     }
     None

@@ -30,7 +30,7 @@ export function SettingsModal() {
       <div
         className="rounded-xl shadow-2xl overflow-hidden"
         style={{
-          width: 520,
+          width: "min(520px, calc(100vw - 32px))",
           maxHeight: "80vh",
           background: "var(--bg-0)",
           border: "1px solid var(--surface-border)",

@@ -56,13 +56,25 @@ export function SearchModal() {
   const setMode = useAppStore((s) => s.setMode);
 
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const TYPE_FILTERS = ["Class", "Method", "Function", "Controller", "Service", "Interface"];
 
-  const { data: rawResults } = useSearchSymbols(query, query.length >= 1);
+  // Clean up debounce timer on unmount
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
+
+  // Debounce search query (200ms)
+  const handleQueryChange = useCallback((value: string) => {
+    setQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedQuery(value), 200);
+  }, []);
+
+  const { data: rawResults, isLoading: isSearching } = useSearchSymbols(debouncedQuery, debouncedQuery.length >= 1);
   const results = useMemo(
     () => (rawResults ? rankResults(rawResults, query, typeFilter) : undefined),
     [rawResults, query, typeFilter]
@@ -78,26 +90,34 @@ export function SearchModal() {
     }
   }, [results, isOpen, setSearchMatchIds]);
 
-  // Sync query from store and reset on open/close (render-time state adjustment)
+  // Sync local query from store (render-time adjustment for local state)
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
     if (isOpen) {
       setQuery(storeQuery || "");
+      setDebouncedQuery(storeQuery || "");
       setSelectedIndex(0);
-    } else {
-      setStoreQuery("");
     }
   }
 
-  // Also update when storeQuery changes while open
   const [prevStoreQuery, setPrevStoreQuery] = useState(storeQuery);
   if (storeQuery !== prevStoreQuery) {
     setPrevStoreQuery(storeQuery);
     if (isOpen && storeQuery) {
       setQuery(storeQuery);
+      setDebouncedQuery(storeQuery);
     }
   }
+
+  // Clear global store query when modal closes (must be in effect — updates external store)
+  const wasOpenRef = useRef(isOpen);
+  useEffect(() => {
+    if (!isOpen && wasOpenRef.current) {
+      setStoreQuery("");
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen, setStoreQuery]);
 
   // Focus input after opening
   useEffect(() => {
@@ -174,7 +194,7 @@ export function SearchModal() {
             ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => handleQueryChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t("search.placeholder")}
             aria-label="Search symbols"
@@ -185,6 +205,7 @@ export function SearchModal() {
             onClick={() => setSearchOpen(false)}
             className="p-1 rounded-md"
             style={{ color: "var(--text-3)" }}
+            aria-label={t("search.close")}
           >
             <X size={16} />
           </button>
@@ -270,6 +291,10 @@ export function SearchModal() {
                   )}
                 </button>
               ))}
+            </div>
+          ) : query.length >= 1 && isSearching ? (
+            <div className="py-12 text-center" style={{ color: "var(--text-4)" }}>
+              <div className="shimmer" style={{ width: 120, height: 14, borderRadius: 6, background: "var(--bg-3)", margin: "0 auto" }} />
             </div>
           ) : query.length >= 1 ? (
             <div className="py-12 text-center" style={{ color: "var(--text-3)" }}>

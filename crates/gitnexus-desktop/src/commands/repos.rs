@@ -177,10 +177,19 @@ pub async fn generate_docs(what: String, path: String) -> Result<String, String>
         ));
     }
 
+    // Validate path: must exist and be a directory
+    let repo_path = std::path::Path::new(&path);
+    if !repo_path.exists() || !repo_path.is_dir() {
+        return Err(format!("Invalid path: '{}' does not exist or is not a directory", path));
+    }
+    // Canonicalize to prevent path traversal via ..
+    let canonical_path = repo_path.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let safe_path = canonical_path.to_string_lossy().to_string();
+
     let gitnexus_bin = find_gitnexus_binary();
 
     let output = std::process::Command::new(&gitnexus_bin)
-        .args(["generate", &what, "--path", &path])
+        .args(["generate", &what, "--path", &safe_path])
         .output()
         .map_err(|e| {
             format!(

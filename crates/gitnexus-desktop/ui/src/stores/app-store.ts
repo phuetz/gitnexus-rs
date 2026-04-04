@@ -63,6 +63,10 @@ interface AppState {
   explorerLeftCollapsed: boolean;
   setExplorerLeftCollapsed: (collapsed: boolean) => void;
 
+  sidebarExpanded: boolean;
+  setSidebarExpanded: (expanded: boolean) => void;
+  toggleSidebar: () => void;
+
   selectedFeatures: Set<string>;
   toggleFeature: (id: string) => void;
   resetFeatures: () => void;
@@ -72,7 +76,14 @@ const MAX_HISTORY = 50;
 
 export const useAppStore = create<AppState>((set, get) => ({
   activeRepo: null,
-  setActiveRepo: (name) => set({ activeRepo: name }),
+  setActiveRepo: (name) => {
+    if (name) {
+      localStorage.setItem("gitnexus-active-repo", name);
+    } else {
+      localStorage.removeItem("gitnexus-active-repo");
+    }
+    set({ activeRepo: name });
+  },
 
   selectedNodeId: null,
   selectedNodeName: null,
@@ -153,10 +164,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   searchMatchIds: [],
   setSearchMatchIds: (ids) => set({ searchMatchIds: ids }),
 
-  theme: (localStorage.getItem("gitnexus-theme") as ThemeMode) || "dark",
+  theme: (() => {
+    const saved = localStorage.getItem("gitnexus-theme");
+    return saved === "dark" || saved === "light" || saved === "system" ? saved : "dark";
+  })(),
   setTheme: (theme) => {
     localStorage.setItem("gitnexus-theme", theme);
-    document.documentElement.setAttribute("data-theme", theme);
+    const resolved = theme === "system"
+      ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+      : theme;
+    document.documentElement.setAttribute("data-theme", resolved);
     set({ theme });
   },
 
@@ -170,6 +187,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setEgoDepth: (depth) => set({ egoDepth: depth }),
   explorerLeftCollapsed: false,
   setExplorerLeftCollapsed: (collapsed) => set({ explorerLeftCollapsed: collapsed }),
+
+  sidebarExpanded: false,
+  setSidebarExpanded: (expanded) => set({ sidebarExpanded: expanded }),
+  toggleSidebar: () => set((s) => ({ sidebarExpanded: !s.sidebarExpanded })),
 
   selectedFeatures: new Set<string>(),
   toggleFeature: (id) => set((s) => {

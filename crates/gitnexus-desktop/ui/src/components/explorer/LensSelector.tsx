@@ -2,29 +2,20 @@ import { memo } from "react";
 import { Eye } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import type { LensType } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 
-const LENS_OPTIONS: { value: LensType; label: string; description: string }[] = [
-  { value: "all", label: "All", description: "Show all relationships" },
-  { value: "calls", label: "Calls", description: "Function/method calls" },
-  { value: "structure", label: "Structure", description: "HasMethod, HasProperty, ContainedIn" },
-  { value: "heritage", label: "Heritage", description: "Extends, Implements" },
-  { value: "impact", label: "Impact", description: "Calls, Imports, DependsOn" },
-  { value: "dead-code", label: "Dead Code", description: "Highlight dead code candidates" },
-  { value: "tracing", label: "Tracing", description: "Highlight traced methods" },
+const LENS_OPTIONS: { value: LensType; i18nKey: string }[] = [
+  { value: "all", i18nKey: "lens.all" },
+  { value: "calls", i18nKey: "lens.calls" },
+  { value: "structure", i18nKey: "lens.structure" },
+  { value: "heritage", i18nKey: "lens.heritage" },
+  { value: "impact", i18nKey: "lens.impact" },
+  { value: "dead-code", i18nKey: "lens.deadCode" },
+  { value: "tracing", i18nKey: "lens.tracing" },
 ];
 
-// Maps lens type to visible edge rel_type strings
-export const LENS_EDGE_TYPES: Record<LensType, string[] | null> = {
-  all: null, // show all
-  calls: ["CALLS"],
-  structure: ["HAS_METHOD", "HAS_PROPERTY", "CONTAINED_IN", "DEFINED_IN"],
-  heritage: ["EXTENDS", "IMPLEMENTS", "INHERITS"],
-  impact: ["CALLS", "IMPORTS", "DEPENDS_ON"],
-  "dead-code": null, // show all, but highlight dead candidates
-  tracing: null, // show all, but highlight traced
-};
-
 export const LensSelector = memo(function LensSelector() {
+  const { t } = useI18n();
   const activeLens = useAppStore((s) => s.activeLens);
   const setActiveLens = useAppStore((s) => s.setActiveLens);
 
@@ -37,7 +28,8 @@ export const LensSelector = memo(function LensSelector() {
           const lens = e.target.value as LensType;
           setActiveLens(lens);
         }}
-        className="text-xs rounded px-1.5 py-1 border-none outline-none cursor-pointer"
+        aria-label={t("lens.ariaLabel")}
+        className="text-xs rounded px-1.5 py-1 border-none cursor-pointer"
         style={{
           background: "var(--bg-3)",
           color: "var(--text-1)",
@@ -46,7 +38,7 @@ export const LensSelector = memo(function LensSelector() {
       >
         {LENS_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
-            {opt.label}
+            {t(opt.i18nKey)}
           </option>
         ))}
       </select>

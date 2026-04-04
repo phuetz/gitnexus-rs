@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { X, Check, Loader2 } from "lucide-react";
 import { commands, type ChatConfig } from "../../lib/tauri-commands";
 
@@ -86,7 +87,7 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
       onClose();
     },
     onError: (err) => {
-      console.error("Failed to save chat config:", err);
+      toast.error(`Failed to save: ${err instanceof Error ? err.message : String(err)}`);
     },
   });
 
@@ -94,17 +95,39 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
     setForm((prev) => ({ ...prev, ...preset.config }));
   };
 
-  if (isLoading) return null;
+  if (isLoading) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        style={{ background: "rgba(0,0,0,0.6)" }}
+        onClick={(e) => e.target === e.currentTarget && onClose()}
+      >
+        <div
+          className="rounded-xl p-6 shadow-lg"
+          style={{ width: "min(480px, calc(100vw - 32px))", background: "var(--bg-2)", border: "1px solid var(--surface-border)" }}
+        >
+          <div className="shimmer" style={{ width: 160, height: 20, borderRadius: 8, background: "var(--bg-3)", marginBottom: 20 }} />
+          <div className="shimmer" style={{ width: "100%", height: 36, borderRadius: 8, background: "var(--bg-3)", marginBottom: 12 }} />
+          <div className="shimmer" style={{ width: "100%", height: 36, borderRadius: 8, background: "var(--bg-3)", marginBottom: 12 }} />
+          <div className="shimmer" style={{ width: "100%", height: 36, borderRadius: 8, background: "var(--bg-3)" }} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: "rgba(0,0,0,0.6)" }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Chat AI Settings"
     >
       <div
-        className="w-[480px] rounded-xl p-6 shadow-lg fade-in"
+        className="rounded-xl p-6 shadow-lg fade-in"
         style={{
+          width: "min(480px, calc(100vw - 32px))",
           background: "var(--bg-2)",
           border: "1px solid var(--surface-border)",
         }}
@@ -117,7 +140,7 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
           >
             Chat AI Settings
           </h2>
-          <button onClick={onClose} className="p-1" style={{ color: "var(--text-3)" }}>
+          <button onClick={onClose} className="p-1" style={{ color: "var(--text-3)" }} aria-label="Close settings">
             <X size={16} />
           </button>
         </div>
@@ -265,7 +288,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 rounded-lg text-[13px] outline-none transition-all"
+        className="w-full px-3 py-2 rounded-lg text-[13px] outline-none focus:ring-1 focus:ring-[var(--accent)] transition-all"
         style={{
           background: "var(--surface)",
           border: "1px solid var(--surface-border)",

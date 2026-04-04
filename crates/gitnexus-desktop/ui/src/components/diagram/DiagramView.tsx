@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Workflow, Copy, Check, Search } from "lucide-react";
+import { toast } from "sonner";
+import { Workflow, Copy, Search } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 
@@ -8,7 +9,6 @@ export function DiagramView() {
   const { t } = useI18n();
   const [target, setTarget] = useState("");
   const [searchTarget, setSearchTarget] = useState("");
-  const [copied, setCopied] = useState(false);
   const [renderError, setRenderError] = useState(false);
   const mermaidRef = useRef<HTMLDivElement>(null);
 
@@ -66,9 +66,12 @@ export function DiagramView() {
 
   const handleCopy = async () => {
     if (diagram?.mermaid) {
-      await navigator.clipboard.writeText("```mermaid\n" + diagram.mermaid + "\n```");
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        await navigator.clipboard.writeText("```mermaid\n" + diagram.mermaid + "\n```");
+        toast.success(t("diagram.copied"));
+      } catch {
+        toast.error("Copy failed");
+      }
     }
   };
 
@@ -99,7 +102,6 @@ export function DiagramView() {
               background: "var(--bg-2)",
               color: "var(--text-0)",
               fontSize: 13,
-              outline: "none",
             }}
           />
         </div>
@@ -155,8 +157,8 @@ export function DiagramView() {
                 cursor: "pointer",
               }}
             >
-              {copied ? <Check size={12} /> : <Copy size={12} />}
-              {copied ? t("diagram.copied") : t("diagram.copyMermaid")}
+              <Copy size={12} />
+              {t("diagram.copyMermaid")}
             </button>
           </div>
 

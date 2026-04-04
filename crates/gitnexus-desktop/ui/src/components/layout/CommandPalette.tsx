@@ -23,6 +23,7 @@ import {
 import { AnimatedModal } from "../shared/motion";
 import { useAppStore } from "../../stores/app-store";
 import { useChatStore } from "../../stores/chat-store";
+import { useI18n } from "../../hooks/use-i18n";
 
 type CommandItem = {
   id: string;
@@ -33,7 +34,7 @@ type CommandItem = {
   action: () => void;
 };
 
-function buildCommands(): CommandItem[] {
+function buildCommands(t: (key: string) => string): CommandItem[] {
   const store = useAppStore.getState();
   const chatStore = useChatStore.getState();
 
@@ -41,32 +42,32 @@ function buildCommands(): CommandItem[] {
     // Mode switching
     {
       id: "mode-explorer",
-      label: "Switch to Explorer",
-      group: "Modes",
+      label: t("cmd.switchTo") + " " + t("mode.explorer"),
+      group: t("cmd.group.modes"),
       icon: Compass,
       shortcut: "Ctrl+1",
       action: () => store.setMode("explorer"),
     },
     {
       id: "mode-analyze",
-      label: "Switch to Analyze",
-      group: "Modes",
+      label: t("cmd.switchTo") + " " + t("mode.analyze"),
+      group: t("cmd.group.modes"),
       icon: BarChart3,
       shortcut: "Ctrl+2",
       action: () => store.setMode("analyze"),
     },
     {
       id: "mode-chat",
-      label: "Switch to Chat",
-      group: "Modes",
+      label: t("cmd.switchTo") + " " + t("mode.chat"),
+      group: t("cmd.group.modes"),
       icon: MessageSquare,
       shortcut: "Ctrl+3",
       action: () => store.setMode("chat"),
     },
     {
       id: "mode-manage",
-      label: "Switch to Manage",
-      group: "Modes",
+      label: t("cmd.switchTo") + " " + t("mode.manage"),
+      group: t("cmd.group.modes"),
       icon: Settings,
       shortcut: "Ctrl+4",
       action: () => store.setMode("manage"),
@@ -75,57 +76,57 @@ function buildCommands(): CommandItem[] {
     // Analyze sub-views
     {
       id: "view-overview",
-      label: "View Overview",
-      group: "Analyze Views",
+      label: t("cmd.view") + " " + t("analyze.nav.overview"),
+      group: t("cmd.group.analyzeViews"),
       icon: LayoutDashboard,
       action: () => { store.setMode("analyze"); store.setAnalyzeView("overview"); },
     },
     {
       id: "view-hotspots",
-      label: "View Hotspots",
-      group: "Analyze Views",
+      label: t("cmd.view") + " " + t("analyze.nav.hotspots"),
+      group: t("cmd.group.analyzeViews"),
       icon: Flame,
       action: () => { store.setMode("analyze"); store.setAnalyzeView("hotspots"); },
     },
     {
       id: "view-coupling",
-      label: "View Coupling",
-      group: "Analyze Views",
+      label: t("cmd.view") + " " + t("analyze.nav.coupling"),
+      group: t("cmd.group.analyzeViews"),
       icon: Link2,
       action: () => { store.setMode("analyze"); store.setAnalyzeView("coupling"); },
     },
     {
       id: "view-ownership",
-      label: "View Ownership",
-      group: "Analyze Views",
+      label: t("cmd.view") + " " + t("analyze.nav.ownership"),
+      group: t("cmd.group.analyzeViews"),
       icon: Users,
       action: () => { store.setMode("analyze"); store.setAnalyzeView("ownership"); },
     },
     {
       id: "view-coverage",
-      label: "View Coverage",
-      group: "Analyze Views",
+      label: t("cmd.view") + " " + t("analyze.nav.coverage"),
+      group: t("cmd.group.analyzeViews"),
       icon: Shield,
       action: () => { store.setMode("analyze"); store.setAnalyzeView("coverage"); },
     },
     {
       id: "view-diagram",
-      label: "View Diagrams",
-      group: "Analyze Views",
+      label: t("cmd.view") + " " + t("analyze.nav.diagrams"),
+      group: t("cmd.group.analyzeViews"),
       icon: GitBranch,
       action: () => { store.setMode("analyze"); store.setAnalyzeView("diagram"); },
     },
     {
       id: "view-report",
-      label: "View Report",
-      group: "Analyze Views",
+      label: t("cmd.view") + " " + t("analyze.nav.report"),
+      group: t("cmd.group.analyzeViews"),
       icon: FileText,
       action: () => { store.setMode("analyze"); store.setAnalyzeView("report"); },
     },
     {
       id: "view-health",
-      label: "View Health",
-      group: "Analyze Views",
+      label: t("cmd.view") + " " + t("analyze.nav.health"),
+      group: t("cmd.group.analyzeViews"),
       icon: Heart,
       action: () => { store.setMode("analyze"); store.setAnalyzeView("health"); },
     },
@@ -133,50 +134,50 @@ function buildCommands(): CommandItem[] {
     // Lens switching
     {
       id: "lens-all",
-      label: "Lens: All",
-      group: "Lenses",
+      label: t("cmd.lens") + " " + t("lens.all"),
+      group: t("cmd.group.lenses"),
       icon: Eye,
       action: () => store.setActiveLens("all"),
     },
     {
       id: "lens-calls",
-      label: "Lens: Call Graph",
-      group: "Lenses",
+      label: t("cmd.lens") + " " + t("lens.calls"),
+      group: t("cmd.group.lenses"),
       icon: Network,
       action: () => store.setActiveLens("calls"),
     },
     {
       id: "lens-structure",
-      label: "Lens: Structure",
-      group: "Lenses",
+      label: t("cmd.lens") + " " + t("lens.structure"),
+      group: t("cmd.group.lenses"),
       icon: Layers,
       action: () => store.setActiveLens("structure"),
     },
     {
       id: "lens-heritage",
-      label: "Lens: Heritage",
-      group: "Lenses",
+      label: t("cmd.lens") + " " + t("lens.heritage"),
+      group: t("cmd.group.lenses"),
       icon: GitBranch,
       action: () => store.setActiveLens("heritage"),
     },
     {
       id: "lens-impact",
-      label: "Lens: Impact",
-      group: "Lenses",
+      label: t("cmd.lens") + " " + t("lens.impact"),
+      group: t("cmd.group.lenses"),
       icon: Zap,
       action: () => store.setActiveLens("impact"),
     },
     {
       id: "lens-dead-code",
-      label: "Lens: Dead Code",
-      group: "Lenses",
+      label: t("cmd.lens") + " " + t("lens.deadCode"),
+      group: t("cmd.group.lenses"),
       icon: Code2,
       action: () => store.setActiveLens("dead-code"),
     },
     {
       id: "lens-tracing",
-      label: "Lens: Tracing",
-      group: "Lenses",
+      label: t("cmd.lens") + " " + t("lens.tracing"),
+      group: t("cmd.group.lenses"),
       icon: Sparkles,
       action: () => store.setActiveLens("tracing"),
     },
@@ -184,15 +185,15 @@ function buildCommands(): CommandItem[] {
     // Actions
     {
       id: "open-settings",
-      label: "Open Settings",
-      group: "Actions",
+      label: t("cmd.openSettings"),
+      group: t("cmd.group.actions"),
       icon: Settings,
       action: () => store.setSettingsOpen(true),
     },
     {
       id: "toggle-deep-research",
-      label: "Toggle Deep Research",
-      group: "Actions",
+      label: t("cmd.toggleDeepResearch"),
+      group: t("cmd.group.actions"),
       icon: Sparkles,
       shortcut: "Ctrl+Shift+D",
       action: () => chatStore.toggleDeepResearch(),
@@ -206,7 +207,7 @@ function CommandItem({ item, onSelect }: { item: CommandItem; onSelect: () => vo
       key={item.id}
       value={`${item.label} ${item.group}`}
       onSelect={onSelect}
-      className="command-palette-item"
+      className="command-palette-item hover:bg-[var(--surface-hover)] hover:text-[var(--text-0)]"
       style={{
         display: "flex",
         alignItems: "center",
@@ -218,16 +219,6 @@ function CommandItem({ item, onSelect }: { item: CommandItem; onSelect: () => vo
         fontSize: 13,
         fontWeight: 500,
         transition: "background 0.1s, color 0.1s",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = "var(--surface-hover)";
-        e.currentTarget.style.color = "var(--text-0)";
-      }}
-      onMouseLeave={(e) => {
-        if (e.currentTarget.getAttribute("aria-selected") !== "true") {
-          e.currentTarget.style.background = "transparent";
-          e.currentTarget.style.color = "var(--text-1)";
-        }
       }}
     >
       <item.icon size={16} style={{ color: "var(--text-3)", flexShrink: 0 }} />
@@ -252,15 +243,18 @@ function CommandItem({ item, onSelect }: { item: CommandItem; onSelect: () => vo
 }
 
 export function CommandPalette() {
+  const { t } = useI18n();
   const commandPaletteOpen = useAppStore((s) => s.commandPaletteOpen);
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
 
   const close = () => setCommandPaletteOpen(false);
 
-  const commands = useMemo(() => buildCommands(), []);
+  // commandPaletteOpen is an intentional cache-bust dep — rebuild commands each time the palette opens
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const cmds = useMemo(() => buildCommands(t), [commandPaletteOpen, t]);
 
-  // Group items
-  const groups = ["Modes", "Analyze Views", "Lenses", "Actions"] as const;
+  // Group items — use translated group labels
+  const groups = [t("cmd.group.modes"), t("cmd.group.analyzeViews"), t("cmd.group.lenses"), t("cmd.group.actions")];
 
   return (
     <AnimatedModal isOpen={commandPaletteOpen} onClose={close}>
@@ -268,15 +262,16 @@ export function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="w-[560px] rounded-xl overflow-hidden"
+        className="rounded-xl overflow-hidden"
         style={{
+          width: "min(560px, calc(100vw - 32px))",
           background: "var(--bg-1)",
           border: "1px solid var(--surface-border)",
           backdropFilter: "blur(16px)",
           boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
         }}
       >
-        <Command label="Command Palette" style={{ background: "transparent" }}>
+        <Command label={t("mode.commandPalette")} style={{ background: "transparent" }}>
           {/* Input */}
           <div
             style={{
@@ -285,14 +280,13 @@ export function CommandPalette() {
             }}
           >
             <Command.Input
-              placeholder="Type a command or search..."
-              aria-label="Type a command or search"
+              placeholder={t("cmd.placeholder")}
+              aria-label={t("cmd.placeholder")}
               autoFocus
               style={{
                 width: "100%",
                 background: "transparent",
                 border: "none",
-                outline: "none",
                 color: "var(--text-0)",
                 fontSize: 15,
                 fontFamily: "var(--font-body)",
@@ -317,11 +311,11 @@ export function CommandPalette() {
                 fontSize: 13,
               }}
             >
-              No results found.
+              {t("search.noResults")}
             </Command.Empty>
 
             {groups.map((group) => {
-              const items = commands.filter((c) => c.group === group);
+              const items = cmds.filter((c) => c.group === group);
               if (items.length === 0) return null;
               return (
                 <Command.Group key={group} heading={group} style={{ marginBottom: 4 }}>
@@ -356,19 +350,19 @@ export function CommandPalette() {
           >
             <span>
               <kbd style={{ padding: "1px 4px", borderRadius: 3, background: "var(--bg-3)", border: "1px solid var(--surface-border)" }}>↑↓</kbd>
-              {" "}Navigate
+              {" "}{t("search.navigate")}
             </span>
             <span>
               <kbd style={{ padding: "1px 4px", borderRadius: 3, background: "var(--bg-3)", border: "1px solid var(--surface-border)" }}>↵</kbd>
-              {" "}Select
+              {" "}{t("search.open")}
             </span>
             <span>
               <kbd style={{ padding: "1px 4px", borderRadius: 3, background: "var(--bg-3)", border: "1px solid var(--surface-border)" }}>Esc</kbd>
-              {" "}Close
+              {" "}{t("search.close")}
             </span>
             <span style={{ marginLeft: "auto" }}>
               <kbd style={{ padding: "1px 4px", borderRadius: 3, background: "var(--bg-3)", border: "1px solid var(--surface-border)" }}>Ctrl+K</kbd>
-              {" "}Palette
+              {" "}{t("mode.commandPalette")}
             </span>
           </div>
         </Command>

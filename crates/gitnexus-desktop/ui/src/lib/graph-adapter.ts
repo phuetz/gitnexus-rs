@@ -116,10 +116,10 @@ function hashString(s: string): number {
 }
 
 function getScaledNodeSize(baseSize: number, nodeCount: number): number {
-  if (nodeCount > 500) return Math.max(1.5, baseSize * 0.5);
-  if (nodeCount > 200) return Math.max(2, baseSize * 0.65);
-  if (nodeCount > 50) return Math.max(2.5, baseSize * 0.8);
-  return baseSize;
+  if (nodeCount > 500) return Math.max(3, baseSize * 0.5);
+  if (nodeCount > 200) return Math.max(4, baseSize * 0.65);
+  if (nodeCount > 50) return Math.max(4, baseSize * 0.8);
+  return Math.max(5, baseSize);
 }
 
 export function getCommunityColor(community: string): string {

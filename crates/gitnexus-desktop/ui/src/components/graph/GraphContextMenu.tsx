@@ -45,16 +45,23 @@ export function GraphContextMenu({
     }
   }, [contextMenu]);
 
-  // Close on click outside
+  // Close on click outside, scroll, or resize
   useEffect(() => {
     if (!contextMenu) return;
-    const handler = (e: MouseEvent) => {
+    const handleOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const handleDismiss = () => onClose();
+    document.addEventListener("mousedown", handleOutside);
+    window.addEventListener("scroll", handleDismiss, true);
+    window.addEventListener("resize", handleDismiss);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      window.removeEventListener("scroll", handleDismiss, true);
+      window.removeEventListener("resize", handleDismiss);
+    };
   }, [contextMenu, onClose]);
 
   // Arrow key navigation
@@ -77,6 +84,12 @@ export function GraphContextMenu({
 
   if (!contextMenu) return null;
 
+  // Clamp to viewport
+  const menuW = 220;
+  const menuH = 300;
+  const clampedX = Math.min(contextMenu.x, window.innerWidth - menuW - 8);
+  const clampedY = Math.min(contextMenu.y, window.innerHeight - menuH - 8);
+
   return (
     <div
       ref={menuRef}
@@ -84,8 +97,8 @@ export function GraphContextMenu({
       aria-label="Node context menu"
       className="absolute z-50 pointer-events-auto rounded-lg text-xs"
       style={{
-        left: contextMenu.x,
-        top: contextMenu.y,
+        left: Math.max(8, clampedX),
+        top: Math.max(8, clampedY),
         backgroundColor: "var(--bg-3)",
         border: "1px solid var(--surface-border-hover)",
         boxShadow: "var(--shadow-lg)",
@@ -185,19 +198,11 @@ const ContextMenuButton = ({
     ref={ref}
     role="menuitem"
     onClick={onClick}
-    className="w-full text-left transition-colors flex items-center"
+    className="w-full text-left transition-colors flex items-center hover:brightness-125"
     style={{
       padding: "8px 16px",
       color: "var(--text-2)",
       backgroundColor: "var(--bg-3)",
-    }}
-    onMouseEnter={(e) => {
-      e.currentTarget.style.backgroundColor = "var(--surface-hover)";
-      e.currentTarget.style.color = "var(--text-0)";
-    }}
-    onMouseLeave={(e) => {
-      e.currentTarget.style.backgroundColor = "var(--bg-3)";
-      e.currentTarget.style.color = "var(--text-2)";
     }}
   >
     {children}

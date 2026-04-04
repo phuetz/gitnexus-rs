@@ -2,11 +2,26 @@ import { memo, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
+import { useGraphData } from "../../hooks/use-tauri-query";
 import { commands } from "../../lib/tauri-commands";
 
 /** Separator — extracted outside StatusBar to satisfy react-hooks/static-components. */
 function Sep() {
   return <div style={{ width: "1px", height: "12px", background: "var(--surface-border)" }} />;
+}
+
+function GraphStats() {
+  const zoomLevel = useAppStore((s) => s.zoomLevel);
+  const { data } = useGraphData({ zoomLevel, maxNodes: 200 }, true);
+  if (!data?.stats) return null;
+  return (
+    <>
+      <Sep />
+      <span style={{ color: "var(--text-3)", fontVariantNumeric: "tabular-nums" }}>
+        {data.stats.nodeCount}n | {data.stats.edgeCount}e
+      </span>
+    </>
+  );
 }
 
 export const StatusBar = memo(function StatusBar() {
@@ -18,9 +33,9 @@ export const StatusBar = memo(function StatusBar() {
 
   const MODE_LABELS: Record<string, string> = useMemo(() => ({
     explorer: t("sidebar.graphExplorer"),
-    analyze: "Analyze",
-    chat: "Chat",
-    manage: "Manage",
+    analyze: t("sidebar.analysis"),
+    chat: t("sidebar.chat"),
+    manage: t("manage.title"),
   }), [t]);
 
   const { data: chatConfig } = useQuery({
@@ -57,20 +72,20 @@ export const StatusBar = memo(function StatusBar() {
       case "analyze":
         return (
           <span style={{ color: "var(--text-3)" }}>
-            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>View:</span>{" "}
+            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>{t("status.view")}:</span>{" "}
             {analyzeView.charAt(0).toUpperCase() + analyzeView.slice(1)}
           </span>
         );
       case "chat":
         return (
           <span style={{ color: "var(--text-3)" }}>
-            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>AI:</span> Code Intelligence Chat
+            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>AI:</span> {t("status.aiChat")}
           </span>
         );
       case "manage":
         return (
           <span style={{ color: "var(--text-3)" }}>
-            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>Manage:</span> Repos & Settings
+            <span style={{ fontWeight: 500, color: "var(--text-2)" }}>{t("manage.title")}:</span> {t("status.reposSettings")}
           </span>
         );
       default:
@@ -122,6 +137,9 @@ export const StatusBar = memo(function StatusBar() {
               {ctxInfo}
             </>
           )}
+
+          {/* Graph stats when in explorer */}
+          {mode === "explorer" && <GraphStats />}
         </>
       ) : (
         <span style={{ color: "var(--text-3)" }}>{t("status.noRepo")}</span>

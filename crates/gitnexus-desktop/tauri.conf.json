@@ -5,9 +5,9 @@
   "identifier": "com.gitnexus.desktop",
   "build": {
     "frontendDist": "ui/dist",
-    "devUrl": "http://localhost:5174",
-    "beforeDevCommand": "",
-    "beforeBuildCommand": ""
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run --prefix ui dev -- --port 1420",
+    "beforeBuildCommand": "npm run --prefix ui build"
   },
   "app": {
     "windows": [
@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: http://localhost:*; img-src 'self' data: blob:; font-src 'self' data:"
     }
   },
   "bundle": {

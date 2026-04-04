@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
 
 :root {
   /* ── Obsidian Observatory v2 — refined dark theme ── */
@@ -131,20 +131,20 @@
   --surface: #eef0f6;
   --surface-hover: #e2e5ee;
   --surface-active: #d6dae6;
-  --surface-border: rgba(60, 70, 100, 0.12);
-  --surface-border-hover: rgba(60, 70, 100, 0.22);
+  --surface-border: rgba(60, 70, 100, 0.20);
+  --surface-border-hover: rgba(60, 70, 100, 0.30);
 
-  /* Text hierarchy */
+  /* Text hierarchy (improved contrast for WCAG AA) */
   --text-0: #1a1d26;
   --text-1: #2e3341;
-  --text-2: #5a6275;
-  --text-3: #8690a5;
-  --text-4: #b0b8ca;
+  --text-2: #4d5568;
+  --text-3: #6e7a96;
+  --text-4: #9ea8be;
 
   /* Primary accent (blue — slightly deeper for contrast on light) */
   --accent: #4a85e0;
   --accent-hover: #3a73cc;
-  --accent-subtle: rgba(74, 133, 224, 0.10);
+  --accent-subtle: rgba(74, 133, 224, 0.14);
   --accent-border: rgba(74, 133, 224, 0.25);
   --accent-glow: rgba(74, 133, 224, 0.08);
 
@@ -169,10 +169,10 @@
   --red: #dc3545;
   --red-subtle: rgba(220, 53, 69, 0.10);
 
-  /* Shadows (lighter) */
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04);
-  --shadow-lg: 0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
+  /* Shadows (slightly stronger for definition on light backgrounds) */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.10), 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08);
   --shadow-glow: 0 0 24px var(--accent-glow);
 }
 
@@ -337,37 +337,6 @@ code, pre, .mono {
 .fade-in {
   animation: fadeIn 0.25s ease-out;
 }
-
-/* ── Slide in from left ── */
-@keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-8px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-.slide-in-left {
-  animation: slideInLeft 0.2s ease-out;
-}
-
-/* ── Scale in ── */
-@keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1); }
-}
-.scale-in {
-  animation: scaleIn 0.2s ease-out;
-}
-
-/* ── Stagger children ── */
-.stagger > * {
-  animation: fadeIn 0.25s ease-out both;
-}
-.stagger > *:nth-child(1) { animation-delay: 0ms; }
-.stagger > *:nth-child(2) { animation-delay: 50ms; }
-.stagger > *:nth-child(3) { animation-delay: 100ms; }
-.stagger > *:nth-child(4) { animation-delay: 150ms; }
-.stagger > *:nth-child(5) { animation-delay: 200ms; }
-.stagger > *:nth-child(6) { animation-delay: 250ms; }
-.stagger > *:nth-child(7) { animation-delay: 300ms; }
-.stagger > *:nth-child(8) { animation-delay: 350ms; }
 
 /* ── Subtle pulse for loading ── */
 @keyframes pulse-subtle {

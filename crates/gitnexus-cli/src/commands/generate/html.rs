@@ -29,7 +29,7 @@ pub(super) fn generate_html_site(
     for entry in std::fs::read_dir(&docs_dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "md") {
+        if path.extension().is_some_and(|e| e == "md") {
             let content = std::fs::read_to_string(&path)?;
             let filename = path.file_stem().unwrap().to_string_lossy().to_string();
             let title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());
@@ -44,7 +44,7 @@ pub(super) fn generate_html_site(
         for entry in std::fs::read_dir(&modules_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "md") {
+            if path.extension().is_some_and(|e| e == "md") {
                 let content = std::fs::read_to_string(&path)?;
                 let filename = path.file_stem().unwrap().to_string_lossy().to_string();
                 let title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());

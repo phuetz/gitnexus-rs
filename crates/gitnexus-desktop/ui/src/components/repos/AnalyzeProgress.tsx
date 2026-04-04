@@ -59,6 +59,7 @@ export function AnalyzeProgress({ isAnalyzing, repoPath, onComplete, onDismiss }
 
     let cancelled = false;
     let unlistenFn: (() => void) | null = null;
+    let completeTimer: ReturnType<typeof setTimeout> | null = null;
 
     import("@tauri-apps/api/event").then((mod) =>
       mod.listen<PipelineProgress>("pipeline-progress", (event) => {
@@ -69,7 +70,7 @@ export function AnalyzeProgress({ isAnalyzing, repoPath, onComplete, onDismiss }
         if (p.phase === "complete") {
           setOverallPercent(100);
           setCompleted(true);
-          setTimeout(() => onComplete(), 1500);
+          completeTimer = setTimeout(() => { if (!cancelled) onComplete(); }, 1500);
         } else if (p.phase === "error") {
           setError(p.message);
         } else {
@@ -89,6 +90,7 @@ export function AnalyzeProgress({ isAnalyzing, repoPath, onComplete, onDismiss }
     return () => {
       cancelled = true;
       if (unlistenFn) unlistenFn();
+      if (completeTimer) clearTimeout(completeTimer);
     };
   }, [isAnalyzing, onComplete]);
 

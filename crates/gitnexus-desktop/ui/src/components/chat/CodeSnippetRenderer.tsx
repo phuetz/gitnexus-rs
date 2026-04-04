@@ -5,7 +5,7 @@
  * Supports collapsible long snippets and copy-to-clipboard.
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { ChevronDown, ChevronRight, Copy, Check, FileCode } from "lucide-react";
 
 const LANG_COLORS: Record<string, string> = {
@@ -55,6 +55,9 @@ export function CodeSnippetRenderer({
 }: CodeSnippetRendererProps) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
 
   const lines = useMemo(() => code.split("\n"), [code]);
   const isLong = lines.length > maxLines;
@@ -63,10 +66,10 @@ export function CodeSnippetRenderer({
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(code).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {
-      // Clipboard API may fail in some contexts (e.g. non-secure, no focus)
-      console.warn("Failed to copy to clipboard");
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    }).catch((err) => {
+      console.debug("Clipboard API unavailable:", err);
     });
   }, [code]);
 

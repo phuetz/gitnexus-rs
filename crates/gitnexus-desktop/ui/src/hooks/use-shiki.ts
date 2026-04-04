@@ -110,9 +110,9 @@ export function useShikiTokens(
         setTokens(result);
         setReady(true);
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return;
-        // Fallback: no tokenization
+        console.warn("Shiki tokenization failed, falling back to plain text:", err);
         setTokens(null);
         setReady(true);
       });

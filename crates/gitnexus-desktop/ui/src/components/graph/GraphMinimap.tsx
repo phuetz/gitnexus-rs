@@ -101,6 +101,7 @@ export function GraphMinimap({
     sigma.on("afterRender", drawThrottled);
     return () => {
       sigma.removeListener("afterRender", drawThrottled);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [sigmaRef, drawThrottled]);
 
@@ -134,7 +135,7 @@ export function GraphMinimap({
       <button
         onClick={onClose}
         aria-label="Close minimap"
-        className="absolute transition-colors"
+        className="absolute transition-colors hover:brightness-125"
         style={{
           top: "4px",
           right: "4px",
@@ -147,14 +148,6 @@ export function GraphMinimap({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = "rgba(0, 0, 0, 0.7)";
-          e.currentTarget.style.color = "var(--text-0)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
-          e.currentTarget.style.color = "var(--text-3)";
         }}
       >
         <EyeOff size={12} />

@@ -177,6 +177,14 @@ export function NodeHoverCard({
                 {outDegree} out
               </span>
             </div>
+            {inDegree + outDegree > 8 && (
+              <span
+                className="text-[9px] font-bold px-1.5 py-0.5 rounded-full ml-auto"
+                style={{ background: "#e0af6820", color: "#e0af68", border: "1px solid #e0af6830" }}
+              >
+                High Impact
+              </span>
+            )}
           </div>
 
           {/* Action buttons */}

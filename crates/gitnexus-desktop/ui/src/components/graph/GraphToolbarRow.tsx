@@ -4,6 +4,13 @@ import { EgoDepthSlider } from "../explorer/EgoDepthSlider";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
 import type { GraphStats } from "../../lib/tauri-commands";
 
+const SEP_STYLE = {
+  width: 1,
+  height: 20,
+  background: "var(--surface-border)",
+  flexShrink: 0,
+} as const;
+
 interface GraphToolbarRowProps {
   stats: GraphStats | undefined;
   layout: string;
@@ -34,7 +41,13 @@ export function GraphToolbarRow({
   onViewModeChange,
 }: GraphToolbarRowProps) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div
+      className="flex items-center"
+      style={{ gap: 6, paddingRight: 8 }}
+      role="toolbar"
+      aria-label="Graph controls"
+    >
+      {/* Group 1: Navigation & Visualization */}
       <div style={{ flex: 1 }}>
         <GraphToolbar
           stats={stats}
@@ -49,11 +62,21 @@ export function GraphToolbarRow({
           onFlows={onFlows}
         />
       </div>
-      <div className="flex items-center gap-3" style={{ paddingRight: 8 }}>
+
+      {/* Separator */}
+      <div style={SEP_STYLE} />
+
+      {/* Group 2: Lens & Depth */}
+      <div className="flex items-center gap-2" style={{ paddingLeft: 4, paddingRight: 4 }}>
         <LensSelector />
         <EgoDepthSlider />
       </div>
-      <div style={{ paddingRight: 12 }}>
+
+      {/* Separator */}
+      <div style={SEP_STYLE} />
+
+      {/* Group 3: View Mode */}
+      <div style={{ paddingLeft: 4 }}>
         <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
       </div>
     </div>

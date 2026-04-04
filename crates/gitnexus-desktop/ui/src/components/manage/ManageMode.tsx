@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Database, Download, BookOpen, Settings, Globe, Sun, Moon, Monitor } from "lucide-react";
 import { useAppStore, type ThemeMode } from "../../stores/app-store";
 import { useI18n, type Locale } from "../../hooks/use-i18n";
@@ -6,7 +6,13 @@ import { RepoManager } from "../repos/RepoManager";
 import { ExportPanel } from "../export/ExportPanel";
 import { DocsViewer } from "../docs/DocsViewer";
 
-// ─── Section wrapper ─────────────────────────────────────────────────
+type ManageTab = "repos" | "docs" | "settings";
+
+const TABS: { id: ManageTab; icon: typeof Database; labelKey: string }[] = [
+  { id: "repos", icon: Database, labelKey: "manage.repositories" },
+  { id: "docs", icon: BookOpen, labelKey: "manage.documentation" },
+  { id: "settings", icon: Settings, labelKey: "manage.settings" },
+];
 
 function Section({ icon: Icon, title, children }: { icon: typeof Database; title: string; children: React.ReactNode }) {
   return (
@@ -148,28 +154,69 @@ function SettingsContent() {
 
 export function ManageMode() {
   const { t } = useI18n();
+  const [tab, setTab] = useState<ManageTab>("repos");
 
   return (
-    <div className="h-full overflow-auto p-6" style={{ maxWidth: 900, margin: "0 auto" }}>
-      <h1 className="mb-6" style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, color: "var(--text-0)" }}>
-        {t("manage.title")}
-      </h1>
+    <div className="h-full flex flex-col">
+      {/* Tab bar */}
+      <div
+        className="flex items-center gap-1 px-4 shrink-0"
+        role="tablist"
+        aria-label={t("manage.title")}
+        style={{
+          height: 44,
+          borderBottom: "1px solid var(--surface-border)",
+          background: "var(--bg-1)",
+        }}
+      >
+        {TABS.map(({ id, icon: Icon, labelKey }) => {
+          const active = tab === id;
+          return (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(id)}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-medium transition-colors"
+              style={{
+                color: active ? "var(--accent)" : "var(--text-3)",
+                background: active ? "var(--accent-subtle)" : "transparent",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              <Icon size={14} />
+              {t(labelKey)}
+            </button>
+          );
+        })}
+      </div>
 
-      <Section icon={Database} title={t("manage.repositories")}>
-        <RepoManager />
-      </Section>
-
-      <Section icon={Download} title={t("manage.export")}>
-        <ExportPanel />
-      </Section>
-
-      <Section icon={BookOpen} title={t("manage.documentation")}>
-        <DocsViewer />
-      </Section>
-
-      <Section icon={Settings} title={t("manage.settings")}>
-        <SettingsContent />
-      </Section>
+      {/* Tab content */}
+      {tab === "docs" ? (
+        /* Docs get full remaining height for proper treeview layout */
+        <div className="flex-1 min-h-0">
+          <DocsViewer />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto p-6" style={{ maxWidth: 900, margin: "0 auto", width: "100%" }}>
+          {tab === "repos" && (
+            <>
+              <Section icon={Database} title={t("manage.repositories")}>
+                <RepoManager />
+              </Section>
+              <Section icon={Download} title={t("manage.export")}>
+                <ExportPanel />
+              </Section>
+            </>
+          )}
+          {tab === "settings" && (
+            <Section icon={Settings} title={t("manage.settings")}>
+              <SettingsContent />
+            </Section>
+          )}
+        </div>
+      )}
     </div>
   );
 }

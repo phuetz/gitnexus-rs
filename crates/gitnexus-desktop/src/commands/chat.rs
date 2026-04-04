@@ -31,7 +31,10 @@ fn dirs_fallback() -> PathBuf {
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."))
+        .unwrap_or_else(|_| {
+            tracing::warn!("Neither HOME nor USERPROFILE set, falling back to temp dir for config");
+            std::env::temp_dir()
+        })
 }
 
 fn load_config() -> ChatConfig {
@@ -81,9 +84,11 @@ pub async fn chat_ask(
     let system_prompt = build_system_prompt(&graph, &sources);
     let messages = build_llm_messages(&system_prompt, &request.history, &request.question);
 
-    // 5. Call LLM if configured
-    if config.api_key.is_empty() && !config.base_url.contains("localhost") {
-        // No LLM configured — return graph-only answer
+    // 5. Call LLM if configured.
+    // Skip LLM when no API key AND not targeting a local server (localhost).
+    // Local servers (e.g. Ollama, LM Studio) typically don't need an API key.
+    let is_local_llm = config.base_url.contains("localhost") || config.base_url.contains("127.0.0.1");
+    if config.api_key.is_empty() && !is_local_llm {
         return Ok(build_graph_only_response(&search_results, &sources, &graph));
     }
 
@@ -475,6 +480,7 @@ async fn call_llm_streaming(
     let mut stream = response.bytes_stream();
     // Buffer for incomplete SSE lines spanning multiple chunks
     let mut line_buffer = String::new();
+    const MAX_LINE_BUFFER: usize = 1_048_576; // 1MB safety cap
 
     use futures_util::StreamExt;
 
@@ -483,6 +489,9 @@ async fn call_llm_streaming(
         let text = String::from_utf8_lossy(&chunk);
 
         line_buffer.push_str(&text);
+        if line_buffer.len() > MAX_LINE_BUFFER {
+            return Err("SSE stream buffer exceeded 1MB — aborting".to_string());
+        }
 
         // Process complete lines from the buffer
         while let Some(newline_pos) = line_buffer.find('\n') {

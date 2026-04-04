@@ -299,7 +299,7 @@ export function FileTreeView() {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder={t("files.searchPlaceholder")}
-            className="flex-1 text-[12px] outline-none bg-transparent"
+            className="flex-1 text-[12px] outline-none focus:ring-1 focus:ring-[var(--accent)] bg-transparent"
             style={{ color: "var(--text-1)", minWidth: 0 }}
             aria-label={t("files.searchFiles")}
           />
@@ -358,20 +358,11 @@ interface TreeNodeProps {
 }
 
 function TreeNode({ node, depth, parentPath, searchQuery = "" }: TreeNodeProps) {
-  // Auto-expand when searching, otherwise default expand first level
-  const [expanded, setExpanded] = useState(depth < 1);
-  const wasSearching = useRef(false);
-
-  // When search is active, auto-expand all folders; when search clears, collapse back
-  useEffect(() => {
-    if (searchQuery && node.isDir) {
-      setExpanded(true);
-      wasSearching.current = true;
-    } else if (!searchQuery && wasSearching.current) {
-      setExpanded(depth < 1);
-      wasSearching.current = false;
-    }
-  }, [searchQuery, node.isDir, depth]);
+  // User-toggled expansion state; default expand first level
+  const [userExpanded, setUserExpanded] = useState(depth < 1);
+  // When searching, force-expand all directories; otherwise use user-toggled state
+  const expanded = searchQuery && node.isDir ? true : userExpanded;
+  const setExpanded = setUserExpanded;
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const setDetailTab = useAppStore((s) => s.setDetailTab);
@@ -389,8 +380,11 @@ function TreeNode({ node, depth, parentPath, searchQuery = "" }: TreeNodeProps) 
   };
 
   return (
-    <div role="treeitem" aria-expanded={node.isDir ? expanded : undefined}>
+    <div>
       <button
+        role="treeitem"
+        aria-expanded={node.isDir ? expanded : undefined}
+        aria-selected={isSelected}
         onClick={handleClick}
         className="flex items-center gap-2 w-full rounded text-left text-[13px] transition-colors relative group"
         style={{

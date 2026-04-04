@@ -173,7 +173,7 @@ export function DocsNav({ index, activePath, onNavigate, onRegenerate, isRegener
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t("docs.searchPlaceholder")}
-            className="flex-1 text-[12px] outline-none bg-transparent"
+            className="flex-1 text-[12px] outline-none focus:ring-1 focus:ring-[var(--accent)] bg-transparent"
             style={{ color: "var(--text-1)", minWidth: 0 }}
             aria-label={t("docs.searchPlaceholder")}
           />

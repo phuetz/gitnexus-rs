@@ -3,7 +3,7 @@
  * Shows quality banner, metric cards, node type distribution, and top connected nodes.
  */
 
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Files,
@@ -27,6 +27,8 @@ import {
   StaggerItem,
   SkeletonBlock,
 } from "../shared/motion";
+import { DonutChart } from "../shared/DonutChart";
+import { InsightsSection } from "../analyze/InsightsSection";
 
 // ─── Label Colors (mirrored from GraphExplorer) ─────────────────────
 
@@ -225,7 +227,7 @@ function qualityGradient(totalNodes: number): {
 
 // ─── Component ──────────────────────────────────────────────────────
 
-export function RepoDashboard() {
+export const RepoDashboard = memo(function RepoDashboard() {
   const activeRepo = useAppStore((s) => s.activeRepo);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const setMode = useAppStore((s) => s.setMode);
@@ -242,8 +244,15 @@ export function RepoDashboard() {
     staleTime: 60_000,
   });
 
-  const nodes = data?.nodes ?? [];
-  const edges = data?.edges ?? [];
+  const { data: healthData } = useQuery({
+    queryKey: ["code-health-dashboard", activeRepo],
+    queryFn: () => commands.getCodeHealth(),
+    enabled: !!activeRepo,
+    staleTime: 60_000,
+  });
+
+  const nodes = useMemo(() => data?.nodes ?? [], [data?.nodes]);
+  const edges = useMemo(() => data?.edges ?? [], [data?.edges]);
   const totalNodes = data?.stats?.nodeCount ?? nodes.length;
   const totalEdges = data?.stats?.edgeCount ?? edges.length;
 
@@ -488,71 +497,13 @@ export function RepoDashboard() {
             Node Type Distribution
           </div>
 
-          {/* Stacked horizontal bar */}
-          <div
-            style={{
-              display: "flex",
-              height: 20,
-              borderRadius: 6,
-              overflow: "hidden",
-              background: "var(--bg-3)",
-            }}
-          >
-            {distribution.map((d) => {
-              const pct = distributionTotal > 0 ? (d.count / distributionTotal) * 100 : 0;
-              if (pct < 0.5) return null;
-              return (
-                <div
-                  key={d.label}
-                  title={`${d.label}: ${d.count}`}
-                  style={{
-                    width: `${pct}%`,
-                    background: d.color,
-                    opacity: 0.85,
-                    transition: "width 0.4s ease",
-                    minWidth: pct > 0 ? 2 : 0,
-                  }}
-                />
-              );
-            })}
-          </div>
-
-          {/* Legend */}
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "6px 16px",
-              marginTop: 12,
-            }}
-          >
-            {distribution.map((d) => (
-              <div
-                key={d.label}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontSize: 11,
-                  color: "var(--text-3)",
-                }}
-              >
-                <div
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    background: d.color,
-                    flexShrink: 0,
-                  }}
-                />
-                <span style={{ color: "var(--text-2)", fontWeight: 500 }}>
-                  {d.label}
-                </span>
-                <span>{d.count.toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
+          <DonutChart
+            segments={distribution.map((d) => ({ label: d.label, value: d.count, color: d.color }))}
+            size={160}
+            thickness={20}
+            centerValue={String(distributionTotal)}
+            centerLabel="symbols"
+          />
         </div>
       )}
 
@@ -583,7 +534,7 @@ export function RepoDashboard() {
             {topNodes.map(({ node, degree }) => {
               const labelColor = LABEL_COLORS[node.label] ?? "#565f89";
               return (
-                <div
+                <button
                   key={node.id}
                   onClick={() => navigateToNode(node.id, node.name)}
                   style={{
@@ -594,15 +545,12 @@ export function RepoDashboard() {
                     borderRadius: 8,
                     cursor: "pointer",
                     transition: "background 0.15s",
+                    border: "none",
+                    background: "transparent",
+                    width: "100%",
+                    textAlign: "left",
                   }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.background =
-                      "var(--bg-2)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.background =
-                      "transparent";
-                  }}
+                  className="hover:brightness-110"
                 >
                   {/* Icon dot */}
                   <div
@@ -677,7 +625,7 @@ export function RepoDashboard() {
                   >
                     {degree}
                   </span>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -704,10 +652,8 @@ export function RepoDashboard() {
                   <button
                     key={n.id}
                     onClick={() => { setSelectedNodeId(n.id, n.name); setMode("explorer"); }}
-                    className="flex items-center gap-2 text-left rounded-md transition-colors"
+                    className="flex items-center gap-2 text-left rounded-md transition-colors hover:brightness-110"
                     style={{ padding: "6px 8px", fontSize: 11 }}
-                    onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-2)")}
-                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                   >
                     <span className="font-mono font-medium" style={{ color: "var(--text-0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {n.name}
@@ -725,6 +671,18 @@ export function RepoDashboard() {
           </AnimatedCard>
         );
       })()}
+
+      {/* ── Insights ───────────────────────────────────────────── */}
+      <AnimatedCard
+        style={{
+          padding: "20px 24px",
+          borderRadius: 14,
+          background: "var(--surface)",
+          border: "1px solid var(--surface-border)",
+        }}
+      >
+        <InsightsSection stats={data?.stats} health={healthData} />
+      </AnimatedCard>
     </div>
   );
-}
+});

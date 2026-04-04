@@ -52,7 +52,7 @@ export function GraphToolbar({
   return (
     <div
       role="toolbar"
-      aria-label="Graph controls"
+      aria-label={t("graph.edgeFilters")}
       className="flex items-center gap-4 px-4 py-2.5 border-b flex-wrap"
       style={{
         backgroundColor: "var(--bg-2)",
@@ -67,7 +67,7 @@ export function GraphToolbar({
           border: "1px solid",
           borderColor: "var(--surface-border)",
         }}
-        title="Graph granularity level"
+        title={t("graph.granularity")}
       >
         {ZOOM_LEVELS.map(({ id, i18nKey }) => {
           const { label, tip } = tt(i18nKey);
@@ -75,7 +75,7 @@ export function GraphToolbar({
             <Tooltip key={id} content={tip}>
               <button
                 onClick={() => setZoomLevel(id)}
-                className="relative px-3 py-1.5 text-xs font-medium transition-all"
+                className="relative px-3 py-1.5 text-xs font-medium transition-all hover:bg-[var(--surface-hover)]"
                 style={{
                   color: zoomLevel === id ? "var(--accent)" : "var(--text-3)",
                   backgroundColor: zoomLevel === id ? "var(--bg-2)" : "transparent",
@@ -85,18 +85,6 @@ export function GraphToolbar({
                     ? "0 1px 3px rgba(0,0,0,0.2), inset 0 -2px 0 var(--accent)"
                     : "none",
                   fontWeight: zoomLevel === id ? 600 : 500,
-                }}
-                onMouseEnter={(e) => {
-                  if (zoomLevel !== id) {
-                    (e.currentTarget as HTMLElement).style.backgroundColor =
-                      "var(--surface-hover)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (zoomLevel !== id) {
-                    (e.currentTarget as HTMLElement).style.backgroundColor =
-                      "transparent";
-                  }
                 }}
               >
                 {label}
@@ -112,21 +100,13 @@ export function GraphToolbar({
           <button
             onClick={() => setShowLayoutMenu(!showLayoutMenu)}
             aria-label={tt("graph.layout").label}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md transition-all"
+            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md transition-all hover:border-[var(--surface-border-hover)]"
             style={{
               backgroundColor: "var(--surface)",
               color: "var(--text-2)",
               border: "1px solid",
               borderColor: "var(--surface-border)",
               cursor: "pointer",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.borderColor =
-                "var(--surface-border-hover)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.borderColor =
-                "var(--surface-border)";
             }}
           >
             {layoutLabel}
@@ -159,20 +139,12 @@ export function GraphToolbar({
                   onLayoutChange(id);
                   setShowLayoutMenu(false);
                 }}
-                className="w-full text-left px-3 py-2 text-xs transition-colors"
+                className="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-[var(--surface-hover)]"
                 style={{
                   color: layout === id ? "var(--accent)" : "var(--text-2)",
                   backgroundColor:
                     layout === id ? "var(--bg-2)" : "transparent",
                   cursor: "pointer",
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.backgroundColor =
-                    "var(--surface-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.backgroundColor =
-                    layout === id ? "var(--bg-2)" : "transparent";
                 }}
               >
                 {label}
@@ -187,20 +159,10 @@ export function GraphToolbar({
         <button
           onClick={onFit}
           aria-label={tt("graph.fitView").label}
-          className="p-2 rounded-md transition-all"
+          className="p-2 rounded-md transition-all hover:bg-[var(--surface-hover)] hover:text-[var(--text-2)]"
           style={{
             color: "var(--text-3)",
             cursor: "pointer",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor =
-              "var(--surface-hover)";
-            (e.currentTarget as HTMLElement).style.color = "var(--text-2)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor =
-              "transparent";
-            (e.currentTarget as HTMLElement).style.color = "var(--text-3)";
           }}
         >
           <Maximize2 size={16} />
@@ -209,24 +171,14 @@ export function GraphToolbar({
 
       {/* Export PNG Button */}
       {onExport && (
-        <Tooltip content="Export graph as PNG (Ctrl+E)">
+        <Tooltip content={t("graph.exportPng")}>
           <button
             onClick={onExport}
-            aria-label="Export graph as PNG"
-            className="p-2 rounded-md transition-all"
+            aria-label={t("graph.exportPng")}
+            className="p-2 rounded-md transition-all hover:bg-[var(--surface-hover)] hover:text-[var(--text-2)]"
             style={{
               color: "var(--text-3)",
               cursor: "pointer",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.backgroundColor =
-                "var(--surface-hover)";
-              (e.currentTarget as HTMLElement).style.color = "var(--text-2)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.backgroundColor =
-                "transparent";
-              (e.currentTarget as HTMLElement).style.color = "var(--text-3)";
             }}
           >
             <Download size={16} />
@@ -236,24 +188,14 @@ export function GraphToolbar({
 
       {/* Flows Button */}
       {onFlows && (
-        <Tooltip content="Process Flows">
+        <Tooltip content={t("graph.processFlows")}>
           <button
             onClick={onFlows}
-            aria-label="Show process flows"
-            className="p-2 rounded-md transition-all"
+            aria-label={t("graph.processFlows")}
+            className="p-2 rounded-md transition-all hover:bg-[var(--bg-3)] hover:text-[var(--text-0)]"
             style={{
               color: "var(--text-3)",
               cursor: "pointer",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.backgroundColor =
-                "var(--bg-3)";
-              (e.currentTarget as HTMLElement).style.color = "var(--text-0)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.backgroundColor =
-                "transparent";
-              (e.currentTarget as HTMLElement).style.color = "var(--text-3)";
             }}
           >
             <GitBranch size={16} />
@@ -290,7 +232,7 @@ export function GraphToolbar({
                 color: "var(--bg-0)",
               }}
             >
-              truncated
+              {t("graph.truncated")}
             </div>
           )}
         </div>
@@ -299,7 +241,7 @@ export function GraphToolbar({
       {/* Edge Type Filters */}
       {hiddenEdgeTypes && onToggleEdgeType && (
         <div className="flex items-center gap-1 ml-2 pl-2" style={{ borderLeft: "1px solid var(--surface-border)" }}>
-          <span className="text-[10px] font-medium" style={{ color: "var(--text-3)" }}>Edges:</span>
+          <span className="text-[10px] font-medium" style={{ color: "var(--text-3)" }}>{t("graph.edges")}:</span>
           {["CALLS", "IMPORTS", "HAS_METHOD", "EXTENDS", "CALLS_ACTION", "CONTAINS"].map((type) => {
             const active = !hiddenEdgeTypes.has(type);
             return (
@@ -314,6 +256,8 @@ export function GraphToolbar({
                   cursor: "pointer",
                   opacity: active ? 1 : 0.5,
                 }}
+                aria-pressed={active}
+                aria-label={`Toggle ${type.replace("_", " ")} edges`}
               >
                 {type.replace("_", " ")}
               </button>
@@ -325,9 +269,9 @@ export function GraphToolbar({
       {/* Depth Filter */}
       {onDepthFilterChange && (
         <div className="flex items-center gap-1 ml-2 pl-2" style={{ borderLeft: "1px solid var(--surface-border)" }}>
-          <span className="text-[10px] font-medium" style={{ color: "var(--text-3)" }}>Depth:</span>
+          <span className="text-[10px] font-medium" style={{ color: "var(--text-3)" }}>{t("graph.depth")}:</span>
           {([1, 2, 3, null] as const).map((d) => {
-            const label = d === null ? "All" : String(d);
+            const label = d === null ? t("graph.all") : String(d);
             const active = depthFilter === d;
             return (
               <button
@@ -340,6 +284,7 @@ export function GraphToolbar({
                   border: "none",
                   cursor: "pointer",
                 }}
+                aria-pressed={active}
               >
                 {label}
               </button>

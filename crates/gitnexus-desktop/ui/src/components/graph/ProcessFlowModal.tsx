@@ -17,6 +17,16 @@ export function ProcessFlowModal({ open, onClose }: Props) {
   const [selectedFlow, setSelectedFlow] = useState<ProcessFlow | null>(null);
   const mermaidRef = useRef<HTMLDivElement>(null);
 
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
   const { data: flows } = useQuery({
     queryKey: ["process-flows"],
     queryFn: () => commands.getProcessFlows(),
@@ -80,6 +90,9 @@ export function ProcessFlowModal({ open, onClose }: Props) {
           onClick={onClose}
         >
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Process Flows"
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
@@ -218,6 +231,7 @@ export function ProcessFlowModal({ open, onClose }: Props) {
                 </span>
                 <button
                   onClick={onClose}
+                  aria-label="Close process flows"
                   style={{
                     background: "none",
                     border: "none",

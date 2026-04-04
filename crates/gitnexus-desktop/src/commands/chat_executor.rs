@@ -32,28 +32,37 @@ static ACTIVE_PLANS: Lazy<Mutex<PlanStore>> =
     Lazy::new(|| Mutex::new(PlanStore { plans: HashMap::new(), insertion_order: VecDeque::new() }));
 
 fn store_plan(plan: &ResearchPlan) {
-    if let Ok(mut store) = ACTIVE_PLANS.lock() {
-        if store.plans.contains_key(&plan.id) {
-            store.insertion_order.retain(|id| id != &plan.id);
-        }
-        store.plans.insert(plan.id.clone(), plan.clone());
-        store.insertion_order.push_back(plan.id.clone());
-        // Evict oldest plans beyond capacity
-        while store.plans.len() > 10 {
-            if let Some(oldest_id) = store.insertion_order.pop_front() {
-                store.plans.remove(&oldest_id);
+    match ACTIVE_PLANS.lock() {
+        Ok(mut store) => {
+            if store.plans.contains_key(&plan.id) {
+                store.insertion_order.retain(|id| id != &plan.id);
+            }
+            store.plans.insert(plan.id.clone(), plan.clone());
+            store.insertion_order.push_back(plan.id.clone());
+            while store.plans.len() > 10 {
+                if let Some(oldest_id) = store.insertion_order.pop_front() {
+                    store.plans.remove(&oldest_id);
+                }
             }
         }
+        Err(e) => tracing::error!("Plan store mutex poisoned on store: {}", e),
     }
 }
 
 fn get_plan(plan_id: &str) -> Option<ResearchPlan> {
-    ACTIVE_PLANS.lock().ok().and_then(|store| store.plans.get(plan_id).cloned())
+    match ACTIVE_PLANS.lock() {
+        Ok(store) => store.plans.get(plan_id).cloned(),
+        Err(e) => {
+            tracing::error!("Plan store mutex poisoned on get: {}", e);
+            None
+        }
+    }
 }
 
 fn update_plan(plan: &ResearchPlan) {
-    if let Ok(mut store) = ACTIVE_PLANS.lock() {
-        store.plans.insert(plan.id.clone(), plan.clone());
+    match ACTIVE_PLANS.lock() {
+        Ok(mut store) => { store.plans.insert(plan.id.clone(), plan.clone()); }
+        Err(e) => tracing::error!("Plan store mutex poisoned on update: {}", e),
     }
 }
 
@@ -439,6 +448,13 @@ fn execute_read_file(
 
     for fp in &file_paths {
         let full_path = repo_path.join(fp);
+        // Path traversal guard: ensure resolved path stays within repo
+        if let Ok(canonical) = full_path.canonicalize() {
+            if !canonical.starts_with(repo_path) {
+                tracing::warn!("Path traversal blocked: {}", fp);
+                continue;
+            }
+        }
         if let Ok(content) = std::fs::read_to_string(&full_path) {
             let lines: Vec<&str> = content.lines().collect();
             let total_lines = lines.len();
@@ -766,6 +782,13 @@ fn build_sources_from_results(
 
 fn read_snippet(repo_path: &Path, file_path: &str, start: Option<u32>, end: Option<u32>) -> Option<String> {
     let full_path = repo_path.join(file_path);
+    // Path traversal guard
+    if let Ok(canonical) = full_path.canonicalize() {
+        if !canonical.starts_with(repo_path) {
+            tracing::warn!("read_snippet: path traversal blocked: {}", file_path);
+            return None;
+        }
+    }
     let content = std::fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
 

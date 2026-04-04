@@ -414,7 +414,7 @@ fn enrich_page_structured(
 
     let lang_instruction = match enrich_lang {
         "en" => "Write in English. Professional technical documentation style.",
-        "fr" | _ => "Écris en français technique professionnel.",
+        _ => "Écris en français technique professionnel.",
     };
 
     let system_prompt = format!(
@@ -968,7 +968,7 @@ pub(super) fn run_enrichment_if_enabled(
     if let Ok(entries) = std::fs::read_dir(&docs_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "md") {
+            if path.extension().is_some_and(|e| e == "md") {
                 pages.push(path);
             }
         }
@@ -978,7 +978,7 @@ pub(super) fn run_enrichment_if_enabled(
     if let Ok(entries) = std::fs::read_dir(&modules_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "md") {
+            if path.extension().is_some_and(|e| e == "md") {
                 pages.push(path);
             }
         }
@@ -1000,7 +1000,7 @@ pub(super) fn run_enrichment_if_enabled(
     });
 
     for page_path in &pages {
-        let name = page_path.file_name().unwrap().to_string_lossy();
+        let name = page_path.file_name().map(|f| f.to_string_lossy()).unwrap_or_else(|| "unknown".into());
         let page_name = page_path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -1185,9 +1185,7 @@ mod tests {
     #[test]
     fn test_enriched_payload_parse_invalid() {
         let json = r#"{"not": "a valid payload"}"#;
-        // Should parse but with defaults (empty vectors)
-        let result: Result<EnrichedPayload, _> = serde_json::from_str(json);
-        // Depending on serde defaults, this might fail -- that's OK, we test the fallback
-        assert!(result.is_ok() || result.is_err());
+        // Verify that parsing invalid JSON doesn't panic — either Ok with defaults or Err is fine
+        let _result: Result<EnrichedPayload, _> = serde_json::from_str(json);
     }
 }

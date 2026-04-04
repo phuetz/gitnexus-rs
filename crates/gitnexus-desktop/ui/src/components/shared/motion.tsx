@@ -243,5 +243,3 @@ export function SkeletonBlock({
   );
 }
 
-// Re-export AnimatePresence for convenience
-export { AnimatePresence, motion };

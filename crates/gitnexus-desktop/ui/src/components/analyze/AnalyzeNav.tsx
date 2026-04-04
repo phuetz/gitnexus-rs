@@ -2,28 +2,34 @@ import { memo, useState, useEffect } from "react";
 import { LayoutDashboard, Flame, Link2, Users, Shield, GitBranch, FileText, Heart } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import type { AnalyzeView } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 
-const NAV_ITEMS: { view: AnalyzeView; icon: typeof LayoutDashboard; label: string }[] = [
-  { view: "overview", icon: LayoutDashboard, label: "Overview" },
-  { view: "hotspots", icon: Flame, label: "Hotspots" },
-  { view: "coupling", icon: Link2, label: "Coupling" },
-  { view: "ownership", icon: Users, label: "Ownership" },
-  { view: "coverage", icon: Shield, label: "Coverage" },
-  { view: "diagram", icon: GitBranch, label: "Diagrams" },
-  { view: "report", icon: FileText, label: "Report" },
-  { view: "health", icon: Heart, label: "Health" },
+const NAV_ITEMS: { view: AnalyzeView; icon: typeof LayoutDashboard; i18nKey: string }[] = [
+  { view: "overview", icon: LayoutDashboard, i18nKey: "analyze.nav.overview" },
+  { view: "hotspots", icon: Flame, i18nKey: "analyze.nav.hotspots" },
+  { view: "coupling", icon: Link2, i18nKey: "analyze.nav.coupling" },
+  { view: "ownership", icon: Users, i18nKey: "analyze.nav.ownership" },
+  { view: "coverage", icon: Shield, i18nKey: "analyze.nav.coverage" },
+  { view: "diagram", icon: GitBranch, i18nKey: "analyze.nav.diagrams" },
+  { view: "report", icon: FileText, i18nKey: "analyze.nav.report" },
+  { view: "health", icon: Heart, i18nKey: "analyze.nav.health" },
 ];
 
 export const AnalyzeNav = memo(function AnalyzeNav() {
+  const { t } = useI18n();
   const analyzeView = useAppStore((s) => s.analyzeView);
   const setAnalyzeView = useAppStore((s) => s.setAnalyzeView);
 
   const [isCompact, setIsCompact] = useState(window.innerWidth < 900);
 
   useEffect(() => {
-    const handler = () => setIsCompact(window.innerWidth < 900);
+    let timeout: ReturnType<typeof setTimeout>;
+    const handler = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => setIsCompact(window.innerWidth < 900), 150);
+    };
     window.addEventListener("resize", handler);
-    return () => window.removeEventListener("resize", handler);
+    return () => { window.removeEventListener("resize", handler); clearTimeout(timeout); };
   }, []);
 
   return (
@@ -40,12 +46,14 @@ export const AnalyzeNav = memo(function AnalyzeNav() {
       {!isCompact && (
         <div className="px-3 mb-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-3)", fontFamily: "var(--font-display)" }}>
-            Analytics
+            {t("analyze.nav.title")}
           </h2>
         </div>
       )}
-      <nav className="flex flex-col gap-0.5 px-2">
-        {NAV_ITEMS.map(({ view, icon: Icon, label }) => (
+      <nav className="flex flex-col gap-0.5 px-2" aria-label={t("analyze.nav.title")}>
+        {NAV_ITEMS.map(({ view, icon: Icon, i18nKey }) => {
+          const label = t(i18nKey);
+          return (
           <button
             key={view}
             onClick={() => setAnalyzeView(view)}
@@ -67,7 +75,8 @@ export const AnalyzeNav = memo(function AnalyzeNav() {
             <Icon size={16} />
             {!isCompact && <span>{label}</span>}
           </button>
-        ))}
+          );
+        })}
       </nav>
     </div>
   );

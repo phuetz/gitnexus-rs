@@ -1,4 +1,4 @@
-import { useState, useRef, type ReactNode } from "react";
+import { useState, useRef, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 interface TooltipProps {
@@ -11,6 +11,7 @@ interface TooltipProps {
 }
 
 export function Tooltip({ content, children, delay = 400, placement = "bottom" }: TooltipProps) {
+  const tooltipId = useId();
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,12 +67,14 @@ export function Tooltip({ content, children, delay = 400, placement = "bottom" }
       onMouseLeave={hide}
       onFocus={show}
       onBlur={hide}
+      aria-describedby={visible ? tooltipId : undefined}
       style={{ display: "inline-flex" }}
     >
       {children}
       {visible &&
         createPortal(
           <div
+            id={tooltipId}
             role="tooltip"
             style={{
               position: "fixed",

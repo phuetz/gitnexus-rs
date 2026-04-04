@@ -31,6 +31,8 @@ export function GraphLegend({ nodes, expanded, onExpand, onCollapse }: GraphLege
       style={{
         bottom: "12px",
         right: "12px",
+        maxHeight: "calc(100% - 24px)",
+        overflow: "auto",
         borderRadius: "var(--radius-md)",
         backgroundColor: "var(--bg-2)",
         backdropFilter: "blur(12px)",
@@ -41,14 +43,10 @@ export function GraphLegend({ nodes, expanded, onExpand, onCollapse }: GraphLege
       {!expanded ? (
         <button
           onClick={onExpand}
-          className="uppercase text-[10px] font-semibold transition-colors"
+          className="uppercase text-[10px] font-semibold transition-colors hover:brightness-125"
           style={{ color: "var(--text-3)" }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "var(--text-2)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = "var(--text-3)";
-          }}
+          aria-expanded={false}
+          aria-label={t("graph.legend")}
         >
           {t("graph.legend")}
         </button>
@@ -63,16 +61,11 @@ export function GraphLegend({ nodes, expanded, onExpand, onCollapse }: GraphLege
             </span>
             <button
               onClick={onCollapse}
-              className="ml-2 text-xs transition-colors"
+              className="ml-2 text-xs transition-colors hover:brightness-125"
               style={{ color: "var(--text-3)" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--text-2)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-3)";
-              }}
+              aria-label={t("graph.collapseLegend")}
             >
-              x
+              ×
             </button>
           </div>
           <div

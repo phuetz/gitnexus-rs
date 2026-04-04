@@ -28,6 +28,11 @@ cargo build -p gitnexus-desktop
 # Run the desktop app in dev mode (with hot reload)
 cd crates/gitnexus-desktop && cargo tauri dev
 
+# Frontend only (from ui/ dir)
+cd crates/gitnexus-desktop/ui && npm run dev    # Vite dev server
+cd crates/gitnexus-desktop/ui && npm run lint   # ESLint
+cd crates/gitnexus-desktop/ui && npm run build  # tsc + vite build
+
 # Run the CLI
 cargo run -p gitnexus-cli -- <command>
 
@@ -49,7 +54,7 @@ cargo clippy --workspace
 
 ## Workspace Architecture
 
-12 active crates in `crates/` (gitnexus-lsp and gitnexus-storage are excluded from the workspace), with a strict dependency flow:
+11 active crates in `crates/` (gitnexus-lsp, gitnexus-storage, and gitnexus-types are excluded from the workspace), with a strict dependency flow:
 
 ```
 gitnexus-cli (binary: "gitnexus")
@@ -71,23 +76,22 @@ gitnexus-desktop (Tauri v2 desktop app)
   └── gitnexus-core
 ```
 
-**Core** (`gitnexus-core`): In-memory knowledge graph with HashMap-based O(1) node/relationship lookup. Defines `NodeLabel` (38 variants), `RelationshipType` (34 variants including `Calls`, `HasMethod`, `HasProperty`, `HasAction`), `SymbolDefinition`, and pipeline types. Node properties include `is_traced`, `is_dead_candidate`, `trace_call_count`. Not thread-safe on its own; wrapped in `Arc<RwLock<>>` when shared.
+**Core** (`gitnexus-core`): In-memory knowledge graph with HashMap-based O(1) node/relationship lookup. Defines `NodeLabel` (52 variants), `RelationshipType` (27 variants including `Calls`, `HasMethod`, `HasProperty`, `HasAction`), `SymbolDefinition`, and pipeline types. Node properties include `is_traced`, `is_dead_candidate`, `trace_call_count`. Not thread-safe on its own; wrapped in `Arc<RwLock<>>` when shared.
 
 **Lang** (`gitnexus-lang`): `LanguageProvider` trait with 14 implementations (JS, TS, Python, Java, C, C++, C#, Go, Rust, PHP, Ruby, Kotlin, Swift, Razor). Each provider supplies tree-sitter query strings (`queries/`), import resolvers (`import_resolvers/`), named binding extractors (`named_bindings/`), type extractors, export detection, and call routing. Static dispatch via `registry.rs` (match on language variant, zero-cost).
 
-**Ingest** (`gitnexus-ingest`): Pipeline orchestrator in `pipeline.rs` runs 8 phases sequentially:
+**Ingest** (`gitnexus-ingest`): Pipeline orchestrator in `pipeline.rs` runs 7 phases (some with sub-phases) sequentially:
 1. **Structure** — filesystem walk, File/Folder nodes
-2. **Parsing** — tree-sitter AST extraction, creates `HasMethod`/`HasProperty` nesting edges via `find_enclosing_class_id` parent-chain walk
+2. **Parsing** — tree-sitter AST extraction, creates `HasMethod`/`HasProperty` nesting edges via `find_enclosing_class_id` parent-chain walk. Sub-phase 2b detects `.csproj` component libraries
 3. **Imports** — import resolution, File→File edges
 4. **Calls** — Method→Method resolution with 4 tiers: DI field-type (0.85 confidence), static-call (0.80), same-file, global fuzzy. Handles C# `using` and `var = new` patterns
-5. **Heritage** — class inheritance/implementation edges
-6. **ASP.NET MVC** — 14 passes: controllers, actions, views, entities, DbContexts, services, AJAX, UI components, StackLogger tracing propagation to Method nodes
-7. **Community** — cluster detection
-8. **Dead Code** — marks methods with 0 incoming Calls as `is_dead_candidate` (entry points excluded)
+5. **Heritage** — class inheritance/implementation edges. Sub-phase 5b: ASP.NET MVC 5 / EF6 enrichment (14 passes: controllers, actions, views, entities, DbContexts, services, AJAX, UI components, StackLogger tracing propagation)
+6. **Community** (6a) + **Process detection** (6b) — cluster and process grouping
+7. **Dead Code** — marks methods with 0 incoming Calls as `is_dead_candidate` (entry points excluded)
 
 Uses rayon for parallel file processing with a 20MB chunk budget and LRU AST cache (cap 50).
 
-**DB** (`gitnexus-db`): `DatabaseBackend` trait with `InMemoryBackend` (default, includes simple Cypher executor and BM25 FTS) and `KuzuDbBackend` (feature-gated via `kuzu-backend`). Schema defines 35 node tables with a unified `CodeRelation` relationship table. Persistence via bincode snapshots (`graph.bin`). Query results returned as `Vec<serde_json::Value>`.
+**DB** (`gitnexus-db`): `DatabaseBackend` trait with `InMemoryBackend` (default, includes simple Cypher executor and BM25 FTS) and `KuzuDbBackend` (feature-gated via `kuzu-backend`). Schema defines 56 node tables with a unified `CodeRelation` relationship table. Persistence via bincode snapshots (`graph.bin`). Query results returned as `Vec<serde_json::Value>`.
 
 **Search** (`gitnexus-search`): Reciprocal Rank Fusion (K=60) merging BM25 lexical results with optional ONNX-based semantic embeddings. Gracefully degrades without the `embeddings` feature.
 
@@ -95,7 +99,7 @@ Uses rayon for parallel file processing with a 20MB chunk budget and LRU AST cac
 
 **Git** (`gitnexus-git`): Git history analysis: `analyze_hotspots` (file churn scoring), `analyze_coupling` (temporal coupling between files), `analyze_ownership` (author distribution per file). Used by CLI and desktop app.
 
-**Desktop** (`gitnexus-desktop`): Tauri v2 desktop app with React 19 frontend. Accesses `KnowledgeGraph` + `GraphIndexes` + `FtsIndex` directly via Tauri IPC (not via MCP envelope — this is a deliberate performance choice). Frontend uses Cytoscape.js for graph visualization, Zustand + TanStack Query for state, Tailwind CSS + framer-motion for styling/animations.
+**Desktop** (`gitnexus-desktop`): Tauri v2 desktop app with React 19 frontend. Accesses `KnowledgeGraph` + `GraphIndexes` + `FtsIndex` directly via Tauri IPC (not via MCP envelope — this is a deliberate performance choice). Frontend uses Sigma.js + Graphology for graph visualization, Zustand + TanStack Query for state, Tailwind CSS v4 + framer-motion for styling/animations. 18 Tauri command modules in `src/commands/` bridge frontend↔Rust. Four app modes: Explorer (graph + lenses), Analyze (hotspots/coupling/ownership/coverage/diagram/report/health), Chat (LLM Q&A with context), Manage (repo CRUD). State in `ui/src/stores/app-store.ts` (Zustand) and `ui/src/hooks/use-tauri-query.ts` (TanStack Query wrapper for IPC). Graph rendering: `ui/src/components/graph/GraphExplorer.tsx` (hot path).
 
 ## Feature Flags
 

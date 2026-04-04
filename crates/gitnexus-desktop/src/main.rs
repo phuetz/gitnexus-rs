@@ -65,5 +65,9 @@ fn main() {
             commands::diagram::get_diagram,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running GitNexus desktop application");
+        .unwrap_or_else(|e| {
+            tracing::error!("Failed to start GitNexus desktop: {}", e);
+            eprintln!("Fatal: GitNexus failed to start: {e}");
+            std::process::exit(1);
+        });
 }

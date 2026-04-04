@@ -92,8 +92,7 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
         for rel in graph.iter_relationships() {
             if seed_source_ids.contains(&rel.source_id)
                 && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
-            {
-                if !visited.contains(&rel.target_id) {
+                && !visited.contains(&rel.target_id) {
                     visited.insert(rel.target_id.clone());
                     queue.push_back((rel.target_id.clone(), 1));
                     if let Some(member) = graph.get_node(&rel.target_id) {
@@ -106,7 +105,6 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
                         }
                     }
                 }
-            }
         }
     }
 

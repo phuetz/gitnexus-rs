@@ -672,4 +672,48 @@ export const MOCK_RESPONSES: Record<string, unknown | ((args?: Record<string, un
     dbContexts: 0,
     areas: 0,
   } satisfies AspNetStats,
+
+  // Git analytics — return empty arrays (no git history in mock mode)
+  get_hotspots: [],
+  get_coupling: [],
+  get_ownership: [],
+
+  // Features (community-based groups)
+  get_features: [
+    { id: "c1", name: "Pipeline Core", description: "Main ingestion pipeline", memberCount: 5, cohesion: 0.85 },
+    { id: "c2", name: "Language Providers", description: "Tree-sitter language support", memberCount: 13, cohesion: 0.72 },
+    { id: "c3", name: "Database Layer", description: "Storage and query execution", memberCount: 4, cohesion: 0.9 },
+  ],
+
+  // Code Health
+  get_code_health: {
+    overallScore: 78,
+    grade: "B+",
+    hotspotScore: 0.65,
+    cohesionScore: 0.85,
+    tracingCoverage: 0,
+    ownershipScore: 0.72,
+    fileCount: 247,
+    nodeCount: 22,
+    edgeCount: 25,
+    avgComplexity: 4.2,
+    maxComplexity: 12,
+  },
+
+  // Coverage
+  get_coverage_stats: {
+    totalMethods: 7,
+    tracedMethods: 0,
+    deadCodeCandidates: 1,
+    coveragePct: 0,
+    deadMethods: [
+      { nodeId: "n12", name: "parse_file", filePath: "src/ingest/parser.rs", startLine: 10 },
+    ],
+  },
+
+  // Diagrams
+  get_diagram: { mermaid: "graph LR\n  A[core] --> B[ingest]\n  B --> C[lang]\n  A --> D[search]\n  A --> E[db]", title: "Module Dependencies" },
+
+  // Process Flows
+  get_process_flows: [],
 };

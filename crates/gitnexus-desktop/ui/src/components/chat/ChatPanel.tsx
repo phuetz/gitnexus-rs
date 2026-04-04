@@ -13,19 +13,19 @@
 
 import { useState, useRef, useEffect, useCallback, forwardRef } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { useI18n } from "../../hooks/use-i18n";
+import { ChatSuggestions } from "./ChatSuggestions";
 import {
   Send,
-  MessageSquare,
   Loader2,
   Settings2,
   Sparkles,
   Microscope,
   Zap,
   Copy,
-  Pencil,
   Trash2,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
@@ -68,6 +68,7 @@ interface ChatPanelProps {
 // ─── Component ──────────────────────────────────────────────────────
 
 export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) {
+  const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const storageKey = `gitnexus-chat-${activeRepo || "global"}`;
 
@@ -303,61 +304,9 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         {/* Context filter bar */}
         <ChatContextBar />
 
-        {/* Empty state */}
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center max-w-md px-4">
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-5"
-              style={{ background: "var(--purple-subtle)", color: "var(--purple)" }}
-            >
-              <MessageSquare size={24} />
-            </div>
-            <h3
-              className="text-lg mb-2"
-              style={{ fontFamily: "var(--font-display)", color: "var(--text-0)" }}
-            >
-              Ask about this codebase
-            </h3>
-            <p className="text-sm mb-4" style={{ color: "var(--text-2)" }}>
-              Ask questions in natural language. Use the filters above to scope your search,
-              or enable <strong>Deep Research</strong> for multi-step analysis.
-            </p>
-
-            {/* Keyboard shortcuts hint */}
-            <div className="flex justify-center gap-4 mb-6 text-[11px]" style={{ color: "var(--text-3)" }}>
-              <span>
-                <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Ctrl+P</kbd> Files
-              </span>
-              <span>
-                <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Ctrl+Shift+O</kbd> Symbols
-              </span>
-              <span>
-                <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Ctrl+Shift+M</kbd> Modules
-              </span>
-            </div>
-
-            {/* Suggested questions */}
-            <div className="space-y-2">
-              {SUGGESTED_QUESTIONS.map((q) => (
-                <button
-                  key={q}
-                  onClick={() => {
-                    setInput(q);
-                    inputRef.current?.focus();
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-[13px] transition-all"
-                  style={{
-                    background: "var(--surface)",
-                    color: "var(--text-1)",
-                    border: "1px solid var(--surface-border)",
-                  }}
-                >
-                  <Sparkles size={12} className="inline mr-2 opacity-50" />
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* Suggestions */}
+        <div className="flex-1 min-h-0 overflow-auto">
+          <ChatSuggestions onSelect={(q) => { setInput(q); inputRef.current?.focus(); }} />
         </div>
 
         {/* Input bar */}
@@ -394,7 +343,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
           onClick={() => {
             setMessages([]);
             localStorage.removeItem(storageKey);
-            toast.success("Conversation cleared");
+            toast.success(t("chat.conversationCleared"));
           }}
           className="text-xs hover-surface rounded px-2 py-1 mr-2"
           style={{ color: "var(--text-3)" }}
@@ -433,8 +382,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
             >
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                components={markdownComponents as any}
+                components={markdownComponents}
               >
                 {streamingText}
               </ReactMarkdown>
@@ -456,10 +404,10 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
               </span>
               <span className="text-[11px]" style={{ color: "var(--text-3)" }}>
                 {deepResearchEnabled
-                  ? "executing research plan..."
+                  ? t("chat.executingResearch")
                   : hasActiveFilters()
-                  ? "searching filtered context..."
-                  : "thinking..."}
+                  ? t("chat.searchingContext")
+                  : t("chat.thinking")}
               </span>
             </div>
             <div className="space-y-2 py-4 px-4">
@@ -524,10 +472,13 @@ function MessageBubble({
   message: Message;
   onNavigateToNode?: (nodeId: string) => void;
 }) {
+  const { t } = useI18n();
   const handleCopyMessage = useCallback(() => {
-    navigator.clipboard.writeText(message.content);
-    toast.success("Copied to clipboard");
-  }, [message.content]);
+    navigator.clipboard.writeText(message.content).then(
+      () => toast.success(t("chat.copiedToClipboard")),
+      () => toast.error("Failed to copy"),
+    );
+  }, [message.content, t]);
 
   if (message.role === "user") {
     return (
@@ -539,7 +490,7 @@ function MessageBubble({
             style={{ background: "var(--accent)" }}
           />
           <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
-            You
+            {t("chat.you")}
           </span>
         </div>
         {/* Message content */}
@@ -551,7 +502,7 @@ function MessageBubble({
         </div>
         {/* Hover actions */}
         <div
-          className="absolute top-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute top-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
           style={{ marginTop: -2 }}
         >
           <button
@@ -561,13 +512,6 @@ function MessageBubble({
             aria-label="Copy message"
           >
             <Copy size={12} />
-          </button>
-          <button
-            className="p-1 rounded transition-colors"
-            style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
-            aria-label="Edit message"
-          >
-            <Pencil size={12} />
           </button>
         </div>
       </div>
@@ -591,7 +535,7 @@ function MessageBubble({
 
       {/* Hover actions */}
       <div
-        className="absolute top-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
         style={{ marginTop: -2 }}
       >
         <button
@@ -618,8 +562,7 @@ function MessageBubble({
       >
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          components={markdownComponents as any}
+          components={markdownComponents}
         >
           {message.content}
         </ReactMarkdown>
@@ -646,10 +589,11 @@ function MessageBubble({
 // ─── ComplexityIndicator ────────────────────────────────────────────
 
 function ComplexityIndicator({ complexity }: { complexity: QueryComplexity }) {
+  const { t } = useI18n();
   const configs: Record<string, { label: string; color: string; icon: typeof Zap }> = {
-    simple: { label: "Quick answer", color: "var(--green)", icon: Zap },
-    medium: { label: "Multi-source", color: "var(--orange)", icon: Sparkles },
-    complex: { label: "Deep research", color: "var(--purple)", icon: Microscope },
+    simple: { label: t("chat.quickAnswer"), color: "var(--green)", icon: Zap },
+    medium: { label: t("chat.multiSource"), color: "var(--orange)", icon: Sparkles },
+    complex: { label: t("chat.deepResearch"), color: "var(--purple)", icon: Microscope },
   };
   const config = configs[complexity] ?? configs.simple;
 
@@ -743,7 +687,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             placeholder={placeholder}
             aria-label="Ask a question about the code"
             rows={1}
-            className="flex-1 bg-transparent resize-none text-[13px] outline-none min-h-[24px] max-h-[200px]"
+            className="flex-1 bg-transparent resize-none text-[13px] outline-none focus:ring-1 focus:ring-[var(--accent)] min-h-[24px] max-h-[200px]"
             style={{
               color: "var(--text-0)",
               fontFamily: "var(--font-body)",
@@ -763,6 +707,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             <button
               onClick={onSend}
               disabled={!value.trim() || isPending}
+              aria-label={isPending ? "Sending..." : "Send message"}
               className="p-1.5 rounded-lg transition-all"
               style={{
                 background: value.trim() && !isPending
@@ -807,8 +752,8 @@ function extractTextFromChildren(children: React.ReactNode): string {
   return "";
 }
 
-const markdownComponents = {
-  pre: ({ children }: { children: React.ReactNode }) => (
+const markdownComponents: Partial<Components> = {
+  pre: ({ children }: { children?: React.ReactNode }) => (
     <div className="relative group my-3">
       <pre
         className="p-4 rounded-lg overflow-x-auto text-[12px] leading-relaxed"
@@ -822,12 +767,14 @@ const markdownComponents = {
         {children}
       </pre>
       <button
-        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded text-xs"
+        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity px-2 py-1 rounded text-xs"
         style={{ background: "var(--bg-3)", color: "var(--text-2)" }}
         onClick={() => {
           const text = extractTextFromChildren(children);
-          navigator.clipboard.writeText(text);
-          toast.success("Copied!");
+          navigator.clipboard.writeText(text).then(
+            () => toast.success("Copied!"),
+            () => toast.error("Failed to copy"),
+          );
         }}
       >
         <Copy size={12} className="inline mr-1" />
@@ -835,7 +782,7 @@ const markdownComponents = {
       </button>
     </div>
   ),
-  code: ({ className, children }: { className?: string; children: React.ReactNode }) => {
+  code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
     if (className) {
       return <code className={className}>{children}</code>;
     }
@@ -852,39 +799,31 @@ const markdownComponents = {
       </code>
     );
   },
-  p: ({ children }: { children: React.ReactNode }) => (
+  p: ({ children }: { children?: React.ReactNode }) => (
     <p className="mb-2 leading-relaxed">{children}</p>
   ),
-  ul: ({ children }: { children: React.ReactNode }) => (
+  ul: ({ children }: { children?: React.ReactNode }) => (
     <ul className="mb-2 pl-4 space-y-0.5" style={{ listStyleType: "disc" }}>
       {children}
     </ul>
   ),
-  ol: ({ children }: { children: React.ReactNode }) => (
+  ol: ({ children }: { children?: React.ReactNode }) => (
     <ol className="mb-2 pl-4 space-y-0.5" style={{ listStyleType: "decimal" }}>
       {children}
     </ol>
   ),
-  strong: ({ children }: { children: React.ReactNode }) => (
+  strong: ({ children }: { children?: React.ReactNode }) => (
     <strong style={{ color: "var(--text-0)" }}>{children}</strong>
   ),
-  a: ({ href, children }: { href?: string; children: React.ReactNode }) => (
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
     <a href={href} style={{ color: "var(--accent)", textDecoration: "underline" }}>
       {children}
     </a>
   ),
-  h3: ({ children }: { children: React.ReactNode }) => (
+  h3: ({ children }: { children?: React.ReactNode }) => (
     <h3 className="text-sm font-semibold mt-3 mb-1" style={{ color: "var(--text-0)" }}>
       {children}
     </h3>
   ),
 };
 
-// ─── Suggested Questions ────────────────────────────────────────────
-
-const SUGGESTED_QUESTIONS = [
-  "What is the high-level architecture of this project?",
-  "What are the main entry points?",
-  "How do the modules depend on each other?",
-  "What are the key data structures?",
-];

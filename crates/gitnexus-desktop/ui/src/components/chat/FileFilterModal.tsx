@@ -123,11 +123,11 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search files... (type to filter)"
-            className="flex-1 bg-transparent outline-none text-[13px]"
+            className="flex-1 bg-transparent outline-none focus:ring-1 focus:ring-[var(--accent)] text-[13px]"
             style={{ color: "var(--text-0)", fontFamily: "var(--font-body)" }}
           />
           {isLoading && <Loader2 size={14} className="animate-spin" style={{ color: "var(--text-3)" }} />}
-          <button onClick={onClose} className="p-0.5 rounded" style={{ color: "var(--text-3)" }}>
+          <button onClick={onClose} className="p-0.5 rounded" style={{ color: "var(--text-3)" }} aria-label="Close">
             <X size={14} />
           </button>
         </div>

@@ -3,12 +3,17 @@
  */
 
 import { Toaster as SonnerToaster } from "sonner";
+import { useAppStore } from "../../stores/app-store";
 
 export function Toaster() {
+  const theme = useAppStore((s) => s.theme);
+  const sonnerTheme = theme === "light" ? "light" : "dark";
+
   return (
     <SonnerToaster
-      theme="dark"
+      theme={sonnerTheme}
       position="bottom-right"
+      closeButton
       toastOptions={{
         style: {
           background: "var(--bg-2)",

@@ -57,14 +57,14 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
     let mut files_to_process: Vec<PathBuf> = Vec::new();
 
     for entry in std::fs::read_dir(docs_dir)?.flatten() {
-        if entry.path().extension().map_or(false, |e| e == "md") {
+        if entry.path().extension().is_some_and(|e| e == "md") {
             files_to_process.push(entry.path());
         }
     }
     let modules_dir = docs_dir.join("modules");
     if modules_dir.exists() {
         for entry in std::fs::read_dir(&modules_dir)?.flatten() {
-            if entry.path().extension().map_or(false, |e| e == "md") {
+            if entry.path().extension().is_some_and(|e| e == "md") {
                 files_to_process.push(entry.path());
             }
         }
@@ -103,7 +103,7 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
                 let in_heading = before
                     .lines()
                     .last()
-                    .map_or(false, |l| l.starts_with('#'));
+                    .is_some_and(|l| l.starts_with('#'));
 
                 if !in_code && !in_inline_code && !in_link && !in_heading {
                     // Replace first occurrence with link

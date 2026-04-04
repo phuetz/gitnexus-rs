@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Zap } from "lucide-react";
 import { useGraphData } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
@@ -12,7 +13,7 @@ import { TreemapView } from "./TreemapView";
 import { useI18n } from "../../hooks/use-i18n";
 import { CypherQueryFAB } from "./CypherQueryFAB";
 import { ProcessFlowModal } from "./ProcessFlowModal";
-import { LENS_EDGE_TYPES } from "../explorer/LensSelector";
+import { LENS_EDGE_TYPES } from "../explorer/lens-constants";
 import { useGraphState } from "./useGraphState";
 import { useGraphEffects } from "./useGraphEffects";
 import { GraphContextMenu } from "./GraphContextMenu";
@@ -45,6 +46,13 @@ export function GraphExplorer() {
   // ── Local state ──────────────────────────────────────────────────
   const gs = useGraphState();
 
+  // Destructure stable setters for exhaustive-deps compliance (React useState setters are stable)
+  const {
+    setContextMenu, setHoveredNode, setHoverPos, setHoverDegrees,
+    setFocusNodeId, setImpactNodeIds, setImpactOverlay,
+    setLayout, setHiddenEdgeTypes,
+  } = gs;
+
   // ── Derived ──────────────────────────────────────────────────────
   const highlightedNodeIds = useMemo(() => new Set(searchMatchIds), [searchMatchIds]);
 
@@ -74,34 +82,34 @@ export function GraphExplorer() {
     impactNodeIds: gs.impactOverlay ? gs.impactNodeIds : undefined,
     egoNodeIds: gs.egoNodeIds,
     egoDepthMap: gs.egoDepthMap,
+    // graphRef/sigmaRef are refs returned by useSigma — circular dep with these callbacks, suppress safely
     onNodeClick: useCallback((nodeId: string | null) => {
       if (nodeId) {
         const g = graphRef.current;
         setSelectedNodeId(nodeId, g?.hasNode(nodeId) ? g.getNodeAttribute(nodeId, "label") : null);
-      } else { setSelectedNodeId(null, null); gs.setContextMenu(null); }
+      } else { setSelectedNodeId(null, null); setContextMenu(null); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [setSelectedNodeId]),
+    }, [setSelectedNodeId, setContextMenu]),
     onNodeHover: useCallback((nodeId: string | null) => {
-      if (!nodeId) { gs.setHoveredNode(null); gs.setHoverPos(null); return; }
+      if (!nodeId) { setHoveredNode(null); setHoverPos(null); return; }
       const g = graphRef.current; const sigma = sigmaRef.current;
       if (!g || !sigma || !g.hasNode(nodeId)) return;
       const a = g.getNodeAttributes(nodeId);
       const vp = sigma.graphToViewport({ x: a.x, y: a.y });
-      gs.setHoveredNode({ id: nodeId, name: a.label, label: a.nodeType, filePath: a.filePath, startLine: a.startLine, endLine: a.endLine, parameterCount: a.parameterCount, returnType: a.returnType, isTraced: a.isTraced, isDeadCandidate: a.isDeadCandidate, complexity: a.complexity });
-      gs.setHoverPos({ x: vp.x, y: vp.y });
-      gs.setHoverDegrees({ inDeg: g.inDegree(nodeId), outDeg: g.outDegree(nodeId) });
+      setHoveredNode({ id: nodeId, name: a.label, label: a.nodeType, filePath: a.filePath, startLine: a.startLine, endLine: a.endLine, parameterCount: a.parameterCount, returnType: a.returnType, isTraced: a.isTraced, isDeadCandidate: a.isDeadCandidate, complexity: a.complexity });
+      setHoverPos({ x: vp.x, y: vp.y });
+      setHoverDegrees({ inDeg: g.inDegree(nodeId), outDeg: g.outDegree(nodeId) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []),
+    }, [setHoveredNode, setHoverPos, setHoverDegrees]),
     onNodeRightClick: useCallback((nodeId: string, x: number, y: number) => {
       const g = graphRef.current; if (!g?.hasNode(nodeId)) return;
       const a = g.getNodeAttributes(nodeId);
-      gs.setContextMenu({ x, y, nodeId, name: a.label, filePath: a.filePath });
+      setContextMenu({ x, y, nodeId, name: a.label, filePath: a.filePath });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []),
+    }, [setContextMenu]),
     onNodeDoubleClick: useCallback((nodeId: string) => {
-      gs.setFocusNodeId(nodeId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []),
+      setFocusNodeId(nodeId);
+    }, [setFocusNodeId]),
   });
 
   // ── Data ─────────────────────────────────────────────────────────
@@ -130,7 +138,7 @@ export function GraphExplorer() {
 
   // ── Impact overlay ────────────────────────────────────────────────
   const toggleImpactOverlay = useCallback(async () => {
-    if (gs.impactOverlay) { gs.setImpactNodeIds(new Map()); gs.setImpactOverlay(false); refresh(); return; }
+    if (gs.impactOverlay) { setImpactNodeIds(new Map()); setImpactOverlay(false); refresh(); return; }
     if (!selectedNodeId) return;
     try {
       const result = await commands.getImpactAnalysis(selectedNodeId, "both", 3);
@@ -140,18 +148,17 @@ export function GraphExplorer() {
       };
       if (result.upstream) mark(result.upstream);
       if (result.downstream) mark(result.downstream);
-      gs.setImpactNodeIds(map); gs.setImpactOverlay(true); refresh();
-    } catch { /* silently fail */ }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNodeId, gs.impactOverlay, refresh]);
+      setImpactNodeIds(map); setImpactOverlay(true); refresh();
+    } catch (e) { console.error("Impact analysis failed:", e); }
+  }, [selectedNodeId, gs.impactOverlay, refresh, setImpactNodeIds, setImpactOverlay]);
 
   // ── Toolbar ───────────────────────────────────────────────────────
   const handleFit = useCallback(() => fitView(), [fitView]);
   const handleExport = useCallback(() => exportPNG(), [exportPNG]);
-  const handleLayoutChange = useCallback((l: string) => { gs.setLayout(l); runLayout(); }, [runLayout, gs]);
+  const handleLayoutChange = useCallback((l: string) => { setLayout(l); runLayout(); }, [setLayout, runLayout]);
   const handleToggleEdgeType = useCallback((type: string) => {
-    gs.setHiddenEdgeTypes((prev) => { const next = new Set(prev); if (next.has(type)) next.delete(type); else next.add(type); return next; });
-  }, [gs]);
+    setHiddenEdgeTypes((prev) => { const next = new Set(prev); if (next.has(type)) next.delete(type); else next.add(type); return next; });
+  }, [setHiddenEdgeTypes]);
 
   const toolbarProps = { stats: data?.stats, layout: gs.layout, onLayoutChange: handleLayoutChange, onFit: handleFit, onExport: handleExport, hiddenEdgeTypes: gs.hiddenEdgeTypes, onToggleEdgeType: handleToggleEdgeType, depthFilter: gs.depthFilter, onDepthFilterChange: gs.setDepthFilter };
 
@@ -170,11 +177,11 @@ export function GraphExplorer() {
       ) : (
         <div className="flex flex-1 min-h-0">
           <FeatureNavigator selectedFeatures={selectedFeatures} onToggleFeature={toggleFeature} onReset={resetFeatures} />
-          <div className="flex-1 relative" style={{ backgroundColor: "#06060a" }}>
-            <div ref={containerRef} className="absolute inset-0" style={{ cursor: "grab" }} role="img" aria-label="Knowledge graph visualization" />
+          <div className="flex-1 relative" style={{ backgroundColor: "var(--bg-0)" }}>
+            <div ref={containerRef} className="absolute inset-0" style={{ cursor: "grab" }} role="application" aria-label="Interactive code dependency graph" tabIndex={0} />
 
             {isLayoutRunning && (
-              <div className="absolute inset-0 z-30 flex items-center justify-center" style={{ backgroundColor: "rgba(9,11,16,0.5)", backdropFilter: "blur(2px)" }}>
+              <div className="absolute inset-0 z-30 flex items-center justify-center" style={{ backgroundColor: "var(--glass-bg)", backdropFilter: "blur(2px)" }}>
                 <div style={{ color: "var(--text-2)", fontSize: 13 }}>{t("graph.computingLayout")}</div>
               </div>
             )}
@@ -202,14 +209,14 @@ export function GraphExplorer() {
               onViewImpact={(nodeId, name) => { setSelectedNodeId(nodeId, name); setMode("explorer"); }}
               onExpandNeighbors={() => {}}
               onHideNode={(nodeId) => { const g = graphRef.current; if (g?.hasNode(nodeId)) { g.dropNode(nodeId); refresh(); } }}
-              onCopyName={(name) => navigator.clipboard.writeText(name)}
-              onCopyFilePath={(fp) => navigator.clipboard.writeText(fp)}
+              onCopyName={(name) => { navigator.clipboard.writeText(name).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error("Copy failed")); }}
+              onCopyFilePath={(fp) => { navigator.clipboard.writeText(fp).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error("Copy failed")); }}
             />
 
             <GraphMinimap visible={gs.minimapVisible} opacity={gs.minimapOpacity} onOpacityChange={gs.setMinimapOpacity} onClose={() => gs.setMinimapVisible(false)} sigmaRef={sigmaRef} graphRef={graphRef} />
 
             {selectedNodeId && (
-              <button onClick={toggleImpactOverlay} className="absolute z-20 flex items-center gap-1.5 rounded-lg transition-all" style={{ bottom: 70, left: 16, padding: "8px 14px", background: gs.impactOverlay ? "#f7768e" : "var(--bg-2)", color: gs.impactOverlay ? "white" : "var(--text-2)", border: `1px solid ${gs.impactOverlay ? "#f7768e" : "var(--surface-border)"}`, backdropFilter: "blur(12px)", fontSize: 11, fontWeight: 600, cursor: "pointer", boxShadow: gs.impactOverlay ? "0 0 20px rgba(247,118,142,0.3)" : "var(--shadow-sm)" }}>
+              <button onClick={toggleImpactOverlay} className="absolute z-20 flex items-center gap-1.5 rounded-lg transition-all" style={{ bottom: 70, left: 16, padding: "8px 14px", background: gs.impactOverlay ? "var(--rose)" : "var(--bg-2)", color: gs.impactOverlay ? "white" : "var(--text-2)", border: `1px solid ${gs.impactOverlay ? "var(--rose)" : "var(--surface-border)"}`, backdropFilter: "blur(12px)", fontSize: 11, fontWeight: 600, cursor: "pointer", boxShadow: gs.impactOverlay ? "0 0 20px color-mix(in srgb, var(--rose) 30%, transparent)" : "var(--shadow-sm)" }}>
                 <Zap size={13} />{gs.impactOverlay ? t("graph.clearImpact") : t("graph.impactOverlay")}
               </button>
             )}

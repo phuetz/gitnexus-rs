@@ -3,27 +3,30 @@ import { HeartPulse } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 import { CodeHealthCard } from "../health/CodeHealthCard";
+import { LoadingOrbs } from "../shared/LoadingOrbs";
 
 export function ReportView() {
   const { t } = useI18n();
 
-  const { data: hotspots } = useQuery({
+  const { data: hotspots, isLoading: loadingHotspots } = useQuery({
     queryKey: ["hotspots-report"],
     queryFn: () => commands.getHotspots(90),
     staleTime: 60_000,
   });
 
-  const { data: couplings } = useQuery({
+  const { data: couplings, isLoading: loadingCouplings } = useQuery({
     queryKey: ["coupling-report"],
     queryFn: () => commands.getCoupling(3),
     staleTime: 60_000,
   });
 
-  const { data: ownership } = useQuery({
+  const { data: ownership, isLoading: loadingOwnership } = useQuery({
     queryKey: ["ownership-report"],
     queryFn: () => commands.getOwnership(),
     staleTime: 60_000,
   });
+
+  const isLoading = loadingHotspots || loadingCouplings || loadingOwnership;
 
   return (
     <div className="h-full overflow-auto" style={{ padding: 24 }}>
@@ -37,16 +40,22 @@ export function ReportView() {
         <CodeHealthCard />
       </div>
 
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <LoadingOrbs />
+        </div>
+      )}
+
       {/* Top hotspots */}
       {hotspots && hotspots.length > 0 && (
         <Section title={`${t("health.hotspots")} (Top 10)`}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--bg-2)" }}>
-                <th style={th}>File</th>
-                <th style={th}>Commits</th>
-                <th style={th}>Churn</th>
-                <th style={th}>Score</th>
+                <th style={th}>{t("report.file")}</th>
+                <th style={th}>{t("report.commits")}</th>
+                <th style={th}>{t("report.churn")}</th>
+                <th style={th}>{t("report.score")}</th>
               </tr>
             </thead>
             <tbody>
@@ -71,10 +80,10 @@ export function ReportView() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--bg-2)" }}>
-                <th style={th}>File A</th>
-                <th style={th}>File B</th>
-                <th style={th}>Shared</th>
-                <th style={th}>Strength</th>
+                <th style={th}>{t("report.fileA")}</th>
+                <th style={th}>{t("report.fileB")}</th>
+                <th style={th}>{t("report.shared")}</th>
+                <th style={th}>{t("report.strength")}</th>
               </tr>
             </thead>
             <tbody>
@@ -99,10 +108,10 @@ export function ReportView() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--bg-2)" }}>
-                <th style={th}>File</th>
-                <th style={th}>Primary Author</th>
-                <th style={th}>Authors</th>
-                <th style={th}>Ownership</th>
+                <th style={th}>{t("report.file")}</th>
+                <th style={th}>{t("report.primaryAuthor")}</th>
+                <th style={th}>{t("report.authors")}</th>
+                <th style={th}>{t("report.ownership")}</th>
               </tr>
             </thead>
             <tbody>

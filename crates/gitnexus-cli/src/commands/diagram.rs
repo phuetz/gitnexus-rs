@@ -73,7 +73,7 @@ fn safe_id(name: &str) -> String {
 }
 
 fn safe_label(name: &str) -> String {
-    name.replace('"', "'").replace('`', "'")
+    name.replace(['"', '`'], "'")
 }
 
 fn generate_flowchart(
@@ -108,12 +108,10 @@ fn generate_flowchart(
         for rel in graph.iter_relationships() {
             if seed_source_ids.contains(&rel.source_id)
                 && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
-            {
-                if !visited.contains(&rel.target_id) {
+                && !visited.contains(&rel.target_id) {
                     visited.insert(rel.target_id.clone());
                     queue.push_back((rel.target_id.clone(), 1));
                 }
-            }
         }
     }
 
@@ -261,12 +259,10 @@ fn generate_sequence(
         for rel in graph.iter_relationships() {
             if seed_source_ids.contains(&rel.source_id)
                 && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
-            {
-                if !visited.contains(&rel.target_id) {
+                && !visited.contains(&rel.target_id) {
                     visited.insert(rel.target_id.clone());
                     queue.push_back((rel.target_id.clone(), start_alias.clone(), 1));
                 }
-            }
         }
     }
 
@@ -457,7 +453,7 @@ fn generate_class_diagram(
                 let iface_id = safe_id(&iface.properties.name);
                 lines.push(format!("    {} <|.. {}", iface_id, class_name));
                 lines.push(format!("    class {} {{", iface_id));
-                lines.push(format!("        <<interface>>"));
+                lines.push("        <<interface>>".to_string());
                 lines.push("    }".to_string());
             }
         }

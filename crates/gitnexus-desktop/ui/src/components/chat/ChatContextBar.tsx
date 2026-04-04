@@ -58,7 +58,7 @@ export function ChatContextBar() {
             color: "var(--text-2)",
             border: "1px solid var(--surface-border)",
           }}
-          title="Filter by file (Ctrl+P)"
+          aria-label="Filter by file (Ctrl+P)"
         >
           <FileCode size={11} />
           <span>File</span>
@@ -73,7 +73,7 @@ export function ChatContextBar() {
             color: "var(--text-2)",
             border: "1px solid var(--surface-border)",
           }}
-          title="Filter by symbol (Ctrl+Shift+O)"
+          aria-label="Filter by symbol (Ctrl+Shift+O)"
         >
           <Code2 size={11} />
           <span>Symbol</span>
@@ -88,7 +88,7 @@ export function ChatContextBar() {
             color: "var(--text-2)",
             border: "1px solid var(--surface-border)",
           }}
-          title="Filter by module"
+          aria-label="Filter by module"
         >
           <FolderTree size={11} />
           <span>Module</span>
@@ -106,7 +106,7 @@ export function ChatContextBar() {
             color: deepResearchEnabled ? "var(--purple)" : "var(--text-3)",
             border: `1px solid ${deepResearchEnabled ? "var(--purple)" : "var(--surface-border)"}`,
           }}
-          title="Deep Research mode — multi-step analysis"
+          aria-label="Deep Research mode"
         >
           <Microscope size={11} />
           <span>Deep Research</span>
@@ -118,7 +118,7 @@ export function ChatContextBar() {
             onClick={clearFilters}
             className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-colors"
             style={{ color: "var(--text-3)" }}
-            title="Clear all filters"
+            aria-label="Clear all filters"
           >
             <Filter size={11} />
             <span>{filterCount}</span>

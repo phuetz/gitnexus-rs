@@ -85,6 +85,9 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
       queryClient.invalidateQueries({ queryKey: ["chat-config"] });
       onClose();
     },
+    onError: (err) => {
+      console.error("Failed to save chat config:", err);
+    },
   });
 
   const applyPreset = (preset: (typeof PRESETS)[number]) => {

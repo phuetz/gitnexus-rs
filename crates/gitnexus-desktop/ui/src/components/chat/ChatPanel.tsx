@@ -399,7 +399,6 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
           className="text-xs hover-surface rounded px-2 py-1 mr-2"
           style={{ color: "var(--text-3)" }}
           aria-label="Clear conversation"
-          title="Clear conversation"
         >
           <Trash2 size={12} />
         </button>
@@ -559,14 +558,14 @@ function MessageBubble({
             onClick={handleCopyMessage}
             className="p-1 rounded transition-colors"
             style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
-            title="Copy message"
+            aria-label="Copy message"
           >
             <Copy size={12} />
           </button>
           <button
             className="p-1 rounded transition-colors"
             style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
-            title="Edit message"
+            aria-label="Edit message"
           >
             <Pencil size={12} />
           </button>
@@ -599,7 +598,7 @@ function MessageBubble({
           onClick={handleCopyMessage}
           className="p-1 rounded transition-colors"
           style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
-          title="Copy message"
+          aria-label="Copy message"
         >
           <Copy size={12} />
         </button>
@@ -756,7 +755,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                 onClick={onOpenSettings}
                 className="p-1.5 rounded-lg transition-colors"
                 style={{ color: "var(--text-3)" }}
-                title="Chat Settings"
+                aria-label="Chat Settings"
               >
                 <Settings2 size={14} />
               </button>

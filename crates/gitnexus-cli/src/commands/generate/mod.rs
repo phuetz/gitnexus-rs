@@ -37,7 +37,7 @@ const TARGET_HTML: &str = "html";
 const TARGET_PROCESS_DOC: &str = "process-doc";
 const TARGET_ALL: &str = "all";
 
-pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: bool, enrich_profile: &str, enrich_lang: &str, enrich_citations: bool) -> Result<()> {
+pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: bool, enrich_profile: &str, enrich_lang: &str, enrich_citations: bool, traces_dir: Option<&str>) -> Result<()> {
     let repo_path = Path::new(path.unwrap_or(".")).canonicalize()?;
     let storage = repo_manager::get_storage_paths(&repo_path);
     let snap_path = snapshot::snapshot_path(&storage.storage_path);
@@ -54,7 +54,7 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
         TARGET_SKILLS => skills::generate_skills(&graph, &repo_path)?,
         TARGET_DOCS => {
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir)?;
+            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
             enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
@@ -62,7 +62,7 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
             }
         }
         TARGET_PROCESS_DOC => {
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir)?;
+            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
             enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
@@ -71,7 +71,7 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
         }
         TARGET_DOCX => {
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir)?;
+            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
             enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
@@ -92,7 +92,7 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
         }
         TARGET_HTML => {
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir)?;
+            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
             enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
@@ -105,7 +105,7 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
             wiki::generate_wiki(&graph, &repo_path)?;
             skills::generate_skills(&graph, &repo_path)?;
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir)?;
+            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
             enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {

@@ -135,6 +135,9 @@ enum Commands {
         /// Include source citations in enriched pages
         #[arg(long, default_value_t = true)]
         enrich_citations: bool,
+        /// Directory containing execution trace files for process documentation
+        #[arg(long)]
+        traces_dir: Option<String>,
     },
     /// Watch a repository for changes and incrementally update the knowledge graph
     Watch {
@@ -335,8 +338,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Setup => commands::setup::run(),
         Commands::Shell { path } => commands::shell::run(path.as_deref()).await,
-        Commands::Generate { what, path, output_dir, enrich, enrich_profile, enrich_lang, enrich_citations } => {
-            commands::generate::run(&what, path.as_deref(), output_dir.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations)
+        Commands::Generate { what, path, output_dir, enrich, enrich_profile, enrich_lang, enrich_citations, traces_dir } => {
+            commands::generate::run(&what, path.as_deref(), output_dir.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations, traces_dir.as_deref())
         }
         Commands::Watch { path } => commands::watch::run(path.as_deref()).await,
         Commands::Dashboard { path } => commands::dashboard::run(path.as_deref()),

@@ -54,6 +54,14 @@ pub struct Evidence {
     pub staleness_warning: bool,
 }
 
+/// Runtime parameter extracted from a raw trace file.
+#[derive(Debug, Clone, Serialize)]
+pub struct TraceParam {
+    pub name: String,
+    pub value: String,
+    pub param_type: Option<String>,
+}
+
 /// Access type for a database entity.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub enum EntityAccessType {

@@ -1,22 +1,25 @@
-//! Process documentation generator: produces markdown for each detected Process in the graph.
+//! Process documentation generator v2: produces markdown for each detected Process.
 //!
 //! Combines three evidence sources with explicit priority:
 //! 1. Code (highest) — source code from the knowledge graph
-//! 2. Traces (high) — runtime behavior from is_traced/trace_call_count
-//! 3. RAG docs (informative) — external documentation, marked as potentially outdated
+//! 2. Traces (high) — runtime behavior, including raw trace parameters if --traces-dir provided
+//! 3. RAG docs (informative) — external documentation via Mentions edges + FTS search
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
 use colored::Colorize;
+use serde_json::Value;
 use tracing::info;
 
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::process_doc::{
     self, collect_full_evidence, generate_component_diagram, generate_sequence_diagram,
-    EvidenceSource, ProcessEvidence,
+    Evidence, EvidenceSource, ProcessEvidence, TraceParam,
 };
+use gitnexus_core::trace;
 
 use super::utils::sanitize_filename;
 
@@ -26,18 +29,12 @@ pub(super) fn generate_process_docs(
     graph: &KnowledgeGraph,
     repo_path: &Path,
     docs_dir: &Path,
+    traces_dir: Option<&Path>,
 ) -> Result<Vec<(String, String, String)>> {
-    // Collect all Process nodes
     let mut processes: Vec<(String, String, Option<u32>)> = graph
         .iter_nodes()
         .filter(|n| n.label == NodeLabel::Process)
-        .map(|n| {
-            (
-                n.id.clone(),
-                n.properties.name.clone(),
-                n.properties.step_count,
-            )
-        })
+        .map(|n| (n.id.clone(), n.properties.name.clone(), n.properties.step_count))
         .collect();
 
     if processes.is_empty() {
@@ -45,7 +42,6 @@ pub(super) fn generate_process_docs(
         return Ok(Vec::new());
     }
 
-    // Sort by step_count descending (most complex first)
     processes.sort_by(|a, b| b.2.unwrap_or(0).cmp(&a.2.unwrap_or(0)));
 
     let processes_dir = docs_dir.join("processes");
@@ -57,17 +53,38 @@ pub(super) fn generate_process_docs(
         processes.len()
     );
 
+    // Load raw trace data if --traces-dir provided
+    let trace_params = if let Some(dir) = traces_dir {
+        println!("  Loading raw traces from {}...", dir.display());
+        load_all_trace_params(dir, graph)
+    } else {
+        HashMap::new()
+    };
+
+    // Search for relevant RAG doc chunks via FTS
+    let fts_rag_evidence = search_rag_chunks_for_processes(graph, &processes);
+
     let mut page_entries = Vec::new();
     let mut all_evidence = Vec::new();
 
     for (process_id, process_name, _) in &processes {
-        let evidence = collect_full_evidence(graph, process_id, repo_path);
+        let mut evidence = collect_full_evidence(graph, process_id, repo_path);
+
+        // Enrich with FTS RAG evidence
+        if let Some(extra_rag) = fts_rag_evidence.get(process_id.as_str()) {
+            for rag_ev in extra_rag {
+                // Deduplicate: skip if already present via Mentions edges
+                if !evidence.global_rag_evidence.iter().any(|e| e.id == rag_ev.id) {
+                    evidence.global_rag_evidence.push(rag_ev.clone());
+                }
+            }
+        }
 
         let slug = sanitize_filename(process_name);
         let filename = format!("processes/process-{}.md", slug);
         let filepath = docs_dir.join(&filename);
 
-        let content = render_process_page(&evidence);
+        let content = render_process_page(&evidence, &trace_params);
         std::fs::write(&filepath, &content)?;
 
         page_entries.push((
@@ -81,14 +98,11 @@ pub(super) fn generate_process_docs(
     // Generate overview page
     let overview_content = render_process_overview(&all_evidence);
     std::fs::write(docs_dir.join("process-overview.md"), &overview_content)?;
-    page_entries.insert(
-        0,
-        (
-            "process-overview".to_string(),
-            "Business Processes".to_string(),
-            "process-overview.md".to_string(),
-        ),
-    );
+    page_entries.insert(0, (
+        "process-overview".to_string(),
+        "Business Processes".to_string(),
+        "process-overview.md".to_string(),
+    ));
 
     println!(
         "{} Generated {} process documentation pages",
@@ -99,9 +113,160 @@ pub(super) fn generate_process_docs(
     Ok(page_entries)
 }
 
-// ─── Page rendering ─────────────────────────────────────────────────────
+// ─── Raw trace loading (Axe 1) ─────────────────────────────────────────
 
-fn render_process_page(ev: &ProcessEvidence) -> String {
+/// Load all trace files from a directory and extract parameters per method.
+/// Returns method_name → Vec<TraceParam>.
+fn load_all_trace_params(traces_dir: &Path, graph: &KnowledgeGraph) -> HashMap<String, Vec<TraceParam>> {
+    let mut result: HashMap<String, Vec<TraceParam>> = HashMap::new();
+    let name_index = trace::build_name_index(graph);
+
+    let entries = match std::fs::read_dir(traces_dir) {
+        Ok(e) => e,
+        Err(_) => return result,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !matches!(ext, "json" | "ndjson" | "log" | "txt") {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let steps = match trace::parse_trace(&content) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        for step in &steps {
+            let method_name = step
+                .get("method")
+                .or(step.get("name"))
+                .and_then(|v| v.as_str());
+
+            if let Some(full_name) = method_name {
+                // Try to resolve to a graph node
+                if let Some(_node_id) = trace::resolve_method_node(graph, &name_index, full_name) {
+                    let parts: Vec<&str> = full_name.split('.').collect();
+                    let short_name = parts.last().copied().unwrap_or(full_name);
+
+                    // Extract params from trace step
+                    if let Some(params) = step.get("params").and_then(|v| v.as_object()) {
+                        let trace_params: Vec<TraceParam> = params
+                            .iter()
+                            .map(|(k, v)| TraceParam {
+                                name: k.clone(),
+                                value: match v {
+                                    Value::String(s) => s.clone(),
+                                    other => other.to_string(),
+                                },
+                                param_type: None,
+                            })
+                            .collect();
+
+                        if !trace_params.is_empty() {
+                            result
+                                .entry(short_name.to_string())
+                                .or_default()
+                                .extend(trace_params);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !result.is_empty() {
+        println!(
+            "  Loaded trace parameters for {} methods",
+            result.len()
+        );
+    }
+
+    result
+}
+
+// ─── FTS RAG search (Axe 2) ────────────────────────────────────────────
+
+/// Search for relevant DocChunk nodes using FTS, keyed by process_id.
+fn search_rag_chunks_for_processes(
+    graph: &KnowledgeGraph,
+    processes: &[(String, String, Option<u32>)],
+) -> HashMap<String, Vec<Evidence>> {
+    let mut result: HashMap<String, Vec<Evidence>> = HashMap::new();
+
+    for (process_id, process_name, _) in processes {
+        // Build search query from process name + collect step class names
+        let steps = process_doc::collect_process_steps(graph, process_id);
+        let mut query_parts: Vec<&str> = vec![process_name.as_str()];
+        for step in &steps {
+            if let Some(class) = &step.class_name {
+                if !query_parts.contains(&class.as_str()) {
+                    query_parts.push(class.as_str());
+                }
+            }
+        }
+        let query = query_parts.join(" ");
+
+        // Search DocChunk nodes by content matching
+        let mut matches = Vec::new();
+        let query_lower = query.to_lowercase();
+        let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
+
+        for node in graph.iter_nodes() {
+            if node.label != NodeLabel::DocChunk {
+                continue;
+            }
+            if let Some(content) = &node.properties.content {
+                let content_lower = content.to_lowercase();
+                let match_count = query_terms
+                    .iter()
+                    .filter(|term| content_lower.contains(*term))
+                    .count();
+
+                if match_count >= 2 || (query_terms.len() == 1 && match_count == 1) {
+                    let score = match_count as f64 / query_terms.len() as f64;
+                    matches.push((node, score));
+                }
+            }
+        }
+
+        // Sort by score desc, take top 3
+        matches.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let evidence: Vec<Evidence> = matches
+            .into_iter()
+            .take(3)
+            .map(|(node, score)| Evidence {
+                id: format!("RAG:{}", node.id),
+                source: EvidenceSource::Rag,
+                content: node.properties.content.clone().unwrap_or_default(),
+                file_path: node.properties.file_path.clone(),
+                start_line: None,
+                end_line: None,
+                confidence: (score * 0.7).min(0.8),
+                staleness_warning: true,
+            })
+            .collect();
+
+        if !evidence.is_empty() {
+            result.insert(process_id.clone(), evidence);
+        }
+    }
+
+    result
+}
+
+// ─── Page rendering (Axes 3+4) ─────────────────────────────────────────
+
+fn render_process_page(
+    ev: &ProcessEvidence,
+    trace_params: &HashMap<String, Vec<TraceParam>>,
+) -> String {
     let mut md = String::with_capacity(8192);
 
     // Header
@@ -178,22 +343,15 @@ fn render_process_page(ev: &ProcessEvidence) -> String {
         let traced = if step.is_traced { "Yes" } else { "No" };
         md.push_str(&format!(
             "| {} | `{}` | {} | `{}:L{}` | {} |\n",
-            step.step_number,
-            step.name,
-            class,
-            step.file_path,
-            step.start_line.unwrap_or(0),
-            traced
+            step.step_number, step.name, class,
+            step.file_path, step.start_line.unwrap_or(0), traced
         ));
     }
     md.push('\n');
 
     // Detailed step evidence
     for (i, step) in ev.steps.iter().enumerate() {
-        md.push_str(&format!(
-            "#### Step {}: `{}`\n\n",
-            step.step_number, step.name
-        ));
+        md.push_str(&format!("#### Step {}: `{}`\n\n", step.step_number, step.name));
 
         if let Some(class) = &step.class_name {
             md.push_str(&format!("**Component**: {} ({})\n\n", class, step.label.as_str()));
@@ -210,27 +368,47 @@ fn render_process_page(ev: &ProcessEvidence) -> String {
                 md.push_str(&format!("```{}\n{}\n```\n\n", lang, evidence.content));
             }
 
-            // Trace evidence
+            // Trace evidence from graph
             for evidence in step_ev.iter().filter(|e| e.source == EvidenceSource::Trace) {
                 md.push_str(&format!("**Execution Data** `[{}]`\n\n", evidence.id));
                 md.push_str(&format!("{}\n\n", evidence.content));
             }
         }
 
-        // RAG evidence for this step (from global, matching this step's node_id)
-        let step_rag: Vec<_> = ev
-            .global_rag_evidence
-            .iter()
-            .filter(|e| e.source == EvidenceSource::Rag)
-            .take(2)
-            .collect();
+        // Axe 4: Raw trace parameters (from --traces-dir)
+        if let Some(params) = trace_params.get(&step.name) {
+            if !params.is_empty() {
+                md.push_str(&format!(
+                    "**Runtime Parameters** `[TRACE:step_{}]`\n\n",
+                    step.step_number
+                ));
+                md.push_str("| Parameter | Value |\n");
+                md.push_str("|-----------|-------|\n");
+                // Deduplicate params by name, keep first occurrence
+                let mut seen = std::collections::HashSet::new();
+                for param in params {
+                    if seen.insert(&param.name) {
+                        let display_val = if param.value.len() > 80 {
+                            format!("{}...", &param.value[..80])
+                        } else {
+                            param.value.clone()
+                        };
+                        md.push_str(&format!("| `{}` | {} |\n", param.name, display_val));
+                    }
+                }
+                // Check for return_value
+                if let Some(ret) = params.iter().find(|p| p.name == "return_value") {
+                    md.push_str(&format!("\n**Return Value**: `{}`\n", ret.value));
+                }
+                md.push('\n');
+            }
+        }
 
-        if !step_rag.is_empty() && i == 0 {
-            // Show RAG context once, at the first step
+        // RAG evidence (show at first step + any step that has specific RAG)
+        if i == 0 && !ev.global_rag_evidence.is_empty() {
             md.push_str("> [!NOTE]\n");
             md.push_str("> This information comes from external documentation and may not reflect the current code.\n\n");
-            for evidence in step_rag {
-                // Truncate long RAG content
+            for evidence in ev.global_rag_evidence.iter().take(3) {
                 let content = if evidence.content.len() > 500 {
                     format!("{}...", &evidence.content[..500])
                 } else {
@@ -246,14 +424,10 @@ fn render_process_page(ev: &ProcessEvidence) -> String {
         md.push_str("## Data Flow\n\n");
         md.push_str("<!-- GNX:INTRO:data-flow -->\n\n");
 
-        let reads: Vec<_> = ev
-            .entities
-            .iter()
+        let reads: Vec<_> = ev.entities.iter()
             .filter(|e| matches!(e.access_type, process_doc::EntityAccessType::Read | process_doc::EntityAccessType::ReadWrite))
             .collect();
-        let writes: Vec<_> = ev
-            .entities
-            .iter()
+        let writes: Vec<_> = ev.entities.iter()
             .filter(|e| matches!(e.access_type, process_doc::EntityAccessType::Write | process_doc::EntityAccessType::ReadWrite))
             .collect();
 
@@ -263,10 +437,7 @@ fn render_process_page(ev: &ProcessEvidence) -> String {
             md.push_str("|--------|-------|-------------|\n");
             for entity in reads {
                 let table = entity.db_table_name.as_deref().unwrap_or("-");
-                let step = entity
-                    .accessed_by_step
-                    .map(|s| format!("Step {}", s))
-                    .unwrap_or_else(|| "-".to_string());
+                let step = entity.accessed_by_step.map(|s| format!("Step {}", s)).unwrap_or_else(|| "-".to_string());
                 md.push_str(&format!("| {} | {} | {} |\n", entity.name, table, step));
             }
             md.push('\n');
@@ -278,10 +449,7 @@ fn render_process_page(ev: &ProcessEvidence) -> String {
             md.push_str("|--------|-------|------------|\n");
             for entity in writes {
                 let table = entity.db_table_name.as_deref().unwrap_or("-");
-                let step = entity
-                    .accessed_by_step
-                    .map(|s| format!("Step {}", s))
-                    .unwrap_or_else(|| "-".to_string());
+                let step = entity.accessed_by_step.map(|s| format!("Step {}", s)).unwrap_or_else(|| "-".to_string());
                 md.push_str(&format!("| {} | {} | {} |\n", entity.name, table, step));
             }
             md.push('\n');
@@ -303,10 +471,7 @@ fn render_process_page(ev: &ProcessEvidence) -> String {
         for comp in &ev.components {
             md.push_str(&format!(
                 "| {} | {} | `{}` | {} |\n",
-                comp.name,
-                comp.label.as_str(),
-                comp.file_path,
-                comp.step_count
+                comp.name, comp.label.as_str(), comp.file_path, comp.step_count
             ));
         }
         md.push('\n');
@@ -317,18 +482,11 @@ fn render_process_page(ev: &ProcessEvidence) -> String {
     md.push_str("<!-- GNX:INTRO:quality -->\n\n");
     md.push_str("| Metric | Value | Assessment |\n");
     md.push_str("|--------|-------|------------|\n");
-    md.push_str(&format!(
-        "| Trace Coverage | {:.0}% | {} |\n",
-        ev.trace_coverage_pct, trace_assessment
-    ));
+    md.push_str(&format!("| Trace Coverage | {:.0}% | {} |\n", ev.trace_coverage_pct, trace_assessment));
     md.push_str(&format!(
         "| Dead Code Candidates | {} methods | {} |\n",
         ev.dead_code_candidates.len(),
-        if ev.dead_code_candidates.is_empty() {
-            "Clean"
-        } else {
-            "Review needed"
-        }
+        if ev.dead_code_candidates.is_empty() { "Clean" } else { "Review needed" }
     ));
     md.push_str(&format!("| Process Type | {} | |\n", process_type));
     md.push('\n');
@@ -346,10 +504,7 @@ fn render_process_page(ev: &ProcessEvidence) -> String {
             (Some(s), Some(e)) => format!("{}-{}", s, e),
             _ => "-".to_string(),
         };
-        md.push_str(&format!(
-            "| `{}` | {} | {} |\n",
-            step.file_path, lines, class
-        ));
+        md.push_str(&format!("| `{}` | {} | {} |\n", step.file_path, lines, class));
     }
     md.push('\n');
 
@@ -360,21 +515,13 @@ fn render_process_page(ev: &ProcessEvidence) -> String {
         md.push_str("| Document | Source |\n");
         md.push_str("|----------|--------|\n");
         for rag in &ev.global_rag_evidence {
-            let title = rag
-                .content
-                .lines()
-                .next()
-                .unwrap_or("Untitled")
-                .chars()
-                .take(60)
-                .collect::<String>();
+            let title = rag.content.lines().next().unwrap_or("Untitled").chars().take(60).collect::<String>();
             md.push_str(&format!("| {} | `[{}]` |\n", title, rag.id));
         }
         md.push('\n');
     }
 
     md.push_str("<!-- GNX:CLOSING -->\n");
-
     md
 }
 
@@ -385,14 +532,8 @@ fn render_process_overview(all_evidence: &[ProcessEvidence]) -> String {
     md.push_str("<!-- GNX:LEAD -->\n\n");
 
     let total = all_evidence.len();
-    let fully_traced = all_evidence
-        .iter()
-        .filter(|e| e.trace_coverage_pct >= 100.0)
-        .count();
-    let partially_traced = all_evidence
-        .iter()
-        .filter(|e| e.trace_coverage_pct > 0.0 && e.trace_coverage_pct < 100.0)
-        .count();
+    let fully_traced = all_evidence.iter().filter(|e| e.trace_coverage_pct >= 100.0).count();
+    let partially_traced = all_evidence.iter().filter(|e| e.trace_coverage_pct > 0.0 && e.trace_coverage_pct < 100.0).count();
     let untraced = total - fully_traced - partially_traced;
 
     md.push_str(&format!(
@@ -400,33 +541,22 @@ fn render_process_overview(all_evidence: &[ProcessEvidence]) -> String {
         total
     ));
 
-    // Process table
     md.push_str("| # | Process | Steps | Type | Entry Point | Trace Coverage |\n");
     md.push_str("|---|---------|-------|------|-------------|----------------|\n");
     for (i, ev) in all_evidence.iter().enumerate() {
         let slug = sanitize_filename(&ev.process_name);
-        let ptype = ev
-            .process_type
-            .map(|t| match t {
-                ProcessType::IntraCommunity => "Intra",
-                ProcessType::CrossCommunity => "Cross",
-            })
-            .unwrap_or("-");
+        let ptype = ev.process_type.map(|t| match t {
+            ProcessType::IntraCommunity => "Intra",
+            ProcessType::CrossCommunity => "Cross",
+        }).unwrap_or("-");
         let entry = ev.entry_point_name.as_deref().unwrap_or("-");
         md.push_str(&format!(
             "| {} | [{}](./processes/process-{}.md) | {} | {} | `{}` | {:.0}% |\n",
-            i + 1,
-            ev.process_name,
-            slug,
-            ev.steps.len(),
-            ptype,
-            entry,
-            ev.trace_coverage_pct
+            i + 1, ev.process_name, slug, ev.steps.len(), ptype, entry, ev.trace_coverage_pct
         ));
     }
     md.push('\n');
 
-    // Trace coverage summary
     md.push_str("## Trace Coverage Summary\n\n");
     md.push_str("| Metric | Value |\n");
     md.push_str("|--------|-------|\n");
@@ -437,26 +567,16 @@ fn render_process_overview(all_evidence: &[ProcessEvidence]) -> String {
     md.push('\n');
 
     md.push_str("<!-- GNX:CLOSING -->\n");
-
     md
 }
 
 fn detect_lang_from_path(path: &str) -> String {
-    if path.ends_with(".cs") {
-        "csharp".to_string()
-    } else if path.ends_with(".ts") || path.ends_with(".tsx") {
-        "typescript".to_string()
-    } else if path.ends_with(".js") || path.ends_with(".jsx") {
-        "javascript".to_string()
-    } else if path.ends_with(".rs") {
-        "rust".to_string()
-    } else if path.ends_with(".py") {
-        "python".to_string()
-    } else if path.ends_with(".java") || path.ends_with(".kt") {
-        "java".to_string()
-    } else if path.ends_with(".go") {
-        "go".to_string()
-    } else {
-        String::new()
-    }
+    if path.ends_with(".cs") { "csharp".to_string() }
+    else if path.ends_with(".ts") || path.ends_with(".tsx") { "typescript".to_string() }
+    else if path.ends_with(".js") || path.ends_with(".jsx") { "javascript".to_string() }
+    else if path.ends_with(".rs") { "rust".to_string() }
+    else if path.ends_with(".py") { "python".to_string() }
+    else if path.ends_with(".java") || path.ends_with(".kt") { "java".to_string() }
+    else if path.ends_with(".go") { "go".to_string() }
+    else { String::new() }
 }

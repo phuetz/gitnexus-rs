@@ -120,6 +120,9 @@ enum Commands {
         /// Path to the repository (defaults to current directory)
         #[arg(short, long)]
         path: Option<String>,
+        /// Output directory for generated documentation (defaults to .gitnexus/docs)
+        #[arg(short, long)]
+        output_dir: Option<String>,
         /// Enrich documentation with LLM-generated prose (requires configured LLM)
         #[arg(long, default_value_t = false)]
         enrich: bool,
@@ -241,6 +244,29 @@ enum Commands {
         path: Option<String>,
     },
 
+    /// Generate documentation from an execution trace using LLM
+    #[command(after_help = "Examples:\n  gitnexus trace-doc trace.json\n  gitnexus trace-doc trace.json --output doc.md")]
+    TraceDoc {
+        /// Path to the JSON trace file
+        file: String,
+        /// Output file for the documentation (markdown)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
+    },
+
+    /// Import external documentation (Markdown, PDF) for GraphRAG
+    #[command(after_help = "Examples:\n  gitnexus rag-import ./docs\n  gitnexus rag-import D:\\Specs --path D:\\taf\\MyProject")]
+    RagImport {
+        /// Path to the documentation directory
+        docs_dir: String,
+        /// Path to the repository (defaults to current directory)
+        #[arg(short, long)]
+        path: Option<String>,
+    },
+
     /// Analyze tracing coverage and detect dead code
     #[command(after_help = "Examples:\n  gitnexus coverage CourriersService\n  gitnexus coverage --json\n  gitnexus coverage CourriersService --path D:\\taf\\Alise_v2")]
     Coverage {
@@ -309,8 +335,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Setup => commands::setup::run(),
         Commands::Shell { path } => commands::shell::run(path.as_deref()).await,
-        Commands::Generate { what, path, enrich, enrich_profile, enrich_lang, enrich_citations } => {
-            commands::generate::run(&what, path.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations)
+        Commands::Generate { what, path, output_dir, enrich, enrich_profile, enrich_lang, enrich_citations } => {
+            commands::generate::run(&what, path.as_deref(), output_dir.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations)
         }
         Commands::Watch { path } => commands::watch::run(path.as_deref()).await,
         Commands::Dashboard { path } => commands::dashboard::run(path.as_deref()),
@@ -348,6 +374,12 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::TraceImport { file, path } => {
             commands::trace_import::run(&file, path.as_deref())
+        }
+        Commands::RagImport { docs_dir, path } => {
+            commands::rag_import::run(&docs_dir, path.as_deref())
+        }
+        Commands::TraceDoc { file, output, path } => {
+            commands::trace_doc::run(&file, output.as_deref(), path.as_deref()).await
         }
         Commands::Coverage { target, path, json, trace } => {
             commands::coverage::run(target.as_deref(), path.as_deref(), json, trace)

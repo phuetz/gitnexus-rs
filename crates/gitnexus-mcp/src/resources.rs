@@ -223,20 +223,21 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
 
 const HELP_TEXT: &str = r#"GitNexus - Graph-powered code intelligence for AI agents
 
-Available MCP Tools (13):
-  list_repos     - List all indexed repositories
-  query          - Natural language search across the knowledge graph
-  context        - 360-degree view of a code symbol
-  impact         - Blast radius analysis for a code change
-  detect_changes - Detect uncommitted changes
-  rename         - Analyze impact of renaming a symbol
-  cypher         - Execute raw Cypher queries (read-only)
-  hotspots       - File-level churn analysis
-  coupling       - Temporal coupling between files
-  ownership      - Code ownership by author
-  coverage       - Tracing coverage and dead code detection
-  diagram        - Generate Mermaid diagrams
-  report         - Code health report (grade A-E)
+Available MCP Tools (14):
+  list_repos              - List all indexed repositories
+  query                   - Natural language search across the knowledge graph
+  context                 - 360-degree view of a code symbol
+  impact                  - Blast radius analysis for a code change
+  detect_changes          - Detect uncommitted changes
+  rename                  - Analyze impact of renaming a symbol
+  cypher                  - Execute raw Cypher queries (read-only)
+  hotspots                - File-level churn analysis
+  coupling                - Temporal coupling between files
+  ownership               - Code ownership by author
+  coverage                - Tracing coverage and dead code detection
+  diagram                 - Generate Mermaid diagrams
+  report                  - Code health report (grade A-E)
+  analyze_execution_trace - Map execution trace to source code steps
 
 Cypher Operators:
   WHERE: =, <>, !=, CONTAINS, STARTS WITH, ENDS WITH

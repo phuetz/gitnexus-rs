@@ -13,6 +13,7 @@ mod analytics;
 mod functional;
 mod deployment;
 mod html;
+mod process_doc;
 
 pub(crate) use enrichment::load_llm_config;
 
@@ -33,39 +34,50 @@ const TARGET_SKILLS: &str = "skills";
 const TARGET_DOCS: &str = "docs";
 const TARGET_DOCX: &str = "docx";
 const TARGET_HTML: &str = "html";
+const TARGET_PROCESS_DOC: &str = "process-doc";
 const TARGET_ALL: &str = "all";
 
-pub fn run(what: &str, path: Option<&str>, enrich: bool, enrich_profile: &str, enrich_lang: &str, enrich_citations: bool) -> Result<()> {
+pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: bool, enrich_profile: &str, enrich_lang: &str, enrich_citations: bool) -> Result<()> {
     let repo_path = Path::new(path.unwrap_or(".")).canonicalize()?;
     let storage = repo_manager::get_storage_paths(&repo_path);
     let snap_path = snapshot::snapshot_path(&storage.storage_path);
     let graph = snapshot::load_snapshot(&snap_path)?;
 
     info!("Generating {} for {}", what, repo_path.display());
+    
+    let default_docs_dir = repo_path.join(".gitnexus").join("docs");
+    let docs_dir = output_dir.map(std::path::PathBuf::from).unwrap_or(default_docs_dir);
 
     match what {
         TARGET_CONTEXT | TARGET_AGENTS => agents::generate_agents_md(&graph, &repo_path)?,
         TARGET_WIKI => wiki::generate_wiki(&graph, &repo_path)?,
         TARGET_SKILLS => skills::generate_skills(&graph, &repo_path)?,
         TARGET_DOCS => {
-            docs::generate_docs(&graph, &repo_path)?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations)?;
-            let docs_dir = repo_path.join(".gitnexus").join("docs");
+            docs::generate_docs(&graph, &repo_path, &docs_dir)?;
+            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir)?;
+            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
+            let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
+            if xref_count > 0 {
+                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+            }
+        }
+        TARGET_PROCESS_DOC => {
+            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir)?;
+            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
                 println!("{} Cross-references: {} links added", "OK".green(), xref_count);
             }
         }
         TARGET_DOCX => {
-            // Generate Markdown first, enrich, cross-ref, then convert to DOCX
-            docs::generate_docs(&graph, &repo_path)?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations)?;
-            let docs_dir = repo_path.join(".gitnexus").join("docs");
+            docs::generate_docs(&graph, &repo_path, &docs_dir)?;
+            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir)?;
+            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
                 println!("{} Cross-references: {} links added", "OK".green(), xref_count);
             }
-            let output_path = repo_path.join(".gitnexus").join("documentation.docx");
+            let output_path = docs_dir.join("documentation.docx");
             let repo_name = repo_path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -79,29 +91,27 @@ pub fn run(what: &str, path: Option<&str>, enrich: bool, enrich_profile: &str, e
             );
         }
         TARGET_HTML => {
-            // Generate Markdown first, enrich, cross-ref, then convert to HTML site
-            docs::generate_docs(&graph, &repo_path)?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations)?;
-            let docs_dir = repo_path.join(".gitnexus").join("docs");
+            docs::generate_docs(&graph, &repo_path, &docs_dir)?;
+            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir)?;
+            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
                 println!("{} Cross-references: {} links added", "OK".green(), xref_count);
             }
-            html::generate_html_site(&graph, &repo_path)?;
+            html::generate_html_site(&graph, &repo_path, &docs_dir)?;
         }
         TARGET_ALL => {
             agents::generate_agents_md(&graph, &repo_path)?;
             wiki::generate_wiki(&graph, &repo_path)?;
             skills::generate_skills(&graph, &repo_path)?;
-            docs::generate_docs(&graph, &repo_path)?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations)?;
-            let docs_dir = repo_path.join(".gitnexus").join("docs");
+            docs::generate_docs(&graph, &repo_path, &docs_dir)?;
+            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir)?;
+            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
                 println!("{} Cross-references: {} links added", "OK".green(), xref_count);
             }
-            // Also generate DOCX
-            let output_path = repo_path.join(".gitnexus").join("documentation.docx");
+            let output_path = docs_dir.join("documentation.docx");
             let repo_name = repo_path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -113,12 +123,11 @@ pub fn run(what: &str, path: Option<&str>, enrich: bool, enrich_profile: &str, e
                 "OK".green(),
                 output_path.display()
             );
-            // Also generate HTML site
-            html::generate_html_site(&graph, &repo_path)?;
+            html::generate_html_site(&graph, &repo_path, &docs_dir)?;
         }
         _ => {
             eprintln!(
-                "Unknown target: {}. Use: context, wiki, skills, docs, docx, html, all",
+                "Unknown target: {}. Use: context, wiki, skills, docs, docx, html, process-doc, all",
                 what
             );
         }

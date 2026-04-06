@@ -63,6 +63,9 @@ pub const NODE_LABELS: &[&str] = &[
     "Service",
     "Repository",
     "ExternalService",
+    // GraphRAG (Documentation)
+    "Document",
+    "DocChunk",
 ];
 
 /// Base columns shared by all node tables.
@@ -114,6 +117,7 @@ pub fn fts_queries() -> Vec<String> {
         "ViewModel", "DbEntity", "DbContext",
         "ScriptFile", "UiComponent", "Service", "Repository",
         "ExternalService",
+        "Document", "DocChunk",
     ];
     fts_tables
         .iter()
@@ -231,6 +235,9 @@ fn extra_columns_for(label: &str) -> String {
         "UiComponent" => "componentType STRING, boundModel STRING".to_string(),
         "Service" | "Repository" => "layerType STRING, implementsInterface STRING".to_string(),
         "ExternalService" => "serviceType STRING".to_string(),
+        // GraphRAG document types
+        "Document" => "title STRING, sourceUrl STRING".to_string(),
+        "DocChunk" => "title STRING, pageNumber INT32, embedding STRING".to_string(),
         // ScriptFile uses base columns only
         _ => String::new(),
     }
@@ -260,7 +267,7 @@ mod tests {
     #[test]
     fn test_fts_queries_count() {
         let queries = fts_queries();
-        assert_eq!(queries.len(), 17);
+        assert_eq!(queries.len(), 19);
     }
 
     #[test]

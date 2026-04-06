@@ -225,7 +225,7 @@ mod tests {
         let resp = handle_request(&req, &mut backend).await;
         let result = resp.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 13);
+        assert_eq!(tools.len(), 14);
     }
 
     #[tokio::test]

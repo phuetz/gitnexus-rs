@@ -285,7 +285,8 @@ pub async fn get_features(
     // Sort by member count descending
     features.sort_by(|a, b| b.member_count.cmp(&a.member_count));
 
-    // Limit to top 50
+    // Cap at 50 communities to keep the sidebar panel performant and avoid
+    // overwhelming the user with low-member groups.
     features.truncate(50);
 
     Ok(features)

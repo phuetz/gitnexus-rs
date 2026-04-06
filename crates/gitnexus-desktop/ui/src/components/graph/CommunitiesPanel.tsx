@@ -52,12 +52,14 @@ export function CommunitiesPanel() {
 
   return (
     <div
-      className="flex flex-col h-full border-l"
+      className="absolute top-4 right-4 z-20 flex flex-col shadow-lg transition-all"
       style={{
         width: 260,
-        background: "var(--bg-1)",
-        borderColor: "var(--surface-border)",
-        flexShrink: 0,
+        maxHeight: "calc(100% - 32px)",
+        background: "var(--glass-bg)",
+        backdropFilter: "blur(var(--glass-blur))",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-lg)",
       }}
     >
       {/* Header */}
@@ -130,7 +132,7 @@ export function CommunitiesPanel() {
                     className="text-[11px] font-medium truncate"
                     style={{
                       color: isSelected ? "var(--text-0)" : "var(--text-2)",
-                      maxWidth: 140,
+                      maxWidth: "var(--communities-name-max)",
                     }}
                   >
                     {feat.name}

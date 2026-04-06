@@ -24,6 +24,7 @@ import {
   Zap,
   Copy,
   Trash2,
+  Download,
 } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -334,23 +335,51 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
 
   return (
     <div className="h-full flex flex-col">
-      {/* Context filter bar + clear button */}
+      {/* Context filter bar + action buttons */}
       <div className="flex items-center">
         <div className="flex-1">
           <ChatContextBar />
         </div>
-        <button
-          onClick={() => {
-            setMessages([]);
-            localStorage.removeItem(storageKey);
-            toast.success(t("chat.conversationCleared"));
-          }}
-          className="text-xs hover-surface rounded px-2 py-1 mr-2"
-          style={{ color: "var(--text-3)" }}
-          aria-label="Clear conversation"
-        >
-          <Trash2 size={12} />
-        </button>
+        <div className="flex items-center gap-1 mr-2">
+          <button
+            onClick={() => {
+              const date = new Date().toISOString().split("T")[0];
+              const filename = `gitnexus-chat-${activeRepo || "global"}-${date}.md`;
+              const content = messages
+                .map((m) => `### ${m.role === "user" ? "You" : "GitNexus"}\n\n${m.content}\n`)
+                .join("\n---\n\n");
+              const blob = new Blob([content], { type: "text/markdown" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+              toast.success("Chat exported as Markdown");
+            }}
+            className="text-[11px] hover-surface rounded px-2 py-1"
+            style={{ color: "var(--text-3)" }}
+            title="Export chat as Markdown"
+            aria-label="Export chat"
+          >
+            <Download size={12} />
+          </button>
+          <button
+            onClick={() => {
+              setMessages([]);
+              localStorage.removeItem(storageKey);
+              toast.success(t("chat.conversationCleared"));
+            }}
+            className="text-[11px] hover-surface rounded px-2 py-1"
+            style={{ color: "var(--text-3)" }}
+            title={t("chat.clearConversation") || "Clear conversation"}
+            aria-label="Clear conversation"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -767,7 +796,7 @@ const markdownComponents: Partial<Components> = {
         {children}
       </pre>
       <button
-        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity px-2 py-1 rounded text-xs"
+        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity px-2 py-1 rounded text-[11px]"
         style={{ background: "var(--bg-3)", color: "var(--text-2)" }}
         onClick={() => {
           const text = extractTextFromChildren(children);

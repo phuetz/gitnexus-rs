@@ -1,4 +1,4 @@
-//! JSON Schema definitions for the 13 MCP tools.
+//! JSON Schema definitions for the 14 MCP tools.
 //!
 //! Each tool has a name, description, and inputSchema following the MCP spec.
 
@@ -11,7 +11,7 @@ pub struct ToolDefinition {
     pub input_schema: Value,
 }
 
-/// Return definitions for all 13 MCP tools.
+/// Return definitions for all 14 MCP tools.
 pub fn tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
@@ -288,6 +288,25 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        ToolDefinition {
+            name: "analyze_execution_trace",
+            description: "Analyze an execution trace (e.g., a JSON or NDJSON log file) to map chronological steps against the knowledge graph, retrieving the source code and parameter values for each step. Ideal for documenting business processes.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "trace_file": {
+                        "type": "string",
+                        "description": "Absolute path to the execution trace JSON/NDJSON file"
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    }
+                },
+                "required": ["trace_file"],
+                "additionalProperties": false
+            }),
+        },
     ]
 }
 
@@ -313,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_tool_definitions_count() {
-        assert_eq!(tool_definitions().len(), 13);
+        assert_eq!(tool_definitions().len(), 14);
     }
 
     #[test]
@@ -333,13 +352,14 @@ mod tests {
         assert!(names.contains(&"coverage"));
         assert!(names.contains(&"diagram"));
         assert!(names.contains(&"report"));
+        assert!(names.contains(&"analyze_execution_trace"));
     }
 
     #[test]
     fn test_tools_list_json() {
         let json = tools_list_json();
         let tools = json["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 13);
+        assert_eq!(tools.len(), 14);
         for tool in tools {
             assert!(tool.get("name").is_some());
             assert!(tool.get("description").is_some());

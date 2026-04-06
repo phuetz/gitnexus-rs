@@ -69,6 +69,11 @@ pub fn hint_for(tool_name: &str) -> &'static str {
              Use `hotspots` for file-level churn detail, `coupling` for \
              hidden dependencies, and `coverage` for dead code."
         }
+        "analyze_execution_trace" => {
+            "Review the timeline of the execution trace and the provided source code for each step. \
+             Use this information to write a comprehensive business process documentation, or use `context` \
+             to explore specific methods discovered in the trace."
+        }
         _ => "Use `list_repos` to see indexed repositories, or `query` to search.",
     }
 }
@@ -93,6 +98,7 @@ mod tests {
             "coverage",
             "diagram",
             "report",
+            "analyze_execution_trace",
         ];
         for tool in &tools {
             let hint = hint_for(tool);

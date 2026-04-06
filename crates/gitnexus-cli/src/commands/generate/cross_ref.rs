@@ -69,6 +69,14 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
             }
         }
     }
+    let processes_dir = docs_dir.join("processes");
+    if processes_dir.exists() {
+        for entry in std::fs::read_dir(&processes_dir)?.flatten() {
+            if entry.path().extension().is_some_and(|e| e == "md") {
+                files_to_process.push(entry.path());
+            }
+        }
+    }
 
     for file_path in &files_to_process {
         let content = std::fs::read_to_string(file_path)?;

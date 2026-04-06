@@ -125,6 +125,7 @@ gitnexus-mcp = { path = "crates/gitnexus-mcp" }
 gitnexus-query = { path = "crates/gitnexus-query" }
 gitnexus-git = { path = "crates/gitnexus-git" }
 gitnexus-output = { path = "crates/gitnexus-output" }
+gitnexus-rag = { path = "crates/gitnexus-rag" }
 
 [profile.release]
 lto = "thin"

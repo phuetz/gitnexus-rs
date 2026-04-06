@@ -6,3 +6,5 @@ pub mod pipeline;
 pub mod resolution;
 pub mod storage;
 pub mod symbol;
+pub mod process_doc;
+pub mod trace;

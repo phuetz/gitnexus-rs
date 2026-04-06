@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use colored::Colorize;
 
+use gitnexus_core::trace;
 use gitnexus_db::snapshot;
 
 pub fn run(log_file: &str, path: Option<&str>) -> Result<()> {
@@ -77,39 +78,10 @@ pub fn run(log_file: &str, path: Option<&str>) -> Result<()> {
     let mut unmatched = Vec::new();
     let mut updated_nodes = 0u32;
 
-    // Build a lookup: name -> node_id for fast matching
-    let mut name_to_ids: HashMap<String, Vec<String>> = HashMap::new();
-    for node in graph.iter_nodes() {
-        name_to_ids
-            .entry(node.properties.name.clone())
-            .or_default()
-            .push(node.id.clone());
-    }
+    let name_to_ids = trace::build_name_index(&graph);
 
     for (key, count) in &trace_counts {
-        let parts: Vec<&str> = key.split('.').collect();
-        if parts.len() != 2 {
-            continue;
-        }
-        let _class_name = parts[0];
-        let method_name = parts[1];
-
-        // Try to find the method in the graph
-        let found = if let Some(ids) = name_to_ids.get(method_name) {
-            // Prefer methods in the same class file
-            let mut best_id = None;
-            for id in ids {
-                if let Some(node) = graph.get_node(id) {
-                    if node.properties.file_path.contains(parts[0]) {
-                        best_id = Some(id.clone());
-                        break;
-                    }
-                }
-            }
-            best_id.or_else(|| ids.first().cloned())
-        } else {
-            None
-        };
+        let found = trace::resolve_method_node(&graph, &name_to_ids, key);
 
         if let Some(node_id) = found {
             matched += 1;

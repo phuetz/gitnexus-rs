@@ -7,7 +7,6 @@ import { useAppStore } from "../../stores/app-store";
 import { useSigma } from "../../hooks/use-sigma";
 import { commands } from "../../lib/tauri-commands";
 import { buildGraphologyGraph } from "../../lib/graph-adapter";
-import { FeatureNavigator } from "./FeatureNavigator";
 import { NodeHoverCard } from "./NodeHoverCard";
 import { TreemapView } from "./TreemapView";
 import { useI18n } from "../../hooks/use-i18n";
@@ -40,8 +39,6 @@ export function GraphExplorer() {
   const activeLens = useAppStore((s) => s.activeLens);
   const egoDepth = useAppStore((s) => s.egoDepth);
   const selectedFeatures = useAppStore((s) => s.selectedFeatures);
-  const toggleFeature = useAppStore((s) => s.toggleFeature);
-  const resetFeatures = useAppStore((s) => s.resetFeatures);
 
   // ── Local state ──────────────────────────────────────────────────
   const gs = useGraphState();
@@ -149,7 +146,7 @@ export function GraphExplorer() {
       if (result.upstream) mark(result.upstream);
       if (result.downstream) mark(result.downstream);
       setImpactNodeIds(map); setImpactOverlay(true); refresh();
-    } catch (e) { console.error("Impact analysis failed:", e); }
+    } catch (e) { console.error("Impact analysis failed:", e); toast.error(t("graph.impactFailed")); }
   }, [selectedNodeId, gs.impactOverlay, refresh, setImpactNodeIds, setImpactOverlay]);
 
   // ── Toolbar ───────────────────────────────────────────────────────
@@ -175,8 +172,7 @@ export function GraphExplorer() {
       {gs.viewMode === "treemap" ? (
         <div className="flex-1 relative"><TreemapView data={data} isLoading={isLoading} /></div>
       ) : (
-        <div className="flex flex-1 min-h-0">
-          <FeatureNavigator selectedFeatures={selectedFeatures} onToggleFeature={toggleFeature} onReset={resetFeatures} />
+        <div className="flex flex-1 min-h-0 relative">
           <div className="flex-1 relative" style={{ backgroundColor: "var(--bg-0)" }}>
             <div ref={containerRef} className="absolute inset-0" style={{ cursor: "grab" }} role="application" aria-label="Interactive code dependency graph" tabIndex={0} />
 
@@ -209,8 +205,8 @@ export function GraphExplorer() {
               onViewImpact={(nodeId, name) => { setSelectedNodeId(nodeId, name); setMode("explorer"); }}
               onExpandNeighbors={() => {}}
               onHideNode={(nodeId) => { const g = graphRef.current; if (g?.hasNode(nodeId)) { g.dropNode(nodeId); refresh(); } }}
-              onCopyName={(name) => { navigator.clipboard.writeText(name).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error("Copy failed")); }}
-              onCopyFilePath={(fp) => { navigator.clipboard.writeText(fp).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error("Copy failed")); }}
+              onCopyName={(name) => { navigator.clipboard.writeText(name).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error(t("graph.copyFailed"))); }}
+              onCopyFilePath={(fp) => { navigator.clipboard.writeText(fp).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error(t("graph.copyFailed"))); }}
             />
 
             <GraphMinimap visible={gs.minimapVisible} opacity={gs.minimapOpacity} onOpacityChange={gs.setMinimapOpacity} onClose={() => gs.setMinimapVisible(false)} sigmaRef={sigmaRef} graphRef={graphRef} />
@@ -225,8 +221,8 @@ export function GraphExplorer() {
             <GraphShortcutsOverlay visible={gs.shortcutsOpen} />
             <GraphZoomControls onZoomIn={zoomIn} onZoomOut={zoomOut} onFitView={fitView} legendExpanded={gs.legendExpanded} />
             <GraphLegend nodes={data?.nodes ?? []} expanded={gs.legendExpanded} onExpand={() => gs.setLegendExpanded(true)} onCollapse={() => gs.setLegendExpanded(false)} />
+            <CommunitiesPanel />
           </div>
-          <CommunitiesPanel />
         </div>
       )}
 

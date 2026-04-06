@@ -83,6 +83,39 @@ impl KnowledgeGraph {
         }
     }
 
+    /// Remove all nodes with a given label and their associated relationships.
+    /// Returns count of removed nodes.
+    ///
+    /// Uses a single relationship scan (O(M)) instead of per-node scans.
+    pub fn remove_nodes_by_label(&mut self, label: super::types::NodeLabel) -> usize {
+        let ids_to_remove: Vec<String> = self
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.label == label)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let count = ids_to_remove.len();
+        // Remove from node map and file index
+        for id in &ids_to_remove {
+            if let Some(node) = self.nodes.remove(id) {
+                if let Some(v) = self.file_index.get_mut(&node.properties.file_path) {
+                    v.retain(|nid| nid != id);
+                    if v.is_empty() {
+                        self.file_index.remove(&node.properties.file_path);
+                    }
+                }
+            }
+        }
+        // Single relationship scan
+        let id_set: std::collections::HashSet<&str> =
+            ids_to_remove.iter().map(|s| s.as_str()).collect();
+        self.relationships.retain(|_, rel| {
+            !id_set.contains(rel.source_id.as_str())
+                && !id_set.contains(rel.target_id.as_str())
+        });
+        count
+    }
+
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
@@ -219,6 +252,22 @@ mod tests {
         assert_eq!(graph.node_count(), 1);
         // Relationship involving removed node should also be gone
         assert_eq!(graph.relationship_count(), 0);
+    }
+
+    #[test]
+    fn test_remove_nodes_by_label() {
+        let mut graph = KnowledgeGraph::new();
+        graph.add_node(make_node("f1", NodeLabel::Function, "a.ts"));
+        graph.add_node(make_node("f2", NodeLabel::Function, "b.ts"));
+        graph.add_node(make_node("m1", NodeLabel::Method, "a.ts"));
+        graph.add_relationship(make_rel("r1", "f1", "m1", RelationshipType::Calls));
+        graph.add_relationship(make_rel("r2", "f2", "m1", RelationshipType::Calls));
+
+        let removed = graph.remove_nodes_by_label(NodeLabel::Function);
+        assert_eq!(removed, 2);
+        assert_eq!(graph.node_count(), 1); // only m1 remains
+        assert_eq!(graph.relationship_count(), 0); // all rels removed
+        assert!(graph.get_node("m1").is_some());
     }
 
     #[test]

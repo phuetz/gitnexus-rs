@@ -15,8 +15,8 @@ use super::markdown::{markdown_to_html, extract_title_from_md};
 pub(super) fn generate_html_site(
     graph: &KnowledgeGraph,
     repo_path: &Path,
+    docs_dir: &Path,
 ) -> Result<()> {
-    let docs_dir = repo_path.join(".gitnexus").join("docs");
     if !docs_dir.exists() {
         return Err(anyhow::anyhow!(
             "No docs found. Run 'generate docs' first."
@@ -54,6 +54,22 @@ pub(super) fn generate_html_site(
         }
     }
 
+    // Also read processes/ subdirectory
+    let processes_dir = docs_dir.join("processes");
+    if processes_dir.exists() {
+        for entry in std::fs::read_dir(&processes_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "md") {
+                let content = std::fs::read_to_string(&path)?;
+                let filename = path.file_stem().unwrap().to_string_lossy().to_string();
+                let title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());
+                let html = markdown_to_html(&content);
+                pages.insert(format!("processes/{}", filename), (title, html));
+            }
+        }
+    }
+
     if pages.is_empty() {
         return Err(anyhow::anyhow!(
             "No .md pages found in {}",
@@ -76,7 +92,7 @@ pub(super) fn generate_html_site(
 
     let mut overview_pages: Vec<_> = pages
         .iter()
-        .filter(|(k, _)| !k.starts_with("modules/"))
+        .filter(|(k, _)| !k.starts_with("modules/") && !k.starts_with("processes/"))
         .collect();
     // Sort by preferred order, then alphabetically for unlisted
     overview_pages.sort_by_key(|(k, _)| {
@@ -149,6 +165,22 @@ pub(super) fn generate_html_site(
         section_num += 1;
         sidebar_html.push_str(&format!("<div class=\"section-title\">{}. MODULES</div>\n", section_num));
         for (sub_idx, (id, (title, _))) in other_pages.iter().enumerate() {
+            sidebar_html.push_str(&format!(
+                "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{section_num}.{sub_num} {title}</a>\n",
+                sub_num = sub_idx + 1
+            ));
+        }
+    }
+
+    // Process pages
+    let process_pages: Vec<_> = pages
+        .iter()
+        .filter(|(k, _)| k.starts_with("processes/"))
+        .collect();
+    if !process_pages.is_empty() {
+        section_num += 1;
+        sidebar_html.push_str(&format!("<div class=\"section-title\">{}. BUSINESS PROCESSES</div>\n", section_num));
+        for (sub_idx, (id, (title, _))) in process_pages.iter().enumerate() {
             sidebar_html.push_str(&format!(
                 "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{section_num}.{sub_num} {title}</a>\n",
                 sub_num = sub_idx + 1

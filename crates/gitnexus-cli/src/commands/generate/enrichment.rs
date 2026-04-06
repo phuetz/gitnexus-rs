@@ -140,6 +140,7 @@ enum PageType {
     FunctionalGuide,
     ProjectHealth,
     Deployment,
+    ProcessDoc,
     Misc,
 }
 
@@ -232,6 +233,8 @@ fn classify_page(page_path: &Path) -> PageType {
         PageType::ProjectHealth
     } else if name == "deployment" {
         PageType::Deployment
+    } else if name.starts_with("process-") {
+        PageType::ProcessDoc
     } else {
         PageType::Misc
     }
@@ -917,6 +920,7 @@ pub(super) fn run_enrichment_if_enabled(
     enrich_profile: &str,
     enrich_lang: &str,
     enrich_citations: bool,
+    docs_dir: &Path,
 ) -> Result<()> {
     if !enrich {
         return Ok(());
@@ -954,7 +958,6 @@ pub(super) fn run_enrichment_if_enabled(
         enrich_profile
     );
 
-    let docs_dir = repo_path.join(".gitnexus").join("docs");
     let meta_dir = docs_dir.join("_meta");
     let cache_dir = meta_dir.join("cache");
     let mut provenance_entries: Vec<ProvenanceEntry> = Vec::new();
@@ -983,6 +986,16 @@ pub(super) fn run_enrichment_if_enabled(
             }
         }
     }
+    // Process pages
+    let processes_dir = docs_dir.join("processes");
+    if let Ok(entries) = std::fs::read_dir(&processes_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "md") {
+                pages.push(path);
+            }
+        }
+    }
 
     // Sort: leaf pages first, then overview/architecture last
     pages.sort_by(|a, b| {
@@ -991,7 +1004,7 @@ pub(super) fn run_enrichment_if_enabled(
         let order = |p: PageType| match p {
             PageType::Controller | PageType::Service | PageType::DataModel => 0,
             PageType::ExternalService | PageType::ViewTemplate | PageType::Deployment => 1,
-            PageType::Misc | PageType::ProjectHealth => 2,
+            PageType::Misc | PageType::ProjectHealth | PageType::ProcessDoc => 2,
             PageType::FunctionalGuide => 3,
             PageType::Architecture => 4,
             PageType::Overview => 5,

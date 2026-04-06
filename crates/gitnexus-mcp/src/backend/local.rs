@@ -113,6 +113,7 @@ impl LocalBackend {
             "coverage" => self.tool_coverage(args).await,
             "diagram" => self.tool_diagram(args).await,
             "report" => self.tool_report(args).await,
+            "analyze_execution_trace" => self.tool_analyze_execution_trace(args).await,
             _ => Err(McpError::UnknownTool(name.to_string())),
         }
     }
@@ -892,6 +893,85 @@ impl LocalBackend {
             }],
             "_meta": {
                 "hint": hints::hint_for("report")
+            }
+        }))
+    }
+
+    async fn tool_analyze_execution_trace(&mut self, args: &Value) -> Result<Value> {
+        let trace_file = args
+            .get("trace_file")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::InvalidArguments {
+                tool: "analyze_execution_trace".into(),
+                reason: "Missing required 'trace_file' parameter".into(),
+            })?;
+
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        
+        let (repo_path, snap_path) = {
+            let entry = self.resolve_repo(repo_name)?;
+            (
+                std::path::PathBuf::from(&entry.path),
+                std::path::Path::new(&entry.storage_path).join("graph.bin"),
+            )
+        };
+
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        let trace_path = std::path::Path::new(trace_file);
+        if !trace_path.exists() {
+            return Err(McpError::Internal(format!("Trace file not found: {}", trace_file)));
+        }
+
+        let trace_content = std::fs::read_to_string(trace_path)
+            .map_err(|e| McpError::Internal(format!("Failed to read trace file: {}", e)))?;
+
+        let steps = gitnexus_core::trace::parse_trace(&trace_content)
+            .map_err(|e| McpError::Internal(format!("Failed to parse trace: {}", e)))?;
+
+        let name_to_ids = gitnexus_core::trace::build_name_index(&graph);
+
+        let mut enriched_steps = Vec::new();
+        let mut matched = 0;
+
+        for step in steps {
+            let mut enriched_step = step.clone();
+            let method_name_opt = step.get("method").or(step.get("name")).and_then(|v| v.as_str());
+
+            if let Some(full_method_name) = method_name_opt {
+                if let Some(node_id) = gitnexus_core::trace::resolve_method_node(&graph, &name_to_ids, full_method_name) {
+                    if let Some(node) = graph.get_node(&node_id) {
+                        matched += 1;
+                        if let Some(obj) = enriched_step.as_object_mut() {
+                            obj.insert("nodeId".to_string(), json!(node_id));
+                            obj.insert("filePath".to_string(), json!(node.properties.file_path.clone()));
+                            obj.insert("startLine".to_string(), json!(node.properties.start_line));
+                            obj.insert("endLine".to_string(), json!(node.properties.end_line));
+
+                            let full_path = repo_path.join(&node.properties.file_path);
+                            if let (Some(start), Some(end)) = (node.properties.start_line, node.properties.end_line) {
+                                if let Some(source) = gitnexus_core::trace::extract_source_lines(&full_path, start, end) {
+                                    obj.insert("sourceCode".to_string(), json!(source));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            enriched_steps.push(enriched_step);
+        }
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&json!({
+                    "totalSteps": enriched_steps.len(),
+                    "matchedSteps": matched,
+                    "trace": enriched_steps
+                })).unwrap_or_default()
+            }],
+            "_meta": {
+                "hint": hints::hint_for("analyze_execution_trace")
             }
         }))
     }

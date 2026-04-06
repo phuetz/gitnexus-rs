@@ -5,7 +5,7 @@
 
 pub mod types;
 
-use types::{EmbeddingConfig, SemanticSearchResult};
+pub use types::{EmbeddingConfig, SemanticSearchResult};
 
 #[cfg(feature = "embeddings")]
 mod onnx {

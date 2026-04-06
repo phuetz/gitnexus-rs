@@ -1550,6 +1550,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "getopts"
+version = "0.2.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe4fbac503b8d1f88e6676011885f34b7174f46e59956bba534ba83abded4df"
+dependencies = [
+ "unicode-width 0.2.0",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1648,6 +1657,7 @@ dependencies = [
  "gitnexus-ingest",
  "gitnexus-mcp",
  "gitnexus-output",
+ "gitnexus-rag",
  "gitnexus-search",
  "glob",
  "indicatif",
@@ -1662,6 +1672,8 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+ "walkdir",
  "zip",
 ]
 
@@ -1669,6 +1681,8 @@ dependencies = [
 name = "gitnexus-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "once_cell",
  "regex",
  "serde",
  "serde_json",
@@ -1819,6 +1833,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gitnexus-rag"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pulldown-cmark",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 
@@ -3838,6 +3863,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "pulldown-cmark"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57206b407293d2bcd3af849ce869d52068623f19e1b5ff8e8778e3309439682b"
+dependencies = [
+ "bitflags 2.11.0",
+ "getopts",
+ "memchr",
+ "unicase",
 ]
 
 [[package]]

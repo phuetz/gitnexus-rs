@@ -18,8 +18,7 @@ use super::health::generate_project_health;
 use super::deployment::{generate_deployment_guide, describe_service_fr};
 use super::analytics::generate_git_analytics_pages;
 
-pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path) -> Result<()> {
-    let docs_dir = repo_path.join(".gitnexus").join("docs");
+pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: &Path) -> Result<()> {
     // Clean old generated files to avoid stale duplicates
     if docs_dir.exists() {
         let _ = std::fs::remove_dir_all(&docs_dir);

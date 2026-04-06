@@ -84,6 +84,11 @@ pub enum NodeLabel {
     Repository,
     /// External service/API endpoint (REST, SOAP, WCF)
     ExternalService,
+    // ── GraphRAG node types ──────────────────────────────────────
+    /// External documentation document
+    Document,
+    /// Chunk of a document for semantic search
+    DocChunk,
 }
 
 impl NodeLabel {
@@ -144,6 +149,8 @@ impl NodeLabel {
             Self::Service => "Service",
             Self::Repository => "Repository",
             Self::ExternalService => "ExternalService",
+            Self::Document => "Document",
+            Self::DocChunk => "DocChunk",
         }
     }
 
@@ -204,6 +211,8 @@ impl NodeLabel {
             "Service" => Some(Self::Service),
             "Repository" => Some(Self::Repository),
             "ExternalService" => Some(Self::ExternalService),
+            "Document" => Some(Self::Document),
+            "DocChunk" => Some(Self::DocChunk),
             _ => None,
         }
     }
@@ -276,6 +285,11 @@ pub enum RelationshipType {
     DependsOn,
     /// Code calls an external service (WebAPI, WCF, REST)
     CallsService,
+    // ── GraphRAG relationship types ─────────────────────────────
+    /// Chunk belongs to a Document
+    BelongsTo,
+    /// Chunk mentions a specific code symbol
+    Mentions,
 }
 
 impl RelationshipType {
@@ -315,6 +329,8 @@ impl RelationshipType {
             Self::RendersComponent => "RENDERS_COMPONENT",
             Self::DependsOn => "DEPENDS_ON",
             Self::CallsService => "CALLS_SERVICE",
+            Self::BelongsTo => "BELONGS_TO",
+            Self::Mentions => "MENTIONS",
         }
     }
 
@@ -354,6 +370,8 @@ impl RelationshipType {
             "RENDERS_COMPONENT" => Some(Self::RendersComponent),
             "DEPENDS_ON" => Some(Self::DependsOn),
             "CALLS_SERVICE" => Some(Self::CallsService),
+            "BELONGS_TO" => Some(Self::BelongsTo),
+            "MENTIONS" => Some(Self::Mentions),
             _ => None,
         }
     }
@@ -561,6 +579,27 @@ pub struct NodeProperties {
     /// External service type (WebAPI, WCF, REST)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_type: Option<String>,
+
+    // ── GraphRAG properties ──────────────────────────────────────
+    /// Document chunk text content
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+
+    /// Document title
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+
+    /// Page number or section index
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_number: Option<u32>,
+
+    /// Semantic embedding vector for chunks
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding: Option<Vec<f64>>,
+
+    /// Source URL for externally-sourced documents
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 // ─── Graph Node ──────────────────────────────────────────────────────────
@@ -640,6 +679,8 @@ mod tests {
             NodeLabel::ScriptFile, NodeLabel::AjaxCall, NodeLabel::UiComponent,
             NodeLabel::Service, NodeLabel::Repository,
             NodeLabel::ExternalService,
+            // GraphRAG types
+            NodeLabel::Document, NodeLabel::DocChunk,
         ];
         for label in &labels {
             let s = label.as_str();

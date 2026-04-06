@@ -102,6 +102,10 @@
   --mode-bar-width: 48px;
   --mode-bar-bg: var(--bg-0);
   --mode-icon-size: 20px;
+  --mode-active-bar: 3px solid var(--accent);
+
+  /* Layout constraints */
+  --communities-name-max: 140px;
 
   /* Ego-network */
   --ego-full-opacity: 1.0;

@@ -98,14 +98,25 @@ pub(super) fn sanitize_filename(name: &str) -> String {
 }
 
 /// Escape a label for safe use inside Mermaid `["..."]` quoted strings.
-/// Replaces special characters with Mermaid HTML entity syntax to avoid
-/// breaking the diagram parser.
+/// Replaces special characters with HTML entities (`&amp;`, `&lt;`, etc.) —
+/// the form that Mermaid documents and that survives downstream consumers
+/// like SVG export, HTML fallback rendering and tooltip text.
+///
+/// A previous version of this helper emitted `#amp;` / `#quot;` / `#lt;` /
+/// `#gt;`. The `#`-prefixed form is an undocumented Mermaid shortcut that
+/// only works inside the live flowchart renderer — any post-render path
+/// that treats the label as text (e.g. our own `strip_html_tags` search
+/// index, the DOCX exporter) shows the literal `#amp;` to the user. Use
+/// the canonical HTML entity form to stay consistent with the rest of the
+/// codebase (`process_doc.rs`, `diagram.rs`, `export.rs`, `process.rs`).
 pub(super) fn escape_mermaid_label(label: &str) -> String {
     label
-        .replace('&', "#amp;")
-        .replace('"', "#quot;")
-        .replace('<', "#lt;")
-        .replace('>', "#gt;")
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('[', "&#91;")
+        .replace(']', "&#93;")
         .replace('\n', " ")
         .replace('\r', "")
 }
@@ -142,9 +153,20 @@ pub(super) fn extract_params_from_content(params_str: &str, _method_name: &str) 
     let params: Vec<String> = params_str
         .split(',')
         .map(|p| {
-            let parts: Vec<&str> = p.split_whitespace().collect();
+            // Strip default values: "string nia = null" → "string nia"
+            let p_clean = p.split('=').next().unwrap_or(p).trim();
+            let parts: Vec<&str> = p_clean.split_whitespace().collect();
             if parts.len() >= 2 {
-                format!("`{}` {}", parts[0], parts[parts.len() - 1])
+                // Walk from the END: parameter name is the last token, type
+                // is the token immediately before it. Anything earlier is a
+                // modifier (`out`, `ref`, `in`, `params`) or an attribute
+                // (`[FromBody]`, `[Required]`). Same fix as
+                // `extract_all_method_signatures` — keep the three helpers in
+                // sync so `[FromBody] UserModel user` renders as
+                // `` `UserModel` user`` instead of `` `[FromBody]` user``.
+                let param_name = parts[parts.len() - 1];
+                let type_name = parts[parts.len() - 2];
+                format!("`{}` {}", type_name, param_name)
             } else if parts.len() == 1 {
                 format!("`{}`", parts[0])
             } else {
@@ -156,8 +178,15 @@ pub(super) fn extract_params_from_content(params_str: &str, _method_name: &str) 
     params.join(", ")
 }
 
-/// Format method parameters with links to known entity types.
-/// "DossierPresta dossier, string id" → "[`DossierPresta`](./data-alisev2entities.md) dossier, `string` id"
+/// Format method parameters, highlighting parameters whose type matches a
+/// known entity/model so the reader can spot domain types at a glance.
+///
+/// Earlier versions of this helper emitted a markdown link to a hard-coded
+/// data model page (`./modules/data-alisev2entities.md`) which only existed
+/// in one specific consumer's deployment. Generating those links for any
+/// other project produced broken navigation across every controller page,
+/// so we now bold known types instead — visually distinct without lying
+/// about a destination page that may not exist.
 pub(super) fn extract_params_linked(params_str: &str, known_types: &HashSet<String>) -> String {
     if params_str.is_empty() {
         return "-".to_string();
@@ -166,13 +195,23 @@ pub(super) fn extract_params_linked(params_str: &str, known_types: &HashSet<Stri
     let params: Vec<String> = params_str
         .split(',')
         .map(|p| {
-            let parts: Vec<&str> = p.split_whitespace().collect();
+            // Strip default values: "string nia = null" → "string nia"
+            let p_clean = p.split('=').next().unwrap_or(p).trim();
+            let parts: Vec<&str> = p_clean.split_whitespace().collect();
             if parts.len() >= 2 {
-                let type_name = parts[0];
+                // Walk from the END: parameter name is the last token, type
+                // is the token immediately before it. Anything earlier is a
+                // modifier (`out`, `ref`, `in`, `params`) or an attribute
+                // (`[FromBody]`, `[Required]`). Same fix as
+                // `extract_all_method_signatures` — previously `parts[0]`
+                // was treated as the type, so `[FromBody] UserModel user`
+                // rendered as `` `[FromBody]` user`` and `out int result`
+                // rendered as `` `out` result``, losing the actual type and
+                // defeating the known-type highlighting.
                 let param_name = parts[parts.len() - 1];
-                // Check if the type is a known entity/model → make it a link
+                let type_name = parts[parts.len() - 2];
                 if known_types.contains(type_name) {
-                    format!("[{}](./modules/data-alisev2entities.md#{}) {}", type_name, type_name, param_name)
+                    format!("**`{}`** {}", type_name, param_name)
                 } else {
                     format!("`{}` {}", type_name, param_name)
                 }
@@ -240,8 +279,18 @@ pub(super) fn extract_all_method_signatures(source: &str, method_name: &str) -> 
                         .replace("System.Threading.Tasks.", "");
                     let parts: Vec<&str> = p_clean.split_whitespace().collect();
                     if parts.len() >= 2 {
-                        let type_name = parts[0];
-                        let param_name = parts[1]; // Name is always the second word
+                        // Walk from the END of the token list: the parameter
+                        // name is always the last token, the type is the
+                        // token immediately before it. Anything earlier is a
+                        // modifier (`out`, `ref`, `in`, `params`) or an
+                        // attribute (`[FromBody]`, `[Required]`). The
+                        // previous implementation took `parts[0]` as the
+                        // type and `parts[1]` as the name, so
+                        // `[FromBody] string name` rendered as
+                        // `` `[FromBody]` string`` and `out int result`
+                        // rendered as `` `out` int``.
+                        let param_name = parts[parts.len() - 1];
+                        let type_name = parts[parts.len() - 2];
                         format!("`{}` {}", type_name, param_name)
                     } else if parts.len() == 1 {
                         format!("`{}`", parts[0])

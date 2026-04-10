@@ -20,7 +20,7 @@ pub async fn get_diagram(
     target: String,
     diagram_type: Option<String>,
 ) -> Result<DiagramResult, String> {
-    let (graph, _, _, _) = state.get_repo(None).await?;
+    let (graph, indexes, _, _) = state.get_repo(None).await?;
     let dtype = diagram_type.as_deref().unwrap_or("flowchart");
 
     // Find the target symbol
@@ -47,46 +47,50 @@ pub async fn get_diagram(
     lines.push(format!(
         "    {}[\"{}\"]",
         sanitize(node_id),
-        node_name
+        escape_label(node_name)
     ));
 
-    // Collect methods of this class/controller
-    let methods: Vec<_> = graph
-        .iter_relationships()
-        .filter(|r| {
-            &r.source_id == node_id
-                && matches!(
-                    r.rel_type,
-                    RelationshipType::HasMethod | RelationshipType::HasAction
-                )
+    // Collect methods of this class/controller via the outgoing index (O(degree)).
+    // Previously this scanned the full relationship list inside an N*E loop.
+    let empty_outgoing: Vec<(String, RelationshipType)> = Vec::new();
+    let outgoing = indexes.outgoing.get(node_id).unwrap_or(&empty_outgoing);
+    let methods: Vec<String> = outgoing
+        .iter()
+        .filter(|(_, rel_type)| {
+            matches!(
+                rel_type,
+                RelationshipType::HasMethod | RelationshipType::HasAction
+            )
         })
+        .map(|(target_id, _)| target_id.clone())
         .collect();
 
-    for method_rel in &methods {
-        if let Some(method) = graph.get_node(&method_rel.target_id) {
+    for method_id in &methods {
+        if let Some(method) = graph.get_node(method_id) {
             lines.push(format!(
                 "    {} --> {}[\"{}\"]",
                 sanitize(node_id),
-                sanitize(&method_rel.target_id),
-                method.properties.name,
+                sanitize(method_id),
+                escape_label(&method.properties.name),
             ));
 
-            // Find outgoing calls from this method
-            for call in graph.iter_relationships() {
-                if call.source_id == method_rel.target_id
-                    && matches!(
-                        call.rel_type,
+            // Find outgoing calls from this method via the index
+            if let Some(method_outgoing) = indexes.outgoing.get(method_id) {
+                for (callee_id, rel_type) in method_outgoing {
+                    if !matches!(
+                        rel_type,
                         RelationshipType::Calls
                             | RelationshipType::CallsAction
                             | RelationshipType::CallsService
-                    )
-                {
-                    if let Some(callee) = graph.get_node(&call.target_id) {
+                    ) {
+                        continue;
+                    }
+                    if let Some(callee) = graph.get_node(callee_id) {
                         lines.push(format!(
                             "    {} --> {}[\"{}\"]",
-                            sanitize(&call.source_id),
-                            sanitize(&call.target_id),
-                            callee.properties.name,
+                            sanitize(method_id),
+                            sanitize(callee_id),
+                            escape_label(&callee.properties.name),
                         ));
                     }
                 }
@@ -94,26 +98,25 @@ pub async fn get_diagram(
         }
     }
 
-    // If no methods found, show direct relationships
+    // If no methods found, show direct relationships from the start node.
     if methods.is_empty() {
-        for rel in graph.iter_relationships() {
-            if &rel.source_id == node_id
-                && matches!(
-                    rel.rel_type,
-                    RelationshipType::Calls
-                        | RelationshipType::Imports
-                        | RelationshipType::DependsOn
-                )
-            {
-                if let Some(target_node) = graph.get_node(&rel.target_id) {
-                    lines.push(format!(
-                        "    {} -->|{}| {}[\"{}\"]",
-                        sanitize(node_id),
-                        rel.rel_type.as_str(),
-                        sanitize(&rel.target_id),
-                        target_node.properties.name,
-                    ));
-                }
+        for (target_id, rel_type) in outgoing {
+            if !matches!(
+                rel_type,
+                RelationshipType::Calls
+                    | RelationshipType::Imports
+                    | RelationshipType::DependsOn
+            ) {
+                continue;
+            }
+            if let Some(target_node) = graph.get_node(target_id) {
+                lines.push(format!(
+                    "    {} -->|{}| {}[\"{}\"]",
+                    sanitize(node_id),
+                    rel_type.as_str(),
+                    sanitize(target_id),
+                    escape_label(&target_node.properties.name),
+                ));
             }
         }
     }
@@ -128,4 +131,16 @@ pub async fn get_diagram(
 
 fn sanitize(id: &str) -> String {
     id.replace([':', '/', '.', ' ', '<', '>', '(', ')', '{', '}'], "_")
+}
+
+/// Escape a string for inclusion inside a mermaid `["..."]` label.
+/// Mermaid does not understand `\"`, so we replace problematic characters with
+/// HTML entities (which mermaid renders correctly inside quoted labels).
+fn escape_label(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('[', "&#91;")
+        .replace(']', "&#93;")
 }

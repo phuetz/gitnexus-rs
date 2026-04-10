@@ -56,14 +56,29 @@ pub async fn get_code_health(
         }
     };
 
-    // Tracing coverage
-    let total_files = file_count as f64;
-    let traced_files = graph
+    // Tracing coverage: ratio of traced methods to total methods.
+    // Restrict the numerator to the same label set as the denominator —
+    // `is_traced` is also set on File nodes by `extract_tracing_info`, so
+    // an unfiltered count would mix methods + files and the ratio could
+    // exceed 1.0 (which then displays as >100% coverage).
+    let is_method_like = |label: &gitnexus_core::graph::types::NodeLabel| {
+        matches!(
+            label,
+            gitnexus_core::graph::types::NodeLabel::Method
+                | gitnexus_core::graph::types::NodeLabel::Function
+                | gitnexus_core::graph::types::NodeLabel::ControllerAction
+        )
+    };
+    let total_methods = graph
         .iter_nodes()
-        .filter(|n| n.properties.is_traced == Some(true))
+        .filter(|n| is_method_like(&n.label))
         .count() as f64;
-    let tracing_coverage = if total_files > 0.0 {
-        traced_files / total_files
+    let traced_methods = graph
+        .iter_nodes()
+        .filter(|n| is_method_like(&n.label) && n.properties.is_traced == Some(true))
+        .count() as f64;
+    let tracing_coverage = if total_methods > 0.0 {
+        traced_methods / total_methods
     } else {
         0.0
     };
@@ -123,7 +138,14 @@ pub async fn get_code_health(
 
     let overall_100 = (overall * 100.0).clamp(0.0, 100.0);
 
-    let grade = match overall_100 as u32 {
+    // Derive the grade from the same rounded value that is surfaced to the
+    // UI so the displayed score and letter grade can't disagree. Previously
+    // the grade came from `overall_100 as u32` (truncation) while the
+    // displayed score rounded to one decimal, so an `overall_100 = 89.95`
+    // reported `"90.0 / B"` — the score crossed the A boundary after
+    // rounding but the grade did not.
+    let overall_score = (overall_100 * 10.0).round() / 10.0;
+    let grade = match overall_score as u32 {
         90..=100 => "A",
         75..=89 => "B",
         60..=74 => "C",
@@ -132,7 +154,7 @@ pub async fn get_code_health(
     };
 
     Ok(CodeHealth {
-        overall_score: (overall_100 * 10.0).round() / 10.0,
+        overall_score,
         grade: grade.to_string(),
         hotspot_score: (hotspot_score * 100.0).round() / 100.0,
         cohesion_score: (cohesion_score * 100.0).round() / 100.0,

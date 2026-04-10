@@ -147,10 +147,31 @@ pub fn analyze_query_impl(
         tools.push("read_file_content".to_string());
     }
 
-    let estimated_steps = match complexity {
-        QueryComplexity::Simple => 1 + if has_filters { 1 } else { 0 },
-        QueryComplexity::Medium => 2 + if has_filters { 1 } else { 0 },
-        QueryComplexity::Complex => tools.len() as u32,
+    // Mirror exactly what `build_research_steps` will produce. The previous
+    // formula (1/2 + maybe +1 for filters) was off-by-one for every Simple
+    // and Medium branch that included a context or read step — the progress
+    // bar in the ResearchPlanViewer received a denominator that never lined
+    // up with the number of steps actually executed.
+    let estimated_steps = {
+        let has_context = tools.contains(&"get_symbol_context".to_string());
+        let has_read = tools.contains(&"read_file_content".to_string());
+        let has_cypher = tools.contains(&"execute_cypher".to_string());
+        let needs_impact = is_impact || is_refactor;
+
+        let mut count = 1u32; // search step is always present
+        if has_context {
+            count += 1;
+        }
+        if has_read {
+            count += 1;
+        }
+        if needs_impact {
+            count += 1;
+        }
+        if has_cypher {
+            count += 1;
+        }
+        count
     };
 
     Ok(QueryAnalysis {
@@ -215,7 +236,7 @@ fn build_research_steps(
     order += 1;
 
     // Step 2: If specific symbols are targeted, get their context
-    if analysis.suggested_tools.contains(&"get_symbol_context".to_string()) {
+    let ctx_step_id_opt = if analysis.suggested_tools.contains(&"get_symbol_context".to_string()) {
         let ctx_step_id = format!("{}-context", plan_id);
         steps.push(ResearchStep {
             id: ctx_step_id.clone(),
@@ -230,25 +251,43 @@ fn build_research_steps(
             result: None,
         });
         order += 1;
+        Some(ctx_step_id)
+    } else {
+        None
+    };
 
-        // Step 3: Read file content for the most relevant symbols
-        if analysis.suggested_tools.contains(&"read_file_content".to_string()) {
-            let read_step_id = format!("{}-read", plan_id);
-            steps.push(ResearchStep {
-                id: read_step_id.clone(),
-                order,
-                tool: "read_file_content".to_string(),
-                description: "Read source code of the most relevant symbols".to_string(),
-                params: serde_json::json!({
-                    "from_step": ctx_step_id,
-                    "max_files": 5
-                }),
-                depends_on: vec![ctx_step_id.clone()],
-                status: StepStatus::Pending,
-                result: None,
-            });
-            order += 1;
-        }
+    // Step 3: Read file content for the most relevant symbols. Previously
+    // this step was nested inside the `get_symbol_context` branch, so any
+    // analysis path that advertised `read_file_content` *without* also
+    // advertising `get_symbol_context` (e.g. the Simple+has_filters case at
+    // line ~118) silently dropped the read step — the tool was listed in
+    // `suggested_tools` but no ResearchStep was ever built for it, and the
+    // user's filter-scoped file read never happened. Pull the step out so
+    // it runs whenever the analyser asked for it, depending on the context
+    // step if present and falling back to the search step otherwise.
+    if analysis.suggested_tools.contains(&"read_file_content".to_string()) {
+        let read_step_id = format!("{}-read", plan_id);
+        let dep_id = ctx_step_id_opt.clone().unwrap_or_else(|| search_step_id.clone());
+        let params = match &ctx_step_id_opt {
+            Some(ctx_id) => serde_json::json!({
+                "from_step": ctx_id,
+                "max_files": 5
+            }),
+            None => serde_json::json!({
+                "max_files": 5
+            }),
+        };
+        steps.push(ResearchStep {
+            id: read_step_id,
+            order,
+            tool: "read_file_content".to_string(),
+            description: "Read source code of the most relevant symbols".to_string(),
+            params,
+            depends_on: vec![dep_id],
+            status: StepStatus::Pending,
+            result: None,
+        });
+        order += 1;
     }
 
     // Step 4: If impact analysis is needed
@@ -350,6 +389,31 @@ pub async fn chat_pick_files(
 
     let mut results: Vec<FileQuickPick> = Vec::new();
 
+    // Pre-compute symbol counts per file in a single O(N) pass over nodes.
+    // The previous implementation re-scanned the full node list for each
+    // matching file, producing O(files × nodes) work — a latency spike on
+    // large repositories.
+    let mut symbol_counts: std::collections::HashMap<&str, u32> =
+        std::collections::HashMap::new();
+    for node in graph.iter_nodes() {
+        if matches!(
+            node.label,
+            NodeLabel::Function
+                | NodeLabel::Method
+                | NodeLabel::Class
+                | NodeLabel::Struct
+                | NodeLabel::Enum
+                | NodeLabel::Interface
+                | NodeLabel::Trait
+                | NodeLabel::TypeAlias
+                | NodeLabel::Constructor
+        ) {
+            *symbol_counts
+                .entry(node.properties.file_path.as_str())
+                .or_default() += 1;
+        }
+    }
+
     // Collect unique file paths from the graph
     let mut seen_files = std::collections::HashSet::new();
     for node in graph.iter_nodes() {
@@ -366,14 +430,7 @@ pub async fn chat_pick_files(
             .unwrap_or(fp);
 
         if query.is_empty() || fp_lower.contains(&query_lower) || name.to_lowercase().contains(&query_lower) {
-            // Count symbols in this file
-            let symbol_count = graph.iter_nodes()
-                .filter(|n| n.properties.file_path == *fp && matches!(n.label,
-                    NodeLabel::Function | NodeLabel::Method | NodeLabel::Class |
-                    NodeLabel::Struct | NodeLabel::Enum | NodeLabel::Interface |
-                    NodeLabel::Trait | NodeLabel::TypeAlias | NodeLabel::Constructor
-                ))
-                .count() as u32;
+            let symbol_count = symbol_counts.get(fp.as_str()).copied().unwrap_or(0);
 
             // Detect language from extension
             let language = std::path::Path::new(fp)

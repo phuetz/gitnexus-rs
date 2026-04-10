@@ -25,6 +25,14 @@ pub struct LocalBackend {
     snapshot_cache: HashMap<PathBuf, Arc<KnowledgeGraph>>,
 }
 
+const MAX_QUERY_LIMIT: usize = 100;
+const MAX_ANALYTICS_LIMIT: usize = 100;
+const MAX_IMPACT_DEPTH: usize = 10;
+
+fn clamp_limit(raw: Option<u64>, default: usize, max: usize) -> usize {
+    raw.map(|v| v as usize).unwrap_or(default).clamp(1, max)
+}
+
 impl LocalBackend {
     /// Create a new LocalBackend.
     pub fn new() -> Self {
@@ -88,9 +96,18 @@ impl LocalBackend {
                 self.registry
                     .iter()
                     .find(|e| {
-                        e.name.to_lowercase() == lower
-                            || e.path.to_lowercase() == lower
-                            || e.path.to_lowercase().ends_with(&lower)
+                        // Exact name / exact path / suffix on a path-segment
+                        // boundary. Without the segment guard, "foo" would
+                        // also match "/repos/myfoo", silently selecting the
+                        // wrong repo for any name that's a tail substring.
+                        if e.name.to_lowercase() == lower {
+                            return true;
+                        }
+                        let path_lower = e.path.to_lowercase().replace('\\', "/");
+                        if path_lower == lower {
+                            return true;
+                        }
+                        path_lower.ends_with(&format!("/{}", lower))
                     })
                     .ok_or_else(|| McpError::RepoNotFound(name_or_path.to_string()))
             }
@@ -113,6 +130,7 @@ impl LocalBackend {
             "coverage" => self.tool_coverage(args).await,
             "diagram" => self.tool_diagram(args).await,
             "report" => self.tool_report(args).await,
+            "business" => self.tool_business(args).await,
             "analyze_execution_trace" => self.tool_analyze_execution_trace(args).await,
             _ => Err(McpError::UnknownTool(name.to_string())),
         }
@@ -159,10 +177,11 @@ impl LocalBackend {
             })?;
 
         let repo_name = args.get("repo").and_then(|v| v.as_str());
-        let limit = args
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10) as usize;
+        let limit = clamp_limit(
+            args.get("limit").and_then(|v| v.as_u64()),
+            10,
+            MAX_QUERY_LIMIT,
+        );
 
         let entry = self.resolve_repo(repo_name)?;
         let db_path = std::path::Path::new(&entry.storage_path).join("db");
@@ -268,7 +287,7 @@ impl LocalBackend {
         }))
     }
 
-    async fn tool_impact(&self, args: &Value) -> Result<Value> {
+    async fn tool_impact(&mut self, args: &Value) -> Result<Value> {
         let target = args
             .get("target")
             .and_then(|v| v.as_str())
@@ -285,51 +304,142 @@ impl LocalBackend {
         let max_depth = args
             .get("max_depth")
             .and_then(|v| v.as_u64())
-            .unwrap_or(5);
+            .unwrap_or(5)
+            .clamp(1, MAX_IMPACT_DEPTH as u64) as usize;
 
-        let entry = self.resolve_repo(repo_name)?;
-        let db_path = std::path::Path::new(&entry.storage_path).join("db");
-        let adapter = self.pool.get_or_open(&db_path).map_err(McpError::Db)?;
+        // Previously this tool issued Cypher queries with variable-length
+        // path syntax (`[r:CALLS|USES|IMPORTS*1..N]`). The default in-memory
+        // backend's Cypher executor only supports single relationship types
+        // and no variable-length paths, so the queries always failed to
+        // parse — and the `if let Ok(rows) = ...` pattern silently swallowed
+        // the parser error, leaving every caller with an empty result and no
+        // diagnostic. Implement the BFS directly against the loaded snapshot
+        // so the tool actually returns the blast radius.
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
+        let graph = self.load_cached_snapshot(&snap_path)?;
 
-        let escaped = query::escape_cypher_string(target);
+        // Find target node(s) by exact id, then by exact name (case-insensitive).
+        let target_lower = target.to_lowercase();
+        let target_ids: std::collections::HashSet<String> = graph
+            .iter_nodes()
+            .filter(|n| n.id == target || n.properties.name.to_lowercase() == target_lower)
+            .map(|n| n.id.clone())
+            .collect();
 
-        // Build blast radius queries based on direction
+        if target_ids.is_empty() {
+            return Err(McpError::Internal(format!(
+                "Symbol '{}' not found in graph",
+                target
+            )));
+        }
+
+        // Build forward (source -> targets) and reverse (target -> sources)
+        // adjacency only over the impact-bearing relationship types so the
+        // BFS doesn't drift into structural edges like HasMethod / Defines.
+        //
+        // Keep this set in sync with the canonical causal-edge filter used
+        // by `impact.rs::bfs_impact`, `impact_cmd.rs`, `shell.rs::cmd_impact`
+        // and `chat_executor.rs::execute_impact`. Previously this tool only
+        // walked Calls/Uses/Imports/CallsAction/CallsService/DependsOn,
+        // missing every impact that flows through inheritance (changing a
+        // base class affects subclasses), interface implementation, view
+        // rendering, routing, HTTP fetch, or entity mapping. Same root
+        // cause as #39, #52, #55 in the other impact code paths.
+        let want_rel = |rt: RelationshipType| {
+            matches!(
+                rt,
+                RelationshipType::Calls
+                    | RelationshipType::CallsAction
+                    | RelationshipType::CallsService
+                    | RelationshipType::Imports
+                    | RelationshipType::Uses
+                    | RelationshipType::DependsOn
+                    | RelationshipType::Inherits
+                    | RelationshipType::Implements
+                    | RelationshipType::Extends
+                    | RelationshipType::Overrides
+                    | RelationshipType::RendersView
+                    | RelationshipType::HandlesRoute
+                    | RelationshipType::Fetches
+                    | RelationshipType::MapsToEntity
+            )
+        };
+
+        let mut forward: HashMap<String, Vec<String>> = HashMap::new();
+        let mut reverse: HashMap<String, Vec<String>> = HashMap::new();
+        for rel in graph.iter_relationships() {
+            if !want_rel(rel.rel_type) {
+                continue;
+            }
+            forward
+                .entry(rel.source_id.clone())
+                .or_default()
+                .push(rel.target_id.clone());
+            reverse
+                .entry(rel.target_id.clone())
+                .or_default()
+                .push(rel.source_id.clone());
+        }
+
+        // BFS up to `max_depth`. Returns Vec<(node_id, depth)> in BFS order
+        // so the caller sees nearest neighbours first. The seed targets
+        // themselves are excluded from the result so callers don't show up
+        // as their own impact.
+        let bfs = |adjacency: &HashMap<String, Vec<String>>| -> Vec<(String, usize)> {
+            let mut visited: std::collections::HashSet<String> = target_ids.iter().cloned().collect();
+            let mut queue: std::collections::VecDeque<(String, usize)> =
+                target_ids.iter().map(|id| (id.clone(), 0usize)).collect();
+            let mut out: Vec<(String, usize)> = Vec::new();
+            while let Some((node, depth)) = queue.pop_front() {
+                if depth >= max_depth {
+                    continue;
+                }
+                if let Some(neighbors) = adjacency.get(&node) {
+                    for n in neighbors {
+                        if visited.insert(n.clone()) {
+                            out.push((n.clone(), depth + 1));
+                            queue.push_back((n.clone(), depth + 1));
+                        }
+                    }
+                }
+            }
+            out
+        };
+
+        let format_rows = |rows: Vec<(String, usize)>| -> Vec<Value> {
+            rows.into_iter()
+                .filter_map(|(id, depth)| {
+                    let node = graph.get_node(&id)?;
+                    Some(json!({
+                        "name": node.properties.name,
+                        "id": node.id,
+                        "filePath": node.properties.file_path,
+                        "label": node.label.as_str(),
+                        "depth": depth,
+                    }))
+                })
+                .collect()
+        };
+
         let mut all_results: Vec<Value> = Vec::new();
 
         if direction == "upstream" || direction == "both" {
-            // Find callers (upstream)
-            let upstream_query = format!(
-                "MATCH (caller)-[r:CALLS|USES|IMPORTS*1..{max_depth}]->(target) \
-                 WHERE target.name = '{escaped}' OR target.id = '{escaped}' \
-                 RETURN DISTINCT caller.name AS name, caller.id AS id, \
-                        caller.filePath AS filePath, labels(caller) AS label, \
-                        length(r) AS depth \
-                 ORDER BY depth ASC"
-            );
-            if let Ok(rows) = adapter.execute_query(&upstream_query) {
-                all_results.push(json!({
-                    "direction": "upstream",
-                    "callers": rows
-                }));
-            }
+            let callers = format_rows(bfs(&reverse));
+            all_results.push(json!({
+                "direction": "upstream",
+                "callers": callers,
+            }));
         }
 
         if direction == "downstream" || direction == "both" {
-            // Find callees (downstream)
-            let downstream_query = format!(
-                "MATCH (target)-[r:CALLS|USES|IMPORTS*1..{max_depth}]->(callee) \
-                 WHERE target.name = '{escaped}' OR target.id = '{escaped}' \
-                 RETURN DISTINCT callee.name AS name, callee.id AS id, \
-                        callee.filePath AS filePath, labels(callee) AS label, \
-                        length(r) AS depth \
-                 ORDER BY depth ASC"
-            );
-            if let Ok(rows) = adapter.execute_query(&downstream_query) {
-                all_results.push(json!({
-                    "direction": "downstream",
-                    "callees": rows
-                }));
-            }
+            let callees = format_rows(bfs(&forward));
+            all_results.push(json!({
+                "direction": "downstream",
+                "callees": callees,
+            }));
         }
 
         Ok(json!({
@@ -530,8 +640,8 @@ impl LocalBackend {
             .unwrap_or(90) as u32;
         let limit = args
             .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(20) as usize;
+            .and_then(|v| v.as_u64());
+        let limit = clamp_limit(limit, 20, MAX_ANALYTICS_LIMIT);
 
         let entry = self.resolve_repo(repo_name)?;
         let repo_path = std::path::Path::new(&entry.path);
@@ -567,8 +677,8 @@ impl LocalBackend {
             .unwrap_or(3) as u32;
         let limit = args
             .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(20) as usize;
+            .and_then(|v| v.as_u64());
+        let limit = clamp_limit(limit, 20, MAX_ANALYTICS_LIMIT);
 
         let entry = self.resolve_repo(repo_name)?;
         let repo_path = std::path::Path::new(&entry.path);
@@ -600,8 +710,8 @@ impl LocalBackend {
         let repo_name = args.get("repo").and_then(|v| v.as_str());
         let limit = args
             .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(20) as usize;
+            .and_then(|v| v.as_u64());
+        let limit = clamp_limit(limit, 20, MAX_ANALYTICS_LIMIT);
 
         let entry = self.resolve_repo(repo_name)?;
         let repo_path = std::path::Path::new(&entry.path);
@@ -639,25 +749,16 @@ impl LocalBackend {
 
         let graph = self.load_cached_snapshot(&snap_path)?;
 
-        // Build incoming calls index
-        let mut incoming_calls: HashMap<String, Vec<String>> = HashMap::new();
+        // Build class -> methods index. Dead-code status comes from the
+        // `is_dead_candidate` property already computed by the dead-code phase,
+        // so we no longer need to recompute incoming-call sets here.
         let mut class_methods: HashMap<String, Vec<String>> = HashMap::new();
-
         for rel in graph.iter_relationships() {
-            match rel.rel_type {
-                RelationshipType::Calls | RelationshipType::CallsAction => {
-                    incoming_calls
-                        .entry(rel.target_id.clone())
-                        .or_default()
-                        .push(rel.source_id.clone());
-                }
-                RelationshipType::HasMethod => {
-                    class_methods
-                        .entry(rel.source_id.clone())
-                        .or_default()
-                        .push(rel.target_id.clone());
-                }
-                _ => {}
+            if rel.rel_type == RelationshipType::HasMethod {
+                class_methods
+                    .entry(rel.source_id.clone())
+                    .or_default()
+                    .push(rel.target_id.clone());
             }
         }
 
@@ -675,8 +776,14 @@ impl LocalBackend {
                 let traced = methods.iter().filter(|mid| {
                     graph.get_node(mid).is_some_and(|n| n.properties.is_traced == Some(true))
                 }).count();
+                // Use the `is_dead_candidate` property computed by the dead-code phase,
+                // which correctly excludes entry points, tests, interface methods,
+                // view scripts, and ControllerAction-paired methods. Recomputing
+                // dead-status here from incoming_calls alone overcounts dead methods.
                 let dead = methods.iter().filter(|mid| {
-                    !incoming_calls.contains_key(*mid)
+                    graph.get_node(mid)
+                        .and_then(|n| n.properties.is_dead_candidate)
+                        .unwrap_or(false)
                 }).count();
 
                 json!({
@@ -696,7 +803,9 @@ impl LocalBackend {
                 .collect();
             let total = all_methods.len();
             let traced = all_methods.iter().filter(|n| n.properties.is_traced == Some(true)).count();
-            let dead = all_methods.iter().filter(|n| !incoming_calls.contains_key(&n.id)).count();
+            // Same fix as the per-class branch: use is_dead_candidate from the
+            // dead-code phase, which respects entry-point/test/interface exclusions.
+            let dead = all_methods.iter().filter(|n| n.properties.is_dead_candidate == Some(true)).count();
 
             json!({
                 "totalMethods": total,
@@ -729,6 +838,20 @@ impl LocalBackend {
         let repo_name = args.get("repo").and_then(|v| v.as_str());
         let diagram_type = args.get("type").and_then(|v| v.as_str()).unwrap_or("flowchart");
 
+        // The MCP diagram tool currently only emits Mermaid `graph TD` flowcharts.
+        // Reject other types up front instead of silently ignoring them — the
+        // previous behaviour echoed `diagramType` in `_meta` while always
+        // returning a flowchart, misleading callers.
+        if diagram_type != "flowchart" {
+            return Err(McpError::InvalidArguments {
+                tool: "diagram".into(),
+                reason: format!(
+                    "Unsupported diagram type '{}'; only 'flowchart' is supported",
+                    diagram_type
+                ),
+            });
+        }
+
         let snap_path = {
             let entry = self.resolve_repo(repo_name)?;
             std::path::Path::new(&entry.storage_path).join("graph.bin")
@@ -759,7 +882,11 @@ impl LocalBackend {
 
         let node_id = &start_node.id;
         let node_name = &start_node.properties.name;
-        lines.push(format!("    {}[\"{}\"]", sanitize_mermaid_id(node_id), node_name));
+        lines.push(format!(
+            "    {}[\"{}\"]",
+            sanitize_mermaid_id(node_id),
+            escape_mermaid_label(node_name)
+        ));
 
         // Pre-build set of child IDs to avoid O(E^2) inner loop
         let child_ids: std::collections::HashSet<&str> = graph.iter_relationships()
@@ -777,8 +904,10 @@ impl LocalBackend {
                             .unwrap_or("?");
                         lines.push(format!(
                             "    {}[\"{}\"] --> {}[\"{}\"]",
-                            sanitize_mermaid_id(&rel.source_id), src_name,
-                            sanitize_mermaid_id(&rel.target_id), target_node.properties.name,
+                            sanitize_mermaid_id(&rel.source_id),
+                            escape_mermaid_label(src_name),
+                            sanitize_mermaid_id(&rel.target_id),
+                            escape_mermaid_label(&target_node.properties.name),
                         ));
                     }
                 }
@@ -793,7 +922,7 @@ impl LocalBackend {
                             "    {} --> {}[\"{}\"]",
                             sanitize_mermaid_id(node_id),
                             sanitize_mermaid_id(&rel.target_id),
-                            member.properties.name,
+                            escape_mermaid_label(&member.properties.name),
                         ));
                     }
                 }
@@ -850,7 +979,14 @@ impl LocalBackend {
         score -= (orphan_files as f64) * 0.5;
         score = score.clamp(0.0, 100.0);
 
-        let grade = match score as u32 {
+        // Derive the grade from the same rounded value surfaced to the caller
+        // so the displayed score and letter grade can't disagree. Previously
+        // the grade came from `score as u32` (truncation) while the displayed
+        // score rounded to one decimal, so a raw score of 89.95 reported
+        // `"90.0" / "B"` — the score crossed the A boundary after rounding
+        // but the grade did not. Same bug pattern as health.rs / report.rs.
+        let rounded_score = (score * 10.0).round() / 10.0;
+        let grade = match rounded_score as u32 {
             90..=100 => "A",
             75..=89 => "B",
             60..=74 => "C",
@@ -860,7 +996,7 @@ impl LocalBackend {
 
         let report = json!({
             "grade": grade,
-            "score": (score * 10.0).round() / 10.0,
+            "score": rounded_score,
             "graph": {
                 "nodes": node_count,
                 "edges": edge_count,
@@ -918,12 +1054,28 @@ impl LocalBackend {
 
         let graph = self.load_cached_snapshot(&snap_path)?;
 
-        let trace_path = std::path::Path::new(trace_file);
-        if !trace_path.exists() {
-            return Err(McpError::Internal(format!("Trace file not found: {}", trace_file)));
+        // Resolve `trace_file` against the repo root and require the canonical
+        // path to stay inside the repo. Without this, an MCP client could
+        // supply an arbitrary absolute path (or `..`-laden relative path) and
+        // exfiltrate any file the server can read.
+        let candidate = if std::path::Path::new(trace_file).is_absolute() {
+            std::path::PathBuf::from(trace_file)
+        } else {
+            repo_path.join(trace_file)
+        };
+        let canonical_trace = candidate.canonicalize().map_err(|_| {
+            McpError::Internal(format!("Trace file not found: {}", trace_file))
+        })?;
+        let canonical_repo = repo_path.canonicalize().map_err(|e| {
+            McpError::Internal(format!("Failed to canonicalize repo path: {}", e))
+        })?;
+        if !canonical_trace.starts_with(&canonical_repo) {
+            return Err(McpError::Internal(
+                "trace_file must be a path inside the repository".to_string(),
+            ));
         }
 
-        let trace_content = std::fs::read_to_string(trace_path)
+        let trace_content = std::fs::read_to_string(&canonical_trace)
             .map_err(|e| McpError::Internal(format!("Failed to read trace file: {}", e)))?;
 
         let steps = gitnexus_core::trace::parse_trace(&trace_content)
@@ -948,10 +1100,24 @@ impl LocalBackend {
                             obj.insert("startLine".to_string(), json!(node.properties.start_line));
                             obj.insert("endLine".to_string(), json!(node.properties.end_line));
 
+                            // Path traversal guard: the graph node's file_path
+                            // comes from a snapshot that may contain `..`
+                            // segments (corrupted or hand-crafted), and we
+                            // mustn't let them escape the repo root and
+                            // exfiltrate arbitrary files into MCP responses.
                             let full_path = repo_path.join(&node.properties.file_path);
-                            if let (Some(start), Some(end)) = (node.properties.start_line, node.properties.end_line) {
-                                if let Some(source) = gitnexus_core::trace::extract_source_lines(&full_path, start, end) {
-                                    obj.insert("sourceCode".to_string(), json!(source));
+                            let source_safe = match (
+                                full_path.canonicalize().ok(),
+                                repo_path.canonicalize().ok(),
+                            ) {
+                                (Some(canon), Some(root)) => canon.starts_with(&root),
+                                _ => false,
+                            };
+                            if source_safe {
+                                if let (Some(start), Some(end)) = (node.properties.start_line, node.properties.end_line) {
+                                    if let Some(source) = gitnexus_core::trace::extract_source_lines(&full_path, start, end) {
+                                        obj.insert("sourceCode".to_string(), json!(source));
+                                    }
                                 }
                             }
                         }
@@ -975,10 +1141,129 @@ impl LocalBackend {
             }
         }))
     }
+
+    async fn tool_business(&mut self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let process_filter = args.get("process").and_then(|v| v.as_str());
+
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
+
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        let mut processes = Vec::new();
+
+        // Check for specific Alise business patterns in the graph
+        let has_courriers = graph.iter_nodes().any(|n| n.properties.name.contains("Courrier"));
+        let has_paiements = graph.iter_nodes().any(|n| n.properties.name.contains("Reglement") || n.properties.name.contains("Facture"));
+        let has_baremes = graph.iter_nodes().any(|n| n.properties.name.contains("Bareme"));
+        let has_fournisseurs = graph.iter_nodes().any(|n| n.properties.name.contains("Fournisseur"));
+
+        if has_courriers {
+            processes.push(json!({
+                "id": "courriers",
+                "name": "Système de Courriers",
+                "description": "Génération de courriers officiels (Accord, Refus, etc.) via Aspose.Words."
+            }));
+        }
+        if has_paiements {
+            processes.push(json!({
+                "id": "paiements",
+                "name": "Cycle de Paiement",
+                "description": "Flux financier complet : de la facture à l'export ELODIE."
+            }));
+        }
+        if has_baremes {
+            processes.push(json!({
+                "id": "baremes",
+                "name": "Calcul des Barèmes",
+                "description": "Moteur de calcul des droits et plafonds d'aide sociale."
+            }));
+        }
+        if has_fournisseurs {
+            processes.push(json!({
+                "id": "fournisseurs",
+                "name": "Gestion des Fournisseurs",
+                "description": "Référentiel des prestataires de services et coordonnées bancaires."
+            }));
+        }
+
+        let result = if let Some(filter) = process_filter {
+            let filter_lower = filter.to_lowercase();
+            match filter_lower.as_str() {
+                "courriers" if has_courriers => json!({
+                    "id": "courriers",
+                    "title": "Système de Courriers",
+                    "details": "L'application gère 11 types de courriers. Processus : Sélection destinataires -> Mail Merge (ELODIE variables) -> Génération PDF -> Archivage.",
+                    "key_entities": ["CourrierController", "RegleCourrierMasse", "CourrierGenerer"]
+                }),
+                "paiements" | "paiement" if has_paiements => json!({
+                    "id": "paiements",
+                    "title": "Cycle de Paiement",
+                    "details": "États : DemPaiemVal (Création) -> DemGrPrVal (Groupé) -> DemTransmiseELODIE (Export). Export vers ELODIE via Flux3 Excel.",
+                    "key_entities": ["FacturesController", "FactureService", "ElodieService"]
+                }),
+                "baremes" | "bareme" if has_baremes => json!({
+                    "id": "baremes",
+                    "title": "Calcul des Barèmes",
+                    "details": "Calcul basé sur le quotient familial (Ressources / Parts). Détermine le TauxFASS et les plafonds de prise en charge.",
+                    "key_entities": ["Bareme", "Tranche", "CalculService"]
+                }),
+                "fournisseurs" if has_fournisseurs => json!({
+                    "id": "fournisseurs",
+                    "title": "Gestion des Fournisseurs",
+                    "details": "Gestion des tiers payés par la CMCAS. Inclut la recherche, l'historique de paiement et les RIB.",
+                    "key_entities": ["Fournisseur", "IBAN", "FournisseurController"]
+                }),
+                _ => json!({
+                    "error": format!("Processus '{}' non trouvé ou non applicable à ce projet.", filter),
+                    "available_processes": processes
+                })
+            }
+        } else {
+            json!({
+                "available_processes": processes,
+                "total_found": processes.len()
+            })
+        };
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&result).unwrap_or_default()
+            }],
+            "_meta": {
+                "hint": hints::hint_for("business")
+            }
+        }))
+    }
 }
 
 fn sanitize_mermaid_id(id: &str) -> String {
     id.replace([':', '/', '.', ' ', '<', '>', '(', ')', '{', '}'], "_")
+}
+
+/// Escape characters that would break a Mermaid `["..."]` label literal.
+/// `sanitize_mermaid_id` is for *identifiers*; this is for the *display label*
+/// shown to the user, which must preserve the original characters where
+/// possible while not breaking Mermaid's parser.
+///
+/// Previously this only replaced `"` with `#quot;`, which left every other
+/// problem character (`&`, `<`, `>`, `[`, `]`) to corrupt the label and broke
+/// C# generics like `List<string>`, indexers like `Foo[int]`, and any symbol
+/// name containing ampersands. We now use the standard HTML entity form
+/// (`&amp;`, `&quot;`, `&lt;`, `&gt;`, `&#91;`, `&#93;`) to match the rest of
+/// the codebase (`process_doc.rs`, `process.rs`, `diagram.rs`, `export.rs`,
+/// `generate_aspnet.rs`, `generate/utils.rs`).
+fn escape_mermaid_label(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('[', "&#91;")
+        .replace(']', "&#93;")
 }
 
 impl Default for LocalBackend {

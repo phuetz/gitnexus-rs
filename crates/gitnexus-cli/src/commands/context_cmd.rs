@@ -99,8 +99,17 @@ pub async fn run(name: &str, repo: Option<&str>) -> anyhow::Result<()> {
         }
     }
 
+    if !other_in.is_empty() {
+        println!("\nIncoming relationships:");
+        for (sid, rtype) in &other_in {
+            if let Some(s) = graph.get_node(sid) {
+                println!("  <--[{}]-- {} {}", rtype.as_str(), s.label.as_str(), s.properties.name);
+            }
+        }
+    }
+
     if !other_out.is_empty() {
-        println!("\nOther relationships:");
+        println!("\nOutgoing relationships:");
         for (tid, rtype) in &other_out {
             if let Some(t) = graph.get_node(tid) {
                 println!("  --[{}]--> {} {}", rtype.as_str(), t.label.as_str(), t.properties.name);

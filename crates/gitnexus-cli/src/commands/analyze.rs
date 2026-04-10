@@ -138,9 +138,8 @@ pub async fn run(
 }
 
 fn chrono_now() -> String {
-    // Simple ISO 8601 timestamp without chrono dependency
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{}Z", now.as_secs())
+    // Produce a proper RFC 3339 / ISO 8601 timestamp like "2026-04-06T08:30:00Z".
+    // The previous "Unix epoch + Z" output is not a valid date string and
+    // breaks consumers (desktop registry display, JSON-driven tooling).
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }

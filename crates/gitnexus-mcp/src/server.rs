@@ -48,7 +48,10 @@ pub async fn start_mcp_server(mut backend: LocalBackend) -> crate::error::Result
                             Ok(request) => {
                                 let response = handle_request(&request, &mut backend).await;
                                 let response_json = serde_json::to_string(&response)
-                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Serialization error"}}"#.to_string());
+                                    // Fallback must include "id":null to remain a valid
+                                    // JSON-RPC 2.0 response object — strict clients drop
+                                    // responses that omit it.
+                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Serialization error"}}"#.to_string());
                                 if let Err(e) = transport.send_message(&response_json).await {
                                     error!("Failed to send response: {e}");
                                     break;
@@ -225,7 +228,7 @@ mod tests {
         let resp = handle_request(&req, &mut backend).await;
         let result = resp.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 14);
+        assert_eq!(tools.len(), 15);
     }
 
     #[tokio::test]
@@ -243,7 +246,7 @@ mod tests {
         let resp = handle_request(&req, &mut backend).await;
         let result = resp.result.unwrap();
         let prompts = result["prompts"].as_array().unwrap();
-        assert_eq!(prompts.len(), 5);
+        assert_eq!(prompts.len(), 6);
     }
 
     #[tokio::test]

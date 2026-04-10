@@ -92,24 +92,8 @@ fn find_community(
     indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     node_id: &str,
 ) -> Option<CommunityInfo> {
-    // Check incoming MEMBER_OF relationships
-    if let Some(ins) = indexes.incoming.get(node_id) {
-        for (source_id, rel_type) in ins {
-            if *rel_type == RelationshipType::MemberOf {
-                if let Some(community_node) = graph.get_node(source_id) {
-                    return Some(CommunityInfo {
-                        id: community_node.id.clone(),
-                        name: community_node.properties.name.clone(),
-                        description: community_node.properties.description.clone(),
-                        member_count: community_node.properties.symbol_count,
-                        cohesion: community_node.properties.cohesion,
-                    });
-                }
-            }
-        }
-    }
-
-    // Check outgoing MEMBER_OF relationships
+    // MEMBER_OF edges go: member --MEMBER_OF--> community
+    // So we check outgoing edges from this node to find its community.
     if let Some(outs) = indexes.outgoing.get(node_id) {
         for (target_id, rel_type) in outs {
             if *rel_type == RelationshipType::MemberOf {

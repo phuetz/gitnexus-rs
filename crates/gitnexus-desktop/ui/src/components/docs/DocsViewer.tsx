@@ -10,7 +10,7 @@
  *  └──────────┴───────────────────────────────┘
  */
 
-import { useState, useCallback } from "react";
+import { lazy, Suspense, useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, RefreshCw, Sparkles, MessageSquare, Package, Link2, FileText as FileTextIcon, MessageCircle } from "lucide-react";
 import { commands, type RepoInfo } from "../../lib/tauri-commands";
@@ -18,8 +18,14 @@ import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 import { DocsNav, type DocPage } from "./DocsNav";
 import { DocsContent } from "./DocsContent";
-import { ChatPanel } from "../chat/ChatPanel";
-import { ChatSettings } from "../chat/ChatSettings";
+import { LoadingOrbs } from "../shared/LoadingOrbs";
+
+const ChatPanel = lazy(() =>
+  import("../chat/ChatPanel").then((m) => ({ default: m.ChatPanel })),
+);
+const ChatSettings = lazy(() =>
+  import("../chat/ChatSettings").then((m) => ({ default: m.ChatSettings })),
+);
 
 export function DocsViewer() {
   const { t } = useI18n();
@@ -28,6 +34,11 @@ export function DocsViewer() {
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const queryClient = useQueryClient();
+  const docsFallback = (
+    <div className="flex items-center justify-center h-full">
+      <LoadingOrbs />
+    </div>
+  );
 
   // Fetch doc index
   const {
@@ -39,12 +50,15 @@ export function DocsViewer() {
     enabled: !!activeRepo,
   });
 
-  // Fetch active page content
+  // Fetch active page content.
+  // Scope by `activeRepo` so two repos that share a doc filename (common:
+  // `overview.md`, `architecture.md`) don't serve the previously opened
+  // repo's cached markdown when the user switches.
   const {
     data: pageContent,
     isLoading: contentLoading,
   } = useQuery({
-    queryKey: ["doc-content", activePath],
+    queryKey: ["doc-content", activeRepo, activePath],
     queryFn: () => commands.readDoc(activePath!),
     enabled: !!activePath,
     staleTime: Infinity,
@@ -216,7 +230,9 @@ export function DocsViewer() {
       <div className="flex-1 flex flex-col min-h-0">
         {chatOpen ? (
           /* Chat mode — full content area becomes chat */
-          <ChatPanel onOpenSettings={() => setSettingsOpen(true)} />
+          <Suspense fallback={docsFallback}>
+            <ChatPanel onOpenSettings={() => setSettingsOpen(true)} />
+          </Suspense>
         ) : (
           /* Docs mode — normal content viewer */
           <div className="flex-1 overflow-y-auto">
@@ -238,7 +254,11 @@ export function DocsViewer() {
       </div>
 
       {/* Settings modal */}
-      {settingsOpen && <ChatSettings onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <Suspense fallback={docsFallback}>
+          <ChatSettings onClose={() => setSettingsOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -69,13 +69,26 @@ pub fn detect_framework_from_path(path: &str) -> Option<FrameworkHint> {
     }
 
     // ── Express / Node.js ────────────────────────────────────────────────
-    if segments.contains(&"routes") || segments.contains(&"controllers") {
+    //
+    // Gate Express detection on a JS/TS extension. Without the extension
+    // guard, every file inside a `controllers/` directory matched here first
+    // and short-circuited the language-specific checks below — so a Spring
+    // `controllers/UserController.java`, a Laravel `app/Http/Controllers/
+    // UserController.php`, or a Rails `controllers/users_controller.rb`
+    // was misclassified as "Express/Node.js route or controller".
+    let is_js_like = path_lower.ends_with(".js")
+        || path_lower.ends_with(".mjs")
+        || path_lower.ends_with(".cjs")
+        || path_lower.ends_with(".ts")
+        || path_lower.ends_with(".tsx")
+        || path_lower.ends_with(".jsx");
+    if is_js_like && (segments.contains(&"routes") || segments.contains(&"controllers")) {
         return Some(FrameworkHint {
             multiplier: 1.5,
             reason: "Express/Node.js route or controller".into(),
         });
     }
-    if segments.contains(&"middleware") || segments.contains(&"middlewares") {
+    if is_js_like && (segments.contains(&"middleware") || segments.contains(&"middlewares")) {
         return Some(FrameworkHint {
             multiplier: 1.3,
             reason: "Express/Node.js middleware".into(),

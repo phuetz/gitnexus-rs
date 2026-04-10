@@ -18,6 +18,7 @@ import {
 import { commands } from "../../lib/tauri-commands";
 import type { SymbolQuickPick } from "../../lib/tauri-commands";
 import { useChatStore } from "../../stores/chat-store";
+import { useAppStore } from "../../stores/app-store";
 
 interface SymbolFilterModalProps {
   open: boolean;
@@ -25,6 +26,7 @@ interface SymbolFilterModalProps {
 }
 
 export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
+  const activeRepo = useAppStore((s) => s.activeRepo);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -32,8 +34,10 @@ export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
 
   const { filters, addSymbolFilter, removeSymbolFilter } = useChatStore();
 
+  // Scope by `activeRepo` so switching repos doesn't return the previous
+  // repo's cached symbol picks for the same query.
   const { data: results = [], isLoading } = useQuery({
-    queryKey: ["chatPickSymbols", query],
+    queryKey: ["chatPickSymbols", activeRepo, query],
     queryFn: () => commands.chatPickSymbols(query, undefined, 40),
     enabled: open,
     staleTime: 2000,

@@ -575,28 +575,34 @@ pub fn extract_script_blocks(content: &str) -> Vec<(usize, String)> {
 ///
 /// Returns the concatenated C# code suitable for tree-sitter parsing.
 /// Uses brace-counting instead of regex to handle arbitrarily nested braces.
+///
+/// Operates on byte indices throughout so the function is safe on Razor files
+/// containing multi-byte UTF-8 characters (accented identifiers, Unicode quotes,
+/// emoji in comments, etc.). All sentinels we look for (`@`, `{`, `}`, ASCII
+/// whitespace) are single-byte ASCII, so byte comparison cannot misfire on a
+/// UTF-8 continuation byte.
 pub fn extract_csharp_blocks(content: &str) -> String {
     let mut code = String::new();
-    let chars: Vec<char> = content.chars().collect();
-    let len = chars.len();
+    let bytes = content.as_bytes();
+    let len = bytes.len();
     let mut i = 0;
 
     while i < len {
         // Look for @code, @functions, or standalone @{
-        if chars[i] == '@' && i + 1 < len {
+        if bytes[i] == b'@' && i + 1 < len {
             let rest = &content[i..];
 
             let is_code_block = rest.starts_with("@code") && {
                 let after = i + 5;
                 after < len
-                    && (chars[after].is_whitespace() || chars[after] == '{')
+                    && (bytes[after].is_ascii_whitespace() || bytes[after] == b'{')
             };
             let is_functions_block = rest.starts_with("@functions") && {
                 let after = i + 10;
                 after < len
-                    && (chars[after].is_whitespace() || chars[after] == '{')
+                    && (bytes[after].is_ascii_whitespace() || bytes[after] == b'{')
             };
-            let is_inline_block = chars[i + 1] == '{';
+            let is_inline_block = bytes[i + 1] == b'{';
 
             if is_code_block || is_functions_block || is_inline_block {
                 // Find the opening brace
@@ -608,23 +614,26 @@ pub fn extract_csharp_blocks(content: &str) -> String {
                     i + 1
                 };
 
-                if let Some(brace_start) = chars[search_from..].iter().position(|&c| c == '{') {
-                    let brace_start = search_from + brace_start;
+                if let Some(brace_offset) =
+                    bytes[search_from..].iter().position(|&c| c == b'{')
+                {
+                    let brace_start = search_from + brace_offset;
                     // Count braces to find matching close
                     let mut depth = 1;
                     let mut j = brace_start + 1;
                     while j < len && depth > 0 {
-                        match chars[j] {
-                            '{' => depth += 1,
-                            '}' => depth -= 1,
+                        match bytes[j] {
+                            b'{' => depth += 1,
+                            b'}' => depth -= 1,
                             _ => {}
                         }
                         j += 1;
                     }
                     if depth == 0 {
-                        // Extract content between braces (exclusive)
-                        let block: String = chars[brace_start + 1..j - 1].iter().collect();
-                        code.push_str(&block);
+                        // Extract content between braces (exclusive). `brace_start`
+                        // and `j - 1` both point at ASCII `{`/`}`, so the surrounding
+                        // byte slice is guaranteed to land on UTF-8 boundaries.
+                        code.push_str(&content[brace_start + 1..j - 1]);
                         code.push('\n');
                         i = j;
                         continue;
@@ -683,11 +692,33 @@ pub fn extract_html_helpers(content: &str) -> Vec<HtmlHelperCall> {
             if let Some(helper_match) = cap.get(1) {
                 // Html.* pattern
                 let helper_type = helper_match.as_str().to_string();
-                let target = cap.get(2).map_or("", |m| m.as_str()).to_string();
-                let controller = cap.get(3).map(|m| m.as_str().to_string());
+                let arg1 = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let arg2 = cap.get(3).map(|m| m.as_str().to_string());
+                let arg3 = cap.get(4).map(|m| m.as_str().to_string());
 
-                // For ActionLink, the 2nd arg is action and 3rd is controller
-                // For Partial*, the 1st arg is the view name
+                // Argument semantics differ per helper type:
+                //  - Partial / RenderPartial / *Async: (viewName, ...)
+                //  - Action / RenderAction:            (actionName, controllerName?, ...)
+                //  - ActionLink:                       (linkText, actionName, controllerName?, ...)
+                //
+                // Previously this code always used arg1 as `target` and arg2
+                // as `controller`, which worked for Partial/Action but
+                // mangled ActionLink: `@Html.ActionLink("Go Home", "Index",
+                // "Home")` produced target="Go Home", controller="Index", so
+                // the downstream consumer in `aspnet_mvc.rs::process_razor_
+                // extras` built `called_name = "Index.Go Home"` — a string
+                // that never resolved to any real method, silently losing
+                // every `ActionLink` reference from the call graph.
+                let (target, controller) = if helper_type == "ActionLink" {
+                    // Discard the cosmetic link text (arg1); use action as
+                    // target and controller as the receiver.
+                    let action = arg2.unwrap_or_default();
+                    (action, arg3)
+                } else {
+                    // Partial / Action / RenderAction / PartialAsync / RenderPartialAsync
+                    (arg1, arg2)
+                };
+
                 helpers.push(HtmlHelperCall {
                     helper_type,
                     target,
@@ -889,6 +920,25 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_csharp_blocks_multibyte_utf8() {
+        // Regression: previously the function mixed char indices with byte
+        // indices when slicing `content[i..]`, which panicked on any Razor
+        // file containing multi-byte UTF-8 characters before a directive.
+        let content = r#"
+<!-- Bonjour les amis: éàü 🎉 -->
+@code {
+    private string greeting = "héllo";
+}
+"#;
+        let code = extract_csharp_blocks(content);
+        assert!(
+            code.contains("greeting"),
+            "Should extract @code block in presence of multi-byte UTF-8"
+        );
+        assert!(code.contains("héllo"), "Should preserve UTF-8 content");
+    }
+
+    #[test]
     fn test_extract_csharp_blocks_inline() {
         let content = r#"
 <div>
@@ -955,8 +1005,11 @@ mod tests {
         let helpers = extract_html_helpers(content);
         assert_eq!(helpers.len(), 2);
         assert_eq!(helpers[0].helper_type, "ActionLink");
-        assert_eq!(helpers[0].target, "Go Home");
-        assert_eq!(helpers[0].controller.as_deref(), Some("Index"));
+        // ActionLink(linkText, actionName, controllerName) — the first arg
+        // is cosmetic link text and must be discarded. The action name
+        // becomes the target and the controller name is the receiver.
+        assert_eq!(helpers[0].target, "Index");
+        assert_eq!(helpers[0].controller.as_deref(), Some("Home"));
         assert_eq!(helpers[1].helper_type, "Action");
         assert_eq!(helpers[1].target, "Details");
         assert_eq!(helpers[1].controller.as_deref(), Some("Products"));

@@ -49,16 +49,32 @@ impl Value {
         }
     }
 
-    /// Ordering key for ORDER BY.
-    fn sort_key(&self) -> (u8, String) {
+    /// Type tag for ORDER BY (lower tag sorts first across heterogeneous types).
+    fn sort_type_tag(&self) -> u8 {
         match self {
-            Value::Null => (0, String::new()),
-            Value::Bool(b) => (1, format!("{b}")),
-            Value::Int(i) => (2, format!("{i:020}")),
-            Value::Float(f) => (3, format!("{f:020.10}")),
-            Value::String(s) => (4, s.clone()),
-            Value::Node(id) => (5, id.clone()),
-            Value::List(_) => (6, String::new()),
+            Value::Null => 0,
+            Value::Bool(_) => 1,
+            Value::Int(_) | Value::Float(_) => 2,
+            Value::String(_) => 4,
+            Value::Node(_) => 5,
+            Value::List(_) => 6,
+        }
+    }
+
+    /// Total ordering for ORDER BY: numerically correct for ints/floats,
+    /// lexicographic for strings, and falls back to type tag across types.
+    fn order_cmp(&self, other: &Value) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        match (self, other) {
+            (Value::Null, Value::Null) => Ordering::Equal,
+            (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
+            (Value::Int(a), Value::Int(b)) => a.cmp(b),
+            (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
+            (Value::Int(a), Value::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal),
+            (Value::Float(a), Value::Int(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal),
+            (Value::String(a), Value::String(b)) => a.cmp(b),
+            (Value::Node(a), Value::Node(b)) => a.cmp(b),
+            _ => self.sort_type_tag().cmp(&other.sort_type_tag()),
         }
     }
 }
@@ -280,9 +296,12 @@ fn execute_match(
                 let col_name = expr_column_name(&oi.expr);
                 let val_a = a.iter().find(|(c, _)| *c == col_name).map(|(_, v)| v);
                 let val_b = b.iter().find(|(c, _)| *c == col_name).map(|(_, v)| v);
-                let ka = val_a.map(|v| v.sort_key()).unwrap_or((0, String::new()));
-                let kb = val_b.map(|v| v.sort_key()).unwrap_or((0, String::new()));
-                let ord = ka.cmp(&kb);
+                let ord = match (val_a, val_b) {
+                    (Some(va), Some(vb)) => va.order_cmp(vb),
+                    (None, None) => std::cmp::Ordering::Equal,
+                    (None, Some(_)) => std::cmp::Ordering::Less,
+                    (Some(_), None) => std::cmp::Ordering::Greater,
+                };
                 let ord = if oi.descending { ord.reverse() } else { ord };
                 if ord != std::cmp::Ordering::Equal {
                     return ord;
@@ -318,7 +337,20 @@ fn match_pattern<'g>(
                 i += 1;
             }
             PatternElement::Relationship(rp) => {
-                // Relationship must be followed by a node
+                // Relationship must be preceded by a node and followed by a node
+                let source_node = if i > 0 {
+                    if let PatternElement::Node(np) = &pattern.elements[i - 1] {
+                        np
+                    } else {
+                        return Err(ExecutionError::Unsupported(
+                            "Relationship must be between nodes".into(),
+                        ));
+                    }
+                } else {
+                    return Err(ExecutionError::Unsupported(
+                        "Relationship must be preceded by a node".into(),
+                    ));
+                };
                 let next_node = if i + 1 < pattern.elements.len() {
                     if let PatternElement::Node(np) = &pattern.elements[i + 1] {
                         np
@@ -333,7 +365,7 @@ fn match_pattern<'g>(
                     ));
                 };
 
-                results = expand_rel_pattern(rp, next_node, &results, graph, index)?;
+                results = expand_rel_pattern(rp, source_node, next_node, &results, graph, index)?;
                 i += 2; // skip rel + node
             }
         }
@@ -412,6 +444,7 @@ fn expand_node_pattern<'g>(
 
 fn expand_rel_pattern<'g>(
     rp: &RelPattern,
+    source_np: &NodePattern,
     target_np: &NodePattern,
     current: &[Bindings<'g>],
     graph: &'g KnowledgeGraph,
@@ -425,14 +458,17 @@ fn expand_rel_pattern<'g>(
         .and_then(|rt| RelationshipType::from_str_type(rt));
 
     for bindings in current {
-        // The previous node should be the last-bound node variable
-        // We need to find which variable was the "source" node
-        // This is the last node variable added to bindings from the pattern
-        // For simplicity, we look at all bound nodes and try to match relationships from them
-        let source_nodes: Vec<(&str, &GraphNode)> = bindings
-            .iter()
-            .map(|(k, v)| (k.as_str(), *v))
-            .collect();
+        // Source must be the variable bound by the preceding node pattern.
+        // Without a named source variable we cannot disambiguate, so skip.
+        let source_var = match source_np.variable.as_ref() {
+            Some(v) => v,
+            None => continue,
+        };
+        let source_node = match bindings.get(source_var.as_str()) {
+            Some(n) => *n,
+            None => continue,
+        };
+        let source_nodes = [(source_var.as_str(), source_node)];
 
         for (_, source_node) in &source_nodes {
             let neighbors: Vec<(&GraphRelationship, &str)> = match rp.direction {
@@ -561,7 +597,10 @@ fn get_node_property(node: &GraphNode, key: &str) -> Value {
         "language" => node
             .properties
             .language
-            .map(|l| Value::String(format!("{l:?}")))
+            // Use the canonical lowercase string ("cpp", "csharp", "php"...)
+            // rather than Debug formatting ("CPlusPlus", "CSharp", "Php"),
+            // which would never match queries like `WHERE n.language = 'cpp'`.
+            .map(|l| Value::String(l.as_str().to_string()))
             .unwrap_or(Value::Null),
         "description" => node
             .properties
@@ -694,13 +733,14 @@ fn eval_binary_op(left: &Value, op: BinaryOperator, right: &Value) -> Result<Val
         BinaryOperator::Lte => Ok(Value::Bool(matches!(values_compare(left, right), Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)))),
         BinaryOperator::Gte => Ok(Value::Bool(matches!(values_compare(left, right), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)))),
         BinaryOperator::And => {
-            let lb = matches!(left, Value::Bool(true));
-            let rb = matches!(right, Value::Bool(true));
+            // Align with eval_expr_bool: Bool->b, Null->false, anything else->true
+            let lb = match left  { Value::Bool(b) => *b, Value::Null => false, _ => true };
+            let rb = match right { Value::Bool(b) => *b, Value::Null => false, _ => true };
             Ok(Value::Bool(lb && rb))
         }
         BinaryOperator::Or => {
-            let lb = matches!(left, Value::Bool(true));
-            let rb = matches!(right, Value::Bool(true));
+            let lb = match left  { Value::Bool(b) => *b, Value::Null => false, _ => true };
+            let rb = match right { Value::Bool(b) => *b, Value::Null => false, _ => true };
             Ok(Value::Bool(lb || rb))
         }
         BinaryOperator::Contains => {
@@ -742,17 +782,36 @@ fn eval_binary_op(left: &Value, op: BinaryOperator, right: &Value) -> Result<Val
             }
         }
         BinaryOperator::Add => {
+            // Use checked arithmetic so a query like
+            // `RETURN 9223372036854775807 + 1` (or any computed sum that
+            // exceeds i64::MAX) returns Null instead of panicking in debug
+            // builds and silently wrapping in release builds. Same applies
+            // to mixed Int/Float — promote to Float on overflow so we can
+            // still return a sensible (if lossy) numeric value.
             match (left, right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
+                (Value::Int(a), Value::Int(b)) => Ok(a
+                    .checked_add(*b)
+                    .map(Value::Int)
+                    .unwrap_or_else(|| Value::Float(*a as f64 + *b as f64))),
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
+                (Value::Int(a), Value::Float(b)) | (Value::Float(b), Value::Int(a)) => {
+                    Ok(Value::Float(*a as f64 + *b))
+                }
                 (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{a}{b}"))),
                 _ => Ok(Value::Null),
             }
         }
         BinaryOperator::Sub => {
+            // Same overflow guard as Add — `i64::MIN - 1` would panic in
+            // debug otherwise. Promote to Float on overflow.
             match (left, right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b)),
+                (Value::Int(a), Value::Int(b)) => Ok(a
+                    .checked_sub(*b)
+                    .map(Value::Int)
+                    .unwrap_or_else(|| Value::Float(*a as f64 - *b as f64))),
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
+                (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 - *b)),
+                (Value::Float(a), Value::Int(b)) => Ok(Value::Float(*a - *b as f64)),
                 _ => Ok(Value::Null),
             }
         }
@@ -764,6 +823,12 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::String(x), Value::String(y)) => x == y,
         (Value::Int(x), Value::Int(y)) => x == y,
         (Value::Float(x), Value::Float(y)) => (x - y).abs() < f64::EPSILON,
+        // Cross-type numeric coercion: Cypher treats `5 = 5.0` as true. Without
+        // this, a query like `WHERE n.parameter_count = 3.0` against an integer
+        // property returned false for every row even when the value matched.
+        (Value::Int(x), Value::Float(y)) | (Value::Float(y), Value::Int(x)) => {
+            (*x as f64 - *y).abs() < f64::EPSILON
+        }
         (Value::Bool(x), Value::Bool(y)) => x == y,
         (Value::Null, Value::Null) => true,
         (Value::Node(x), Value::Node(y)) => x == y,
@@ -775,6 +840,11 @@ fn values_compare(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => Some(x.cmp(y)),
         (Value::Float(x), Value::Float(y)) => x.partial_cmp(y),
+        // Cross-type numeric ordering — same rationale as values_equal: an
+        // `ORDER BY` or `WHERE n.size > 1.5` against an int column previously
+        // returned `None` (treated as "not greater"), silently dropping rows.
+        (Value::Int(x), Value::Float(y)) => (*x as f64).partial_cmp(y),
+        (Value::Float(x), Value::Int(y)) => x.partial_cmp(&(*y as f64)),
         (Value::String(x), Value::String(y)) => Some(x.cmp(y)),
         _ => None,
     }
@@ -896,14 +966,11 @@ fn eval_aggregate(
                 }
             }
         }
-        // Non-aggregate expression: just eval against first binding
-        other => {
-            if let Some(bindings) = binding_sets.first() {
-                eval_expr(other, bindings, graph)
-            } else {
-                Ok(Value::Null)
-            }
-        }
+        // Non-aggregate expression in aggregate context.
+        // This executor has no GROUP BY support, so picking the first binding's
+        // value would return arbitrary/misleading data. Return Null instead so
+        // the caller can detect that mixed aggregate/scalar projection is unsupported.
+        _ => Ok(Value::Null),
     }
 }
 
@@ -1111,7 +1178,7 @@ mod tests {
         let stmt = parse_cql("CALL QUERY_FTS_INDEX('symbols', 'handle')").unwrap();
         let result = execute(&stmt, &graph).unwrap();
 
-        assert!(result.rows.len() >= 1);
+        assert!(!result.rows.is_empty());
         let names: Vec<&str> = result
             .rows
             .iter()

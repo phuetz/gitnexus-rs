@@ -38,8 +38,12 @@ pub(super) fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -
     let total_files = graph.iter_nodes()
         .filter(|n| n.label == NodeLabel::File)
         .count();
+    // Restrict the numerator to File nodes — `is_traced` is also set on
+    // Method nodes by `extract_tracing_info`, so without this filter the
+    // count would mix methods + files and the displayed percentage could
+    // exceed 100%.
     let traced_files = graph.iter_nodes()
-        .filter(|n| n.properties.is_traced == Some(true))
+        .filter(|n| n.label == NodeLabel::File && n.properties.is_traced == Some(true))
         .count();
     let traced_pct = if total_files > 0 {
         (traced_files as f64 / total_files as f64) * 100.0

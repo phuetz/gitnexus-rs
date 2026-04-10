@@ -97,13 +97,85 @@ pub fn read_registry() -> Result<Vec<RegistryEntry>> {
     }
 }
 
-/// Write the global registry to disk.
+/// Write the global registry to disk atomically (temp file + rename).
+///
+/// Writing directly with `fs::write` leaves a window where the file is empty
+/// or partially written if the process is interrupted, and gives no atomicity
+/// guarantees against concurrent writers. The temp+rename pattern ensures
+/// any reader either sees the old contents or the complete new contents.
 pub fn write_registry(entries: &[RegistryEntry]) -> Result<()> {
     let dir = get_global_dir();
     std::fs::create_dir_all(&dir)?;
+    let final_path = get_global_registry_path();
     let json = serde_json::to_string_pretty(entries)?;
-    std::fs::write(get_global_registry_path(), json)?;
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = dir.join(format!("registry.json.tmp.{pid}.{nanos}"));
+    std::fs::write(&tmp_path, json)?;
+    if let Err(e) = std::fs::rename(&tmp_path, &final_path) {
+        // Best-effort cleanup of the orphaned temp file so interrupted writes
+        // don't leak accumulating `.tmp.*` files in ~/.gitnexus/ over time
+        // (e.g. when the destination is locked on Windows or permission
+        // changes mid-run).
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(CoreError::Io(e));
+    }
     Ok(())
+}
+
+/// Acquire an exclusive sentinel-file lock around `op`. Retries briefly so
+/// concurrent indexers serialize on the registry instead of clobbering each
+/// other's writes. Times out after a few seconds and returns an error.
+fn with_registry_lock<T>(op: impl FnOnce() -> Result<T>) -> Result<T> {
+    let dir = get_global_dir();
+    std::fs::create_dir_all(&dir)?;
+    let lock_path = dir.join("registry.json.lock");
+
+    let max_attempts = 50;
+    let backoff_ms = 100;
+    for attempt in 0..max_attempts {
+        match std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&lock_path)
+        {
+            Ok(file) => {
+                drop(file);
+                let result = op();
+                // Best-effort cleanup; tolerate races on Windows where another
+                // process may have already removed the lock during recovery.
+                let _ = std::fs::remove_file(&lock_path);
+                return result;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // If the lock file is stale (older than 30s), reclaim it.
+                if let Ok(meta) = std::fs::metadata(&lock_path) {
+                    if let Ok(modified) = meta.modified() {
+                        if let Ok(age) = std::time::SystemTime::now().duration_since(modified) {
+                            if age.as_secs() > 30 {
+                                let _ = std::fs::remove_file(&lock_path);
+                            }
+                        }
+                    }
+                }
+                if attempt + 1 < max_attempts {
+                    std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                    continue;
+                }
+                return Err(CoreError::Io(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "Registry lock contention: another GitNexus process is updating the registry",
+                )));
+            }
+            Err(e) => return Err(CoreError::Io(e)),
+        }
+    }
+    Err(CoreError::Io(std::io::Error::other(
+        "Registry lock acquisition exhausted",
+    )))
 }
 
 /// Register (add or update) a repo in the global registry.
@@ -118,27 +190,31 @@ pub fn register_repo(repo_path: &Path, meta: &RepoMeta) -> Result<()> {
         .to_string();
     let storage_path = get_storage_path(&resolved);
 
-    let mut entries = read_registry()?;
+    // Hold the lock across the read-modify-write so concurrent indexers
+    // serialize instead of last-writer-wins clobbering each other.
+    with_registry_lock(|| {
+        let mut entries = read_registry()?;
 
-    // Find existing entry by path (case-insensitive on Windows)
-    let existing = entries.iter().position(|e| paths_equal(&e.path, &resolved));
+        // Find existing entry by path (case-insensitive on Windows)
+        let existing = entries.iter().position(|e| paths_equal(&e.path, &resolved));
 
-    let entry = RegistryEntry {
-        name,
-        path: resolved.display().to_string(),
-        storage_path: storage_path.display().to_string(),
-        indexed_at: meta.indexed_at.clone(),
-        last_commit: meta.last_commit.clone(),
-        stats: meta.stats.clone(),
-    };
+        let entry = RegistryEntry {
+            name: name.clone(),
+            path: resolved.display().to_string(),
+            storage_path: storage_path.display().to_string(),
+            indexed_at: meta.indexed_at.clone(),
+            last_commit: meta.last_commit.clone(),
+            stats: meta.stats.clone(),
+        };
 
-    if let Some(idx) = existing {
-        entries[idx] = entry;
-    } else {
-        entries.push(entry);
-    }
+        if let Some(idx) = existing {
+            entries[idx] = entry;
+        } else {
+            entries.push(entry);
+        }
 
-    write_registry(&entries)
+        write_registry(&entries)
+    })
 }
 
 /// Remove a repo from the global registry.
@@ -146,9 +222,11 @@ pub fn unregister_repo(repo_path: &Path) -> Result<()> {
     let resolved = repo_path
         .canonicalize()
         .unwrap_or_else(|_| repo_path.to_path_buf());
-    let mut entries = read_registry()?;
-    entries.retain(|e| !paths_equal(&e.path, &resolved));
-    write_registry(&entries)
+    with_registry_lock(|| {
+        let mut entries = read_registry()?;
+        entries.retain(|e| !paths_equal(&e.path, &resolved));
+        write_registry(&entries)
+    })
 }
 
 /// Check if a path has a GitNexus index.
@@ -170,12 +248,31 @@ pub fn load_meta(storage_path: &Path) -> Result<Option<RepoMeta>> {
     }
 }
 
-/// Save metadata to storage.
+/// Save metadata to storage atomically (temp file + rename).
+///
+/// A direct `fs::write` leaves a window where readers can observe a partial
+/// or empty `meta.json` if the process is interrupted, which can prevent the
+/// repo from being recognised on the next launch. The temp+rename pattern
+/// guarantees readers either see the previous contents or the complete new
+/// contents.
 pub fn save_meta(storage_path: &Path, meta: &RepoMeta) -> Result<()> {
     std::fs::create_dir_all(storage_path)?;
     let meta_path = storage_path.join("meta.json");
     let json = serde_json::to_string_pretty(meta)?;
-    std::fs::write(meta_path, json)?;
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = storage_path.join(format!("meta.json.tmp.{pid}.{nanos}"));
+    std::fs::write(&tmp_path, json)?;
+    if let Err(e) = std::fs::rename(&tmp_path, &meta_path) {
+        // Best-effort cleanup of the orphaned temp file so a failed rename
+        // (e.g. destination locked on Windows) does not leave stray
+        // `.tmp.*` files accumulating in `.gitnexus/`.
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(CoreError::Io(e));
+    }
     Ok(())
 }
 

@@ -99,16 +99,20 @@ pub(super) fn generate_functional_guide(
         writeln!(f, "**Finalité métier :** {}", desc)?;
         writeln!(f)?;
 
-        // Count views for this controller
+        // Count views for this controller. Match the conventional ASP.NET
+        // MVC layout `Views/{ControllerName}/*.cshtml` so a controller like
+        // `User` does not accidentally pick up unrelated directories whose
+        // name merely CONTAINS "User" (e.g. `Views/PasswordUserReset/`).
+        let path_segment = format!("/{}/", name);
         let ctrl_views: Vec<&GraphNode> = graph.iter_nodes()
             .filter(|n| n.label == NodeLabel::View
-                && n.properties.file_path.contains(name))
+                && n.properties.file_path.contains(&path_segment))
             .collect();
 
-        // Count UI components for this controller
+        // Same segment match for UI components (Telerik grids etc.).
         let ctrl_ui: Vec<&GraphNode> = graph.iter_nodes()
             .filter(|n| n.label == NodeLabel::UiComponent
-                && n.properties.file_path.contains(name))
+                && n.properties.file_path.contains(&path_segment))
             .collect();
 
         writeln!(f, "| | |")?;

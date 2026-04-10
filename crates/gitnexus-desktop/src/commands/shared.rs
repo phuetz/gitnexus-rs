@@ -21,7 +21,11 @@ pub fn node_to_cyto_with_depth(
         end_line: node.properties.end_line,
         is_exported: node.properties.is_exported,
         community: node.properties.heuristic_label.clone(),
-        language: node.properties.language.map(|l| format!("{:?}", l)),
+        // Use the canonical short name from `as_str()` ("cpp", "csharp",
+        // "php", ...) instead of the Debug variant name ("CPlusPlus",
+        // "CSharp", "Php"). The frontend syntax highlighter and any
+        // language-keyed filters expect the short names.
+        language: node.properties.language.map(|l| l.as_str().to_string()),
         description: node.properties.description.clone(),
         parameter_count: node.properties.parameter_count,
         return_type: node.properties.return_type.clone(),

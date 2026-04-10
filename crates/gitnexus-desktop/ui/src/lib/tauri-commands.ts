@@ -509,6 +509,8 @@ export const commands = {
   // Export
   exportDocsDocx: () =>
     invoke<string>("export_docs_docx"),
+  exportObsidianVault: () =>
+    invoke<string>("export_obsidian_vault"),
   getAspnetStats: () =>
     invoke<AspNetStats>("get_aspnet_stats"),
 

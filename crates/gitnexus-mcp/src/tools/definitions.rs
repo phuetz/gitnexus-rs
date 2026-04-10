@@ -289,6 +289,24 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
+            name: "business",
+            description: "Get documentation for high-level business processes (e.g., payments, letters, calculation engines).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "process": {
+                        "type": "string",
+                        "description": "Optional process name (e.g., 'courriers', 'paiements', 'baremes'). If omitted, lists all available processes."
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
             name: "analyze_execution_trace",
             description: "Analyze an execution trace (e.g., a JSON or NDJSON log file) to map chronological steps against the knowledge graph, retrieving the source code and parameter values for each step. Ideal for documenting business processes.",
             input_schema: json!({
@@ -332,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_tool_definitions_count() {
-        assert_eq!(tool_definitions().len(), 14);
+        assert_eq!(tool_definitions().len(), 15);
     }
 
     #[test]
@@ -352,6 +370,7 @@ mod tests {
         assert!(names.contains(&"coverage"));
         assert!(names.contains(&"diagram"));
         assert!(names.contains(&"report"));
+        assert!(names.contains(&"business"));
         assert!(names.contains(&"analyze_execution_trace"));
     }
 
@@ -359,7 +378,7 @@ mod tests {
     fn test_tools_list_json() {
         let json = tools_list_json();
         let tools = json["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 14);
+        assert_eq!(tools.len(), 15);
         for tool in tools {
             assert!(tool.get("name").is_some());
             assert!(tool.get("description").is_some());

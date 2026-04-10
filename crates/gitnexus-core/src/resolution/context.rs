@@ -139,7 +139,18 @@ impl<'a> ResolutionContext<'a> {
                 for def in global_defs {
                     if def.is_exported {
                         for pkg_dir in package_dirs {
-                            if def.file_path.contains(pkg_dir.as_str()) {
+                            // Use path-segment boundary matching rather than
+                            // raw substring containment: `models` must not
+                            // match `legacy_models/` or `submodels/`. A
+                            // def's `file_path` belongs to a package when it
+                            // is exactly equal to, starts with `{pkg_dir}/`,
+                            // or contains `/{pkg_dir}/` as a segment.
+                            let fp = def.file_path.as_str();
+                            let pd = pkg_dir.as_str();
+                            let matches = fp == pd
+                                || fp.starts_with(&format!("{pd}/"))
+                                || fp.contains(&format!("/{pd}/"));
+                            if matches {
                                 candidates.push(def.clone());
                                 break;
                             }

@@ -127,10 +127,12 @@ export function SearchModal() {
     }
   }, [isOpen]);
 
-  // Reset selection on results change (render-time state adjustment)
-  const [prevResults, setPrevResults] = useState(results);
-  if (results !== prevResults) {
-    setPrevResults(results);
+  // Reset selection only when the *backend* results change, not on every keystroke.
+  // The derived `results` memo also depends on `query`, so using it here would
+  // wipe the user's keyboard selection on each character they type.
+  const [prevRawResults, setPrevRawResults] = useState(rawResults);
+  if (rawResults !== prevRawResults) {
+    setPrevRawResults(rawResults);
     setSelectedIndex(0);
   }
 

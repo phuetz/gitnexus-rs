@@ -14,6 +14,7 @@ import { FileCode, Search, X, Check, Loader2 } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import type { FileQuickPick } from "../../lib/tauri-commands";
 import { useChatStore } from "../../stores/chat-store";
+import { useAppStore } from "../../stores/app-store";
 
 interface FileFilterModalProps {
   open: boolean;
@@ -21,6 +22,7 @@ interface FileFilterModalProps {
 }
 
 export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
+  const activeRepo = useAppStore((s) => s.activeRepo);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -28,9 +30,12 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
 
   const { filters, addFileFilter, removeFileFilter } = useChatStore();
 
-  // Fetch files matching the query
+  // Fetch files matching the query.
+  // Scope by `activeRepo`: two different repos may share the same query
+  // string (e.g. empty) and would otherwise return cached picks from the
+  // previously active repo.
   const { data: results = [], isLoading } = useQuery({
-    queryKey: ["chatPickFiles", query],
+    queryKey: ["chatPickFiles", activeRepo, query],
     queryFn: () => commands.chatPickFiles(query, 30),
     enabled: open,
     staleTime: 2000,

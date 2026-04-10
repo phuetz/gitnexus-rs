@@ -63,7 +63,12 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
         score += 5.0;
     }
 
-    let score = score.clamp(0.0, 100.0);
+    // Round score to a whole number BEFORE deriving the grade, otherwise
+    // `score as u32` (truncate toward zero) disagrees with the `{:.0}`
+    // text format (round-half-to-even) at the grade boundaries — e.g.,
+    // score = 89.9 would display as "90/100" but be graded as B because
+    // `89.9 as u32 == 89`.
+    let score = (score.clamp(0.0, 100.0)).round();
     let grade = match score as u32 {
         90..=100 => "A",
         75..=89 => "B",

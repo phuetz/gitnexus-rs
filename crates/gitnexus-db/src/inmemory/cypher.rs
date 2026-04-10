@@ -175,17 +175,20 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                 }
             }
             '\'' => {
-                // String literal
+                // String literal — process escape sequences
                 i += 1;
-                let start = i;
+                let mut s = String::new();
                 while i < len && chars[i] != '\'' {
                     if chars[i] == '\\' && i + 1 < len {
-                        i += 2;
+                        // Skip backslash, take the next character literally
+                        i += 1;
+                        s.push(chars[i]);
+                        i += 1;
                     } else {
+                        s.push(chars[i]);
                         i += 1;
                     }
                 }
-                let s: String = chars[start..i].iter().collect();
                 tokens.push(Token::Str(s));
                 if i < len {
                     i += 1; // skip closing quote
@@ -362,7 +365,21 @@ impl CypherParser {
         let limit = if self.check_ident("LIMIT") {
             self.advance();
             match self.advance() {
-                Token::Int(n) => Some(n as usize),
+                Token::Int(n) => {
+                    // Reject negative limits explicitly. `n as usize` on a
+                    // negative i64 wraps to a huge positive value — the
+                    // executor then silently treats `LIMIT -1` as "no limit"
+                    // instead of rejecting the malformed query, which can
+                    // mask off-by-one bugs in callers constructing queries
+                    // dynamically.
+                    if n < 0 {
+                        return Err(parse_err(format!(
+                            "LIMIT must be non-negative, got {}",
+                            n
+                        )));
+                    }
+                    Some(n as usize)
+                }
                 other => {
                     return Err(parse_err(format!(
                         "Expected integer after LIMIT, got {:?}",
@@ -887,15 +904,39 @@ fn execute_match(
 
     // Apply ORDER BY
     if let Some((var, field, ascending)) = &mq.order_by {
+        // Compare using a "tagged" ordering so the comparator is a *total
+        // order*. The previous version fell through to lexical comparison
+        // whenever either value failed to parse as f64 — which, combined
+        // with using numeric comparison when both parsed, produced a
+        // non-transitive comparator for mixed data. Counter-example that
+        // used to return garbage / panic in debug:
+        //   a = "9"   (numeric 9)
+        //   b = "100" (numeric 100)
+        //   c = "1a"  (not numeric)
+        //   cmp(a,b) = Less    (both numeric: 9 < 100)
+        //   cmp(b,c) = Less    (lexical: '0' < 'a')
+        //   cmp(a,c) = Greater (lexical: '9' > '1')
+        // Transitivity requires a < c, but we got a > c. Rust's sort_by
+        // considers this UB and may panic in newer versions.
+        //
+        // Fix: put every value into one of two classes (numeric, string)
+        // and compare classes first. Within a class the comparison is
+        // always homogeneous and therefore transitive. Numeric values
+        // sort together numerically; non-numeric values sort together
+        // lexicographically; numerics come first so `ORDER BY` on a
+        // column of mostly-numbers keeps numeric semantics.
         bindings.sort_by(|a, b| {
             let va = a.get(var).and_then(|id| get_field_str(graph, id, field));
             let vb = b.get(var).and_then(|id| get_field_str(graph, id, field));
             let a_str = va.as_deref().unwrap_or("");
             let b_str = vb.as_deref().unwrap_or("");
-            let cmp = if let (Ok(na), Ok(nb)) = (a_str.parse::<f64>(), b_str.parse::<f64>()) {
-                na.partial_cmp(&nb).unwrap_or(std::cmp::Ordering::Equal)
-            } else {
-                a_str.cmp(b_str)
+            let a_num = a_str.parse::<f64>().ok();
+            let b_num = b_str.parse::<f64>().ok();
+            let cmp = match (a_num, b_num) {
+                (Some(na), Some(nb)) => na.partial_cmp(&nb).unwrap_or(std::cmp::Ordering::Equal),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a_str.cmp(b_str),
             };
             if *ascending {
                 cmp
@@ -990,16 +1031,34 @@ fn eval_where(expr: &WhereExpr, binding: &HashMap<String, String>, graph: &Knowl
                 if let Some(node) = graph.get_node(node_id) {
                     let node_val = get_node_field_str(node, field);
                     match value {
-                        CypherValue::Str(s) => node_val.as_deref() != Some(s.as_str()),
-                        CypherValue::Int(n) => node_val.as_deref() != Some(&n.to_string()),
-                        CypherValue::Float(f) => node_val.as_deref() != Some(&f.to_string()),
-                        CypherValue::Bool(b) => node_val.as_deref() != Some(&b.to_string()),
+                        // Treat a missing field as "we cannot evaluate" → false,
+                        // matching SQL three-valued logic and the rest of this
+                        // executor (Eq/Contains/StartsWith/EndsWith all return
+                        // false on missing). Returning true here previously
+                        // produced phantom rows for any binding pointing at a
+                        // node that had been removed but still had stale edges.
+                        CypherValue::Str(s) => match node_val {
+                            Some(v) => v != *s,
+                            None => false,
+                        },
+                        CypherValue::Int(n) => match node_val {
+                            Some(v) => v != n.to_string(),
+                            None => false,
+                        },
+                        CypherValue::Float(f) => match node_val {
+                            Some(v) => v != f.to_string(),
+                            None => false,
+                        },
+                        CypherValue::Bool(b) => match node_val {
+                            Some(v) => v != b.to_string(),
+                            None => false,
+                        },
                     }
                 } else {
-                    true // node not found => not equal
+                    false
                 }
             } else {
-                true
+                false
             }
         }
         WhereExpr::Contains(var, field, text) => {
@@ -1060,12 +1119,44 @@ fn eval_where(expr: &WhereExpr, binding: &HashMap<String, String>, graph: &Knowl
 }
 
 fn get_node_field_str(node: &GraphNode, field: &str) -> Option<String> {
+    // Hot fields are short-circuited so neither WHERE evaluation nor ORDER BY
+    // pays the cost of serializing the entire NodeProperties struct (~40
+    // optional fields) per row. We also accept both `snake_case` (the Rust
+    // field name) and `camelCase` (the serde-renamed JSON form) so queries
+    // generated by either side of the codebase resolve identically — the
+    // gitnexus-query executor already does this aliasing.
     match field {
         "_label" | "label" => Some(node.label.as_str().to_string()),
         "_id" | "id" => Some(node.id.clone()),
+        "name" => Some(node.properties.name.clone()),
+        "file_path" | "filePath" => Some(node.properties.file_path.clone()),
+        "start_line" | "startLine" => node.properties.start_line.map(|v| v.to_string()),
+        "end_line" | "endLine" => node.properties.end_line.map(|v| v.to_string()),
         _ => {
             let val = serde_json::to_value(&node.properties).ok()?;
-            match val.get(field)? {
+            // Try the requested key first, then fall back to the camelCase
+            // form for snake_case input (and vice versa) so any uncovered
+            // field is also accessible by either casing.
+            let resolved = val.get(field).or_else(|| {
+                if field.contains('_') {
+                    let mut camel = String::with_capacity(field.len());
+                    let mut upper_next = false;
+                    for c in field.chars() {
+                        if c == '_' {
+                            upper_next = true;
+                        } else if upper_next {
+                            camel.push(c.to_ascii_uppercase());
+                            upper_next = false;
+                        } else {
+                            camel.push(c);
+                        }
+                    }
+                    val.get(camel)
+                } else {
+                    None
+                }
+            })?;
+            match resolved {
                 Value::String(s) => Some(s.clone()),
                 Value::Number(n) => Some(n.to_string()),
                 Value::Bool(b) => Some(b.to_string()),
@@ -1082,12 +1173,44 @@ fn get_field_str(graph: &KnowledgeGraph, node_id: &str, field: &str) -> Option<S
 
 fn get_field_value(graph: &KnowledgeGraph, node_id: &str, field: &str) -> Value {
     if let Some(node) = graph.get_node(node_id) {
+        // Mirror the same hot-field + aliasing logic as get_node_field_str so
+        // RETURN expressions and ORDER BY agree on which keys exist.
         match field {
             "_label" | "label" => Value::String(node.label.as_str().to_string()),
             "_id" | "id" => Value::String(node.id.clone()),
+            "name" => Value::String(node.properties.name.clone()),
+            "file_path" | "filePath" => Value::String(node.properties.file_path.clone()),
+            "start_line" | "startLine" => node
+                .properties
+                .start_line
+                .map(|v| Value::Number(v.into()))
+                .unwrap_or(Value::Null),
+            "end_line" | "endLine" => node
+                .properties
+                .end_line
+                .map(|v| Value::Number(v.into()))
+                .unwrap_or(Value::Null),
             _ => {
                 let val = serde_json::to_value(&node.properties).unwrap_or(Value::Null);
-                val.get(field).cloned().unwrap_or(Value::Null)
+                if let Some(v) = val.get(field) {
+                    v.clone()
+                } else if field.contains('_') {
+                    let mut camel = String::with_capacity(field.len());
+                    let mut upper_next = false;
+                    for c in field.chars() {
+                        if c == '_' {
+                            upper_next = true;
+                        } else if upper_next {
+                            camel.push(c.to_ascii_uppercase());
+                            upper_next = false;
+                        } else {
+                            camel.push(c);
+                        }
+                    }
+                    val.get(camel).cloned().unwrap_or(Value::Null)
+                } else {
+                    Value::Null
+                }
             }
         }
     } else {

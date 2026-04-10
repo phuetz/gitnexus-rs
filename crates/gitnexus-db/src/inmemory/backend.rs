@@ -78,13 +78,21 @@ impl DatabaseBackend for InMemoryBackend {
         let snapshot_path = crate::snapshot::snapshot_path(db_path);
 
         if !crate::snapshot::snapshot_exists(&snapshot_path) {
-            // No snapshot yet — open with empty graph
+            // No snapshot yet — open with empty graph. Build the indexes
+            // from the *same* empty graph we store in `self.graph` rather
+            // than constructing a second one. Both are empty today so the
+            // visible behaviour is identical, but having the indexes
+            // derived from a different graph instance than the one served
+            // by `execute_query` is a latent correctness hazard if
+            // `KnowledgeGraph::new()` ever grows per-instance state.
             info!(
                 "InMemoryBackend: no snapshot at {}, starting with empty graph",
                 snapshot_path.display()
             );
-            self.graph = Some(Arc::new(KnowledgeGraph::new()));
-            self.indexes = Some(GraphIndexes::build(&KnowledgeGraph::new()));
+            let empty = KnowledgeGraph::new();
+            let indexes = GraphIndexes::build(&empty);
+            self.graph = Some(Arc::new(empty));
+            self.indexes = Some(indexes);
             self.fts_index = FtsIndex::new();
             self.db_path = Some(db_path.to_path_buf());
             return Ok(());

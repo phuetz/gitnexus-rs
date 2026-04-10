@@ -267,6 +267,7 @@ const en = {
   "analyze.nav.diagrams": "Diagrams",
   "analyze.nav.report": "Report",
   "analyze.nav.health": "Health",
+  "analyze.nav.processes": "Process Flows",
 
   // ── Analyze Progress ──
   "analyze.analyzing": "Analyzing",
@@ -289,6 +290,16 @@ const en = {
   "analyze.phase.error": "Error",
   "analyze.files": "files",
   "analyze.nodes": "nodes",
+
+  // ── Process Flows ──
+  "analyze.processFlows": "Process Flows",
+  "analyze.flowsDesc": "{count} high-level business processes identified.",
+  "analyze.noFlowsTitle": "No Process Flows Found",
+  "analyze.noFlowsDesc": "Automatic process tracing requires instrumented methods or specific business patterns in the code.",
+  "analyze.stepCount": "{count} steps",
+  "analyze.flowDiagram": "Interactive Diagram",
+  "analyze.flowSteps": "Step Sequence",
+  "analyze.viewCode": "View Code",
 
   // ── File Explorer ──
   "files.searchPlaceholder": "Search files...",
@@ -334,6 +345,9 @@ const en = {
   "export.refreshStats": "Refresh statistics",
   "export.docxTitle": "Export as DOCX",
   "export.docxDesc": "Generates a complete Word document with architecture, controllers, entities, routes, and ER diagrams.",
+  "export.obsidianTitle": "Obsidian Vault (Digital Brain)",
+  "export.obsidianDesc": "Export the knowledge graph as a structured vault of Markdown files. Perfect for Andrej Karpathy's method of maintaining a digital brain of your codebase.",
+  "export.generateObsidian": "Export Obsidian Vault",
   "export.exporting": "Generating...",
   "export.generateDocx": "Generate DOCX",
   "export.success": "Export successful",
@@ -747,6 +761,7 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "analyze.nav.diagrams": "Diagrammes",
   "analyze.nav.report": "Rapport",
   "analyze.nav.health": "Santé",
+  "analyze.nav.processes": "Flux Métier",
 
   "analyze.analyzing": "Analyse en cours",
   "analyze.analysisFailed": "Échec de l'analyse",
@@ -768,6 +783,16 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "analyze.phase.error": "Erreur",
   "analyze.files": "fichiers",
   "analyze.nodes": "nœuds",
+
+  // ── Process Flows ──
+  "analyze.processFlows": "Flux de Processus",
+  "analyze.flowsDesc": "{count} processus métier identifiés.",
+  "analyze.noFlowsTitle": "Aucun flux de processus trouvé",
+  "analyze.noFlowsDesc": "Le traçage automatique nécessite des méthodes instrumentées ou des patterns métier spécifiques dans le code.",
+  "analyze.stepCount": "{count} étapes",
+  "analyze.flowDiagram": "Diagramme Interactif",
+  "analyze.flowSteps": "Séquence des Étapes",
+  "analyze.viewCode": "Voir le Code",
 
   // ── File Explorer ──
   "files.searchPlaceholder": "Rechercher des fichiers\u2026",
@@ -813,6 +838,9 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "export.refreshStats": "Rafraîchir les statistiques",
   "export.docxTitle": "Exporter en DOCX",
   "export.docxDesc": "Génère un document Word complet avec l'architecture, les contrôleurs, les entités, les routes et les diagrammes ER.",
+  "export.obsidianTitle": "Vault Obsidian (Cerveau Numérique)",
+  "export.obsidianDesc": "Exporte le graphe de connaissances sous forme de notes Markdown interconnectées. Idéal pour la méthode Karpathy de gestion du patrimoine logiciel.",
+  "export.generateObsidian": "Exporter le Vault Obsidian",
   "export.exporting": "Génération en cours…",
   "export.generateDocx": "Générer le DOCX",
   "export.success": "Export réussi",

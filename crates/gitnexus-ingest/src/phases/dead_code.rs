@@ -57,6 +57,7 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
     let entry_point_names: HashSet<&str> = [
         // Standard entry points
         "Main",
+        "main",
         "Dispose",
         // ASP.NET Application lifecycle
         "Application_Start",
@@ -147,24 +148,25 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
 
     let mut dead_count = 0u32;
     let mut live_count = 0u32;
+    let mut excluded_count = 0u32;
 
     for (method_id, is_excluded) in &method_ids {
         if *is_excluded {
+            excluded_count += 1;
             continue;
         }
         if has_incoming_call.contains(method_id) {
             live_count += 1;
-        } else {
-            if let Some(node) = graph.get_node_mut(method_id) {
-                node.properties.is_dead_candidate = Some(true);
-                dead_count += 1;
-            }
+        } else if let Some(node) = graph.get_node_mut(method_id) {
+            node.properties.is_dead_candidate = Some(true);
+            dead_count += 1;
         }
     }
 
     tracing::info!(
         dead_candidates = dead_count,
         live_methods = live_count,
+        excluded_methods = excluded_count,
         total_methods = method_ids.len(),
         "Dead code detection complete"
     );

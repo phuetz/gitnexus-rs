@@ -85,13 +85,27 @@ pub async fn run(trace_file: &str, output_file: Option<&str>, path: Option<&str>
             if let Some(node_id) = trace::resolve_method_node(&graph, &name_to_ids, full_method_name) {
                 if let Some(node) = graph.get_node(&node_id) {
                     matched_steps += 1;
+                    // Path traversal guard: the graph node's file_path comes
+                    // from a snapshot that could contain `..` segments
+                    // (corrupted or hand-crafted), and we must not let them
+                    // escape the repo root and exfiltrate arbitrary files
+                    // into the LLM prompt.
                     let full_path = repo_path.join(&node.properties.file_path);
-                    if let (Some(start), Some(end)) = (node.properties.start_line, node.properties.end_line) {
-                        if let Some(source) = trace::extract_source_lines(&full_path, start, end) {
-                            context_block.push_str(&format!(
-                                "Source code (`{}`):\n```\n{}\n```\n",
-                                node.properties.file_path, source
-                            ));
+                    let source_safe = match (
+                        full_path.canonicalize().ok(),
+                        repo_path.canonicalize().ok(),
+                    ) {
+                        (Some(canon), Some(root)) => canon.starts_with(&root),
+                        _ => false,
+                    };
+                    if source_safe {
+                        if let (Some(start), Some(end)) = (node.properties.start_line, node.properties.end_line) {
+                            if let Some(source) = trace::extract_source_lines(&full_path, start, end) {
+                                context_block.push_str(&format!(
+                                    "Source code (`{}`):\n```\n{}\n```\n",
+                                    node.properties.file_path, source
+                                ));
+                            }
                         }
                     }
                 }

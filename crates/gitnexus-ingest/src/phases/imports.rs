@@ -23,13 +23,20 @@ pub fn resolve_imports(
     // Build file path sets and suffix index
     let all_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
     let all_set: HashSet<String> = all_paths.iter().cloned().collect();
+    // Lower-cased copy used by case-insensitive resolvers (e.g. Windows where
+    // `Controllers/HomeController.cs` may be referenced as `controllers/...`).
+    // The SuffixIndex itself stores both case-sensitive and case-insensitive
+    // entries internally, so it builds from `(all_paths, all_paths)` as before.
+    // The ResolveCtx now exposes a properly lowercased `normalized_file_list`
+    // so resolvers that key off it directly behave correctly.
+    let normalized_paths: Vec<String> = all_paths.iter().map(|p| p.to_lowercase()).collect();
     let suffix_index = SuffixIndex::build(&all_paths, &all_paths);
     let configs = ImportConfigs::default();
 
     let ctx = ResolveCtx {
         all_file_paths: &all_set,
         all_file_list: &all_paths,
-        normalized_file_list: &all_paths,
+        normalized_file_list: &normalized_paths,
         suffix_index: &suffix_index,
         configs: &configs,
     };

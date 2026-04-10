@@ -10,6 +10,7 @@ import { Search, X, Check, Loader2, FolderTree } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import type { ModuleQuickPick } from "../../lib/tauri-commands";
 import { useChatStore } from "../../stores/chat-store";
+import { useAppStore } from "../../stores/app-store";
 
 interface ModuleFilterModalProps {
   open: boolean;
@@ -17,6 +18,7 @@ interface ModuleFilterModalProps {
 }
 
 export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
+  const activeRepo = useAppStore((s) => s.activeRepo);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -24,8 +26,10 @@ export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
 
   const { filters, addModuleFilter, removeModuleFilter } = useChatStore();
 
+  // Scope by `activeRepo` so switching repos doesn't return the previous
+  // repo's cached module picks for the same query.
   const { data: results = [], isLoading } = useQuery({
-    queryKey: ["chatPickModules", query],
+    queryKey: ["chatPickModules", activeRepo, query],
     queryFn: () => commands.chatPickModules(query, 30),
     enabled: open,
     staleTime: 5000,

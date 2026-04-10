@@ -111,6 +111,17 @@ fn extract_node_content(
     repo_root: &Path,
     cache: &mut FileContentCache,
 ) -> String {
+    // Folders never have readable content — bail before touching the cache.
+    // The previous order called `cache.get_content` (which `fs::read`s the
+    // path) on a directory first, which always errored, returned `None`,
+    // and short-circuited at `return String::new()` below — so the Folder
+    // branch further down was unreachable dead code and every Folder node
+    // produced a spurious filesystem read error. Handle Folder explicitly
+    // first.
+    if node.label == NodeLabel::Folder {
+        return String::new();
+    }
+
     let file_path = repo_root.join(&node.properties.file_path);
     let full_content = match cache.get_content(&file_path) {
         Some(c) => c,
@@ -124,7 +135,7 @@ fn extract_node_content(
     };
 
     // For files, return the whole (truncated) content
-    if node.label == NodeLabel::File || node.label == NodeLabel::Folder {
+    if node.label == NodeLabel::File {
         return truncate_content(&full_content, max_len).to_string();
     }
 
@@ -137,8 +148,16 @@ fn extract_node_content(
         return String::new();
     }
 
+    let slice_start = start - 1;
     let slice_end = end.min(lines.len());
-    let extracted: String = lines[(start - 1)..slice_end].join("\n");
+    // Guard against malformed line ranges where end < start (e.g. corrupted
+    // snapshot data or a future parser bug). `lines[4..3]` would panic with
+    // "slice index starts at 4 but ends at 3", crashing CSV generation for
+    // an entire node label table.
+    if slice_start >= slice_end {
+        return String::new();
+    }
+    let extracted: String = lines[slice_start..slice_end].join("\n");
     truncate_content(&extracted, max_len).to_string()
 }
 
@@ -366,5 +385,43 @@ mod tests {
         assert!(truncated.len() <= 8);
         // Should be valid UTF-8
         assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_extract_node_content_inverted_range() {
+        use gitnexus_core::graph::types::{GraphNode, NodeProperties};
+
+        // Create a temp file with known content
+        let tmp_dir = std::env::temp_dir().join("gitnexus_csv_test_inverted");
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let file_name = "src.txt";
+        let file_path = tmp_dir.join(file_name);
+        std::fs::write(&file_path, "line1\nline2\nline3\nline4\nline5\n").unwrap();
+
+        // Malformed node: end_line (3) < start_line (5) — would have panicked
+        // before the slice_start >= slice_end guard in extract_node_content.
+        let mut node = GraphNode {
+            id: "Function:src.txt:bad".into(),
+            label: NodeLabel::Function,
+            properties: NodeProperties::default(),
+        };
+        node.properties.name = "bad".into();
+        node.properties.file_path = file_name.into();
+        node.properties.start_line = Some(5);
+        node.properties.end_line = Some(3);
+
+        let mut cache = FileContentCache::new();
+        // Must not panic, must return empty string
+        let content = extract_node_content(&node, &tmp_dir, &mut cache);
+        assert_eq!(content, "");
+
+        // Also test the original happy path still works
+        node.properties.start_line = Some(2);
+        node.properties.end_line = Some(4);
+        let content = extract_node_content(&node, &tmp_dir, &mut cache);
+        assert_eq!(content, "line2\nline3\nline4");
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }

@@ -8,13 +8,17 @@
  * - No-repo guard: shows an empty state when no repo is loaded
  */
 
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MessageSquare, Settings2 } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
 import { ChatPanel } from "./ChatPanel";
-import { ChatSettings } from "./ChatSettings";
+import { LoadingOrbs } from "../shared/LoadingOrbs";
+
+const ChatSettings = lazy(() =>
+  import("./ChatSettings").then((m) => ({ default: m.ChatSettings })),
+);
 
 // ─── No-repo empty state ─────────────────────────────────────────────
 
@@ -128,9 +132,19 @@ export function ChatMode() {
     return <NoRepoState />;
   }
 
+  // Guard: while config is loading, show spinner to avoid UI flashes
+  if (configLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="pulse-subtle" style={{ color: "var(--text-3)", fontSize: 13 }}>
+          Loading assistant configuration...
+        </div>
+      </div>
+    );
+  }
+
   // Guard: config loaded but no LLM configured (non-Ollama with no API key)
   const isConfigured =
-    configLoading ||
     !chatConfig ||
     chatConfig.provider === "ollama" ||
     (chatConfig.apiKey != null && chatConfig.apiKey.trim().length > 0);
@@ -139,10 +153,13 @@ export function ChatMode() {
     return <NoLlmSetup />;
   }
 
-  // Cross-mode navigation handler: navigate to Explorer and select the node
+  // Cross-mode navigation handler: navigate to Explorer and select the node.
+  // We don't have the node name in scope here (the chat side doesn't load
+  // the graphology graph), so pass null explicitly. This makes the missing
+  // name visible in the navigation history rather than silently undefined.
   const handleNavigateToNode = (nodeId: string) => {
     setMode("explorer");
-    setSelectedNodeId(nodeId);
+    setSelectedNodeId(nodeId, null);
   };
 
   return (
@@ -187,7 +204,15 @@ export function ChatMode() {
 
       {/* Settings modal */}
       {settingsOpen && (
-        <ChatSettings onClose={() => setSettingsOpen(false)} />
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+              <LoadingOrbs />
+            </div>
+          }
+        >
+          <ChatSettings onClose={() => setSettingsOpen(false)} />
+        </Suspense>
       )}
     </div>
   );

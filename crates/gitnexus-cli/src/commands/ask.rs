@@ -6,6 +6,35 @@ use colored::Colorize;
 use gitnexus_db::snapshot;
 
 pub fn run(question: &str, path: Option<&str>) -> Result<()> {
+    let (answer, top_nodes) = ask_question(question, path, Some(Box::new(|delta| {
+        print!("{}", delta);
+        use std::io::Write;
+        std::io::stdout().flush().unwrap();
+    })))?;
+    
+    if answer.is_empty() && top_nodes.is_empty() {
+        return Ok(());
+    }
+
+    println!("\n\n{}", "\u{2500}".repeat(60));
+
+    // Show sources
+    println!("\n{}", "Sources:".dimmed());
+    for (node, _) in top_nodes.iter().take(5) {
+        println!(
+            "  {} `{}` in {}",
+            "->".dimmed(),
+            node.properties.name,
+            node.properties.file_path
+        );
+    }
+
+    Ok(())
+}
+
+pub type StreamCallback = Box<dyn Fn(&str) + Send>;
+
+pub fn ask_question(question: &str, path: Option<&str>, stream_cb: Option<StreamCallback>) -> Result<(String, Vec<(gitnexus_core::graph::types::GraphNode, f64)>)> {
     let repo_path = if let Some(p) = path {
         std::path::PathBuf::from(p)
     } else {
@@ -17,23 +46,7 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
     let config = match config {
         Some(c) => c,
         None => {
-            println!(
-                "{} No LLM configured. Create ~/.gitnexus/chat-config.json with:",
-                "ERROR".red()
-            );
-            println!();
-            println!("  {{");
-            println!("    \"provider\": \"gemini\",");
-            println!("    \"api_key\": \"YOUR_API_KEY\",");
-            println!("    \"base_url\": \"https://generativelanguage.googleapis.com/v1beta/openai\",");
-            println!("    \"model\": \"gemini-2.5-flash\",");
-            println!("    \"max_tokens\": 8192,");
-            println!("    \"reasoning_effort\": \"high\"");
-            println!("  }}");
-            println!();
-            println!("  Supported providers: Gemini, OpenAI, Anthropic, OpenRouter, Ollama");
-            println!("  For Ollama: base_url = \"http://localhost:11434/v1\", api_key = \"\"");
-            return Ok(());
+            return Err(anyhow::anyhow!("No LLM configured. Create ~/.gitnexus/chat-config.json"));
         }
     };
 
@@ -41,17 +54,11 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
     let storage_path = repo_path.join(".gitnexus");
     let snap_path = storage_path.join("graph.bin");
     if !snap_path.exists() {
-        println!(
-            "{} No index found. Run 'gitnexus analyze' first.",
-            "ERROR".red()
-        );
-        return Ok(());
+        return Err(anyhow::anyhow!("No index found. Run 'gitnexus analyze' first."));
     }
 
     let graph = snapshot::load_snapshot(&snap_path)
         .map_err(|e| anyhow::anyhow!("Failed to load graph: {}", e))?;
-
-    println!("{} Searching knowledge graph...", "->".cyan());
 
     // Search the graph for relevant symbols
     let query_lower = question.to_lowercase();
@@ -74,6 +81,11 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
                     score += 1.0;
                 }
             }
+            if let Some(content) = &node.properties.content {
+                if content.to_lowercase().contains(word) {
+                    score += 1.0;
+                }
+            }
         }
         if score > 0.0 {
             relevant_nodes.push((node, score));
@@ -85,15 +97,8 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
     let top_nodes = &relevant_nodes[..relevant_nodes.len().min(10)];
 
     if top_nodes.is_empty() {
-        println!(
-            "{} No relevant symbols found for: {}",
-            "WARN".yellow(),
-            question
-        );
-        return Ok(());
+        return Ok((String::new(), Vec::new()));
     }
-
-    println!("  Found {} relevant symbols", top_nodes.len());
 
     // Build context from top nodes
     let mut context = String::new();
@@ -105,16 +110,17 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
             node.properties.file_path
         ));
 
-        // Read source code snippet
+        if let Some(content) = &node.properties.content {
+            context.push_str("```markdown\n");
+            context.push_str(content);
+            context.push_str("\n```\n\n");
+            continue;
+        }
+
         let source_path = repo_path.join(&node.properties.file_path);
         if let Ok(source) = std::fs::read_to_string(&source_path) {
             let lines: Vec<&str> = source.lines().collect();
-            let start = node
-                .properties
-                .start_line
-                .map(|l| l as usize)
-                .unwrap_or(1)
-                .saturating_sub(1);
+            let start = node.properties.start_line.map(|l| l as usize).unwrap_or(1).saturating_sub(1).min(lines.len());
             let end = (start + 15).min(lines.len());
             context.push_str("```\n");
             for line in &lines[start..end] {
@@ -125,30 +131,25 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
         }
     }
 
-    println!("{} Asking LLM ({})...", "->".cyan(), config.model);
-
     // Call LLM
     let messages = vec![
         serde_json::json!({
             "role": "system",
-            "content": "Tu es un expert en analyse de code. R\u{00e9}ponds de fa\u{00e7}on pr\u{00e9}cise et concise en te basant UNIQUEMENT sur le contexte fourni. Ne fais pas de suppositions."
+            "content": "Tu es un expert en analyse de code. Réponds de façon précise et concise en te basant UNIQUEMENT sur le contexte fourni. Ne fais pas de suppositions."
         }),
         serde_json::json!({
             "role": "user",
-            "content": format!("Question : {}\n\nContexte du code :\n{}", question, context)
+            "content": format!("Question : {}\n\nContexte :\n{}", question, context)
         }),
     ];
 
-    let url = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let mut body = serde_json::json!({
         "model": config.model,
         "messages": messages,
         "max_tokens": config.max_tokens,
         "temperature": 0.3,
-        "stream": true
+        "stream": stream_cb.is_some()
     });
 
     let effort = config.reasoning_effort.trim().to_lowercase();
@@ -167,13 +168,10 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
 
     let response = request.send()?;
     if !response.status().is_success() {
-        println!("{} LLM error: {}", "ERROR".red(), response.status());
-        return Ok(());
+        return Err(anyhow::anyhow!("LLM error: {}", response.status()));
     }
 
-    println!("\n{}\n", "\u{2500}".repeat(60));
-
-    use std::io::{BufRead, BufReader, Write};
+    use std::io::{BufRead, BufReader};
 
     let mut full_answer = String::new();
     let reader = BufReader::new(response);
@@ -183,26 +181,22 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
             if data.trim() == "[DONE]" { break; }
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
                 if let Some(delta) = json.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")).and_then(|d| d.get("content")).and_then(|v| v.as_str()) {
-                    print!("{}", delta);
-                    std::io::stdout().flush()?;
+                    if let Some(cb) = &stream_cb {
+                        cb(delta);
+                    }
                     full_answer.push_str(delta);
                 }
+            }
+        } else if !stream_cb.is_some() {
+            // Non-streaming response body parsing if stream is false
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                 if let Some(content) = json.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("message")).and_then(|m| m.get("content")).and_then(|v| v.as_str()) {
+                     full_answer.push_str(content);
+                 }
             }
         }
     }
 
-    println!("\n\n{}", "\u{2500}".repeat(60));
-
-    // Show sources
-    println!("\n{}", "Sources:".dimmed());
-    for (node, _) in top_nodes.iter().take(5) {
-        println!(
-            "  {} `{}` in {}",
-            "->".dimmed(),
-            node.properties.name,
-            node.properties.file_path
-        );
-    }
-
-    Ok(())
+    let top_nodes_vec = top_nodes.iter().map(|(n, s)| ((*n).clone(), *s)).collect();
+    Ok((full_answer, top_nodes_vec))
 }

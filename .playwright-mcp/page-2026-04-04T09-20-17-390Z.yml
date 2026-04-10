@@ -1,0 +1,316 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - link "Aller au contenu principal" [ref=e4] [cursor=pointer]:
+      - /url: "#main-content"
+    - heading "GitNexus — Plateforme d'intelligence de code" [level=1] [ref=e5]
+    - generic [ref=e6]:
+      - navigation "Mode navigation" [ref=e7]:
+        - generic [ref=e8]:
+          - button "Explorer" [ref=e10]:
+            - img [ref=e12]
+          - button "Analyze" [ref=e16]:
+            - img [ref=e17]
+          - button "Chat" [ref=e20]:
+            - img [ref=e21]
+          - button "Manage" [ref=e24]:
+            - img [ref=e25]
+          - button "Command Palette" [ref=e29]:
+            - img [ref=e30]
+      - main [ref=e33]:
+        - generic [ref=e47]:
+          - generic [ref=e52]:
+            - generic [ref=e53]:
+              - generic [ref=e54]:
+                - img [ref=e55]
+                - heading "Fichiers" [level=2] [ref=e57]
+              - generic [ref=e58]: "15"
+            - generic [ref=e60]:
+              - img [ref=e61]
+              - textbox "Rechercher des fichiers":
+                - /placeholder: Rechercher des fichiers…
+            - tree "File explorer" [ref=e65]:
+              - treeitem "src" [expanded] [ref=e66]:
+                - button "src" [ref=e67]:
+                  - img [ref=e68]
+                  - img [ref=e70]
+                  - generic: src
+                - group [ref=e72]:
+                  - treeitem "main.rs" [ref=e73]:
+                    - button "main.rs" [ref=e74]:
+                      - img [ref=e77]
+                      - generic: main.rs
+                  - treeitem "pipeline.rs" [ref=e80]:
+                    - button "pipeline.rs" [ref=e81]:
+                      - img [ref=e84]
+                      - generic: pipeline.rs
+                  - treeitem "parser.rs" [ref=e87]:
+                    - button "parser.rs" [ref=e88]:
+                      - img [ref=e91]
+                      - generic: parser.rs
+                  - treeitem "core" [ref=e94]:
+                    - button "core" [ref=e95]:
+                      - img [ref=e97]
+                      - img [ref=e99]
+                      - generic: core
+                  - treeitem "ingest" [ref=e101]:
+                    - button "ingest" [ref=e102]:
+                      - img [ref=e104]
+                      - img [ref=e106]
+                      - generic: ingest
+                  - treeitem "lang" [ref=e108]:
+                    - button "lang" [ref=e109]:
+                      - img [ref=e111]
+                      - img [ref=e113]
+                      - generic: lang
+                  - treeitem "search" [ref=e115]:
+                    - button "search" [ref=e116]:
+                      - img [ref=e118]
+                      - img [ref=e120]
+                      - generic: search
+              - treeitem "Cargo.toml" [ref=e122]:
+                - button "Cargo.toml" [ref=e123]:
+                  - img [ref=e125]
+                  - generic: Cargo.toml
+              - treeitem "README.md" [ref=e128]:
+                - button "README.md" [ref=e129]:
+                  - img [ref=e131]
+                  - generic: README.md
+          - separator [ref=e135]
+          - generic [ref=e144]:
+            - generic [ref=e145]:
+              - toolbar "Graph controls" [ref=e147]:
+                - generic "Graph granularity level" [ref=e148]:
+                  - button "Packages" [ref=e150] [cursor=pointer]
+                  - button "Modules" [ref=e152] [cursor=pointer]
+                  - button "Symboles" [ref=e154] [cursor=pointer]
+                - button "Disposition" [ref=e157] [cursor=pointer]:
+                  - text: Force
+                  - img [ref=e158]
+                - button "Ajuster la vue" [ref=e161] [cursor=pointer]:
+                  - img [ref=e162]
+                - button "Export graph as PNG" [ref=e168] [cursor=pointer]:
+                  - img [ref=e169]
+                - button "Show process flows" [ref=e173] [cursor=pointer]:
+                  - img [ref=e174]
+                - generic [ref=e178]:
+                  - generic [ref=e179]: 22 nœuds
+                  - generic [ref=e180]: 25 arêtes
+                - generic [ref=e181]:
+                  - generic [ref=e182]: "Edges:"
+                  - button "CALLS" [ref=e183] [cursor=pointer]
+                  - button "IMPORTS" [ref=e184] [cursor=pointer]
+                  - button "HAS METHOD" [ref=e185] [cursor=pointer]
+                  - button "EXTENDS" [ref=e186] [cursor=pointer]
+                  - button "CALLS ACTION" [ref=e187] [cursor=pointer]
+                  - button "CONTAINS" [ref=e188] [cursor=pointer]
+                - generic [ref=e189]:
+                  - generic [ref=e190]: "Depth:"
+                  - button "1" [ref=e191] [cursor=pointer]
+                  - button "2" [ref=e192] [cursor=pointer]
+                  - button "3" [ref=e193] [cursor=pointer]
+                  - button "All" [ref=e194] [cursor=pointer]
+              - generic [ref=e195]:
+                - generic [ref=e196]:
+                  - img [ref=e197]
+                  - combobox [ref=e200] [cursor=pointer]:
+                    - option "All" [selected]
+                    - option "Calls"
+                    - option "Structure"
+                    - option "Heritage"
+                    - option "Impact"
+                    - option "Dead Code"
+                    - option "Tracing"
+                - generic [ref=e201]:
+                  - generic [ref=e202]: Depth
+                  - group "Ego network depth" [ref=e203]:
+                    - button "Depth 1" [ref=e204]: "1"
+                    - button "Depth 2" [pressed] [ref=e205]: "2"
+                    - button "Depth 3" [ref=e206]: "3"
+              - generic [ref=e208]:
+                - button "Graph" [ref=e209] [cursor=pointer]:
+                  - img [ref=e211]
+                  - generic [ref=e216]: Graph
+                - button "Treemap" [ref=e217] [cursor=pointer]:
+                  - img [ref=e218]
+                  - generic [ref=e222]: Treemap
+            - generic [ref=e224]:
+              - img "Knowledge graph visualization" [ref=e225]
+              - button "Close minimap" [ref=e228] [cursor=pointer]:
+                - img [ref=e229]
+              - button "Overlay d'impact" [ref=e709] [cursor=pointer]:
+                - img [ref=e710]
+                - text: Overlay d'impact
+              - button "Requête Cypher (Ctrl+Entrée pour exécuter)" [ref=e234] [cursor=pointer]:
+                - img [ref=e235]
+              - generic [ref=e237]:
+                - button "Zoom in" [ref=e239] [cursor=pointer]: +
+                - button "Zoom out" [ref=e241] [cursor=pointer]: −
+                - button "Fit view" [ref=e243] [cursor=pointer]: ⊞
+              - button "Légende" [ref=e245]
+          - separator [ref=e246]
+          - generic [ref=e253]:
+            - generic [ref=e712]:
+              - generic [ref=e717]: Code Inspector
+              - generic:
+                - generic:
+                  - button "KnowledgeGraph Module" [ref=e718] [cursor=pointer]:
+                    - img [ref=e720]
+                    - generic: KnowledgeGraph
+                    - generic [ref=e725]: Module
+                  - generic:
+                    - generic [ref=e726]:
+                      - text: src/core/mod.rs
+                      - generic [ref=e727]: :1
+                      - generic [ref=e728]: "-30"
+                      - text: rust
+                    - generic:
+                      - code:
+                        - generic:
+                          - generic [ref=e729]: "1"
+                          - generic [ref=e730]: //! Core types and data structures for the knowledge graph.
+                        - generic [ref=e731]: "2"
+                        - generic:
+                          - generic [ref=e733]: "3"
+                          - generic [ref=e734]: mod graph;
+                        - generic:
+                          - generic [ref=e735]: "4"
+                          - generic [ref=e736]: mod types;
+                        - generic [ref=e737]: "5"
+                        - generic:
+                          - generic [ref=e739]: "6"
+                          - generic [ref=e740]: pub use graph::KnowledgeGraph;
+                        - generic:
+                          - generic [ref=e741]: "7"
+                          - generic [ref=e742]: "pub use types::{NodeLabel, RelationshipType};"
+                - generic [ref=e743]: Callers (1)
+                - button "ingest Module" [ref=e744] [cursor=pointer]:
+                  - img [ref=e746]
+                  - generic: ingest
+                  - generic [ref=e751]: Module
+                - generic [ref=e752]: Callees (3)
+                - button "parse_file Function" [ref=e753] [cursor=pointer]:
+                  - img [ref=e755]
+                  - generic: parse_file
+                  - generic [ref=e760]: Function
+                - button "resolve_imports Function" [ref=e761] [cursor=pointer]:
+                  - img [ref=e763]
+                  - generic: resolve_imports
+                  - generic [ref=e768]: Function
+                - button "detect_communities Function" [ref=e769] [cursor=pointer]:
+                  - img [ref=e771]
+                  - generic: detect_communities
+                  - generic [ref=e776]: Function
+            - generic [ref=e777]:
+              - generic:
+                - navigation "Symbol breadcrumb":
+                  - button "Pipeline Core" [ref=e779] [cursor=pointer]:
+                    - img [ref=e780]
+                    - generic [ref=e785]: Pipeline Core
+                  - generic [ref=e786]:
+                    - img [ref=e787]
+                    - generic [ref=e789]:
+                      - img [ref=e790]
+                      - generic [ref=e795]: mod.rs
+                  - generic [ref=e796]:
+                    - img [ref=e797]
+                    - generic [ref=e799]:
+                      - img [ref=e800]
+                      - generic [ref=e802]: core
+              - tablist:
+                - tab "Contexte" [selected] [ref=e803]
+                - tab "Code" [ref=e804]
+                - tab "Propriétés" [ref=e805]
+                - tab "Couches" [ref=e806]
+                - tab "Santé" [ref=e807]
+              - tabpanel:
+                - generic:
+                  - generic [ref=e808]:
+                    - generic:
+                      - generic [ref=e809]: Module
+                      - generic [ref=e810]: exported
+                    - heading "core" [level=2]
+                    - paragraph: src/core/mod.rs:1-30
+                  - generic [ref=e811]:
+                    - button "Preview 30 lines":
+                      - generic [ref=e815]: Preview
+                      - generic [ref=e816]: 30 lines
+                    - generic [ref=e817]:
+                      - generic:
+                        - generic [ref=e818]: "1"
+                        - generic [ref=e819]: //! Core types and data structures for the knowledge graph.
+                      - generic [ref=e820]: "2"
+                      - generic:
+                        - generic [ref=e821]: "3"
+                        - generic [ref=e822]: mod graph;
+                      - generic:
+                        - generic [ref=e823]: "4"
+                        - generic [ref=e824]: mod types;
+                      - generic [ref=e825]: "5"
+                      - generic:
+                        - generic [ref=e826]: "6"
+                        - generic [ref=e827]: pub use graph::KnowledgeGraph;
+                      - generic:
+                        - generic [ref=e828]: "7"
+                        - generic [ref=e829]: "pub use types::{NodeLabel, RelationshipType};"
+                  - generic:
+                    - generic: Module
+                    - generic: Pipeline Core
+                    - generic: Main ingestion pipeline
+                    - generic:
+                      - generic [ref=e830]: Cohesion
+                      - generic [ref=e831]: 85%
+                  - generic:
+                    - button "APPELANTS (1)":
+                      - img [ref=e833]
+                      - heading "APPELANTS (1)" [level=3] [ref=e835]:
+                        - text: APPELANTS
+                        - generic [ref=e836]: (1)
+                    - generic:
+                      - generic:
+                        - paragraph: APPELANTS
+                        - button "Module ingest src/ingest/mod.rs" [ref=e837]:
+                          - generic [ref=e838]: Module
+                          - generic:
+                            - paragraph: ingest
+                            - paragraph: src/ingest/mod.rs
+                  - generic:
+                    - button "APPELÉS (3)":
+                      - img [ref=e840]
+                      - heading "APPELÉS (3)" [level=3] [ref=e842]:
+                        - text: APPELÉS
+                        - generic [ref=e843]: (3)
+                    - generic:
+                      - generic:
+                        - paragraph: APPELÉS
+                        - button "Function parse_file src/parser.rs" [ref=e844]:
+                          - generic [ref=e845]: Function
+                          - generic:
+                            - paragraph: parse_file
+                            - paragraph: src/parser.rs
+                        - button "Function resolve_imports src/ingest/imports.rs" [ref=e846]:
+                          - generic [ref=e847]: Function
+                          - generic:
+                            - paragraph: resolve_imports
+                            - paragraph: src/ingest/imports.rs
+                        - button "Function detect_communities src/ingest/community.rs" [ref=e848]:
+                          - generic [ref=e849]: Function
+                          - generic:
+                            - paragraph: detect_communities
+                            - paragraph: src/ingest/community.rs
+                  - generic:
+                    - button "COMMUNAUTÉ (1)":
+                      - img [ref=e851]
+                      - heading "COMMUNAUTÉ (1)" [level=3] [ref=e853]:
+                        - text: COMMUNAUTÉ
+                        - generic [ref=e854]: (1)
+    - contentinfo [ref=e39]:
+      - generic [ref=e40]:
+        - generic [ref=e257]: gitnexus-rs
+        - generic [ref=e259]: Explorateur de graphe
+        - generic [ref=e261]:
+          - generic [ref=e262]: "Vue:"
+          - text: Niveau package
+        - generic [ref=e42]:
+          - generic [ref=e263]: gpt-4
+          - generic [ref=e46]: GitNexus v0.1.0
+  - region "Notifications alt+T"

@@ -27,7 +27,7 @@ pub struct FileDigest {
 }
 
 /// Complete manifest: relative-path -> FileDigest.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct FileManifest {
     pub files: HashMap<String, FileDigest>,
 }
@@ -164,7 +164,13 @@ pub fn diff_manifests(old: &FileManifest, new: &FileManifest) -> Vec<FileChange>
 
 // ─── Persistence ─────────────────────────────────────────────────────────
 
-/// Save a manifest as JSON to disk.
+/// Save a manifest as JSON to disk atomically (write to temp + rename).
+///
+/// The temp filename includes pid + nanosecond suffix so concurrent saves
+/// from multiple processes/threads cannot collide on a single shared
+/// temp path. A crash mid-write leaves the temp file behind but never
+/// produces a half-written `manifest.json` — readers always observe
+/// either the previous good manifest or the new one.
 pub fn save_manifest(manifest: &FileManifest, path: &Path) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -172,7 +178,31 @@ pub fn save_manifest(manifest: &FileManifest, path: &Path) -> io::Result<()> {
     let json = serde_json::to_string_pretty(manifest).map_err(|e| {
         io::Error::other(format!("JSON serialize error: {e}"))
     })?;
-    fs::write(path, json)
+
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = match path.parent() {
+        Some(parent) => {
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("manifest.json");
+            parent.join(format!("{file_name}.tmp.{pid}.{nanos}"))
+        }
+        None => path.with_extension(format!("tmp.{pid}.{nanos}")),
+    };
+
+    fs::write(&tmp_path, json)?;
+    if let Err(e) = fs::rename(&tmp_path, path) {
+        // Best-effort cleanup of the orphaned temp file so we don't leak
+        // it if rename fails (e.g., dest path locked on Windows).
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// Load a manifest from JSON on disk. Returns `None` if file doesn't exist.

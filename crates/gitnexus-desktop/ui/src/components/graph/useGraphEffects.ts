@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   filterGraphByDepth,
   filterGraphByCommunities,
@@ -11,9 +11,13 @@ interface GraphEffectsOptions {
   gs: GraphState;
   selectedNodeId: string | null | undefined;
   searchMatchIds: string[];
-  selectedFeatures: string[];
+  /// Pass the Set directly (NOT a fresh array). A new array reference each
+  /// render would re-fire the community-filter effect on every parent render
+  /// and re-walk the entire graph. The Set in the store is stable until
+  /// `setSelectedFeatures` actually replaces it.
+  selectedFeatures: Set<string>;
   egoDepth: number;
-  graphRef: React.RefObject<Graph<SigmaNodeAttributes, SigmaEdgeAttributes>>;
+  graphRef: React.RefObject<Graph<SigmaNodeAttributes, SigmaEdgeAttributes> | null>;
   focusNode: (id: string) => void;
   refresh: () => void;
   fitView: () => void;
@@ -72,7 +76,8 @@ export function useGraphEffects({
     }
     setEgoNodeIds(nodeIds);
     setEgoDepthMap(depthMap);
-  }, [selectedNodeId, egoDepth, setEgoNodeIds, setEgoDepthMap, graphRef]);
+    refresh();
+  }, [selectedNodeId, egoDepth, setEgoNodeIds, setEgoDepthMap, graphRef, refresh]);
 
   // Depth filter
   useEffect(() => {
@@ -97,35 +102,49 @@ export function useGraphEffects({
   useEffect(() => {
     const g = graphRef.current;
     if (!g) return;
-    filterGraphByCommunities(g, selectedFeatures instanceof Set ? selectedFeatures : new Set(selectedFeatures));
+    filterGraphByCommunities(g, selectedFeatures);
     refresh();
   }, [selectedFeatures, refresh, graphRef]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput =
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable;
+
       if ((e.ctrlKey || e.metaKey) && e.key === "g") { e.preventDefault(); setSearchOpen(true); }
       if ((e.ctrlKey || e.metaKey) && e.key === "e") { e.preventDefault(); exportPNG(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomIn(); }
       if ((e.ctrlKey || e.metaKey) && e.key === "-") { e.preventDefault(); zoomOut(); }
       if ((e.ctrlKey || e.metaKey) && e.key === "0") { e.preventDefault(); fitView(); }
-      if (e.key === "Escape" && !e.ctrlKey && !e.metaKey) {
+      if (e.key === "Escape" && !e.ctrlKey && !e.metaKey && !isInput) {
         setSelectedNodeId(null, null);
         setContextMenu(null);
         setShortcutsOpen(false);
       }
-      if (e.key === "?" && !e.ctrlKey && !e.metaKey) setShortcutsOpen((p) => !p);
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey && !isInput) setShortcutsOpen((p) => !p);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [exportPNG, zoomIn, zoomOut, fitView, setSearchOpen, setSelectedNodeId, setContextMenu, setShortcutsOpen]);
 
-  // Custom window events
+  // Custom window events.
+  // Read `layout` through a ref so this effect registers its listeners exactly
+  // once. Re-subscribing on every layout change opens a window between cleanup
+  // and re-attach where rapid `gitnexus:cycle-layout` events would be missed.
+  const layoutRef = useRef(layout);
+  useEffect(() => {
+    layoutRef.current = layout;
+  }, [layout]);
+
   useEffect(() => {
     const onFit = () => fitView();
     const onCycle = () => {
       const ls = ["forceatlas2", "grid", "circle", "random"];
-      setLayout(ls[(ls.indexOf(layout) + 1) % ls.length]);
+      setLayout(ls[(ls.indexOf(layoutRef.current) + 1) % ls.length]);
     };
     window.addEventListener("gitnexus:fit-graph", onFit);
     window.addEventListener("gitnexus:cycle-layout", onCycle);
@@ -133,5 +152,5 @@ export function useGraphEffects({
       window.removeEventListener("gitnexus:fit-graph", onFit);
       window.removeEventListener("gitnexus:cycle-layout", onCycle);
     };
-  }, [layout, fitView, setLayout]);
+  }, [fitView, setLayout]);
 }

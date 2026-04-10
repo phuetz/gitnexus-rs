@@ -1,0 +1,192 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - link "Aller au contenu principal" [ref=e4] [cursor=pointer]:
+        - /url: "#main-content"
+      - heading "GitNexus — Plateforme d'intelligence de code" [level=1] [ref=e5]
+      - generic [ref=e6]:
+        - navigation "Mode navigation" [ref=e7]:
+          - generic [ref=e8]:
+            - button "Explorer" [ref=e10]:
+              - img [ref=e12]
+            - button "Analyze" [ref=e16]:
+              - img [ref=e17]
+            - button "Chat" [ref=e20]:
+              - img [ref=e21]
+            - button "Manage" [active] [ref=e24]:
+              - img [ref=e25]
+            - button "Command Palette" [ref=e29]:
+              - img [ref=e30]
+        - main [ref=e33]:
+          - option "All" [selected]
+          - option "Calls"
+          - option "Structure"
+          - option "Heritage"
+          - option "Impact"
+          - option "Dead Code"
+          - option "Tracing"
+          - generic [ref=e265]:
+            - heading "Gérer" [level=1] [ref=e266]
+            - generic [ref=e267]:
+              - heading "Dépôts" [level=2] [ref=e268]:
+                - img [ref=e269]
+                - text: Dépôts
+              - generic [ref=e274]:
+                - generic [ref=e275]:
+                  - generic [ref=e276]:
+                    - heading "Dépôts" [level=1] [ref=e277]
+                    - paragraph [ref=e278]: 3 indexé(s) dépôts
+                  - generic [ref=e279]:
+                    - button "Analyser un projet" [ref=e280] [cursor=pointer]:
+                      - img [ref=e281]
+                      - text: Analyser un projet
+                    - button "Actualiser" [ref=e284]:
+                      - img [ref=e285]
+                      - text: Actualiser
+                - generic [ref=e290]:
+                  - button "G gitnexus-rs 2h ago C:\\Users\\patrice\\CascadeProjects\\gitnexus-rs 247 fichiers 3.8k nœuds 12.7k arêtes 18 communautés" [ref=e293] [cursor=pointer]:
+                    - generic [ref=e294]: G
+                    - generic [ref=e295]:
+                      - generic [ref=e296]:
+                        - heading "gitnexus-rs" [level=3] [ref=e297]
+                        - generic [ref=e298]:
+                          - img [ref=e299]
+                          - text: 2h ago
+                      - paragraph [ref=e302]: C:\Users\patrice\CascadeProjects\gitnexus-rs
+                      - generic [ref=e303]:
+                        - generic [ref=e304]:
+                          - generic [ref=e305]: "247"
+                          - text: fichiers
+                        - generic [ref=e306]: 3.8k nœuds
+                        - generic [ref=e307]: 12.7k arêtes
+                        - generic [ref=e308]:
+                          - generic [ref=e309]: "18"
+                          - text: communautés
+                    - button [ref=e311]:
+                      - img [ref=e312]
+                  - button "M my-react-app 1d ago D:\\Projects\\my-react-app 89 fichiers 1.2k nœuds 4.3k arêtes 7 communautés" [ref=e318] [cursor=pointer]:
+                    - generic [ref=e319]: M
+                    - generic [ref=e320]:
+                      - generic [ref=e321]:
+                        - heading "my-react-app" [level=3] [ref=e322]
+                        - generic [ref=e323]:
+                          - img [ref=e324]
+                          - text: 1d ago
+                      - paragraph [ref=e327]: D:\Projects\my-react-app
+                      - generic [ref=e328]:
+                        - generic [ref=e329]:
+                          - generic [ref=e330]: "89"
+                          - text: fichiers
+                        - generic [ref=e331]: 1.2k nœuds
+                        - generic [ref=e332]: 4.3k arêtes
+                        - generic [ref=e333]:
+                          - generic [ref=e334]: "7"
+                          - text: communautés
+                    - button [ref=e336]:
+                      - img [ref=e337]
+                  - button "A api-gateway 3d ago C:\\Users\\patrice\\work\\api-gateway 156 fichiers 2.2k nœuds 8.4k arêtes 12 communautés" [ref=e343] [cursor=pointer]:
+                    - generic [ref=e344]: A
+                    - generic [ref=e345]:
+                      - generic [ref=e346]:
+                        - heading "api-gateway" [level=3] [ref=e347]
+                        - generic [ref=e348]:
+                          - img [ref=e349]
+                          - text: 3d ago
+                      - paragraph [ref=e352]: C:\Users\patrice\work\api-gateway
+                      - generic [ref=e353]:
+                        - generic [ref=e354]:
+                          - generic [ref=e355]: "156"
+                          - text: fichiers
+                        - generic [ref=e356]: 2.2k nœuds
+                        - generic [ref=e357]: 8.4k arêtes
+                        - generic [ref=e358]:
+                          - generic [ref=e359]: "12"
+                          - text: communautés
+                    - button [ref=e361]:
+                      - img [ref=e362]
+            - generic [ref=e366]:
+              - heading "Export" [level=2] [ref=e367]:
+                - img [ref=e368]
+                - text: Export
+              - generic [ref=e372]:
+                - generic [ref=e373]:
+                  - generic [ref=e374]:
+                    - heading "Export & ASP.NET" [level=2] [ref=e375]
+                    - paragraph [ref=e376]: Documentation DOCX et statistiques ASP.NET MVC 5 / EF6
+                  - button "Rafraîchir les statistiques" [ref=e377] [cursor=pointer]:
+                    - img [ref=e378]
+                - generic [ref=e383]:
+                  - generic [ref=e384]:
+                    - img [ref=e386]
+                    - generic [ref=e389]:
+                      - heading "Exporter en DOCX" [level=3] [ref=e390]
+                      - paragraph [ref=e391]: Génère un document Word complet avec l'architecture, les contrôleurs, les entités, les routes et les diagrammes ER.
+                  - button "Exporter la documentation en DOCX" [ref=e392] [cursor=pointer]:
+                    - img [ref=e393]
+                    - text: Générer le DOCX
+                - generic [ref=e396]:
+                  - img [ref=e397]
+                  - paragraph [ref=e400]: Aucun élément ASP.NET détecté
+                  - paragraph [ref=e401]: Indexez un projet ASP.NET MVC 5 / .NET Framework pour voir les contrôleurs, entités et vues.
+            - generic [ref=e402]:
+              - heading "Documentation" [level=2] [ref=e403]:
+                - img [ref=e404]
+                - text: Documentation
+              - generic [ref=e407]:
+                - img [ref=e409]
+                - heading "Générer la documentation" [level=2] [ref=e411]
+                - paragraph [ref=e412]: Analysez votre codebase et générez une documentation interactive de type wiki avec des diagrammes d'architecture, des guides de modules et des références API.
+                - generic [ref=e413]:
+                  - generic [ref=e414]:
+                    - img [ref=e415]
+                    - generic [ref=e419]: Cartes de dépendances des modules
+                  - generic [ref=e420]:
+                    - img [ref=e421]
+                    - generic [ref=e424]: Graphes d'appels croisés
+                  - generic [ref=e425]:
+                    - img [ref=e426]
+                    - generic [ref=e429]: Documentation API auto-générée
+                  - generic [ref=e430]:
+                    - img [ref=e431]
+                    - generic [ref=e433]: Posez des questions sur votre code
+                - button "Générer la doc" [ref=e434] [cursor=pointer]:
+                  - img [ref=e435]
+                  - text: Générer la doc
+            - generic [ref=e438]:
+              - heading "Paramètres" [level=2] [ref=e439]:
+                - img [ref=e440]
+                - text: Paramètres
+              - generic [ref=e443]:
+                - generic [ref=e444]:
+                  - generic [ref=e445]:
+                    - img [ref=e446]
+                    - generic [ref=e449]:
+                      - paragraph [ref=e450]: Langue
+                      - paragraph [ref=e451]: Choisir la langue d'affichage de l'interface
+                  - generic [ref=e452]:
+                    - button "FR Français" [ref=e453] [cursor=pointer]
+                    - button "EN English" [ref=e454] [cursor=pointer]
+                - generic [ref=e455]:
+                  - generic [ref=e456]:
+                    - img [ref=e457]
+                    - paragraph [ref=e463]: Thème
+                  - generic [ref=e464]:
+                    - button "Sombre" [ref=e465] [cursor=pointer]:
+                      - img [ref=e466]
+                      - text: Sombre
+                    - button "Clair" [ref=e468] [cursor=pointer]:
+                      - img [ref=e469]
+                      - text: Clair
+                    - button "Système" [ref=e475] [cursor=pointer]:
+                      - img [ref=e476]
+                      - text: Système
+      - contentinfo [ref=e39]:
+        - generic [ref=e40]:
+          - generic [ref=e257]: gitnexus-rs
+          - generic [ref=e259]: Manage
+          - generic [ref=e261]: "Manage: Repos & Settings"
+          - generic [ref=e42]:
+            - generic [ref=e263]: gpt-4
+            - generic [ref=e46]: GitNexus v0.1.0
+    - region "Notifications alt+T"
+  - tooltip "Manage (Ctrl+4)"

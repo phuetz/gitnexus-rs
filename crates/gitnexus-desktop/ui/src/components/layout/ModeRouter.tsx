@@ -2,10 +2,12 @@ import { lazy, Suspense } from "react";
 import { AnimatePresence } from "framer-motion";
 import { useAppStore } from "../../stores/app-store";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
-import { ExplorerMode } from "../explorer/ExplorerMode";
 import { AnimatedPage } from "../shared/motion";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
 
+const ExplorerMode = lazy(() =>
+  import("../explorer/ExplorerMode").then((m) => ({ default: m.ExplorerMode })),
+);
 const AnalyzeMode = lazy(() =>
   import("../analyze/AnalyzeMode").then((m) => ({ default: m.AnalyzeMode })),
 );
@@ -40,7 +42,9 @@ export function ModeRouter() {
         }}
       >
         <ErrorBoundary>
-          <ExplorerMode />
+          <Suspense fallback={LazyFallback}>
+            <ExplorerMode />
+          </Suspense>
         </ErrorBoundary>
       </div>
 

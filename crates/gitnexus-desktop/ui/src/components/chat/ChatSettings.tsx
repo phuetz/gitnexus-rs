@@ -189,6 +189,11 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
             type="password"
             placeholder="sk-... (leave empty for Ollama)"
           />
+          <p className="text-[10px] -mt-2" style={{ color: "var(--text-4)" }}>
+            For security, the API key is kept in memory for this session and is
+            not written to disk. Use an environment variable for persistent
+            secrets.
+          </p>
           <Field
             label="Max Tokens"
             value={String(form.maxTokens)}

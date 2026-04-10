@@ -2,26 +2,31 @@ import { useQuery } from "@tanstack/react-query";
 import { HeartPulse } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
+import { useAppStore } from "../../stores/app-store";
 import { CodeHealthCard } from "../health/CodeHealthCard";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
 
 export function ReportView() {
   const { t } = useI18n();
+  const activeRepo = useAppStore((s) => s.activeRepo);
 
+  // All report queries scope on `activeRepo` — without it, TanStack Query
+  // would serve cached git analytics from the previously-opened repo for the
+  // full `staleTime` window on repo switch.
   const { data: hotspots, isLoading: loadingHotspots } = useQuery({
-    queryKey: ["hotspots-report"],
+    queryKey: ["hotspots-report", activeRepo],
     queryFn: () => commands.getHotspots(90),
     staleTime: 60_000,
   });
 
   const { data: couplings, isLoading: loadingCouplings } = useQuery({
-    queryKey: ["coupling-report"],
+    queryKey: ["coupling-report", activeRepo],
     queryFn: () => commands.getCoupling(3),
     staleTime: 60_000,
   });
 
   const { data: ownership, isLoading: loadingOwnership } = useQuery({
-    queryKey: ["ownership-report"],
+    queryKey: ["ownership-report", activeRepo],
     queryFn: () => commands.getOwnership(),
     staleTime: 60_000,
   });

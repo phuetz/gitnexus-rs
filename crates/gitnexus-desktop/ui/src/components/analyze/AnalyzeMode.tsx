@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence } from "framer-motion";
 import { useAppStore } from "../../stores/app-store";
@@ -5,40 +6,91 @@ import { useI18n } from "../../hooks/use-i18n";
 import { commands } from "../../lib/tauri-commands";
 import { AnimatedPage } from "../shared/motion";
 import { AnalyzeNav } from "./AnalyzeNav";
-import { OverviewView } from "./OverviewView";
-import { HotspotsView } from "../git/HotspotsView";
-import { CouplingView } from "../git/CouplingView";
-import { OwnershipView } from "../git/OwnershipView";
-import { CoverageView } from "../coverage/CoverageView";
-import { DiagramView } from "../diagram/DiagramView";
-import { ReportView } from "../report/ReportView";
-import { CodeHealthCard } from "../health/CodeHealthCard";
+import { LoadingOrbs } from "../shared/LoadingOrbs";
 
-// Wrapper views that own the data fetching for git analytics
-function HotspotsWrapper() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["git-hotspots"],
+import { AlertCircle } from "lucide-react";
+
+const OverviewView = lazy(() =>
+  import("./OverviewView").then((m) => ({ default: m.OverviewView })),
+);
+const ProcessFlowsView = lazy(() =>
+  import("./ProcessFlowsView").then((m) => ({ default: m.ProcessFlowsView })),
+);
+const HotspotsView = lazy(() =>
+  import("../git/HotspotsView").then((m) => ({ default: m.HotspotsView })),
+);
+const CouplingView = lazy(() =>
+  import("../git/CouplingView").then((m) => ({ default: m.CouplingView })),
+);
+const OwnershipView = lazy(() =>
+  import("../git/OwnershipView").then((m) => ({ default: m.OwnershipView })),
+);
+const CoverageView = lazy(() =>
+  import("../coverage/CoverageView").then((m) => ({ default: m.CoverageView })),
+);
+const DiagramView = lazy(() =>
+  import("../diagram/DiagramView").then((m) => ({ default: m.DiagramView })),
+);
+const ReportView = lazy(() =>
+  import("../report/ReportView").then((m) => ({ default: m.ReportView })),
+);
+const CodeHealthCard = lazy(() =>
+  import("../health/CodeHealthCard").then((m) => ({ default: m.CodeHealthCard })),
+);
+
+const analyzeFallback = (
+  <div className="flex items-center justify-center h-full">
+    <LoadingOrbs />
+  </div>
+);
+
+// Shared error state for analysis views
+function AnalyzeError({ error }: { error: unknown }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+      <AlertCircle size={40} style={{ color: "var(--rose)", marginBottom: 16 }} />
+      <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, color: "var(--text-0)", marginBottom: 8 }}>
+        {t("analyze.errorTitle")}
+      </h3>
+      <p style={{ fontSize: 13, color: "var(--text-3)", maxWidth: 400, lineHeight: 1.5 }}>
+        {String(error)}
+      </p>
+    </div>
+  );
+}
+
+// Wrapper views that own the data fetching for git analytics.
+// Query keys MUST include `activeRepo` so switching repos doesn't show stale
+// data from the previously active repo. Without it, TanStack Query treats the
+// query as the same across repos and serves cached data within `staleTime`.
+function HotspotsWrapper({ activeRepo }: { activeRepo: string | null }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["git-hotspots", activeRepo],
     queryFn: () => commands.getHotspots(90),
     staleTime: 60_000,
   });
+  if (error) return <AnalyzeError error={error} />;
   return <HotspotsView data={data ?? []} loading={isLoading} />;
 }
 
-function CouplingWrapper() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["git-coupling"],
+function CouplingWrapper({ activeRepo }: { activeRepo: string | null }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["git-coupling", activeRepo],
     queryFn: () => commands.getCoupling(3),
     staleTime: 60_000,
   });
+  if (error) return <AnalyzeError error={error} />;
   return <CouplingView data={data ?? []} loading={isLoading} />;
 }
 
-function OwnershipWrapper() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["git-ownership"],
+function OwnershipWrapper({ activeRepo }: { activeRepo: string | null }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["git-ownership", activeRepo],
     queryFn: () => commands.getOwnership(),
     staleTime: 60_000,
   });
+  if (error) return <AnalyzeError error={error} />;
   return <OwnershipView data={data ?? []} loading={isLoading} />;
 }
 
@@ -58,9 +110,10 @@ export function AnalyzeMode() {
   const renderView = () => {
     switch (analyzeView) {
       case "overview":   return <OverviewView />;
-      case "hotspots":   return <HotspotsWrapper />;
-      case "coupling":   return <CouplingWrapper />;
-      case "ownership":  return <OwnershipWrapper />;
+      case "processes":  return <ProcessFlowsView />;
+      case "hotspots":   return <HotspotsWrapper activeRepo={activeRepo} />;
+      case "coupling":   return <CouplingWrapper activeRepo={activeRepo} />;
+      case "ownership":  return <OwnershipWrapper activeRepo={activeRepo} />;
       case "coverage":   return <CoverageView />;
       case "diagram":    return <DiagramView />;
       case "report":     return <ReportView />;
@@ -83,7 +136,9 @@ export function AnalyzeMode() {
       <div className="flex-1 min-w-0 overflow-auto">
         <AnimatePresence mode="wait">
           <AnimatedPage key={analyzeView}>
-            {renderView()}
+            <Suspense fallback={analyzeFallback}>
+              {renderView()}
+            </Suspense>
           </AnimatedPage>
         </AnimatePresence>
       </div>

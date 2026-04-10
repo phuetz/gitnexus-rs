@@ -83,6 +83,22 @@ pub fn prompt_definitions() -> Value {
                         "required": false
                     }
                 ]
+            },
+            {
+                "name": "describe_process",
+                "description": "Analyze and describe a high-level business process (e.g., payments, calculation engines)",
+                "arguments": [
+                    {
+                        "name": "process",
+                        "description": "The process name to analyze (e.g., 'courriers', 'paiements', 'baremes')",
+                        "required": true
+                    },
+                    {
+                        "name": "repo",
+                        "description": "Repository name (optional if only one is indexed)",
+                        "required": false
+                    }
+                ]
             }
         ]
     })
@@ -229,6 +245,30 @@ pub fn get_prompt(name: &str, args: &Value) -> Option<Value> {
                 }]
             }))
         }
+        "describe_process" => {
+            let process = args
+                .get("process")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            Some(json!({
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "Analyze and describe the business process: `{process}`.\n\n\
+                             Please:\n\
+                             1. Use the `business` tool to get the high-level functional overview and key entities\n\
+                             2. Use the `query` tool to search for related logic if entities aren't clear\n\
+                             3. Use `context` on the main entities to understand their implementation details\n\
+                             4. Use `diagram` with type 'flowchart' or 'sequence' for the key controllers/services\n\
+                             5. Summarize the end-to-end flow, state changes, and key business rules"
+                        )
+                    }
+                }]
+            }))
+        }
         _ => None,
     }
 }
@@ -241,7 +281,7 @@ mod tests {
     fn test_prompt_definitions() {
         let defs = prompt_definitions();
         let prompts = defs["prompts"].as_array().unwrap();
-        assert_eq!(prompts.len(), 5);
+        assert_eq!(prompts.len(), 6);
         assert_eq!(prompts[0]["name"], "detect_impact");
         assert_eq!(prompts[1]["name"], "generate_map");
     }

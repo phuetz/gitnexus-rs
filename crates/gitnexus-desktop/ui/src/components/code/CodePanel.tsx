@@ -1,8 +1,40 @@
 import { useEffect, useRef, useState } from "react";
+import { getUiHighlighter } from "../../lib/shiki-runtime";
 import { useFileContent } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { useSymbolContext } from "../../hooks/use-tauri-query";
 import { useI18n } from "../../hooks/use-i18n";
+
+// Module-level singleton highlighter — created once per session and reused
+// across all CodePanel renders. Languages and themes are lazy-loaded as needed
+// via loadLanguage/loadTheme so we don't re-create the highlighter on every
+// file change (which was causing seconds of latency and grammar reloads).
+let highlighterPromise: Promise<CodePanelHighlighter> | null = null;
+const loadedLangs = new Set<string>();
+const THEME = "tokyo-night";
+
+type CodePanelHighlighter = Awaited<ReturnType<typeof getUiHighlighter>>;
+
+async function getCodePanelHighlighter(): Promise<CodePanelHighlighter> {
+  if (!highlighterPromise) {
+    highlighterPromise = getUiHighlighter();
+  }
+  return highlighterPromise;
+}
+
+async function ensureLanguageLoaded(
+  highlighter: CodePanelHighlighter,
+  lang: string
+): Promise<boolean> {
+  if (loadedLangs.has(lang)) return true;
+  try {
+    await highlighter.loadLanguage(lang as never);
+    loadedLangs.add(lang);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function CodePanel() {
   const { t } = useI18n();
@@ -14,36 +46,40 @@ export function CodePanel() {
   const filePath = context?.node.filePath ?? null;
   const { data: fileContent, isLoading } = useFileContent(filePath);
 
+  // Render-time reset when content disappears (avoids setState-in-effect lint).
+  const [prevContentKey, setPrevContentKey] = useState<string | null>(
+    fileContent?.content ?? null
+  );
+  const currentContentKey = fileContent?.content ?? null;
+  if (currentContentKey !== prevContentKey) {
+    setPrevContentKey(currentContentKey);
+    if (!currentContentKey) {
+      setHighlightedHtml("");
+    }
+  }
+
   useEffect(() => {
     if (!fileContent?.content) {
-      setHighlightedHtml("");
       return;
     }
 
-    // Use Shiki for syntax highlighting
+    // Use the singleton Shiki highlighter — never create or dispose per-render
     let cancelled = false;
+    const lang = fileContent.language ?? "text";
 
     (async () => {
-      let highlighter: Awaited<ReturnType<typeof import("shiki")["createHighlighter"]>> | null = null;
       try {
-        const shiki = await import("shiki");
-        highlighter = await shiki.createHighlighter({
-          themes: ["tokyo-night"],
-          langs: [
-            fileContent.language ?? "text",
-          ],
-        });
-
+        const highlighter = await getCodePanelHighlighter();
+        if (cancelled) return;
+        const langOk = await ensureLanguageLoaded(highlighter, lang);
         if (cancelled) return;
 
         const html = highlighter.codeToHtml(fileContent.content, {
-          lang: fileContent.language ?? "text",
-          theme: "tokyo-night",
+          lang: langOk ? (lang as never) : "text",
+          theme: THEME as never,
         });
 
-        if (!cancelled) {
-          setHighlightedHtml(html);
-        }
+        if (!cancelled) setHighlightedHtml(html);
       } catch {
         // Fallback: plain text with line numbers
         if (!cancelled) {
@@ -56,8 +92,6 @@ export function CodePanel() {
             .join("\n");
           setHighlightedHtml(`<pre class="fallback-code">${html}</pre>`);
         }
-      } finally {
-        highlighter?.dispose();
       }
     })();
 

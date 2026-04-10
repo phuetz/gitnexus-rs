@@ -116,6 +116,35 @@ fn bfs_impact(
     max_depth: u32,
     upstream: bool,
 ) -> Vec<ImpactNode> {
+    use gitnexus_core::graph::types::RelationshipType as R;
+
+    // Only traverse edge types that actually represent "change X and Y may
+    // break" semantics. Previously the BFS discarded the rel_type entirely
+    // and followed every relationship, including purely structural edges
+    // (`Contains`, `HasMethod`, `HasProperty`, `MemberOf`, `Defines`). A
+    // method living in a large community would then list every other
+    // member as "affected" via the MemberOf edge, producing wildly inflated
+    // impact counts. Match the filter already used by
+    // `chat_executor::execute_impact`, extended with the other causal edge
+    // types the graph stores.
+    let is_impact_edge = |rel_type: &R| -> bool {
+        matches!(
+            rel_type,
+            R::Calls
+                | R::CallsAction
+                | R::Imports
+                | R::Inherits
+                | R::Implements
+                | R::Extends
+                | R::Uses
+                | R::Overrides
+                | R::RendersView
+                | R::HandlesRoute
+                | R::Fetches
+                | R::MapsToEntity
+        )
+    };
+
     let mut visited: HashSet<String> = HashSet::new();
     let mut parent_map: HashMap<String, String> = HashMap::new();
     let mut queue: VecDeque<(String, u32)> = VecDeque::new();
@@ -136,7 +165,10 @@ fn bfs_impact(
         };
 
         if let Some(neighbors) = neighbors {
-            for (neighbor_id, _) in neighbors {
+            for (neighbor_id, rel_type) in neighbors {
+                if !is_impact_edge(rel_type) {
+                    continue;
+                }
                 if visited.insert(neighbor_id.clone()) {
                     parent_map.insert(neighbor_id.clone(), node_id.clone());
                     queue.push_back((neighbor_id.clone(), depth + 1));

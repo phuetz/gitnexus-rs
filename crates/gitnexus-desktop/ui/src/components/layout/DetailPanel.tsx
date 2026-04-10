@@ -567,13 +567,17 @@ function InlineCodeSnippet({
   endLine?: number;
 }) {
   const { t } = useI18n();
+  const activeRepo = useAppStore((s) => s.activeRepo);
   const [expanded, setExpanded] = useState(false);
   const maxPreviewLines = 8;
   const snippetEnd = endLine ?? startLine + maxPreviewLines;
   const previewEnd = Math.min(startLine + maxPreviewLines, snippetEnd);
 
+  // Scope by `activeRepo` so two repos that share a relative `filePath`
+  // (very common: `src/main.rs`, `package.json`, ...) don't return the
+  // previously-opened repo's cached file contents.
   const { data: content } = useQuery({
-    queryKey: ["inline-snippet", filePath, startLine, expanded ? snippetEnd : previewEnd],
+    queryKey: ["inline-snippet", activeRepo, filePath, startLine, expanded ? snippetEnd : previewEnd],
     queryFn: () =>
       commands.readFileContent(filePath, startLine, expanded ? snippetEnd : previewEnd),
     staleTime: 60_000,

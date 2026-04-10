@@ -1,0 +1,43 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - link "Aller au contenu principal" [ref=e4] [cursor=pointer]:
+      - /url: "#main-content"
+    - heading "GitNexus — Plateforme d'intelligence de code" [level=1] [ref=e5]
+    - generic [ref=e6]:
+      - navigation "Mode navigation" [ref=e7]:
+        - generic [ref=e8]:
+          - button "Explorer" [ref=e10]:
+            - img [ref=e12]
+          - button "Analyze" [ref=e16]:
+            - img [ref=e17]
+          - button "Chat" [ref=e20]:
+            - img [ref=e21]
+          - button "Manage" [ref=e24]:
+            - img [ref=e25]
+          - button "Command Palette" [ref=e29]:
+            - img [ref=e30]
+      - main [ref=e33]:
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - img [ref=e38]
+            - heading "GitNexus" [level=2] [ref=e43]
+            - paragraph [ref=e44]: GitNexus — Plateforme d'intelligence de code
+          - generic [ref=e45]:
+            - generic [ref=e47]:
+              - img [ref=e49]
+              - generic [ref=e53]: 1. Choisir un projet
+              - generic [ref=e54]: Cliquez sur « Analyser un projet » pour sélectionner un dossier.
+            - generic [ref=e56]:
+              - img [ref=e58]
+              - generic [ref=e61]: 2. Analyse automatique
+              - generic [ref=e62]: GitNexus scanne vos fichiers, résout les imports et construit un graphe de connaissances.
+            - generic [ref=e64]:
+              - img [ref=e66]
+              - generic [ref=e71]: 3. Explorer
+              - generic [ref=e72]: Naviguez dans le graphe interactif, parcourez les fichiers et analysez les impacts.
+          - button "Analyser un projet" [ref=e73] [cursor=pointer]
+    - contentinfo [ref=e74]:
+      - generic [ref=e75]:
+        - generic [ref=e76]: Aucun dépôt sélectionné
+        - generic [ref=e81]: GitNexus v0.1.0
+  - region "Notifications alt+T"

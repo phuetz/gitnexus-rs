@@ -65,7 +65,13 @@ pub(super) fn generate_process_docs(
     let fts_rag_evidence = search_rag_chunks_for_processes(graph, &processes);
 
     let mut page_entries = Vec::new();
-    let mut all_evidence = Vec::new();
+    let mut all_evidence: Vec<(String, ProcessEvidence)> = Vec::new();
+    // Track filename slugs already written so two processes with the same
+    // sanitized name (e.g. flows entering at a shared method) don't have one
+    // silently clobber the other on disk. The overview at the bottom of this
+    // function depends on the same slug, so we have to remember which slug
+    // each evidence ended up with.
+    let mut used_slugs: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for (process_id, process_name, _) in &processes {
         let mut evidence = collect_full_evidence(graph, process_id, repo_path);
@@ -80,7 +86,13 @@ pub(super) fn generate_process_docs(
             }
         }
 
-        let slug = sanitize_filename(process_name);
+        let base_slug = sanitize_filename(process_name);
+        let mut slug = base_slug.clone();
+        let mut n = 2u32;
+        while !used_slugs.insert(slug.clone()) {
+            slug = format!("{}-{}", base_slug, n);
+            n += 1;
+        }
         let filename = format!("processes/process-{}.md", slug);
         let filepath = docs_dir.join(&filename);
 
@@ -92,10 +104,11 @@ pub(super) fn generate_process_docs(
             format!("Process: {}", process_name),
             filename,
         ));
-        all_evidence.push(evidence);
+        all_evidence.push((slug, evidence));
     }
 
-    // Generate overview page
+    // Generate overview page (pass the disambiguated slugs alongside each
+    // evidence so the overview links resolve to the same files written above)
     let overview_content = render_process_overview(&all_evidence);
     std::fs::write(docs_dir.join("process-overview.md"), &overview_content)?;
     page_entries.insert(0, (
@@ -388,8 +401,14 @@ fn render_process_page(
                 let mut seen = std::collections::HashSet::new();
                 for param in params {
                     if seen.insert(&param.name) {
-                        let display_val = if param.value.len() > 80 {
-                            format!("{}...", &param.value[..80])
+                        // Use char-based truncation rather than byte slicing
+                        // — `param.value` may contain multi-byte UTF-8
+                        // (accents, emoji, CJK) and `&param.value[..80]`
+                        // would panic if the 80th byte falls inside a code
+                        // point.
+                        let display_val = if param.value.chars().count() > 80 {
+                            let truncated: String = param.value.chars().take(80).collect();
+                            format!("{}...", truncated)
                         } else {
                             param.value.clone()
                         };
@@ -409,8 +428,13 @@ fn render_process_page(
             md.push_str("> [!NOTE]\n");
             md.push_str("> This information comes from external documentation and may not reflect the current code.\n\n");
             for evidence in ev.global_rag_evidence.iter().take(3) {
-                let content = if evidence.content.len() > 500 {
-                    format!("{}...", &evidence.content[..500])
+                // Char-based truncation: `evidence.content` is RAG text
+                // pulled from arbitrary documentation and may contain
+                // multi-byte UTF-8. Slicing by byte index would panic on
+                // non-ASCII boundaries.
+                let content = if evidence.content.chars().count() > 500 {
+                    let truncated: String = evidence.content.chars().take(500).collect();
+                    format!("{}...", truncated)
                 } else {
                     evidence.content.clone()
                 };
@@ -525,15 +549,21 @@ fn render_process_page(
     md
 }
 
-fn render_process_overview(all_evidence: &[ProcessEvidence]) -> String {
+fn render_process_overview(all_evidence: &[(String, ProcessEvidence)]) -> String {
     let mut md = String::with_capacity(4096);
 
     md.push_str("# Business Processes\n\n");
     md.push_str("<!-- GNX:LEAD -->\n\n");
 
     let total = all_evidence.len();
-    let fully_traced = all_evidence.iter().filter(|e| e.trace_coverage_pct >= 100.0).count();
-    let partially_traced = all_evidence.iter().filter(|e| e.trace_coverage_pct > 0.0 && e.trace_coverage_pct < 100.0).count();
+    let fully_traced = all_evidence
+        .iter()
+        .filter(|(_, e)| e.trace_coverage_pct >= 100.0)
+        .count();
+    let partially_traced = all_evidence
+        .iter()
+        .filter(|(_, e)| e.trace_coverage_pct > 0.0 && e.trace_coverage_pct < 100.0)
+        .count();
     let untraced = total - fully_traced - partially_traced;
 
     md.push_str(&format!(
@@ -543,8 +573,7 @@ fn render_process_overview(all_evidence: &[ProcessEvidence]) -> String {
 
     md.push_str("| # | Process | Steps | Type | Entry Point | Trace Coverage |\n");
     md.push_str("|---|---------|-------|------|-------------|----------------|\n");
-    for (i, ev) in all_evidence.iter().enumerate() {
-        let slug = sanitize_filename(&ev.process_name);
+    for (i, (slug, ev)) in all_evidence.iter().enumerate() {
         let ptype = ev.process_type.map(|t| match t {
             ProcessType::IntraCommunity => "Intra",
             ProcessType::CrossCommunity => "Cross",
@@ -576,7 +605,12 @@ fn detect_lang_from_path(path: &str) -> String {
     else if path.ends_with(".js") || path.ends_with(".jsx") { "javascript".to_string() }
     else if path.ends_with(".rs") { "rust".to_string() }
     else if path.ends_with(".py") { "python".to_string() }
-    else if path.ends_with(".java") || path.ends_with(".kt") { "java".to_string() }
+    else if path.ends_with(".java") { "java".to_string() }
+    // Kotlin had previously been bucketed under "java" — render-time
+    // syntax highlighters then mis-coloured every Kotlin snippet (e.g.
+    // `fun`, `val`, `data class` keywords) as Java identifiers in the
+    // generated process docs.
+    else if path.ends_with(".kt") || path.ends_with(".kts") { "kotlin".to_string() }
     else if path.ends_with(".go") { "go".to_string() }
     else { String::new() }
 }

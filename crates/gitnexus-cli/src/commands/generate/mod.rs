@@ -14,6 +14,7 @@ mod functional;
 mod deployment;
 mod html;
 mod process_doc;
+mod business;
 
 pub(crate) use enrichment::load_llm_config;
 
@@ -34,9 +35,11 @@ const TARGET_SKILLS: &str = "skills";
 const TARGET_DOCS: &str = "docs";
 const TARGET_DOCX: &str = "docx";
 const TARGET_HTML: &str = "html";
+const TARGET_OBSIDIAN: &str = "obsidian";
 const TARGET_PROCESS_DOC: &str = "process-doc";
 const TARGET_ALL: &str = "all";
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: bool, enrich_profile: &str, enrich_lang: &str, enrich_citations: bool, traces_dir: Option<&str>) -> Result<()> {
     let repo_path = Path::new(path.unwrap_or(".")).canonicalize()?;
     let storage = repo_manager::get_storage_paths(&repo_path);
@@ -100,6 +103,19 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
             }
             html::generate_html_site(&graph, &repo_path, &docs_dir)?;
         }
+        TARGET_OBSIDIAN => {
+            let communities = utils::collect_communities(&graph);
+            let mut output_communities = std::collections::BTreeMap::new();
+            for (id, info) in communities {
+                output_communities.insert(id, gitnexus_output::obsidian::CommunityInfo {
+                    label: info.label,
+                    description: info.description,
+                    member_ids: info.member_ids,
+                });
+            }
+            gitnexus_output::obsidian::generate_obsidian_vault(&graph, &docs_dir, &output_communities)?;
+            println!("{} Generated Obsidian Vault in {}", "OK".green(), docs_dir.join("obsidian_vault").display());
+        }
         TARGET_ALL => {
             agents::generate_agents_md(&graph, &repo_path)?;
             wiki::generate_wiki(&graph, &repo_path)?;
@@ -124,10 +140,21 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
                 output_path.display()
             );
             html::generate_html_site(&graph, &repo_path, &docs_dir)?;
+            
+            let communities = utils::collect_communities(&graph);
+            let mut output_communities = std::collections::BTreeMap::new();
+            for (id, info) in communities {
+                output_communities.insert(id, gitnexus_output::obsidian::CommunityInfo {
+                    label: info.label,
+                    description: info.description,
+                    member_ids: info.member_ids,
+                });
+            }
+            gitnexus_output::obsidian::generate_obsidian_vault(&graph, &docs_dir, &output_communities)?;
         }
         _ => {
             eprintln!(
-                "Unknown target: {}. Use: context, wiki, skills, docs, docx, html, process-doc, all",
+                "Unknown target: {}. Use: context, wiki, skills, docs, docx, html, obsidian, process-doc, all",
                 what
             );
         }

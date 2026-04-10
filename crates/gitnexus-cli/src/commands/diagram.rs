@@ -1,6 +1,6 @@
 //! The `diagram` command: generate Mermaid diagrams from the knowledge graph.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use anyhow::Result;
 use colored::Colorize;
@@ -72,6 +72,32 @@ fn safe_id(name: &str) -> String {
         .collect()
 }
 
+/// Allocate a unique Mermaid identifier for a graph node, deduping by full node ID.
+///
+/// Two distinct nodes with the same display name but different qualified IDs
+/// (e.g., the same class name in two different files) get separate Mermaid IDs
+/// so edges to them do not collapse onto a single visual node.
+fn alloc_mermaid_id(
+    full_id: &str,
+    display_name: &str,
+    map: &mut HashMap<String, String>,
+    used: &mut HashSet<String>,
+) -> String {
+    if let Some(existing) = map.get(full_id) {
+        return existing.clone();
+    }
+    let base = safe_id(display_name);
+    let mut candidate = base.clone();
+    let mut suffix = 1usize;
+    while used.contains(&candidate) {
+        suffix += 1;
+        candidate = format!("{}_{}", base, suffix);
+    }
+    used.insert(candidate.clone());
+    map.insert(full_id.to_string(), candidate.clone());
+    candidate
+}
+
 fn safe_label(name: &str) -> String {
     name.replace(['"', '`'], "'")
 }
@@ -86,8 +112,16 @@ fn generate_flowchart(
     visited.insert(start.id.clone());
     queue.push_back((start.id.clone(), 0usize));
 
+    // Map full graph node ID -> Mermaid identifier; collision-aware so two
+    // distinct nodes that share a display name (e.g., same class name in two
+    // files) do not collapse into a single visual node.
+    let mut id_map: HashMap<String, String> = HashMap::new();
+    let mut used_ids: HashSet<String> = HashSet::new();
+    let start_safe = alloc_mermaid_id(&start.id, &start.properties.name, &mut id_map, &mut used_ids);
+
     let mut edges = Vec::new();
-    let mut nodes = HashSet::new();
+    let mut nodes: Vec<String> = Vec::new();
+    let mut nodes_set: HashSet<String> = HashSet::new();
     let max_nodes = 30;
 
     // Seed: add child methods to BFS. For Controllers, also seed from sibling Class node.
@@ -147,18 +181,46 @@ fn generate_flowchart(
                 }
 
                 visited.insert(rel.target_id.clone());
-                nodes.insert(rel.target_id.clone());
+                if nodes_set.insert(rel.target_id.clone()) {
+                    nodes.push(rel.target_id.clone());
+                }
 
                 let src_node = graph.get_node(&node_id);
-                // For child methods, attribute the edge to the parent class for cleaner display
+                // For methods, attribute the edge to the owning class for cleaner
+                // display. Previously we unconditionally used the START node here,
+                // which meant a call made from a method of a DIFFERENT class
+                // (reached transitively at depth >= 2) was wrongly drawn as if
+                // it originated from the start class — e.g. `A --> methodZ` when
+                // really `B.methodX` calls methodZ. Walk HasMethod edges to find
+                // the method's actual parent class and use that.
                 let src_label = src_node.map(|n| n.label).unwrap_or(NodeLabel::Class);
-                let src_display = if matches!(src_label, NodeLabel::Method | NodeLabel::Constructor) {
-                    &start.properties.name
+                let (src_full_id, src_display): (String, String) = if matches!(src_label, NodeLabel::Method | NodeLabel::Constructor | NodeLabel::ControllerAction) {
+                    let parent = graph
+                        .iter_relationships()
+                        .find(|r| r.target_id == node_id
+                            && matches!(r.rel_type, RelationshipType::HasMethod
+                                | RelationshipType::HasProperty
+                                | RelationshipType::HasAction))
+                        .and_then(|r| graph.get_node(&r.source_id));
+                    match parent {
+                        Some(p) => (p.id.clone(), p.properties.name.clone()),
+                        // Orphan method (no HasMethod parent): fall back to
+                        // the start node so the edge is still anchored.
+                        None => (start.id.clone(), start.properties.name.clone()),
+                    }
                 } else {
-                    src_node.map(|n| n.properties.name.as_str()).unwrap_or("?")
+                    (
+                        node_id.clone(),
+                        src_node.map(|n| n.properties.name.clone()).unwrap_or_else(|| "?".to_string()),
+                    )
                 };
-                let src_id = safe_id(src_display);
-                let tgt_id = safe_id(&target.properties.name);
+                let src_id = alloc_mermaid_id(&src_full_id, &src_display, &mut id_map, &mut used_ids);
+                let tgt_id = alloc_mermaid_id(
+                    &rel.target_id,
+                    &target.properties.name,
+                    &mut id_map,
+                    &mut used_ids,
+                );
                 let rel_label = rel.rel_type.as_str();
 
                 edges.push(format!(
@@ -175,8 +237,7 @@ fn generate_flowchart(
     edges.sort();
     edges.dedup();
 
-    // Emit node declarations with labels
-    let start_safe = safe_id(&start.properties.name);
+    // Emit start node declaration with style
     lines.push(format!(
         "    {}[\"{}\\n({})\"]",
         start_safe,
@@ -185,14 +246,20 @@ fn generate_flowchart(
     ));
     lines.push(format!("    style {} fill:#7aa2f7,color:#fff", start_safe));
 
-    let mut declared_nodes = HashSet::new();
+    // Emit one declaration per *full graph node ID* (not per display name).
+    // The id_map already disambiguated colliding names, so each entry produces a
+    // unique Mermaid declaration.
+    let mut declared: HashSet<String> = HashSet::new();
+    declared.insert(start.id.clone());
     for nid in &nodes {
+        if !declared.insert(nid.clone()) {
+            continue;
+        }
         if let Some(node) = graph.get_node(nid) {
-            let nid_safe = safe_id(&node.properties.name);
-            // Skip duplicate node declarations (same display name from different files)
-            if !declared_nodes.insert(nid_safe.clone()) {
-                continue;
-            }
+            let nid_safe = match id_map.get(nid) {
+                Some(s) => s.clone(),
+                None => alloc_mermaid_id(nid, &node.properties.name, &mut id_map, &mut used_ids),
+            };
             let shape = match node.label {
                 NodeLabel::Service | NodeLabel::Repository => format!(
                     "    {}[/\"{}\\n({})\"/]",
@@ -436,7 +503,7 @@ fn generate_class_diagram(
 
     // Find inheritance
     for rel in graph.iter_relationships() {
-        if rel.source_id == start.id && rel.rel_type.as_str() == "Inherits" {
+        if rel.source_id == start.id && matches!(rel.rel_type, RelationshipType::Inherits | RelationshipType::Extends) {
             if let Some(parent) = graph.get_node(&rel.target_id) {
                 let parent_id = safe_id(&parent.properties.name);
                 lines.push(format!("    {} <|-- {}", parent_id, class_name));
@@ -448,7 +515,7 @@ fn generate_class_diagram(
 
     // Find implementations
     for rel in graph.iter_relationships() {
-        if rel.source_id == start.id && rel.rel_type.as_str() == "Implements" {
+        if rel.source_id == start.id && matches!(rel.rel_type, RelationshipType::Implements) {
             if let Some(iface) = graph.get_node(&rel.target_id) {
                 let iface_id = safe_id(&iface.properties.name);
                 lines.push(format!("    {} <|.. {}", iface_id, class_name));

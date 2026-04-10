@@ -107,25 +107,51 @@ impl SymbolTable {
     ///
     /// Called after the initial table build to propagate HasMethod/HasProperty
     /// edge information into symbol definitions.
+    ///
+    /// `add` stores each definition in *both* `file_index` and `global_index`
+    /// via `Arc::clone`, so the refcount is always >= 2. Calling
+    /// `Arc::make_mut` independently in both indexes would deep-copy the
+    /// inner value twice and leave the two indexes pointing at *different*
+    /// `SymbolDefinition` allocations. Worse, any caller that previously
+    /// cloned an Arc out of either index (e.g. a parallel rayon thread) would
+    /// still hold the *original* allocation with `owner_id = None`, silently
+    /// breaking DI field-type resolution at confidence tier 0.85.
+    ///
+    /// To keep both indexes consistent we update `global_index` once via
+    /// `Arc::make_mut`, then walk `file_index` and replace any matching arc
+    /// with a fresh `Arc::clone` of the now-updated global arc. After the
+    /// call both indexes share the same allocation again.
     pub fn set_owner_id(&mut self, node_id: &str, owner_id: String) {
         // Invalidate callable index cache since definitions change
         self.callable_index = None;
 
+        // 1. Update global_index in place (single source of truth).
         for defs in self.global_index.values_mut() {
             for arc in defs.iter_mut() {
                 if arc.node_id == node_id {
-                    if let Some(def) = Arc::get_mut(arc) {
-                        def.owner_id = Some(owner_id.clone());
-                    }
+                    Arc::make_mut(arc).owner_id = Some(owner_id.clone());
                 }
             }
         }
+
+        // 2. Collect updated arcs from global_index keyed by node_id so the
+        //    file_index walk can splice them back in O(1) per match.
+        let mut updated: HashMap<&str, Arc<SymbolDefinition>> = HashMap::new();
+        for defs in self.global_index.values() {
+            for arc in defs {
+                if arc.node_id == node_id {
+                    updated.insert(arc.node_id.as_str(), Arc::clone(arc));
+                }
+            }
+        }
+
+        // 3. Replace stale arcs in file_index with the freshly-updated ones.
         for name_map in self.file_index.values_mut() {
             for defs in name_map.values_mut() {
                 for arc in defs.iter_mut() {
                     if arc.node_id == node_id {
-                        if let Some(def) = Arc::get_mut(arc) {
-                            def.owner_id = Some(owner_id.clone());
+                        if let Some(new_arc) = updated.get(arc.node_id.as_str()) {
+                            *arc = Arc::clone(new_arc);
                         }
                     }
                 }
@@ -212,6 +238,32 @@ mod tests {
         assert_eq!(field.node_id, "Property:User:name");
 
         assert!(table.lookup_field("Class:User", "nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_set_owner_id_keeps_indexes_consistent() {
+        let mut table = SymbolTable::new();
+        table.add(
+            "handleLogin".to_string(),
+            make_def("Function:a:handleLogin", "a.ts", NodeLabel::Function),
+        );
+
+        // Capture an Arc cloned out of file_index BEFORE the update.
+        let pre_arc = table
+            .lookup_in_file("a.ts", "handleLogin")
+            .unwrap()[0]
+            .clone();
+        assert_eq!(pre_arc.owner_id, None);
+
+        table.set_owner_id("Function:a:handleLogin", "Class:a:LoginCtrl".to_string());
+
+        // Both indexes should now report the new owner_id and point to the
+        // same allocation, regardless of which we look up first.
+        let from_file = &table.lookup_in_file("a.ts", "handleLogin").unwrap()[0];
+        let from_global = &table.lookup_global("handleLogin").unwrap()[0];
+        assert_eq!(from_file.owner_id.as_deref(), Some("Class:a:LoginCtrl"));
+        assert_eq!(from_global.owner_id.as_deref(), Some("Class:a:LoginCtrl"));
+        assert!(Arc::ptr_eq(from_file, from_global));
     }
 
     #[test]

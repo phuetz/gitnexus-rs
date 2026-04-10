@@ -5,6 +5,7 @@ Intelligence de code basée sur un graphe de connaissances pour agents IA. GitNe
 Écrit en Rust. Supporte 14 langages de programmation. Livré avec une application desktop et un générateur de documentation HTML.
 
 [English version](README.md)
+[Feuille de route de modernisation](MODERNIZATION.md)
 
 ## Pourquoi GitNexus ? (vs un assistant IA seul)
 
@@ -34,12 +35,15 @@ C'est la différence entre demander à quelqu'un de **lire un livre** et lui don
 - **Graphe de connaissances** — Parse le code source en un graphe riche de symboles (fonctions, classes, modules, imports, appels, héritage) avec 50+ types de nœuds et relations typées
 - **14 Langages** — JavaScript, TypeScript, Python, Java, C, C++, C#, Go, Rust, Ruby, PHP, Kotlin, Swift, Razor via tree-sitter
 - **Support avancé ASP.NET MVC 5** — Controllers, actions, vues Razor, Entity Framework 6 EDMX, grilles Telerik/Kendo, mapping jQuery/AJAX, détection couche service/repository (voir ci-dessous)
-- **Générateur de documentation HTML** — Site HTML mono-page style DeepWiki avec recherche plein texte (Ctrl+K), coloration syntaxique, boutons copier, callouts, breadcrumbs, navigation Précédent/Suivant, scroll spy TOC, responsive mobile
-- **Enrichissement LLM** — Mode `--enrich` optionnel qui augmente la documentation avec de la prose LLM grounded, des payloads JSON structurés, des citations avec provenance, et une validation anti-hallucination
-- **Interroger le code** — Commande CLI `gitnexus ask "question"` pour du Q&A basé sur le graphe avec réponses en streaming
+- **Générateur de documentation HTML** — Site "DeepWiki" professionnel avec recherche plein texte (Ctrl+K), icônes Lucide, sidebar dynamique, coloration syntaxique, boutons copier, estimation du temps de lecture et liens de références croisées automatiques entre les symboles.
+- **UX Interactive** — Application mono-page (SPA) avec support de l'historique du navigateur, fil d'Ariane, navigation Précédent/Suivant, scroll spy TOC, design responsive et diagrammes Mermaid interactifs (zoom/plein écran).
+- **Documentation de Processus Métier** — Génération automatique de rapports fonctionnels de haut niveau (B1-B5) pour les flux complexes (Cycle de paiement, Moteur de calcul, Génération de documents), incluant des diagrammes de séquence et de flux Mermaid détaillés.
+- **Enrichissement LLM** — Mode `--enrich` optionnel qui augmente la documentation avec de la prose LLM grounded, des payloads JSON structurés, des citations avec provenance et une validation anti-hallucination.
+- **Interroger le code** — Commande CLI `gitnexus ask "question"` pour du Q&A basé sur le graphe avec réponses en streaming.
+- **Feedback par Page** — Widget de feedback intégré sur chaque page pour suivre la qualité et l'utilité du contenu.
 - **Application Desktop** — Application Tauri v2 avec visualisation interactive du graphe, vue treemap, chat intelligent et palette de commandes (Ctrl+K)
 - **Chat Intelligent** — Q&A de code assisté par IA avec réponses en streaming, analyse de complexité des requêtes, plans de recherche multi-étapes et mode recherche approfondie. Supporte Ollama, OpenAI, Anthropic, OpenRouter et Gemini (avec mode raisonnement)
-- **Serveur MCP** — 7 outils accessibles à tout agent IA compatible MCP (Claude, Cursor, VS Code, etc.)
+- **Serveur MCP** — 15 outils accessibles à tout agent IA compatible MCP (Claude, Cursor, VS Code, etc.)
 - **Skill Claude Code** — Skill `/gitnexus` intégré qui permet à Claude d'interroger le graphe de connaissances pendant votre conversation, avec invocation automatique sur les questions en langage naturel
 - **Rapport de Santé du Code** — Commande `gitnexus report` combinant hotspots, couplage temporel, ownership et métriques du graphe en un score de santé (A-E)
 - **Recherche Hybride** — Recherche lexicale BM25 + embeddings sémantiques ONNX optionnels, fusionnés par Reciprocal Rank Fusion
@@ -79,16 +83,14 @@ gitnexus generate --path D:\chemin\vers\mon-projet-mvc5 html
 ```
 
 Le site HTML inclut :
-- **Vue d'ensemble** avec stack technique, structure des projets et métriques
+- **Vue d'ensemble** avec stack technique, structure des projets et métriques interactives
 - **Diagramme d'architecture** (Mermaid) montrant les couches Présentation → Logique Métier → Accès aux Données
+- **Processus Métier** (B1-B5) avec flux de haut niveau pour les Courriers, les Paiements et le Calcul des Barèmes
 - **Pages par controller** avec signatures des actions, paramètres (liés au modèle de données), appelants et code source
 - **Pages modèle de données** avec diagrammes de relations par entité et par domaine métier
 - **Guide fonctionnel** avec descriptions métier en français, niveaux de criticité et diagrammes de flux Mermaid
-- **Page services externes** avec signatures complètes des méthodes WebAPI incluant les surcharges
-- **Vues & Templates** groupées par écran, filtrées par type (grilles, formulaires, vues partielles)
-- **Couche service** avec descriptions et liens "Utilisé par" vers les controllers
-- **Diagrammes de séquence** pour les flux critiques (recherche bénéficiaire, création dossier, export comptable)
-- **Thème sombre/clair** avec recherche dans la sidebar et navigation Précédent/Suivant
+- **Éléments Interactifs** : Zoom sur les diagrammes Mermaid, fichiers sources cliquables avec copie du chemin, et support de l'historique de navigation
+- **Thème sombre/clair** avec recherche dans la sidebar, fil d'Ariane et navigation Précédent/Suivant
 
 ## Démarrage Rapide
 
@@ -419,6 +421,18 @@ gitnexus generate html --path D:\taf\MonProjet --enrich
 | Kotlin | `.kt` `.kts` |
 | Swift | `.swift` |
 | Razor | `.cshtml` `.razor` |
+
+## Origine & Crédits
+
+GitNexus-RS est une implémentation haute performance en Rust et une extension du projet original **[GitNexus](https://github.com/abhigyanpatwari/GitNexus)** créé par [Abhigyan Patwari](https://github.com/abhigyanpatwari).
+
+Alors que l'implémentation originale est principalement en TypeScript, cette version Rust se concentre sur :
+- **La Performance** : Indexation parallèle ultra-rapide de grands dépôts via Rayon et Tree-sitter.
+- **L'expérience Desktop Native** : Une application Tauri v2 avec visualisation interactive du graphe intégrée.
+- **L'Enrichissement Entreprise** : Parsers spécialisés pour les stacks legacy (ASP.NET MVC 5, EF6, Telerik).
+- **Le stockage Graphe Embarqué** : Intégration étroite avec KuzuDB pour un stockage persistant à faible consommation mémoire.
+
+Nous sommes profondément reconnaissants pour la vision et les fondations architecturales posées par le projet [GitNexus](https://github.com/abhigyanpatwari/GitNexus).
 
 ## Licence
 

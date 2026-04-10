@@ -107,12 +107,28 @@ impl StdioTransport {
             )));
         }
 
-        // Read the blank line separator
-        let mut blank = String::new();
-        self.reader
-            .read_line(&mut blank)
-            .await
-            .map_err(|e| McpError::Transport(e.to_string()))?;
+        // LSP-style framing allows additional headers (e.g. `Content-Type`)
+        // before the blank `\r\n\r\n` separator. Read header lines until we
+        // hit a blank line, otherwise an extra header would be consumed as
+        // the separator and `read_exact` would read mid-message, corrupting
+        // the rest of the session.
+        loop {
+            let mut header_line = String::new();
+            let n = self
+                .reader
+                .read_line(&mut header_line)
+                .await
+                .map_err(|e| McpError::Transport(e.to_string()))?;
+            if n == 0 {
+                return Err(McpError::Transport(
+                    "Unexpected EOF while reading message headers".into(),
+                ));
+            }
+            if header_line.trim().is_empty() {
+                break;
+            }
+            // Other headers (Content-Type, etc.) are silently ignored.
+        }
 
         // Read exactly `length` bytes
         let mut body = vec![0u8; length];

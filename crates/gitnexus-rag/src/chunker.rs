@@ -72,8 +72,11 @@ pub fn chunk_markdown(source_path: &str, content: &str) -> Result<Vec<DocChunk>>
         }
     }
 
-    // Push the last chunk
-    if !current_content.trim().is_empty() {
+    // Push the last chunk. Emit even when the body is empty, as long as we
+    // have a title — otherwise a document ending with a trailing heading
+    // like `# Conclusion` with no body underneath is silently dropped, and
+    // the heading vanishes from the RAG index.
+    if !current_content.trim().is_empty() || !current_title.is_empty() {
         chunks.push(DocChunk {
             source_path: source_path.to_string(),
             title: current_title.clone(),

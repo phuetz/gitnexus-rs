@@ -34,7 +34,27 @@ impl KnowledgeGraph {
     pub fn add_node(&mut self, node: GraphNode) {
         let file_path = node.properties.file_path.clone();
         let id = node.id.clone();
-        self.nodes.insert(id.clone(), node);
+        // If a node with this ID already exists, remove its previous file_index entry
+        // first so we don't accumulate duplicates on re-insertion (which would
+        // double-count nodes in nodes_by_file and cause incorrect remove_nodes_by_file
+        // counts).
+        if let Some(prev) = self.nodes.insert(id.clone(), node) {
+            if prev.properties.file_path != file_path {
+                if let Some(ids) = self.file_index.get_mut(&prev.properties.file_path) {
+                    ids.retain(|existing| existing != &id);
+                    if ids.is_empty() {
+                        self.file_index.remove(&prev.properties.file_path);
+                    }
+                }
+            } else {
+                // Same file: avoid pushing a duplicate id below
+                if let Some(ids) = self.file_index.get(&file_path) {
+                    if ids.iter().any(|existing| existing == &id) {
+                        return;
+                    }
+                }
+            }
+        }
         self.file_index.entry(file_path).or_default().push(id);
     }
 
@@ -63,12 +83,18 @@ impl KnowledgeGraph {
         }
     }
 
-    /// Remove all nodes belonging to a file. Returns count removed.
+    /// Remove all nodes belonging to a file. Returns the number of nodes that
+    /// were actually removed from `self.nodes`. Stale IDs in the file_index
+    /// (e.g. from a path-normalization mismatch) are skipped, so the count
+    /// reflects real removals — callers like the incremental update flow rely
+    /// on this for accurate diff stats.
     pub fn remove_nodes_by_file(&mut self, file_path: &str) -> usize {
         if let Some(ids) = self.file_index.remove(file_path) {
-            let count = ids.len();
+            let mut count = 0usize;
             for id in &ids {
-                self.nodes.remove(id);
+                if self.nodes.remove(id).is_some() {
+                    count += 1;
+                }
             }
             // Also remove relationships referencing these nodes
             let id_set: std::collections::HashSet<&str> =

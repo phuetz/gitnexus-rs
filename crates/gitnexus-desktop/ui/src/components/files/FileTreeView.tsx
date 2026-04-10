@@ -50,37 +50,36 @@ function countFiles(nodes: FileTreeNode[]): number {
   return count;
 }
 
-/** Recursively filter tree nodes by search query. A folder matches if its name matches or any descendant matches. */
-function filterTree(nodes: FileTreeNode[], query: string): FileTreeNode[] {
+/** Recursively filter tree nodes by search query. A folder matches if its name matches or any descendant matches.
+ *  Returns the filtered tree along with the count of *true file matches* (excluding
+ *  unfiltered children of folders that were included only because their own name matched).
+ */
+function filterTree(
+  nodes: FileTreeNode[],
+  query: string
+): { tree: FileTreeNode[]; matchCount: number } {
   const q = query.toLowerCase();
   const result: FileTreeNode[] = [];
+  let matchCount = 0;
   for (const node of nodes) {
     const nameMatch = node.name.toLowerCase().includes(q);
     if (node.isDir) {
-      const childMatches = filterTree(node.children, query);
-      if (nameMatch || childMatches.length > 0) {
-        result.push({ ...node, children: childMatches.length > 0 ? childMatches : node.children });
+      const { tree: childMatches, matchCount: childCount } = filterTree(node.children, query);
+      if (childMatches.length > 0) {
+        // Folder kept because of descendant matches — keep the filtered children
+        result.push({ ...node, children: childMatches });
+        matchCount += childCount;
+      } else if (nameMatch) {
+        // Folder kept only because its own name matched — show its full subtree
+        // for browsing, but do NOT count its descendants as "matches".
+        result.push({ ...node, children: node.children });
       }
-    } else {
-      if (nameMatch) {
-        result.push(node);
-      }
+    } else if (nameMatch) {
+      result.push(node);
+      matchCount += 1;
     }
   }
-  return result;
-}
-
-/** Count all leaf (file) nodes in a filtered tree. */
-function countFilteredFiles(nodes: FileTreeNode[]): number {
-  let count = 0;
-  for (const node of nodes) {
-    if (!node.isDir) {
-      count++;
-    } else {
-      count += countFilteredFiles(node.children);
-    }
-  }
-  return count;
+  return { tree: result, matchCount };
 }
 
 /** Highlight the first occurrence of `query` inside `text` with an accent span. */
@@ -188,15 +187,13 @@ export function FileTreeView() {
     setSearchQuery("");
   }, []);
 
-  const filteredTree = useMemo(() => {
-    if (!tree || !searchQuery) return tree ?? [];
-    return filterTree(tree, searchQuery);
+  const { filteredTree, filteredFileCount } = useMemo(() => {
+    if (!tree || !searchQuery) {
+      return { filteredTree: tree ?? [], filteredFileCount: null as number | null };
+    }
+    const { tree: filtered, matchCount } = filterTree(tree, searchQuery);
+    return { filteredTree: filtered, filteredFileCount: matchCount };
   }, [tree, searchQuery]);
-
-  const filteredFileCount = useMemo(() => {
-    if (!searchQuery || !filteredTree) return null;
-    return countFilteredFiles(filteredTree);
-  }, [filteredTree, searchQuery]);
 
   if (isLoading) {
     return (

@@ -1,28 +1,60 @@
-import { useRef, useEffect } from "react";
+import { lazy, Suspense, useRef, useEffect } from "react";
 import { Group, Panel, type PanelImperativeHandle } from "react-resizable-panels";
 import { PanelSeparator } from "../layout/PanelSeparator";
-import { ExplorerLeftPanel } from "./ExplorerLeftPanel";
-import { ExplorerRightPanel } from "./ExplorerRightPanel";
-import { GraphExplorer } from "../graph/GraphExplorer";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { useAppStore } from "../../stores/app-store";
 import { useResponsive } from "../../hooks/use-responsive";
 import { WelcomeScreen } from "./WelcomeScreen";
+import { LoadingOrbs } from "../shared/LoadingOrbs";
+
+const ExplorerLeftPanel = lazy(() =>
+  import("./ExplorerLeftPanel").then((m) => ({ default: m.ExplorerLeftPanel })),
+);
+const ExplorerRightPanel = lazy(() =>
+  import("./ExplorerRightPanel").then((m) => ({ default: m.ExplorerRightPanel })),
+);
+const GraphExplorer = lazy(() =>
+  import("../graph/GraphExplorer").then((m) => ({ default: m.GraphExplorer })),
+);
+
+const explorerFallback = (
+  <div className="h-full flex items-center justify-center">
+    <LoadingOrbs />
+  </div>
+);
 
 export function ExplorerMode() {
   const activeRepo = useAppStore((s) => s.activeRepo);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
-  const { isCompact } = useResponsive();
+  const { isCompact, isNarrow } = useResponsive();
+  const leftPanelRef = useRef<PanelImperativeHandle>(null);
   const rightPanelRef = useRef<PanelImperativeHandle>(null);
 
-  // Auto-expand/collapse right panel when node selection changes
+  // Right panel: collapsed when narrow (regardless of selection), expanded
+  // when a node is selected on a wide enough viewport, otherwise collapsed.
+  // Merging the two responsibilities into a single effect avoids the previous
+  // bug where, on initial mount with a persisted `selectedNodeId` and a narrow
+  // viewport, the selection effect ran first (expand) and the narrow effect
+  // ran second (collapse), but on later re-renders only the selection effect
+  // ran (re-expanding when it shouldn't on narrow).
   useEffect(() => {
-    if (selectedNodeId) {
+    if (isNarrow) {
+      rightPanelRef.current?.collapse();
+    } else if (selectedNodeId) {
       rightPanelRef.current?.expand();
     } else {
       rightPanelRef.current?.collapse();
     }
-  }, [selectedNodeId]);
+  }, [selectedNodeId, isNarrow]);
+
+  // Responsive: collapse left panel at <900px
+  useEffect(() => {
+    if (isCompact) {
+      leftPanelRef.current?.collapse();
+    } else {
+      leftPanelRef.current?.expand();
+    }
+  }, [isCompact]);
 
   if (!activeRepo) {
     return <WelcomeScreen />;
@@ -30,15 +62,25 @@ export function ExplorerMode() {
 
   return (
     <Group orientation="horizontal" className="h-full">
-      <Panel defaultSize={isCompact ? 0 : 20} minSize={12} maxSize={25} collapsible>
+      <Panel
+        panelRef={leftPanelRef}
+        defaultSize={isCompact ? 0 : 20}
+        minSize={12}
+        maxSize={25}
+        collapsible
+      >
         <ErrorBoundary>
-          <ExplorerLeftPanel />
+          <Suspense fallback={explorerFallback}>
+            <ExplorerLeftPanel />
+          </Suspense>
         </ErrorBoundary>
       </Panel>
       <PanelSeparator />
       <Panel minSize={30}>
         <ErrorBoundary>
-          <GraphExplorer />
+          <Suspense fallback={explorerFallback}>
+            <GraphExplorer />
+          </Suspense>
         </ErrorBoundary>
       </Panel>
       <PanelSeparator />
@@ -50,7 +92,9 @@ export function ExplorerMode() {
         collapsible
       >
         <ErrorBoundary>
-          <ExplorerRightPanel />
+          <Suspense fallback={explorerFallback}>
+            <ExplorerRightPanel />
+          </Suspense>
         </ErrorBoundary>
       </Panel>
     </Group>

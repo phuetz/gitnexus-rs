@@ -26,13 +26,15 @@ pub async fn run(query: &str, repo: Option<&str>) -> Result<()> {
     let graph = snapshot::load_snapshot(&snap_path)
         .map_err(|e| anyhow::anyhow!("Failed to load graph: {}", e))?;
 
-    // Block write operations
-    let upper = query.to_uppercase();
-    for kw in &["CREATE", "DELETE", "MERGE", "REMOVE", "DROP"] {
-        if upper.contains(kw) {
-            println!("{} Only read-only queries are allowed.", "ERROR".red());
-            return Ok(());
-        }
+    // Block write operations. Delegate to the canonical check in
+    // `gitnexus_db::query::is_write_query`, which strips comments, does
+    // proper word-boundary matching, and covers DETACH/ALTER (omitted by
+    // the previous in-file allowlist). Keeping the write-check logic in one
+    // place avoids drift between the CLI and the in-memory backend's own
+    // safety net in `InMemoryBackend::execute_query`.
+    if gitnexus_db::query::is_write_query(query) {
+        println!("{} Only read-only queries are allowed.", "ERROR".red());
+        return Ok(());
     }
 
     // Build indexes and FTS

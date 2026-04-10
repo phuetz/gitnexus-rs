@@ -16,7 +16,7 @@ use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::symbol::SymbolTable;
 use tracing::{debug, info};
 
-use crate::manifest::{self, FileChange};
+use crate::manifest::{self, FileChange, FileManifest};
 use crate::phases;
 use crate::phases::structure::FileEntry;
 
@@ -32,6 +32,13 @@ pub struct IncrementalResult {
     pub nodes_added: usize,
     pub edges_added: usize,
     pub unchanged: usize,
+    /// New manifest computed during this update. The caller is responsible
+    /// for persisting it via [`crate::manifest::save_manifest`] **after**
+    /// the corresponding graph snapshot has been written. Saving the
+    /// manifest before the snapshot is durable can cause silent data
+    /// staleness: a crash between the two writes leaves the next run
+    /// believing the on-disk graph is current.
+    pub new_manifest: FileManifest,
 }
 
 impl IncrementalResult {
@@ -55,6 +62,7 @@ pub fn incremental_update(
     graph: &mut KnowledgeGraph,
 ) -> Result<IncrementalResult, crate::IngestError> {
     let manifest_file = manifest::manifest_path(storage_path);
+    let _ = manifest_file; // Manifest is now persisted by the caller, after the snapshot.
     let mut result = IncrementalResult::default();
 
     // Step 1: Load old manifest (or start fresh)
@@ -77,6 +85,7 @@ pub fn incremental_update(
     if changes.is_empty() {
         info!("No file changes detected, graph is up to date");
         result.unchanged = file_entries.len();
+        result.new_manifest = new_manifest;
         return Ok(result);
     }
 
@@ -99,7 +108,15 @@ pub fn incremental_update(
         }
     }
 
-    result.unchanged = file_entries.len() - result.added - result.modified;
+    // Defensive saturating subtraction: in normal operation `added + modified`
+    // is bounded by `file_entries.len()` (Removed files don't appear in
+    // `file_entries`), but a bug in `diff_manifests` reporting a path as
+    // both Added and Modified would otherwise underflow this and panic the
+    // pipeline in debug mode. Clamp to zero instead.
+    result.unchanged = file_entries
+        .len()
+        .saturating_sub(result.added)
+        .saturating_sub(result.modified);
 
     info!(
         added = result.added,
@@ -137,6 +154,9 @@ pub fn incremental_update(
             .iter()
             .map(|e| (*e).clone())
             .collect();
+
+        // Capture pre-update edge count so we can compute edges_added below.
+        let edges_before = graph.relationship_count();
 
         // Create file/folder structure nodes for new files
         phases::structure::create_structure_nodes(graph, &parse_entries);
@@ -181,19 +201,24 @@ pub fn incremental_update(
             &named_import_map,
         )?;
 
+        // Compute edges_added as the net change in the relationship store.
+        // This will be 0 (or negative, clamped) if removed edges balance new ones.
+        result.edges_added = graph
+            .relationship_count()
+            .saturating_sub(edges_before);
+
         info!(
             nodes_added = result.nodes_added,
+            edges_added = result.edges_added,
             "Incremental update: parsed changed files"
         );
     }
 
-    // Step 7: Save updated manifest
-    manifest::save_manifest(&new_manifest, &manifest_file).map_err(|e| {
-        crate::IngestError::PhaseError {
-            phase: "incremental".into(),
-            message: format!("Failed to save manifest: {e}"),
-        }
-    })?;
+    // Step 7: Hand the new manifest back to the caller — see the doc on
+    // `IncrementalResult::new_manifest` for the rationale (snapshot must be
+    // durable BEFORE the manifest is overwritten, otherwise a crash between
+    // the two writes silently strands the on-disk graph in a stale state).
+    result.new_manifest = new_manifest;
 
     Ok(result)
 }

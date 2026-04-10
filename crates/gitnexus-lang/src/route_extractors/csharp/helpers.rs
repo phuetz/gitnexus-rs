@@ -126,9 +126,30 @@ pub(super) fn find_class_declaration(lines: &[&str], start: usize) -> Option<Cla
     }
 
     // Extract base classes (after :)
+    //
+    // Cut off any generic constraint clause (`where T : IBar`) before
+    // looking for the inheritance colon. Otherwise:
+    //
+    //   class Foo<T> where T : IBar
+    //
+    // …has its FIRST `:` as the constraint colon, and we'd then push
+    // `IBar` into `base_classes`, polluting the inheritance graph with a
+    // phantom `Foo extends IBar` edge. Likewise:
+    //
+    //   class Foo<T> : Base where T : IBaz
+    //
+    // …without trimming `where`, the bases substring (`" Base where T : IBaz"`)
+    // gets pushed verbatim as a single bogus base name. Truncating at the
+    // first ` where ` makes both cases behave correctly.
+    let after_class_no_where = if let Some(where_idx) = after_class.find(" where ") {
+        after_class.get(..where_idx).unwrap_or(after_class)
+    } else {
+        after_class
+    };
+
     let mut base_classes = Vec::new();
-    if let Some(colon_idx) = after_class.find(':') {
-        let bases_str = after_class.get(colon_idx + 1..).unwrap_or_default();
+    if let Some(colon_idx) = after_class_no_where.find(':') {
+        let bases_str = after_class_no_where.get(colon_idx + 1..).unwrap_or_default();
         let bases_end = bases_str
             .find(['{', '\n'])
             .unwrap_or(bases_str.len());
@@ -141,10 +162,6 @@ pub(super) fn find_class_declaration(lines: &[&str], start: usize) -> Option<Cla
                 base_name
             };
             if !clean.is_empty() {
-                // Strip "where" constraints
-                if clean.starts_with("where ") {
-                    break;
-                }
                 base_classes.push(clean.trim().to_string());
             }
         }
@@ -170,8 +187,12 @@ pub(super) fn find_class_declaration(lines: &[&str], start: usize) -> Option<Cla
 }
 
 /// Find matching braces for a class/method body starting from `start_line`.
+///
+/// Stray `}` characters in string literals or comments before the opening
+/// brace must not underflow the depth counter, otherwise the function gets
+/// stuck oscillating between 0 and -1 and never finds the real body end.
 pub(super) fn find_brace_bounds(lines: &[&str], start_line: usize) -> (usize, Option<usize>) {
-    let mut depth = 0;
+    let mut depth: i32 = 0;
     let mut found_first = false;
     let mut body_start = start_line;
 
@@ -184,8 +205,15 @@ pub(super) fn find_brace_bounds(lines: &[&str], start_line: usize) -> (usize, Op
                 }
                 depth += 1;
             } else if ch == '}' {
-                depth -= 1;
-                if depth == 0 && found_first {
+                // Only count `}` after we've seen the opening `{`. This skips
+                // stray closing braces in pre-body string literals/comments.
+                if !found_first {
+                    continue;
+                }
+                if depth > 0 {
+                    depth -= 1;
+                }
+                if depth == 0 {
                     return (body_start, Some(i));
                 }
             }
@@ -207,6 +235,18 @@ pub(super) fn extract_attribute_value(attributes: &[String], attr_name: &str) ->
     for attr in attributes {
         let trimmed = attr.trim();
         if trimmed.starts_with(attr_name) {
+            // Require a name boundary after `attr_name`. Without this, looking
+            // up `"Route"` would match `RoutePrefix(...)` and return its value,
+            // attributing the wrong attribute. Valid boundary chars are `(`,
+            // `,`, ` `, `]`, or end-of-string.
+            let next = trimmed.as_bytes().get(attr_name.len()).copied();
+            let boundary_ok = matches!(
+                next,
+                None | Some(b'(') | Some(b',') | Some(b' ') | Some(b']')
+            );
+            if !boundary_ok {
+                continue;
+            }
             // Check for parenthesized value
             if let Some(paren_start) = trimmed.find('(') {
                 let inner = trimmed.get(paren_start + 1..).unwrap_or_default();

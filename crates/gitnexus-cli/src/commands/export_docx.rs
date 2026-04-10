@@ -696,10 +696,24 @@ fn table_to_ooxml(lines: &[&str]) -> (String, Vec<(String, String)>) {
 }
 
 fn parse_table_row(line: &str) -> Vec<String> {
-    line.split('|')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+    // Markdown pipe rows have a leading and trailing `|` that produce empty
+    // tokens at the edges after `split('|')`. We must drop those edge-only
+    // empties, but keep interior empty cells (e.g. `| a | | c |` — the
+    // middle cell is intentionally blank and removing it would shift every
+    // subsequent cell one column left, corrupting the rendered table).
+    let raw: Vec<String> = line.split('|').map(|s| s.trim().to_string()).collect();
+    // Drop a single leading empty (from the opening `|`) and a single
+    // trailing empty (from the closing `|`).
+    let start = if raw.first().is_some_and(|s| s.is_empty()) { 1 } else { 0 };
+    let end = if raw.last().is_some_and(|s| s.is_empty()) {
+        raw.len().saturating_sub(1)
+    } else {
+        raw.len()
+    };
+    if start >= end {
+        return Vec::new();
+    }
+    raw[start..end].to_vec()
 }
 
 /// Handle inline markdown formatting: **bold**, *italic*, `code`, [text](url)

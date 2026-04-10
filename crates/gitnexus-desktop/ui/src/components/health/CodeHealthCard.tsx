@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { commands } from "../../lib/tauri-commands";
 import { AnimatedCard } from "../shared/motion";
 import { useI18n } from "../../hooks/use-i18n";
+import { useAppStore } from "../../stores/app-store";
 
 function gradeColor(grade: string): string {
   switch (grade) {
@@ -77,8 +78,11 @@ function ScoreBar({
 
 export function CodeHealthCard() {
   const { t } = useI18n();
+  const activeRepo = useAppStore((s) => s.activeRepo);
+  // Scope by `activeRepo` so switching repos refetches instead of showing
+  // stale health metrics from the previously-active repo.
   const { data: health, isLoading } = useQuery({
-    queryKey: ["code-health"],
+    queryKey: ["code-health", activeRepo],
     queryFn: () => commands.getCodeHealth(),
     staleTime: 60_000,
   });
@@ -183,7 +187,7 @@ export function CodeHealthCard() {
           <ScoreBar label={t("health.cohesion")} value={health.cohesionScore} color="#7aa2f7" />
           <ScoreBar label={t("health.tracing")} value={health.tracingCoverage} color="#73daca" />
           <ScoreBar label={t("health.ownership")} value={health.ownershipScore} color="#bb9af7" />
-          <ScoreBar label={t("health.complexity")} value={Math.min(1 - (health.avgComplexity / 30), 1)} color="#f59e0b" />
+          <ScoreBar label={t("health.complexity")} value={Math.max(0, Math.min(1 - (health.avgComplexity / 30), 1))} color="#f59e0b" />
         </div>
 
         {/* Complexity detail */}

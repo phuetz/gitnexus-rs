@@ -212,6 +212,11 @@ fn classify_page(page_path: &Path) -> PageType {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("");
+    
+    // Check for parent directory "processes"
+    let is_process = page_path.parent()
+        .and_then(|p| p.file_name())
+        .is_some_and(|n| n == "processes");
 
     if name == "overview" {
         PageType::Overview
@@ -233,7 +238,7 @@ fn classify_page(page_path: &Path) -> PageType {
         PageType::ProjectHealth
     } else if name == "deployment" {
         PageType::Deployment
-    } else if name.starts_with("process-") {
+    } else if name.starts_with("process-") || is_process {
         PageType::ProcessDoc
     } else {
         PageType::Misc
@@ -255,12 +260,23 @@ fn collect_evidence(
     let relevant_nodes: Vec<&GraphNode> = match page_type {
         PageType::Controller => {
             // Extract controller name from filename: ctrl-dossierscontroller -> DossiersController
-            let ctrl_name = page_path
+            // Strip a trailing `-N` disambiguator if present (the docs
+            // generator appends `-2`, `-3`, ... to avoid overwriting pages
+            // for controllers that share a class name across areas). The
+            // real controller class name never ends in `-\d+`, so trimming
+            // one such segment keeps the substring match aligned with the
+            // node's `properties.name`.
+            let raw = page_path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .strip_prefix("ctrl-")
                 .unwrap_or("");
+            let ctrl_name = raw
+                .rsplit_once('-')
+                .filter(|(_, tail)| !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()))
+                .map(|(head, _)| head)
+                .unwrap_or(raw);
             graph
                 .iter_nodes()
                 .filter(|n| {
@@ -302,11 +318,28 @@ fn collect_evidence(
         }
     };
 
+    // Pre-canonicalize the repo root once so we can verify every excerpt path
+    // stays inside it. A graph node `file_path` is normally a sanitized
+    // workspace-relative path, but the snapshot is just a JSON file in
+    // `.gitnexus/` and could contain `..` segments if it was hand-crafted or
+    // came from a malicious source. Without this guard, the excerpt would be
+    // read from arbitrary filesystem locations and forwarded to the LLM.
+    let repo_root_canonical = std::fs::canonicalize(repo_path).ok();
+
     for (idx, node) in relevant_nodes.iter().enumerate() {
         // Try to read source code snippet
         let excerpt = if !node.properties.file_path.is_empty() {
             let source_path = repo_path.join(&node.properties.file_path);
-            if let Ok(source) = std::fs::read_to_string(&source_path) {
+            let safe = match (
+                std::fs::canonicalize(&source_path).ok(),
+                repo_root_canonical.as_ref(),
+            ) {
+                (Some(canonical), Some(root)) => canonical.starts_with(root),
+                _ => false,
+            };
+            if !safe {
+                String::new()
+            } else if let Ok(source) = std::fs::read_to_string(&source_path) {
                 let lines: Vec<&str> = source.lines().collect();
                 let start = node
                     .properties
@@ -863,11 +896,17 @@ Si tout est correct, renvoie le document tel quel.
 DOCUMENT ORIGINAL (pour comparaison) :
 "#;
 
+    // Char-based truncation of the original content for UTF-8 safety:
+    // markdown bodies frequently contain accented French/Unicode characters,
+    // and a multi-byte code point at byte 2999 would otherwise panic the
+    // formatter on the slice operation. We truncate by character count
+    // rather than byte index to keep this safe.
+    let original_preview: String = original_content.chars().take(3000).collect();
     let messages = vec![
         serde_json::json!({"role": "system", "content": review_prompt}),
         serde_json::json!({"role": "user", "content": format!(
             "ORIGINAL:\n{}\n\n---\n\nENRICHI:\n{}",
-            &original_content[..original_content.len().min(3000)],
+            original_preview,
             enriched
         )}),
     ];
@@ -968,7 +1007,7 @@ pub(super) fn run_enrichment_if_enabled(
     // Collect all .md files to enrich
     let mut pages: Vec<std::path::PathBuf> = Vec::new();
     // Root level pages
-    if let Ok(entries) = std::fs::read_dir(&docs_dir) {
+    if let Ok(entries) = std::fs::read_dir(docs_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|e| e == "md") {

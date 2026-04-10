@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useEffect } from "react";
+import { lazy, Suspense, useCallback, useMemo, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Zap } from "lucide-react";
@@ -8,22 +8,37 @@ import { useSigma } from "../../hooks/use-sigma";
 import { commands } from "../../lib/tauri-commands";
 import { buildGraphologyGraph } from "../../lib/graph-adapter";
 import { NodeHoverCard } from "./NodeHoverCard";
-import { TreemapView } from "./TreemapView";
 import { useI18n } from "../../hooks/use-i18n";
-import { CypherQueryFAB } from "./CypherQueryFAB";
-import { ProcessFlowModal } from "./ProcessFlowModal";
 import { LENS_EDGE_TYPES } from "../explorer/lens-constants";
 import { useGraphState } from "./useGraphState";
 import { useGraphEffects } from "./useGraphEffects";
 import { GraphContextMenu } from "./GraphContextMenu";
-import { GraphLegend } from "./GraphLegend";
-import { CommunitiesPanel } from "./CommunitiesPanel";
-import { GraphMinimap } from "./GraphMinimap";
 import { GraphToolbarRow } from "./GraphToolbarRow";
-import { GraphShortcutsOverlay } from "./GraphShortcutsOverlay";
 import { GraphZoomControls } from "./GraphZoomControls";
 import { GraphLoading, GraphEmpty, GraphError } from "./GraphEmptyStates";
 import type { GraphFilter } from "../../lib/tauri-commands";
+
+const TreemapView = lazy(() =>
+  import("./TreemapView").then((m) => ({ default: m.TreemapView })),
+);
+const CypherQueryFAB = lazy(() =>
+  import("./CypherQueryFAB").then((m) => ({ default: m.CypherQueryFAB })),
+);
+const ProcessFlowModal = lazy(() =>
+  import("./ProcessFlowModal").then((m) => ({ default: m.ProcessFlowModal })),
+);
+const GraphLegend = lazy(() =>
+  import("./GraphLegend").then((m) => ({ default: m.GraphLegend })),
+);
+const CommunitiesPanel = lazy(() =>
+  import("./CommunitiesPanel").then((m) => ({ default: m.CommunitiesPanel })),
+);
+const GraphMinimap = lazy(() =>
+  import("./GraphMinimap").then((m) => ({ default: m.GraphMinimap })),
+);
+const GraphShortcutsOverlay = lazy(() =>
+  import("./GraphShortcutsOverlay").then((m) => ({ default: m.GraphShortcutsOverlay })),
+);
 
 export function GraphExplorer() {
   const { t } = useI18n();
@@ -39,6 +54,7 @@ export function GraphExplorer() {
   const activeLens = useAppStore((s) => s.activeLens);
   const egoDepth = useAppStore((s) => s.egoDepth);
   const selectedFeatures = useAppStore((s) => s.selectedFeatures);
+  const activeRepo = useAppStore((s) => s.activeRepo);
 
   // ── Local state ──────────────────────────────────────────────────
   const gs = useGraphState();
@@ -111,8 +127,11 @@ export function GraphExplorer() {
 
   // ── Data ─────────────────────────────────────────────────────────
   const { data, isLoading, error } = useGraphData({ zoomLevel, maxNodes: 200 } as GraphFilter, true);
+  // Scope by `activeRepo` so focusing on a node in repo A and then switching
+  // to repo B doesn't resurrect the cached subgraph when a same-named node
+  // happens to exist (e.g. the workspace root node is always "Folder:").
   const { data: subgraphData } = useQuery({
-    queryKey: ["subgraph", gs.focusNodeId],
+    queryKey: ["subgraph", activeRepo, gs.focusNodeId],
     queryFn: () => commands.getSubgraph(gs.focusNodeId!, 2),
     enabled: !!gs.focusNodeId,
     staleTime: 30_000,
@@ -131,7 +150,10 @@ export function GraphExplorer() {
   }, [activeData, zoomLevel, effectiveHiddenEdgeTypes, gs.focusNodeId, setGraph, runLayout]);
 
   // ── All other effects ─────────────────────────────────────────────
-  useGraphEffects({ gs, selectedNodeId, searchMatchIds, selectedFeatures: [...selectedFeatures], egoDepth, graphRef, focusNode, refresh, fitView, zoomIn, zoomOut, exportPNG, setSearchOpen, setSelectedNodeId });
+  // Pass the Set directly (NOT a fresh array spread) so the community-filter
+  // effect inside useGraphEffects only fires when the selection actually
+  // changes — `[...set]` would create a new array reference every render.
+  useGraphEffects({ gs, selectedNodeId, searchMatchIds, selectedFeatures, egoDepth, graphRef, focusNode, refresh, fitView, zoomIn, zoomOut, exportPNG, setSearchOpen, setSelectedNodeId });
 
   // ── Impact overlay ────────────────────────────────────────────────
   const toggleImpactOverlay = useCallback(async () => {
@@ -147,7 +169,7 @@ export function GraphExplorer() {
       if (result.downstream) mark(result.downstream);
       setImpactNodeIds(map); setImpactOverlay(true); refresh();
     } catch (e) { console.error("Impact analysis failed:", e); toast.error(t("graph.impactFailed")); }
-  }, [selectedNodeId, gs.impactOverlay, refresh, setImpactNodeIds, setImpactOverlay]);
+  }, [selectedNodeId, gs.impactOverlay, refresh, setImpactNodeIds, setImpactOverlay, t]);
 
   // ── Toolbar ───────────────────────────────────────────────────────
   const handleFit = useCallback(() => fitView(), [fitView]);
@@ -170,7 +192,11 @@ export function GraphExplorer() {
       <GraphToolbarRow {...toolbarProps} onFlows={() => gs.setFlowsOpen(true)} viewMode={gs.viewMode} onViewModeChange={gs.setViewMode} />
 
       {gs.viewMode === "treemap" ? (
-        <div className="flex-1 relative"><TreemapView data={data} isLoading={isLoading} /></div>
+        <div className="flex-1 relative">
+          <Suspense fallback={<GraphLoading {...toolbarProps} />}>
+            <TreemapView data={data} isLoading={isLoading} />
+          </Suspense>
+        </div>
       ) : (
         <div className="flex flex-1 min-h-0 relative">
           <div className="flex-1 relative" style={{ backgroundColor: "var(--bg-0)" }}>
@@ -209,7 +235,11 @@ export function GraphExplorer() {
               onCopyFilePath={(fp) => { navigator.clipboard.writeText(fp).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error(t("graph.copyFailed"))); }}
             />
 
-            <GraphMinimap visible={gs.minimapVisible} opacity={gs.minimapOpacity} onOpacityChange={gs.setMinimapOpacity} onClose={() => gs.setMinimapVisible(false)} sigmaRef={sigmaRef} graphRef={graphRef} />
+            {(gs.minimapVisible || gs.minimapOpacity !== 0.3) && (
+              <Suspense fallback={null}>
+                <GraphMinimap visible={gs.minimapVisible} opacity={gs.minimapOpacity} onOpacityChange={gs.setMinimapOpacity} onClose={() => gs.setMinimapVisible(false)} sigmaRef={sigmaRef} graphRef={graphRef} />
+              </Suspense>
+            )}
 
             {selectedNodeId && (
               <button onClick={toggleImpactOverlay} className="absolute z-20 flex items-center gap-1.5 rounded-lg transition-all" style={{ bottom: 70, left: 16, padding: "8px 14px", background: gs.impactOverlay ? "var(--rose)" : "var(--bg-2)", color: gs.impactOverlay ? "white" : "var(--text-2)", border: `1px solid ${gs.impactOverlay ? "var(--rose)" : "var(--surface-border)"}`, backdropFilter: "blur(12px)", fontSize: 11, fontWeight: 600, cursor: "pointer", boxShadow: gs.impactOverlay ? "0 0 20px color-mix(in srgb, var(--rose) 30%, transparent)" : "var(--shadow-sm)" }}>
@@ -217,16 +247,30 @@ export function GraphExplorer() {
               </button>
             )}
 
-            <CypherQueryFAB />
-            <GraphShortcutsOverlay visible={gs.shortcutsOpen} />
+            <Suspense fallback={null}>
+              <CypherQueryFAB />
+            </Suspense>
+            {gs.shortcutsOpen && (
+              <Suspense fallback={null}>
+                <GraphShortcutsOverlay visible={gs.shortcutsOpen} />
+              </Suspense>
+            )}
             <GraphZoomControls onZoomIn={zoomIn} onZoomOut={zoomOut} onFitView={fitView} legendExpanded={gs.legendExpanded} />
-            <GraphLegend nodes={data?.nodes ?? []} expanded={gs.legendExpanded} onExpand={() => gs.setLegendExpanded(true)} onCollapse={() => gs.setLegendExpanded(false)} />
-            <CommunitiesPanel />
+            <Suspense fallback={null}>
+              <GraphLegend nodes={data?.nodes ?? []} expanded={gs.legendExpanded} onExpand={() => gs.setLegendExpanded(true)} onCollapse={() => gs.setLegendExpanded(false)} />
+            </Suspense>
+            <Suspense fallback={null}>
+              <CommunitiesPanel />
+            </Suspense>
           </div>
         </div>
       )}
 
-      <ProcessFlowModal open={gs.flowsOpen} onClose={() => gs.setFlowsOpen(false)} />
+      {gs.flowsOpen && (
+        <Suspense fallback={null}>
+          <ProcessFlowModal open={gs.flowsOpen} onClose={() => gs.setFlowsOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

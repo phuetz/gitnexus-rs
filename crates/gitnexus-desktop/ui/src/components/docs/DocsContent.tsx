@@ -10,10 +10,10 @@ import { ChevronRight, BookOpen } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
-import mermaid from "mermaid";
+import { getUiHighlighter } from "../../lib/shiki-runtime";
 import { t as tRaw } from "../../lib/i18n";
 import { useI18n } from "../../hooks/use-i18n";
-// Shiki is imported dynamically inside HighlightedCode component
+// Shiki is loaded via the shared UI runtime inside HighlightedCode.
 
 /** Strip inline event handlers and script elements from SVG to prevent XSS. */
 function sanitizeSvg(svg: string): string {
@@ -43,9 +43,19 @@ function getEffectiveTheme(): "dark" | "light" {
   return "dark";
 }
 
+let mermaidPromise: Promise<typeof import("mermaid")["default"]> | null = null;
+
+async function loadMermaid() {
+  if (!mermaidPromise) {
+    mermaidPromise = import("mermaid").then((m) => m.default);
+  }
+  return mermaidPromise;
+}
+
 /** (Re-)initialize mermaid for the given colour scheme. */
-function initMermaid(colorScheme: "dark" | "light") {
+async function initMermaid(colorScheme: "dark" | "light") {
   const isDark = colorScheme === "dark";
+  const mermaid = await loadMermaid();
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
@@ -99,9 +109,6 @@ function initMermaid(colorScheme: "dark" | "light") {
   });
 }
 
-// Perform initial mermaid setup
-initMermaid(getEffectiveTheme());
-
 // ─── Props ──────────────────────────────────────────────────────────
 
 interface DocsContentProps {
@@ -125,7 +132,8 @@ function MermaidDiagram({ chart }: { chart: string }) {
     async function render() {
       try {
         // Re-initialize mermaid with the current theme before each render
-        initMermaid(getEffectiveTheme());
+        const mermaid = await loadMermaid();
+        await initMermaid(getEffectiveTheme());
         const { svg: rendered } = await mermaid.render(mermaidId, chart.trim());
         if (!cancelled) {
           setSvg(rendered);
@@ -181,19 +189,18 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
     let cancelled = false;
 
     (async () => {
-      let highlighter: Awaited<ReturnType<typeof import("shiki")["createHighlighter"]>> | null = null;
+      let highlighter: Awaited<ReturnType<typeof getUiHighlighter>> | null = null;
       try {
-        const shiki = await import("shiki");
+        highlighter = await getUiHighlighter();
         if (cancelled) return;
-
-        highlighter = await shiki.createHighlighter({
-          themes: ["github-dark"],
-          langs: [lang],
-        });
+        await highlighter.loadLanguage(lang as never);
 
         if (cancelled || !ref.current) return;
 
-        const highlighted = highlighter.codeToHtml(code, { lang, theme: "github-dark" });
+        const highlighted = highlighter.codeToHtml(code, {
+          lang: lang as never,
+          theme: "github-dark" as never,
+        });
         const match = highlighted.match(/<code[^>]*>([\s\S]*)<\/code>/);
         if (match && ref.current) {
           // Shiki output is sanitized syntax-highlighted HTML; CSP blocks script execution
@@ -203,8 +210,6 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
         if (!cancelled && ref.current) {
           ref.current.textContent = code;
         }
-      } finally {
-        highlighter?.dispose();
       }
     })();
 

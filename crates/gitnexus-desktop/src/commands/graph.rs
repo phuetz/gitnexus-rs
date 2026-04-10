@@ -80,9 +80,28 @@ pub async fn get_graph_data(
             if !label_ok {
                 return false;
             }
-            // File path filter
+            // File path filter. Each entry can be either an exact file path
+            // or a directory prefix; for the directory case we must compare
+            // against `{p}/` so a filter of `src/foo` doesn't accidentally
+            // include nodes from `src/foobar/...`. Same substring-vs-segment
+            // pattern as the dashboard.rs / cross_ref.rs / functional.rs
+            // fixes earlier in this audit. Currently the frontend never
+            // populates `filePaths`, but the field is part of the public IPC
+            // contract and any future caller would hit the bug.
             if let Some(ref paths) = filter.file_paths {
-                if !paths.iter().any(|p| node.properties.file_path.starts_with(p)) {
+                let fp = &node.properties.file_path;
+                let matches = paths.iter().any(|p| {
+                    if fp == p {
+                        return true;
+                    }
+                    let dir_prefix = if p.ends_with('/') {
+                        p.clone()
+                    } else {
+                        format!("{}/", p)
+                    };
+                    fp.starts_with(&dir_prefix)
+                });
+                if !matches {
                     return false;
                 }
             }
@@ -128,10 +147,12 @@ pub async fn get_graph_data(
         })
         .collect();
 
-    scored_nodes.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or_else(|| {
-        // NaN values sort to the end
-        if a.0.is_nan() { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Less }
-    }));
+    // Use total_cmp for a total ordering on f64 (handles NaN consistently
+    // and is symmetric, so the sort never panics in debug builds).
+    scored_nodes.sort_by(|a, b| b.0.total_cmp(&a.0));
+
+    // Capture how many candidates were available before truncating.
+    let total_candidates = scored_nodes.len();
 
     // Take top N nodes
     let nodes: Vec<CytoNode> = scored_nodes
@@ -161,7 +182,8 @@ pub async fn get_graph_data(
         }
     }
 
-    let truncated = nodes.len() >= max_nodes;
+    // truncated only when we actually dropped candidates from the top-N cut.
+    let truncated = total_candidates > nodes.len();
     let stats = GraphStats {
         node_count: nodes.len(),
         edge_count: edges.len(),
@@ -195,14 +217,26 @@ pub async fn get_subgraph(
     depth_map.insert(center_node_id.clone(), 0u32);
     queue.push_back((center_node_id, 0u32));
 
-    while let Some((node_id, d)) = queue.pop_front() {
-        if d >= max_depth || visited.len() >= MAX_NODES {
+    // Track whether the BFS actually hit the MAX_NODES cap so the `truncated`
+    // flag reported to the UI is meaningful. Previously the BFS inserted
+    // every discovered neighbor into `visited` unconditionally and only
+    // gated the *queue* expansion on MAX_NODES, so `visited.len()` could
+    // grow far past the cap in a single frontier iteration and the final
+    // payload returned more nodes than advertised.
+    let mut hit_cap = false;
+
+    'bfs: while let Some((node_id, d)) = queue.pop_front() {
+        if d >= max_depth {
             continue;
         }
 
         // Outgoing neighbors
         if let Some(outs) = indexes.outgoing.get(&node_id) {
             for (target, _) in outs {
+                if visited.len() >= MAX_NODES {
+                    hit_cap = true;
+                    break 'bfs;
+                }
                 if visited.insert(target.clone()) {
                     depth_map.insert(target.clone(), d + 1);
                     queue.push_back((target.clone(), d + 1));
@@ -213,6 +247,10 @@ pub async fn get_subgraph(
         // Incoming neighbors
         if let Some(ins) = indexes.incoming.get(&node_id) {
             for (source, _) in ins {
+                if visited.len() >= MAX_NODES {
+                    hit_cap = true;
+                    break 'bfs;
+                }
                 if visited.insert(source.clone()) {
                     depth_map.insert(source.clone(), d + 1);
                     queue.push_back((source.clone(), d + 1));
@@ -240,7 +278,7 @@ pub async fn get_subgraph(
     let stats = GraphStats {
         node_count: nodes.len(),
         edge_count: edges.len(),
-        truncated: false,
+        truncated: hit_cap,
     };
 
     Ok(GraphPayload {

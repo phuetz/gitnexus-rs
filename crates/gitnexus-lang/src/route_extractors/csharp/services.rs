@@ -72,23 +72,33 @@ pub fn extract_services_and_repositories(source: &str) -> Vec<ServiceInfo> {
 /// Extract constructor-injected dependencies for a specific class.
 ///
 /// Finds `public ClassName(IFoo foo, IBar bar)` and returns `[(IFoo, foo), (IBar, bar)]`.
+///
+/// When a class declares multiple `public ClassName(...)` overloads (e.g.
+/// a parameterless constructor for serialization plus the real DI ctor),
+/// the first match alone would silently drop all the DI parameters. We now
+/// scan every overload and keep the one with the most dependencies — that
+/// is essentially always the DI constructor.
 pub fn extract_constructor_dependencies(source: &str, class_name: &str) -> Vec<(String, String)> {
     // Build a regex for this specific constructor: public ClassName(...)
     let pattern = format!(r"public\s+{}\s*\(([^)]*)\)", regex::escape(class_name));
     let re = Regex::new(&pattern).unwrap();
 
-    let mut deps = Vec::new();
+    let mut best: Vec<(String, String)> = Vec::new();
 
-    if let Some(cap) = re.captures(source) {
+    for cap in re.captures_iter(source) {
         let params = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+        let mut deps = Vec::new();
         for param_cap in RE_CTOR_PARAM.captures_iter(params) {
             let iface = param_cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
             let name = param_cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
             deps.push((iface, name));
         }
+        if deps.len() > best.len() {
+            best = deps;
+        }
     }
 
-    deps
+    best
 }
 
 #[cfg(test)]

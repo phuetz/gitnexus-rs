@@ -37,8 +37,10 @@ fn resolve_jvm(raw_path: &str, ctx: &ResolveCtx<'_>, primary_ext: &str) -> Impor
         path
     };
 
-    // Strip wildcard and semicolons
-    let path = path.trim_end_matches(".*").trim_end_matches(';');
+    // Strip semicolons FIRST, then wildcard, so an input like `com.example.*;`
+    // (wildcard with stray trailing semicolon) doesn't end up keeping the
+    // wildcard suffix and producing an unresolvable `com/example/*` path.
+    let path = path.trim_end_matches(';').trim_end_matches(".*");
 
     let as_path = path.replace('.', "/");
 

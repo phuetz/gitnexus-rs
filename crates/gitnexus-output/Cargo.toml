@@ -7,6 +7,10 @@ rust-version.workspace = true
 description = "Unified output system for GitNexus: terminal, JSON, and Markdown formatters"
 
 [dependencies]
+gitnexus-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 colored = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }

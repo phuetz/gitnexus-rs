@@ -32,22 +32,13 @@ pub async fn get_coverage_stats(
 ) -> Result<CoverageStats, String> {
     let (graph, _, _, _) = state.get_repo(None).await?;
 
-    // Build incoming calls index
-    let mut incoming_calls: HashMap<String, Vec<String>> = HashMap::new();
+    // Build a method → owning-class index so we can show class names alongside
+    // dead methods. We no longer need an incoming-calls index because dead-code
+    // detection is delegated to the `is_dead_candidate` flag set by the pipeline.
     let mut method_class: HashMap<String, String> = HashMap::new();
-
     for rel in graph.iter_relationships() {
-        match rel.rel_type {
-            RelationshipType::Calls | RelationshipType::CallsAction => {
-                incoming_calls
-                    .entry(rel.target_id.clone())
-                    .or_default()
-                    .push(rel.source_id.clone());
-            }
-            RelationshipType::HasMethod => {
-                method_class.insert(rel.target_id.clone(), rel.source_id.clone());
-            }
-            _ => {}
+        if matches!(rel.rel_type, RelationshipType::HasMethod) {
+            method_class.insert(rel.target_id.clone(), rel.source_id.clone());
         }
     }
 
@@ -62,9 +53,14 @@ pub async fn get_coverage_stats(
         .filter(|n| n.properties.is_traced == Some(true))
         .count();
 
+    // Trust the pipeline's `is_dead_candidate` flag, which is computed in
+    // dead_code.rs after applying all the proper exclusions (test files,
+    // interface methods, controller actions, view scripts, entry points,
+    // constructors). Re-deriving from incoming_calls here would mark all
+    // those legitimate methods as dead.
     let mut dead_methods = Vec::new();
     for method in &all_methods {
-        if !incoming_calls.contains_key(&method.id) {
+        if method.properties.is_dead_candidate == Some(true) {
             let class_name = method_class
                 .get(&method.id)
                 .and_then(|cid| graph.get_node(cid))
@@ -80,13 +76,16 @@ pub async fn get_coverage_stats(
 
     // Sort dead methods by file path for consistent output
     dead_methods.sort_by(|a, b| a.file_path.cmp(&b.file_path));
-    // Limit to top 50
+    // Capture the true total before truncating the displayed list, otherwise
+    // dead_code_candidates would silently report only the cap.
+    let dead_code_total = dead_methods.len();
+    // Limit to top 50 for the visible list
     dead_methods.truncate(50);
 
     Ok(CoverageStats {
         total_methods: total,
         traced_methods: traced,
-        dead_code_candidates: dead_methods.len(),
+        dead_code_candidates: dead_code_total,
         coverage_pct: if total > 0 {
             (traced as f64 / total as f64 * 100.0).round()
         } else {

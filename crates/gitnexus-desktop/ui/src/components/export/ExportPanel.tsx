@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Download,
   FileText,
@@ -13,8 +14,9 @@ import {
   CheckCircle,
   AlertCircle,
   FolderOpen,
+  Brain,
 } from "lucide-react";
-import { commands, type AspNetStats } from "../../lib/tauri-commands";
+import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 import { AnimatedCounter, StaggerContainer, StaggerItem } from "../shared/motion";
@@ -71,32 +73,17 @@ export function ExportPanel() {
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
 
-  const [stats, setStats] = useState<AspNetStats | null>(null);
-  const [loading, setLoading] = useState(true);
   const [exportStatus, setExportStatus] = useState<ExportStatus>("idle");
   const [exportPath, setExportPath] = useState<string | null>(null);
+  const [obsidianPath, setObsidianPath] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const loadStats = useCallback(async () => {
-    if (!activeRepo) {
-      setLoading(false);
-      setStats(null);
-      return;
-    }
-    setLoading(true);
-    try {
-      const result = await commands.getAspnetStats();
-      setStats(result);
-    } catch {
-      setStats(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeRepo]);
-
-  useEffect(() => {
-    loadStats();
-  }, [loadStats]);
+  const { data: stats = null, isLoading: loading, refetch: refetchStats } = useQuery({
+    queryKey: ["aspnet-stats", activeRepo],
+    queryFn: () => commands.getAspnetStats(),
+    enabled: !!activeRepo,
+    staleTime: 60_000,
+  });
 
   /* ── No-repo guard ── */
   if (!activeRepo) {
@@ -131,10 +118,30 @@ export function ExportPanel() {
 
   const handleExport = async () => {
     setExportStatus("exporting");
+    setExportPath(null);
+    setObsidianPath(null);
     setErrorMsg(null);
     try {
       const path = await commands.exportDocsDocx();
       setExportPath(path);
+      setExportStatus("success");
+      toast.success(t("export.toastSuccess"));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMsg(msg);
+      setExportStatus("error");
+      toast.error(t("export.toastError").replace("{0}", msg));
+    }
+  };
+
+  const handleObsidianExport = async () => {
+    setExportStatus("exporting");
+    setExportPath(null);
+    setObsidianPath(null);
+    setErrorMsg(null);
+    try {
+      const path = await commands.exportObsidianVault();
+      setObsidianPath(path);
       setExportStatus("success");
       toast.success(t("export.toastSuccess"));
     } catch (err) {
@@ -190,7 +197,7 @@ export function ExportPanel() {
             </p>
           </div>
           <button
-            onClick={loadStats}
+            onClick={() => refetchStats()}
             title={t("export.refreshStats")}
             aria-label={t("export.ariaRefresh")}
             className="rounded-md hover-surface"
@@ -320,6 +327,104 @@ export function ExportPanel() {
               <div className="min-w-0">
                 <div className="font-medium">{t("export.error")}</div>
                 <div style={{ color: "var(--text-3)", marginTop: 2 }}>{errorMsg}</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Obsidian Export Card */}
+        <div
+          className="rounded-xl"
+          style={{
+            padding: "20px",
+            marginBottom: 28,
+            background: "var(--surface-0)",
+            border: "1px solid var(--surface-border)",
+          }}
+        >
+          <div className="flex items-start gap-4">
+            <div
+              className="flex items-center justify-center rounded-lg shrink-0"
+              style={{
+                width: 48,
+                height: 48,
+                background: "linear-gradient(135deg, #a855f7, #ec4899)",
+              }}
+            >
+              <Brain size={24} color="white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3
+                className="text-sm font-semibold"
+                style={{
+                  color: "var(--text-0)",
+                  margin: "0 0 4px 0",
+                  fontFamily: "var(--font-display)",
+                }}
+              >
+                {t("export.obsidianTitle")}
+              </h3>
+              <p
+                className="text-xs"
+                style={{ color: "var(--text-3)", margin: 0, lineHeight: 1.5 }}
+              >
+                {t("export.obsidianDesc")}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleObsidianExport}
+            disabled={exportStatus === "exporting"}
+            className="w-full flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all"
+            style={{
+              marginTop: 16,
+              padding: "10px 16px",
+              background:
+                exportStatus === "exporting"
+                  ? "var(--surface-1)"
+                  : "linear-gradient(135deg, #a855f7, #ec4899)",
+              color: exportStatus === "exporting" ? "var(--text-3)" : "white",
+              border: "none",
+              cursor: exportStatus === "exporting" ? "wait" : "pointer",
+              opacity: exportStatus === "exporting" ? 0.7 : 1,
+            }}
+          >
+            {exportStatus === "exporting" ? (
+              <>
+                <RefreshCw size={16} className="animate-spin" />
+                {t("export.exporting")}
+              </>
+            ) : (
+              <>
+                <Download size={16} />
+                {t("export.generateObsidian")}
+              </>
+            )}
+          </button>
+
+          {/* Success message */}
+          {exportStatus === "success" && obsidianPath && (
+            <div
+              className="flex items-start gap-2 rounded-lg"
+              style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                background: "color-mix(in srgb, var(--green) 10%, transparent)",
+                color: "var(--green)",
+                fontSize: 12,
+              }}
+            >
+              <CheckCircle size={16} className="shrink-0" style={{ marginTop: 1 }} />
+              <div className="min-w-0">
+                <div className="font-medium">{t("export.success")}</div>
+                <div
+                  className="truncate"
+                  style={{ color: "var(--text-3)", marginTop: 2 }}
+                  title={obsidianPath}
+                >
+                  {obsidianPath}
+                </div>
               </div>
             </div>
           )}

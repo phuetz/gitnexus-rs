@@ -30,18 +30,22 @@ pub fn extract_view_info(file_path: &str, source: &str) -> ViewInfo {
     });
 
     // Infer area from path: Areas/<name>/Views/...
-    let area_name = if let Some(areas_idx) = path_lower.find("/areas/") {
-        file_path
-            .get(areas_idx + 7..)
-            .and_then(|after| after.split('/').next())
-            .map(|s| s.to_string())
-    } else if path_lower.starts_with("areas/") {
-        file_path
-            .get(6..)
-            .and_then(|after| after.split('/').next())
-            .map(|s| s.to_string())
-    } else {
-        None
+    //
+    // Walk normalized path segments rather than reusing a byte offset from
+    // `path_lower`. Unicode case folding can change byte length (Turkish
+    // `İ` U+0130 → `i` U+0069), so a byte offset computed in `path_lower`
+    // is not safe to apply to the original `file_path` and would silently
+    // return `None` (or panic on a non-char-boundary in some Rust versions).
+    let area_name = {
+        let normalized = file_path.replace('\\', "/");
+        let segments: Vec<&str> = normalized.split('/').collect();
+        segments.iter().enumerate().find_map(|(i, seg)| {
+            if seg.eq_ignore_ascii_case("areas") && i + 1 < segments.len() {
+                Some(segments[i + 1].to_string())
+            } else {
+                None
+            }
+        })
     };
 
     let is_partial = filename.starts_with('_');

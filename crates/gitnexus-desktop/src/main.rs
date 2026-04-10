@@ -51,8 +51,8 @@ fn main() {
             commands::cypher::execute_cypher,
             // Export
             commands::export::export_docs_docx,
-            commands::export::get_aspnet_stats,
-            // Process Flows
+            commands::export::export_obsidian_vault,
+            commands::export::get_aspnet_stats,            // Process Flows
             commands::process::get_process_flows,
             // Git Analytics
             commands::git_analytics::get_hotspots,

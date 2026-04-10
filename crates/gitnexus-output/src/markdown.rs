@@ -37,7 +37,9 @@ impl OutputFormatter for MarkdownFormatter {
             if i > 0 {
                 out.push_str(" | ");
             }
-            out.push_str(header);
+            // Escape pipes in headers too — without this, a header like
+            // `count|total` would split into two columns and corrupt the table.
+            out.push_str(&header.replace('|', "\\|"));
         }
         out.push_str(" |\n");
 
@@ -115,7 +117,14 @@ impl OutputFormatter for MarkdownFormatter {
         out.push_str("| --- | --- |\n");
 
         for (name, count) in items {
-            out.push_str(&format!("| {} | {} |\n", name, count));
+            // Escape pipe so a name like `src/a|b` doesn't introduce spurious
+            // table columns (`format_table` already does this; this method
+            // had been the only outlier).
+            out.push_str(&format!(
+                "| {} | {} |\n",
+                name.replace('|', "\\|"),
+                count
+            ));
         }
         out.push('\n');
 

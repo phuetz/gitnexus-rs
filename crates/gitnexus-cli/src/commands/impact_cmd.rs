@@ -56,12 +56,18 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
     let mut incoming: HashMap<String, Vec<String>> = HashMap::new();
 
     for rel in graph.iter_relationships() {
-        // Skip structural relationships that don't represent functional dependencies
-        if matches!(rel.rel_type, RelationshipType::Contains | RelationshipType::Imports
+        // Skip purely structural / metadata relationships that don't represent
+        // functional dependencies. `Imports`, `Inherits`, `Implements`, and
+        // `Extends` are KEPT — they are causal edges for impact analysis:
+        // changing an interface affects its implementers, changing a base
+        // class affects subclasses, changing a module affects its importers.
+        // This matches the filter in `desktop/commands/impact.rs::bfs_impact`.
+        // `MemberOf` is still skipped because it is the inverse of
+        // `HasMethod`, which is already walked in the other direction — we do
+        // not want to double-walk the parent/child chain.
+        if matches!(rel.rel_type, RelationshipType::Contains
             | RelationshipType::StepInProcess | RelationshipType::Defines
-            | RelationshipType::MemberOf | RelationshipType::Inherits
-            | RelationshipType::Implements | RelationshipType::Extends
-            | RelationshipType::BelongsToArea) {
+            | RelationshipType::MemberOf | RelationshipType::BelongsToArea) {
             continue;
         }
         outgoing

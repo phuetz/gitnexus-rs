@@ -24,16 +24,34 @@ function cleanPath(p: string): string {
   return p.replace(/^\\\\\?\\/, "");
 }
 
-/** Format a timestamp to relative time */
+/** Format a timestamp to relative time.
+ *
+ * Accepts two formats:
+ *  - Unix epoch seconds with optional trailing "Z" (the format the Rust backend
+ *    currently writes via `chrono_now()`).
+ *  - ISO 8601 strings like "2024-03-15T10:22:00Z".
+ *
+ * `parseInt` on an ISO string would return the leading year ("2024") which
+ * would silently produce nonsense like "13816286h ago", so we sniff the format
+ * before delegating.
+ */
 function timeAgo(ts: string): string {
-  const secs = parseInt(ts.replace("Z", ""), 10);
-  if (isNaN(secs)) return ts;
-  const diff = Math.floor(Date.now() / 1000) - secs;
+  const stripped = ts.replace(/Z$/, "");
+  let ms: number;
+  // Pure-numeric (Unix seconds) vs ISO date string
+  if (/^\d+$/.test(stripped)) {
+    ms = Number(stripped) * 1000;
+  } else {
+    ms = Date.parse(ts);
+  }
+  if (isNaN(ms)) return ts;
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 0) return "just now";
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  return new Date(secs * 1000).toLocaleDateString();
+  return new Date(ms).toLocaleDateString();
 }
 
 export function RepoManager() {
@@ -397,6 +415,7 @@ function RepoCard({
   isOpening: boolean;
 }) {
   const { t, tt } = useI18n();
+  const queryClient = useQueryClient();
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
@@ -406,7 +425,10 @@ function RepoCard({
   } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Close menu on scroll or outside click
+  // Close menu on scroll, resize, or outside click. Resize is included so a
+  // user dragging the Tauri window border doesn't leave the portalized menu
+  // floating at its original screen position — `menuPos` is captured once at
+  // open time and never recomputed.
   useEffect(() => {
     if (!showMenu) return;
     let cancelled = false;
@@ -416,10 +438,12 @@ function RepoCard({
       if (!cancelled) window.addEventListener("click", close);
     }, 0);
     window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
     return () => {
       cancelled = true;
       clearTimeout(timer);
       window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
       window.removeEventListener("click", close);
     };
   }, [showMenu]);
@@ -431,6 +455,7 @@ function RepoCard({
     try {
       await action();
       setStatus({ text: `${label} completed`, type: "success" });
+      queryClient.invalidateQueries();
     } catch (e) {
       setStatus({ text: String(e), type: "error" });
     } finally {

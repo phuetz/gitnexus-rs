@@ -208,7 +208,10 @@ impl DatabaseBackend for StubDbBackend {
                 cause: "Database not open".into(),
             });
         }
-        info!("StubDbBackend: executing query: {}", &query[..query.len().min(100)]);
+        // Char-based truncation for UTF-8 safety: a multi-byte code point at
+        // byte 99 would otherwise panic the logger when sliced at byte 100.
+        let preview: String = query.chars().take(100).collect();
+        info!("StubDbBackend: executing query: {}", preview);
         // Return empty results for the stub
         Ok(Vec::new())
     }
@@ -484,15 +487,23 @@ mod kuzu_backend {
         }
 
         fn execute_query(&self, query: &str) -> Result<Vec<Value>> {
-            let conn = self.connect().map_err(|_| DbError::QueryError {
+            // Propagate the real reason from `connect()` rather than masking
+            // it with a fixed "Database not open" string. `connect()` can
+            // also fail when `kuzu::Connection::new` returns an internal
+            // error (e.g. transient lock contention or an upstream kuzu
+            // panic-to-error conversion); flattening every variant to
+            // "Database not open" hid those failures and made KuzuDB-mode
+            // bug reports very hard to triage.
+            let conn = self.connect().map_err(|e| DbError::QueryError {
                 query: query.to_string(),
-                cause: "Database not open".into(),
+                cause: e.to_string(),
             })?;
 
-            info!(
-                "KuzuDbBackend: executing query: {}",
-                &query[..query.len().min(120)]
-            );
+            // Char-based truncation for UTF-8 safety: a multi-byte code
+            // point at byte 119 would otherwise panic the logger when
+            // sliced at byte 120.
+            let preview: String = query.chars().take(120).collect();
+            info!("KuzuDbBackend: executing query: {}", preview);
 
             let result = conn.query(query).map_err(|e| DbError::QueryError {
                 query: query.to_string(),

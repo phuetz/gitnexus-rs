@@ -52,6 +52,9 @@ pub fn merge_with_rrf(
     semantic_results: &[SemanticSearchResult],
     limit: usize,
 ) -> Vec<HybridSearchResult> {
+    // Key by node_id, NOT file_path: a single file can contribute multiple
+    // distinct symbols, and collapsing on file_path silently drops all but the
+    // first one (and overwrites the carried name/label/line range).
     let mut merged: HashMap<String, HybridSearchResult> = HashMap::new();
 
     // Process BM25 results
@@ -59,7 +62,7 @@ pub fn merge_with_rrf(
         let rrf_score = 1.0 / (RRF_K + i as f64 + 1.0);
 
         merged
-            .entry(result.file_path.clone())
+            .entry(result.node_id.clone())
             .and_modify(|existing| {
                 existing.score += rrf_score;
                 existing.bm25_score = result.score;
@@ -87,7 +90,7 @@ pub fn merge_with_rrf(
         let rrf_score = 1.0 / (RRF_K + i as f64 + 1.0);
 
         merged
-            .entry(result.file_path.clone())
+            .entry(result.node_id.clone())
             .and_modify(|existing| {
                 existing.score += rrf_score;
                 existing.semantic_score = result.score;
@@ -110,9 +113,15 @@ pub fn merge_with_rrf(
             });
     }
 
-    // Sort by score descending
+    // Sort by score descending. Use total_cmp for NaN safety, and break ties on
+    // node_id so the output is fully deterministic across HashMap iterations.
     let mut results: Vec<HybridSearchResult> = merged.into_values().collect();
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.node_id.cmp(&b.node_id))
+    });
     results.truncate(limit);
 
     // Assign final ranks (1-indexed)

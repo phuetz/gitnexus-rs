@@ -75,7 +75,7 @@ pub async fn chat_execute_step(
     plan_id: String,
     step_id: String,
 ) -> Result<StepResult, String> {
-    let (graph, _indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
+    let (graph, indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
     let repo_path = PathBuf::from(&repo_path_str);
 
     let mut plan = get_plan(&plan_id).ok_or_else(|| format!("Plan {} not found", plan_id))?;
@@ -112,24 +112,18 @@ pub async fn chat_execute_step(
         &plan.steps[step_idx],
         &dep_results,
         &graph,
+        &indexes,
         &fts_index,
         &repo_path,
     );
 
     let duration_ms = start.elapsed().as_millis() as u64;
 
-    match result {
+    let step_outcome = match result {
         Ok(mut step_result) => {
             step_result.duration_ms = duration_ms;
             plan.steps[step_idx].status = StepStatus::Completed;
             plan.steps[step_idx].result = Some(step_result.clone());
-
-            // Check if all steps are done
-            if plan.steps.iter().all(|s| s.status == StepStatus::Completed || s.status == StepStatus::Skipped) {
-                plan.status = PlanStatus::Completed;
-            }
-
-            update_plan(&plan);
             Ok(step_result)
         }
         Err(e) => {
@@ -148,10 +142,31 @@ pub async fn chat_execute_step(
                 }
             }
 
-            update_plan(&plan);
             Err(e)
         }
+    };
+
+    // Update the overall plan status. A plan is terminal once every step has
+    // reached Completed, Failed, or Skipped. Previously only the success path
+    // advanced `plan.status`, and only when every step was Completed||Skipped —
+    // so any plan containing a Failed step stayed stuck in `Running` forever,
+    // even after the remaining steps all finished. Mirror the terminal check
+    // already used by `chat_execute_plan` so the UI's progress indicator can
+    // settle on Completed or Failed in both entry points.
+    let all_done = plan
+        .steps
+        .iter()
+        .all(|s| matches!(s.status, StepStatus::Completed | StepStatus::Failed | StepStatus::Skipped));
+    if all_done {
+        let all_failed = plan
+            .steps
+            .iter()
+            .all(|s| matches!(s.status, StepStatus::Failed | StepStatus::Skipped));
+        plan.status = if all_failed { PlanStatus::Failed } else { PlanStatus::Completed };
     }
+
+    update_plan(&plan);
+    step_outcome
 }
 
 /// Execute a tool for a research step.
@@ -159,15 +174,16 @@ fn execute_tool(
     step: &ResearchStep,
     dep_results: &[&StepResult],
     graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     fts_index: &FtsIndex,
     repo_path: &Path,
 ) -> Result<StepResult, String> {
     match step.tool.as_str() {
         "search_symbols" => execute_search(step, graph, fts_index, repo_path),
-        "get_symbol_context" => execute_context(step, dep_results, graph),
-        "get_impact_analysis" => execute_impact(step, dep_results, graph),
+        "get_symbol_context" => execute_context(step, dep_results, graph, indexes),
+        "get_impact_analysis" => execute_impact(step, dep_results, graph, indexes),
         "read_file_content" => execute_read_file(step, dep_results, graph, repo_path),
-        "execute_cypher" => execute_cypher_step(step, graph, fts_index),
+        "execute_cypher" => execute_cypher_step(step, graph, indexes, fts_index),
         _ => Err(format!("Unknown tool: {}", step.tool)),
     }
 }
@@ -217,6 +233,41 @@ fn execute_search(
                         continue;
                     }
                 }
+                // Symbol-name filter (exact or substring match). Without
+                // this the ChatContextFilter.symbols field declared in
+                // types.rs was silently ignored, so user-supplied symbol
+                // narrowing had no effect on chat search results.
+                if !f.symbols.is_empty() {
+                    let name = &node.properties.name;
+                    if !f.symbols.iter().any(|s| name == s || name.contains(s.as_str())) {
+                        continue;
+                    }
+                }
+                // Module/community filter via MemberOf edges. The community
+                // node's name (or its heuristic_label) must contain one of
+                // the user-requested module strings.
+                if !f.modules.is_empty() {
+                    let in_module = graph.iter_relationships().any(|r| {
+                        r.rel_type == RelationshipType::MemberOf
+                            && r.source_id == fts_result.node_id
+                            && f.modules.iter().any(|m| {
+                                graph
+                                    .get_node(&r.target_id)
+                                    .map(|n| {
+                                        n.properties.name.contains(m.as_str())
+                                            || n.properties
+                                                .heuristic_label
+                                                .as_deref()
+                                                .map(|h| h.contains(m.as_str()))
+                                                .unwrap_or(false)
+                                    })
+                                    .unwrap_or(false)
+                            })
+                    });
+                    if !in_module {
+                        continue;
+                    }
+                }
             }
         }
 
@@ -250,6 +301,7 @@ fn execute_context(
     step: &ResearchStep,
     dep_results: &[&StepResult],
     graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
 ) -> Result<StepResult, String> {
     let top_n = step.params["top_n"].as_u64().unwrap_or(5) as usize;
 
@@ -277,18 +329,24 @@ fn execute_context(
             let mut callees = Vec::new();
             let mut imports = Vec::new();
 
-            for rel in graph.iter_relationships() {
-                if rel.source_id == *node_id {
-                    if let Some(target) = graph.get_node(&rel.target_id) {
-                        match rel.rel_type {
+            // Use indexes for O(degree) lookups instead of O(total_edges)
+            if let Some(outs) = indexes.outgoing.get(node_id.as_str()) {
+                for (target_id, rel_type) in outs {
+                    if let Some(target) = graph.get_node(target_id) {
+                        match rel_type {
                             RelationshipType::Calls => callees.push(target.properties.name.clone()),
                             RelationshipType::Imports => imports.push(target.properties.name.clone()),
                             _ => {}
                         }
                     }
-                } else if rel.target_id == *node_id && rel.rel_type == RelationshipType::Calls {
-                    if let Some(source) = graph.get_node(&rel.source_id) {
-                        callers.push(source.properties.name.clone());
+                }
+            }
+            if let Some(ins) = indexes.incoming.get(node_id.as_str()) {
+                for (source_id, rel_type) in ins {
+                    if *rel_type == RelationshipType::Calls {
+                        if let Some(source) = graph.get_node(source_id) {
+                            callers.push(source.properties.name.clone());
+                        }
                     }
                 }
             }
@@ -331,6 +389,7 @@ fn execute_impact(
     step: &ResearchStep,
     dep_results: &[&StepResult],
     graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
 ) -> Result<StepResult, String> {
     let direction = step.params["direction"].as_str().unwrap_or("both");
     let max_depth = step.params["max_depth"].as_u64().unwrap_or(3) as u32;
@@ -352,7 +411,34 @@ fn execute_impact(
 
     affected_files.insert(target_node.properties.file_path.clone());
 
-    // Downstream: what does this symbol call/affect? (BFS)
+    // Restrict the BFS to edges that actually represent "change X and Y may
+    // break" semantics. The previous implementation only walked `Calls` and
+    // `Imports`, missing every impact that flows through inheritance,
+    // interface implementation, or other causal edges (changing a base class
+    // affects subclasses; changing an interface affects its implementers;
+    // changing an action affects the views that render it). Same root cause
+    // as the impact_cmd.rs / shell.rs::cmd_impact / desktop impact.rs fixes
+    // earlier in this audit — keep this set in sync with the canonical
+    // causal-edge filter in `impact.rs::bfs_impact`.
+    let is_impact_edge = |rel_type: &RelationshipType| -> bool {
+        matches!(
+            rel_type,
+            RelationshipType::Calls
+                | RelationshipType::CallsAction
+                | RelationshipType::Imports
+                | RelationshipType::Inherits
+                | RelationshipType::Implements
+                | RelationshipType::Extends
+                | RelationshipType::Uses
+                | RelationshipType::Overrides
+                | RelationshipType::RendersView
+                | RelationshipType::HandlesRoute
+                | RelationshipType::Fetches
+                | RelationshipType::MapsToEntity
+        )
+    };
+
+    // Downstream: what does this symbol call/affect? (BFS using indexes)
     if direction == "both" || direction == "downstream" {
         let mut queue = VecDeque::from(vec![(target_id.clone(), 0u32)]);
         let mut visited = std::collections::HashSet::new();
@@ -362,20 +448,21 @@ fn execute_impact(
             if depth >= max_depth {
                 continue;
             }
-            for rel in graph.iter_relationships() {
-                if rel.source_id == current_id && (rel.rel_type == RelationshipType::Calls || rel.rel_type == RelationshipType::Imports)
-                    && visited.insert(rel.target_id.clone()) {
-                        if let Some(node) = graph.get_node(&rel.target_id) {
+            if let Some(outs) = indexes.outgoing.get(current_id.as_str()) {
+                for (target, rel_type) in outs {
+                    if is_impact_edge(rel_type) && visited.insert(target.clone()) {
+                        if let Some(node) = graph.get_node(target) {
                             affected_files.insert(node.properties.file_path.clone());
                             downstream.push(node.properties.name.clone());
-                            queue.push_back((rel.target_id.clone(), depth + 1));
+                            queue.push_back((target.clone(), depth + 1));
                         }
                     }
+                }
             }
         }
     }
 
-    // Upstream: what calls/uses this symbol? (BFS)
+    // Upstream: what calls/uses this symbol? (BFS using indexes)
     if direction == "both" || direction == "upstream" {
         let mut queue = VecDeque::from(vec![(target_id.clone(), 0u32)]);
         let mut visited = std::collections::HashSet::new();
@@ -385,15 +472,16 @@ fn execute_impact(
             if depth >= max_depth {
                 continue;
             }
-            for rel in graph.iter_relationships() {
-                if rel.target_id == current_id && (rel.rel_type == RelationshipType::Calls || rel.rel_type == RelationshipType::Imports)
-                    && visited.insert(rel.source_id.clone()) {
-                        if let Some(node) = graph.get_node(&rel.source_id) {
+            if let Some(ins) = indexes.incoming.get(current_id.as_str()) {
+                for (source, rel_type) in ins {
+                    if is_impact_edge(rel_type) && visited.insert(source.clone()) {
+                        if let Some(node) = graph.get_node(source) {
                             affected_files.insert(node.properties.file_path.clone());
                             upstream.push(node.properties.name.clone());
-                            queue.push_back((rel.source_id.clone(), depth + 1));
+                            queue.push_back((source.clone(), depth + 1));
                         }
                     }
+                }
             }
         }
     }
@@ -446,14 +534,18 @@ fn execute_read_file(
         .flat_map(|r| r.sources.clone())
         .collect();
 
+    let canonical_repo = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
     for fp in &file_paths {
         let full_path = repo_path.join(fp);
         // Path traversal guard: ensure resolved path stays within repo
         if let Ok(canonical) = full_path.canonicalize() {
-            if !canonical.starts_with(repo_path) {
+            if !canonical.starts_with(&canonical_repo) {
                 tracing::warn!("Path traversal blocked: {}", fp);
                 continue;
             }
+        } else {
+            // Cannot canonicalize (file doesn't exist or permission denied) — skip
+            continue;
         }
         if let Ok(content) = std::fs::read_to_string(&full_path) {
             let lines: Vec<&str> = content.lines().collect();
@@ -495,19 +587,30 @@ fn execute_read_file(
         }
     }
 
-    // Update source snippets
+    // Update source snippets — apply the same canonical-prefix guard as the
+    // first pass so a malicious or unexpected `source.file_path` cannot escape
+    // the repository directory.
     for source in &mut updated_sources {
+        if source.snippet.is_some() {
+            continue;
+        }
         let full_path = repo_path.join(&source.file_path);
-        if source.snippet.is_none() {
-            if let Ok(content) = std::fs::read_to_string(&full_path) {
-                let lines: Vec<&str> = content.lines().collect();
-                if let (Some(start), Some(end)) = (source.start_line, source.end_line) {
-                    let s = std::cmp::min((start.saturating_sub(1)) as usize, lines.len());
-                    let e = std::cmp::min(end as usize, lines.len());
-                    let e = std::cmp::min(e, s + 50);
-                    if s < e {
-                        source.snippet = Some(lines[s..e].join("\n"));
-                    }
+        let canonical = match full_path.canonicalize() {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        if !canonical.starts_with(&canonical_repo) {
+            tracing::warn!("Path traversal blocked in snippet pass: {}", source.file_path);
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(&canonical) {
+            let lines: Vec<&str> = content.lines().collect();
+            if let (Some(start), Some(end)) = (source.start_line, source.end_line) {
+                let s = std::cmp::min((start.saturating_sub(1)) as usize, lines.len());
+                let e = std::cmp::min(end as usize, lines.len());
+                let e = std::cmp::min(e, s + 50);
+                if s < e {
+                    source.snippet = Some(lines[s..e].join("\n"));
                 }
             }
         }
@@ -526,6 +629,7 @@ fn execute_read_file(
 fn execute_cypher_step(
     step: &ResearchStep,
     graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     fts_index: &FtsIndex,
 ) -> Result<StepResult, String> {
     let query = step.params["query"].as_str()
@@ -535,11 +639,9 @@ fn execute_cypher_step(
     let stmt = gitnexus_db::inmemory::cypher::parse(query)
         .map_err(|e| format!("Cypher parse error: {}", e))?;
 
-    // Build indexes needed for the Cypher executor
-    let indexes = gitnexus_db::inmemory::cypher::GraphIndexes::build(graph);
-
-    // Execute the parsed statement
-    let results = gitnexus_db::inmemory::cypher::execute(&stmt, graph, &indexes, fts_index)
+    // Reuse the pre-built indexes from AppState — building them here on every
+    // call was an O(E) scan repeated for each Cypher step in a plan.
+    let results = gitnexus_db::inmemory::cypher::execute(&stmt, graph, indexes, fts_index)
         .map_err(|e| format!("Cypher execution failed: {}", e))?;
 
     let row_count = results.len();
@@ -565,8 +667,8 @@ pub async fn chat_execute_plan(
     state: State<'_, AppState>,
     request: ChatSmartRequest,
 ) -> Result<ChatSmartResponse, String> {
-    let config = chat::load_config_pub();
-    let (graph, _indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
+    let config = chat::load_config_pub(&state).await;
+    let (graph, indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
     let repo_path = PathBuf::from(&repo_path_str);
 
     // 1. Analyze the query
@@ -582,7 +684,7 @@ pub async fn chat_execute_plan(
         let sources = build_sources_from_results(&search_results, &graph, &repo_path);
 
         // Build and call LLM
-        let answer = if config.api_key.is_empty() && !config.base_url.contains("localhost") {
+        let answer = if config.api_key.is_empty() && !chat::is_local_llm_url(&config.base_url) {
             build_simple_answer(&sources)
         } else {
             let system_prompt = build_research_prompt(&request.question, &sources, &[]);
@@ -651,6 +753,7 @@ pub async fn chat_execute_plan(
             &plan.steps[*idx],
             &dep_results,
             &graph,
+            &indexes,
             &fts_index,
             &repo_path,
         );
@@ -677,7 +780,19 @@ pub async fn chat_execute_plan(
         update_plan(&plan);
     }
 
-    plan.status = PlanStatus::Completed;
+    // Mark the plan failed when every step ended in Failed/Skipped — otherwise
+    // a plan whose searches all errored would still display a 100% green
+    // progress bar in the ResearchPlanViewer. Mirror chat_execute_step which
+    // already does the same check on incremental updates.
+    let all_failed = plan
+        .steps
+        .iter()
+        .all(|s| s.status == StepStatus::Failed || s.status == StepStatus::Skipped);
+    plan.status = if all_failed {
+        PlanStatus::Failed
+    } else {
+        PlanStatus::Completed
+    };
     update_plan(&plan);
 
     // 4. Collect all sources from completed steps
@@ -700,7 +815,7 @@ pub async fn chat_execute_plan(
         .collect();
 
     // 6. Generate final answer with LLM
-    let answer = if config.api_key.is_empty() && !config.base_url.contains("localhost") {
+    let answer = if config.api_key.is_empty() && !chat::is_local_llm_url(&config.base_url) {
         build_research_answer(&unique_sources, &step_summaries)
     } else {
         let system_prompt = build_research_prompt(&request.question, &unique_sources, &step_summaries);
@@ -782,12 +897,15 @@ fn build_sources_from_results(
 
 fn read_snippet(repo_path: &Path, file_path: &str, start: Option<u32>, end: Option<u32>) -> Option<String> {
     let full_path = repo_path.join(file_path);
-    // Path traversal guard
-    if let Ok(canonical) = full_path.canonicalize() {
-        if !canonical.starts_with(repo_path) {
+    // Path traversal guard — canonicalize both paths for consistent comparison
+    let canonical_repo = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
+    match full_path.canonicalize() {
+        Ok(canonical) if !canonical.starts_with(&canonical_repo) => {
             tracing::warn!("read_snippet: path traversal blocked: {}", file_path);
             return None;
         }
+        Err(_) => return None, // file doesn't exist
+        _ => {}
     }
     let content = std::fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
@@ -813,9 +931,15 @@ fn read_snippet(repo_path: &Path, file_path: &str, start: Option<u32>, end: Opti
     }
 }
 
-fn build_research_prompt(_question: &str, sources: &[ChatSource], step_summaries: &[String]) -> String {
-    let mut prompt = String::from(
-        "You are an expert code analyst. You have performed a multi-step research plan to answer the developer's question.\n\n"
+fn build_research_prompt(question: &str, sources: &[ChatSource], step_summaries: &[String]) -> String {
+    // Grounding the system prompt in the specific question keeps the model
+    // focused when `step_summaries` is empty (the Simple-path branch) — the
+    // user's question is otherwise only present as a trailing `user`-role
+    // message, producing generic answers for simple questions.
+    let mut prompt = format!(
+        "You are an expert code analyst answering this question: **{}**\n\n\
+         You have performed a multi-step research plan.\n\n",
+        question
     );
 
     if !step_summaries.is_empty() {

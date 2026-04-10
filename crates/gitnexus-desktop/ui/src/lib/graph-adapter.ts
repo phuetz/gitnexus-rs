@@ -185,12 +185,16 @@ export function buildGraphologyGraph(
 
     const style = EDGE_STYLES[edge.relType] || { color: "#565f89", size: 0.5 };
 
+    // Derive curvature deterministically from the edge key so the same data
+    // always produces the same visual layout. Math.random() here meant every
+    // graph rebuild (e.g. lens toggle, panel resize) jiggled every edge.
+    const h = hashString(edgeKey);
     graph.addEdgeWithKey(edgeKey, edge.source, edge.target, {
       size: style.size,
       color: style.color,
       relationType: edge.relType,
       type: "curved",
-      curvature: 0.12 + Math.random() * 0.08,
+      curvature: 0.12 + ((h % 1000) / 1000) * 0.08,
     });
   });
 
@@ -280,9 +284,11 @@ export function filterGraphByCommunities(
 // ─── Color Utilities ────────────────────────────────────────────────
 
 export function dimColor(hex: string, amount: number): string {
+  if (!hex || !hex.startsWith("#") || hex.length < 7) return hex || "#565f89";
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return hex;
   const bg = { r: 6, g: 6, b: 10 }; // #06060a
   const nr = Math.round(bg.r + (r - bg.r) * amount);
   const ng = Math.round(bg.g + (g - bg.g) * amount);

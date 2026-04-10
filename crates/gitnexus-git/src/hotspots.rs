@@ -107,13 +107,18 @@ pub fn analyze_hotspots(repo_path: &Path, since_days: u32) -> Result<Vec<FileHot
             current_author = parts.get(1).map(|s| s.to_string());
         } else {
             // numstat line: <added>\t<removed>\t<file>
+            // Binary files report `-` `-` for added/removed; treat as 0.
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 3 {
-                let added: u32 = parts[0].parse().unwrap_or(0);
-                let removed: u32 = parts[1].parse().unwrap_or(0);
+                let added: u32 = if parts[0] == "-" { 0 } else { parts[0].parse().unwrap_or(0) };
+                let removed: u32 = if parts[1] == "-" { 0 } else { parts[1].parse().unwrap_or(0) };
                 let file = parts[2].to_string();
-                *file_added.entry(file.clone()).or_insert(0) += added;
-                *file_removed.entry(file.clone()).or_insert(0) += removed;
+                // Saturating add prevents u32 overflow on extremely active files
+                // (e.g., generated/vendored sources with millions of churned lines).
+                let added_entry = file_added.entry(file.clone()).or_insert(0);
+                *added_entry = added_entry.saturating_add(added);
+                let removed_entry = file_removed.entry(file.clone()).or_insert(0);
+                *removed_entry = removed_entry.saturating_add(removed);
 
                 if let Some(ref author) = current_author {
                     file_authors
@@ -132,7 +137,7 @@ pub fn analyze_hotspots(repo_path: &Path, since_days: u32) -> Result<Vec<FileHot
         let commit_count = commits.len() as u32;
         let lines_added = file_added.get(file).copied().unwrap_or(0);
         let lines_removed = file_removed.get(file).copied().unwrap_or(0);
-        let churn = lines_added + lines_removed;
+        let churn = lines_added.saturating_add(lines_removed);
         let last_modified = file_last_date
             .get(file)
             .cloned()

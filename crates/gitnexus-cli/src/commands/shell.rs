@@ -149,8 +149,25 @@ impl Completer for ShellHelper {
             let start = pos - prefix.len();
             Ok((start, matches))
         } else {
-            // Completing symbol name argument
-            let last_word = parts.last().copied().unwrap_or("");
+            // Completing symbol name argument.
+            //
+            // If the cursor sits right after a whitespace character (e.g. the
+            // user typed `context ` and hit TAB to start the first argument)
+            // then the *prefix being typed* is empty — not `parts.last()`,
+            // which in that situation would return the previous token
+            // (`context`). Using the previous token as the prefix caused the
+            // completion to compute `start = pos - last_word.len()`, pointing
+            // several characters INSIDE the previous token, and rustyline
+            // would happily overwrite part of it with a symbol name
+            // (e.g. `context ` + TAB → `cContext`, corrupting the line). Fix
+            // by treating a trailing whitespace as "begin a new empty token
+            // at the cursor".
+            let last_word =
+                if pos == 0 || line_up_to.chars().last().is_some_and(|c| c.is_whitespace()) {
+                    ""
+                } else {
+                    parts.last().copied().unwrap_or("")
+                };
             let lower = last_word.to_lowercase();
             let matches: Vec<Pair> = self
                 .symbols
@@ -738,7 +755,16 @@ fn cmd_impact(symbol: &str, ctx: &ShellContext) -> anyhow::Result<()> {
     );
     println!("  {}", "\u{2500}".repeat(40).dimmed());
 
-    // BFS through CALLS edges (outgoing = downstream impact)
+    // BFS through causal edges (outgoing = downstream impact). Restricting to
+    // `Calls` alone misses every impact that flows through a *non-call* causal
+    // relationship: changing an interface affects its implementers, changing a
+    // base class affects subclasses, and changing a module affects its
+    // importers. The #52 fix added Imports/Inherits/Implements/Extends but
+    // stopped short — BFS still missed CallsAction (controllers), Uses
+    // (symbol dependencies), Overrides (virtual method chains), RendersView,
+    // HandlesRoute, Fetches, MapsToEntity. Keep this list in sync with the
+    // canonical set in `desktop/commands/impact.rs::bfs_impact` — same root
+    // cause as #39/#52/#55/#57 across all the impact code paths.
     let max_depth = 5;
     let mut visited: HashSet<String> = HashSet::new();
     visited.insert(start_id.clone());
@@ -755,7 +781,22 @@ fn cmd_impact(symbol: &str, ctx: &ShellContext) -> anyhow::Result<()> {
 
         if let Some(edges) = ctx.outgoing.get(&node_id) {
             for (target_id, rel_type, _) in edges {
-                if *rel_type == RelationshipType::Calls && !visited.contains(target_id) {
+                let is_causal = matches!(
+                    rel_type,
+                    RelationshipType::Calls
+                        | RelationshipType::CallsAction
+                        | RelationshipType::Imports
+                        | RelationshipType::Inherits
+                        | RelationshipType::Implements
+                        | RelationshipType::Extends
+                        | RelationshipType::Uses
+                        | RelationshipType::Overrides
+                        | RelationshipType::RendersView
+                        | RelationshipType::HandlesRoute
+                        | RelationshipType::Fetches
+                        | RelationshipType::MapsToEntity
+                );
+                if is_causal && !visited.contains(target_id) {
                     visited.insert(target_id.clone());
                     levels[depth].push(target_id.clone());
                     total_affected += 1;
@@ -1353,13 +1394,16 @@ fn cmd_cypher(query: &str, ctx: &ShellContext) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Block write operations
-    let upper = query.to_uppercase();
-    for kw in &["CREATE", "DELETE", "MERGE", "REMOVE", "DROP"] {
-        if upper.contains(kw) {
-            eprintln!("  {} Only read-only queries are allowed.", "Error:".red().bold());
-            return Ok(());
-        }
+    // Block write operations. Delegate to the canonical `is_write_query`
+    // so the shell matches the same safety contract as the `cypher` CLI
+    // subcommand. The previous inline tokenizer split on every non-word
+    // character, which treated `'` as a separator and turned string
+    // literals like `'Create'` into standalone `CREATE` tokens — causing
+    // false-blocks on legitimate read queries such as:
+    //   MATCH (n) WHERE n.name CONTAINS 'Create' RETURN n
+    if gitnexus_db::query::is_write_query(query) {
+        eprintln!("  {} Only read-only queries are allowed.", "Error:".red().bold());
+        return Ok(());
     }
 
     // Build indexes and FTS from the in-memory graph

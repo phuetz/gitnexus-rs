@@ -41,37 +41,60 @@ impl ConnectionPool {
     /// Implements busy-retry logic: if the database is busy (e.g., another
     /// process holds a lock), retries up to `MAX_BUSY_ATTEMPTS` times with
     /// exponential backoff (500ms * attempt).
+    ///
+    /// Concurrency: uses `DashMap::entry` to make the check-and-insert atomic.
+    /// Without that, two threads racing on the same path could both miss the
+    /// fast-path lookup and both call `try_open`, leaving two `DbAdapter`
+    /// instances live for the same database — only one of which is reachable
+    /// through the pool — and silently splitting in-memory state.
     pub fn get_or_open(&self, db_path: &Path) -> Result<Arc<DbAdapter>> {
         let canonical = db_path
             .canonicalize()
             .unwrap_or_else(|_| db_path.to_path_buf());
 
-        // Fast path: connection already exists
+        // Fast path: connection already exists. We do this lookup before
+        // taking the entry lock so the common already-cached case stays as
+        // cheap as possible.
         if let Some(conn) = self.connections.get(&canonical) {
             return Ok(Arc::clone(conn.value()));
         }
 
-        // Slow path: open a new connection with retry logic
+        // Slow path: open a new connection with retry logic, atomically.
         for attempt in 1..=MAX_BUSY_ATTEMPTS {
-            match self.try_open(&canonical) {
-                Ok(adapter) => {
-                    let arc = Arc::new(adapter);
-                    self.connections.insert(canonical.clone(), Arc::clone(&arc));
-                    info!("ConnectionPool: opened database at {}", canonical.display());
-                    return Ok(arc);
+            // `entry()` holds the shard lock for `canonical` for the duration
+            // of the match arm, so a racing thread will block on the same key.
+            match self.connections.entry(canonical.clone()) {
+                dashmap::mapref::entry::Entry::Occupied(occupied) => {
+                    // A racing thread already inserted while we were spinning.
+                    return Ok(Arc::clone(occupied.get()));
                 }
-                Err(DbError::Busy { .. }) if attempt < MAX_BUSY_ATTEMPTS => {
-                    let backoff = Duration::from_millis(BASE_BACKOFF_MS * attempt as u64);
-                    warn!(
-                        "Database busy at {}, attempt {}/{}, backing off {:?}",
-                        canonical.display(),
-                        attempt,
-                        MAX_BUSY_ATTEMPTS,
-                        backoff
-                    );
-                    std::thread::sleep(backoff);
+                dashmap::mapref::entry::Entry::Vacant(vacant) => {
+                    match self.try_open(&canonical) {
+                        Ok(adapter) => {
+                            let arc = Arc::new(adapter);
+                            vacant.insert(Arc::clone(&arc));
+                            info!("ConnectionPool: opened database at {}", canonical.display());
+                            return Ok(arc);
+                        }
+                        Err(DbError::Busy { .. }) if attempt < MAX_BUSY_ATTEMPTS => {
+                            // Drop the vacant entry guard before sleeping so
+                            // other threads aren't blocked during backoff.
+                            drop(vacant);
+                            let backoff =
+                                Duration::from_millis(BASE_BACKOFF_MS * attempt as u64);
+                            warn!(
+                                "Database busy at {}, attempt {}/{}, backing off {:?}",
+                                canonical.display(),
+                                attempt,
+                                MAX_BUSY_ATTEMPTS,
+                                backoff
+                            );
+                            std::thread::sleep(backoff);
+                            continue;
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
-                Err(e) => return Err(e),
             }
         }
 
@@ -113,7 +136,9 @@ impl ConnectionPool {
 
     /// Remove all connections from the pool.
     pub fn disconnect_all(&self) {
-        self.connections.clear();
+        for path in self.connected_paths() {
+            let _ = self.disconnect(&path);
+        }
         info!("ConnectionPool: disconnected all connections");
     }
 

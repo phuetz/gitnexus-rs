@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, GitBranch, ChevronRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { commands, type ProcessFlow } from "../../lib/tauri-commands";
+import { useAppStore } from "../../stores/app-store";
 
 interface Props {
   open: boolean;
@@ -14,8 +15,10 @@ interface Props {
 }
 
 export function ProcessFlowModal({ open, onClose }: Props) {
+  const activeRepo = useAppStore((s) => s.activeRepo);
   const [selectedFlow, setSelectedFlow] = useState<ProcessFlow | null>(null);
   const mermaidRef = useRef<HTMLDivElement>(null);
+  const mermaidInitialized = useRef(false);
 
   // Close on Escape
   useEffect(() => {
@@ -27,8 +30,11 @@ export function ProcessFlowModal({ open, onClose }: Props) {
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
+  // Scope by `activeRepo`. The old key was also `staleTime: Infinity`, so
+  // without the repo in the key the modal would keep showing the previous
+  // repo's process flows forever after a repo switch.
   const { data: flows } = useQuery({
-    queryKey: ["process-flows"],
+    queryKey: ["process-flows", activeRepo],
     queryFn: () => commands.getProcessFlows(),
     enabled: open,
     staleTime: Infinity,
@@ -42,16 +48,19 @@ export function ProcessFlowModal({ open, onClose }: Props) {
     (async () => {
       try {
         const mermaid = await import("mermaid");
-        mermaid.default.initialize({
-          startOnLoad: false,
-          theme: "dark",
-          themeVariables: {
-            primaryColor: "#7aa2f7",
-            primaryTextColor: "#c0caf5",
-            lineColor: "#565f89",
-            secondaryColor: "#bb9af7",
-          },
-        });
+        if (!mermaidInitialized.current) {
+          mermaid.default.initialize({
+            startOnLoad: false,
+            theme: "dark",
+            themeVariables: {
+              primaryColor: "#7aa2f7",
+              primaryTextColor: "#c0caf5",
+              lineColor: "#565f89",
+              secondaryColor: "#bb9af7",
+            },
+          });
+          mermaidInitialized.current = true;
+        }
 
         const id = `mermaid-${Date.now()}`;
         const { svg } = await mermaid.default.render(id, selectedFlow.mermaid);
@@ -60,7 +69,15 @@ export function ProcessFlowModal({ open, onClose }: Props) {
         }
       } catch {
         if (!cancelled && mermaidRef.current) {
-          mermaidRef.current.innerHTML = `<pre style="color: var(--text-2); font-size: 12px;">${selectedFlow.mermaid}</pre>`;
+          // Use textContent on a freshly-created <pre> so the raw mermaid
+          // source can never execute as HTML/JS — node `name` strings can
+          // contain markup-like characters in some languages.
+          mermaidRef.current.replaceChildren();
+          const pre = document.createElement("pre");
+          pre.style.color = "var(--text-2)";
+          pre.style.fontSize = "12px";
+          pre.textContent = selectedFlow.mermaid;
+          mermaidRef.current.appendChild(pre);
         }
       }
     })();

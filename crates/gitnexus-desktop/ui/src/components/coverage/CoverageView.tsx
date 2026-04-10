@@ -7,11 +7,15 @@ import { LoadingOrbs } from "../shared/LoadingOrbs";
 
 export function CoverageView() {
   const { t } = useI18n();
+  const activeRepo = useAppStore((s) => s.activeRepo);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const setMode = useAppStore((s) => s.setMode);
 
+  // Scope the query key to `activeRepo` so switching repos refetches instead
+  // of serving cached coverage stats from the previously-opened repo for the
+  // full `staleTime` window.
   const { data: stats, isLoading } = useQuery({
-    queryKey: ["coverage-stats"],
+    queryKey: ["coverage-stats", activeRepo],
     queryFn: () => commands.getCoverageStats(),
     staleTime: 60_000,
   });

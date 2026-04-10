@@ -100,8 +100,42 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
                 continue;
             }
 
-            // Find FIRST occurrence that's not inside a code block, heading, or existing link
-            if let Some(idx) = modified.find(name.as_str()) {
+            // Find FIRST whole-word occurrence that's not inside a code block,
+            // heading, or existing link. The previous implementation used
+            // `modified.find(name)` which matches substrings inside longer
+            // identifiers — e.g. searching for "Product" in
+            // "ProductCatalog shows..." matches at index 0 and produced the
+            // broken output "[Product](./link.md)Catalog shows...". Walk
+            // forward through every candidate position and accept only the
+            // first one where the surrounding chars are NOT alphanumeric or
+            // underscore.
+            let bytes = modified.as_bytes();
+            let name_bytes = name.as_bytes();
+            let mut scan_from = 0usize;
+            let mut found_idx: Option<usize> = None;
+            while let Some(rel) = modified[scan_from..].find(name.as_str()) {
+                let idx = scan_from + rel;
+                let end = idx + name_bytes.len();
+                let before_ok = idx == 0
+                    || {
+                        let prev = bytes[idx - 1];
+                        !(prev.is_ascii_alphanumeric() || prev == b'_')
+                    };
+                let after_ok = end >= bytes.len()
+                    || {
+                        let next = bytes[end];
+                        !(next.is_ascii_alphanumeric() || next == b'_')
+                    };
+                if before_ok && after_ok {
+                    found_idx = Some(idx);
+                    break;
+                }
+                scan_from = idx + name_bytes.len();
+                if scan_from >= modified.len() {
+                    break;
+                }
+            }
+            if let Some(idx) = found_idx {
                 // Check context: skip if inside code block or already linked
                 let before = &modified[..idx];
 
@@ -114,7 +148,7 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
                     .is_some_and(|l| l.starts_with('#'));
 
                 if !in_code && !in_inline_code && !in_link && !in_heading {
-                    // Replace first occurrence with link
+                    // Replace the found occurrence with a link
                     modified = format!(
                         "{}[{}]({}){}", &modified[..idx], name, link,
                         &modified[idx + name.len()..]

@@ -76,17 +76,47 @@ pub async fn run_pipeline(
         let inc_result = incremental::incremental_update(repo_path, &storage_path, &mut graph)?;
 
         if inc_result.total_changed() > 0 {
+            // Capture the new manifest now; we will only persist it AFTER
+            // the snapshot is durable, so a crash between the two writes
+            // cannot leave the manifest ahead of the snapshot.
+            let new_manifest_to_save = inc_result.new_manifest.clone();
+            // Purge stale Community/Process nodes (and their `MemberOf` /
+            // `StepInProcess` edges) from the previous run before re-running
+            // detection. Louvain is deterministic in structure only up to a
+            // renumbering, so `Community:community_0` from run N and run
+            // N+1 may represent different clusters — without this cleanup,
+            // the re-run's `add_node` would overwrite the node while
+            // leaving stale membership edges pointing at it. The same
+            // applies to `Process:process_*` nodes and `StepInProcess`
+            // edges. `remove_nodes_by_label` cascades incident edges.
+            use gitnexus_core::graph::types::NodeLabel;
+            graph.remove_nodes_by_label(NodeLabel::Community);
+            graph.remove_nodes_by_label(NodeLabel::Process);
+
             // Re-run community + process detection on the updated graph
             let community_count = phases::community::detect_communities(&mut graph)?;
             let process_count = phases::process::detect_processes(&mut graph)?;
             phases::dead_code::mark_dead_code(&mut graph);
 
-            // Save updated snapshot to disk
+            // Save updated snapshot to disk FIRST, then the manifest. This
+            // ordering matters: if the snapshot save fails, we leave both the
+            // old snapshot and old manifest on disk so the next run can simply
+            // re-detect the same changes and try again. Persisting the
+            // manifest before the snapshot would silently bake in a stale
+            // graph (manifest claims everything is current, but the on-disk
+            // snapshot doesn't reflect the changes we just applied).
             gitnexus_db::snapshot::save_snapshot(&graph, &snap_path)
                 .map_err(|e| crate::IngestError::PhaseError {
                     phase: "incremental".into(),
                     message: format!("Failed to save snapshot: {e}"),
                 })?;
+
+            crate::manifest::save_manifest(&new_manifest_to_save, &manifest_path).map_err(|e| {
+                crate::IngestError::PhaseError {
+                    phase: "incremental".into(),
+                    message: format!("Failed to save manifest: {e}"),
+                }
+            })?;
 
             tracing::info!(
                 added = inc_result.added,
@@ -571,12 +601,15 @@ mod integration_tests {
     use std::path::PathBuf;
 
     fn create_test_dir() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "gitnexus_test_{}",
+            "gitnexus_test_{}_{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            COUNTER.fetch_add(1, Ordering::Relaxed),
         ));
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -708,7 +741,7 @@ module.exports = { greet, processData };
         fs::write(dir.join("valid.js"), "function hello() { return 42; }").unwrap();
 
         // One malformed file (binary content)
-        fs::write(dir.join("corrupt.js"), &[0xFF, 0xFE, 0x00, 0x01]).unwrap();
+        fs::write(dir.join("corrupt.js"), [0xFF, 0xFE, 0x00, 0x01]).unwrap();
 
         let result = run_pipeline(&dir, None, PipelineOptions::default()).await;
         assert!(result.is_ok(), "Pipeline should recover from bad files");

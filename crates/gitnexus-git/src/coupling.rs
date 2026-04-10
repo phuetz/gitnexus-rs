@@ -55,7 +55,6 @@ pub fn analyze_coupling(
     // Parse: group files by commit
     let mut commits: Vec<Vec<String>> = Vec::new();
     let mut current_files: Vec<String> = Vec::new();
-    let mut file_total_commits: HashMap<String, u32> = HashMap::new();
 
     for line in log_text.lines() {
         let line = line.trim();
@@ -69,9 +68,7 @@ pub fn analyze_coupling(
             }
         } else {
             // This is a filename
-            let file = line.to_string();
-            *file_total_commits.entry(file.clone()).or_insert(0) += 1;
-            current_files.push(file);
+            current_files.push(line.to_string());
         }
     }
     // Don't forget the last commit
@@ -79,13 +76,22 @@ pub fn analyze_coupling(
         commits.push(current_files);
     }
 
-    // Count shared commits for each file pair
+    // Count file_total_commits and pair_counts using the SAME commit set
+    // (skipping large commits everywhere) so the coupling-strength denominator
+    // and numerator stay consistent. Previously file_total_commits counted all
+    // commits while pair_counts excluded large ones, inflating the denominator
+    // and underreporting coupling.
+    let mut file_total_commits: HashMap<String, u32> = HashMap::new();
     let mut pair_counts: HashMap<(String, String), u32> = HashMap::new();
 
     for files in &commits {
         // Skip very large commits (likely merges or bulk renames)
         if files.len() > 50 {
             continue;
+        }
+
+        for file in files {
+            *file_total_commits.entry(file.clone()).or_insert(0) += 1;
         }
 
         // Generate all unique pairs

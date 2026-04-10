@@ -1,11 +1,12 @@
 import { memo, useState, useEffect } from "react";
-import { LayoutDashboard, Flame, Link2, Users, Shield, GitBranch, FileText, Heart } from "lucide-react";
+import { LayoutDashboard, Flame, Link2, Users, Shield, GitBranch, FileText, Heart, Workflow } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import type { AnalyzeView } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 
 const NAV_ITEMS: { view: AnalyzeView; icon: typeof LayoutDashboard; i18nKey: string }[] = [
   { view: "overview", icon: LayoutDashboard, i18nKey: "analyze.nav.overview" },
+  { view: "processes", icon: Workflow, i18nKey: "analyze.nav.processes" },
   { view: "hotspots", icon: Flame, i18nKey: "analyze.nav.hotspots" },
   { view: "coupling", icon: Link2, i18nKey: "analyze.nav.coupling" },
   { view: "ownership", icon: Users, i18nKey: "analyze.nav.ownership" },

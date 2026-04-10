@@ -12,7 +12,9 @@ use gitnexus_core::storage::repo_manager::{self, RegistryEntry};
 use gitnexus_db::inmemory::cypher::GraphIndexes;
 use gitnexus_db::inmemory::fts::FtsIndex;
 use gitnexus_db::snapshot;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+
+use crate::types::ChatConfig;
 
 /// A loaded repository with its graph, indexes, and FTS.
 pub struct LoadedRepo {
@@ -30,6 +32,13 @@ pub struct AppState {
     registry: RwLock<Vec<RegistryEntry>>,
     /// Currently active repository name.
     active_repo: RwLock<Option<String>>,
+    /// Serializes the slow snapshot-load path so two concurrent calls to
+    /// `open_repo("foo")` can't both hit disk + rebuild indexes for the
+    /// same repo. The fast path (already-loaded) doesn't take this lock.
+    load_lock: Mutex<()>,
+    /// Full chat config for the current desktop session. Secrets stay here,
+    /// not on disk.
+    chat_config: RwLock<Option<ChatConfig>>,
 }
 
 impl Default for AppState {
@@ -45,6 +54,8 @@ impl AppState {
             repos: RwLock::new(HashMap::new()),
             registry: RwLock::new(Vec::new()),
             active_repo: RwLock::new(None),
+            load_lock: Mutex::new(()),
+            chat_config: RwLock::new(None),
         }
     }
 
@@ -62,7 +73,18 @@ impl AppState {
 
     /// Open a repository by name: load its graph and build indexes.
     pub async fn open_repo(&self, name: &str) -> Result<(), String> {
-        // Check if already loaded
+        // Fast path: already loaded.
+        if self.repos.read().await.contains_key(name) {
+            *self.active_repo.write().await = Some(name.to_string());
+            return Ok(());
+        }
+
+        // Slow path: serialize load attempts so two concurrent callers don't
+        // both load the same snapshot from disk and rebuild its indexes.
+        let _guard = self.load_lock.lock().await;
+
+        // Re-check inside the load lock — a previous waiter may have just
+        // finished loading this same repo while we were waiting on the lock.
         if self.repos.read().await.contains_key(name) {
             *self.active_repo.write().await = Some(name.to_string());
             return Ok(());
@@ -99,15 +121,7 @@ impl AppState {
             fts_index: Arc::new(fts_index),
         };
 
-        // Double-check before insert to handle concurrent open_repo() calls
-        {
-            let mut repos = self.repos.write().await;
-            if !repos.contains_key(name) {
-                repos.insert(name.to_string(), loaded);
-            }
-        }
-        // Set active repo — this is safe even if another call raced us,
-        // as the last writer wins with the correct repo name.
+        self.repos.write().await.insert(name.to_string(), loaded);
         *self.active_repo.write().await = Some(name.to_string());
 
         Ok(())
@@ -154,5 +168,15 @@ impl AppState {
             Arc::clone(&loaded.fts_index),
             loaded.entry.path.clone(),
         ))
+    }
+
+    /// Get the current session's full chat config, if one has been set.
+    pub async fn chat_config(&self) -> Option<ChatConfig> {
+        self.chat_config.read().await.clone()
+    }
+
+    /// Update the in-memory chat config for the current session.
+    pub async fn set_chat_config(&self, config: ChatConfig) {
+        *self.chat_config.write().await = Some(config);
     }
 }

@@ -178,9 +178,13 @@ fn run_global(
 
         let mut traced = 0usize;
         let mut dead = 0usize;
+        // Count only live nodes so per-class denominators match the global tally.
+        // Stale IDs in `method_ids` (deleted nodes after indexing) are skipped.
+        let mut method_count = 0usize;
 
         for method_id in method_ids {
             if let Some(method_node) = graph.get_node(method_id) {
+                method_count += 1;
                 total_methods += 1;
                 if method_node.properties.is_traced.unwrap_or(false) {
                     traced += 1;
@@ -194,7 +198,6 @@ fn run_global(
             }
         }
 
-        let method_count = method_ids.len();
         if method_count > 0 {
             class_stats.push(ClassStats {
                 name: class_node.properties.name.clone(),
@@ -512,6 +515,7 @@ fn run_flow_trace(
     }
 
     // Group by parent class
+    #[allow(clippy::type_complexity)]
     let mut grouped: BTreeMap<String, Vec<(String, bool, bool, Option<u32>)>> = BTreeMap::new();
     for (method_id, parent_class) in &flow_methods {
         if let Some(node) = graph.get_node(method_id) {

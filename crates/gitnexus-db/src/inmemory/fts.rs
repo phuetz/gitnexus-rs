@@ -169,12 +169,10 @@ impl FtsIndex {
 
         let mut output = Vec::new();
         for (node_id, score) in results {
-            if output.len() >= limit {
-                break;
-            }
-
             if let Some(node) = graph.get_node(node_id) {
-                // Apply table filter
+                // Apply table filter BEFORE checking the limit, otherwise the
+                // limit could be reached on entries that get filtered out and
+                // we would return fewer matches than requested.
                 if let Some(filter) = table_filter {
                     if node.label.as_str() != filter {
                         continue;
@@ -190,6 +188,10 @@ impl FtsIndex {
                     start_line: node.properties.start_line,
                     end_line: node.properties.end_line,
                 });
+
+                if output.len() >= limit {
+                    break;
+                }
             }
         }
 
@@ -218,9 +220,16 @@ pub fn parse_fts_table_filter(table_name: &str) -> Option<String> {
 }
 
 /// Convert an `FtsResult` to a `serde_json::Value` row.
+///
+/// Field names are camelCase to match the Cypher RETURN aliases used by
+/// `gitnexus-search::bm25::build_fts_query` (`nodeId`, `filePath`, etc.).
+/// Previously this used `node_id` (snake_case) which silently broke the
+/// `parse_fts_row` consumer in bm25.rs — every BM25SearchResult from the
+/// in-memory backend had an empty `node_id` string, breaking downstream
+/// node lookups and the RRF hybrid merge keying.
 pub fn fts_result_to_json(r: &FtsResult) -> serde_json::Value {
     let mut map = serde_json::Map::new();
-    map.insert("node_id".to_string(), serde_json::Value::String(r.node_id.clone()));
+    map.insert("nodeId".to_string(), serde_json::Value::String(r.node_id.clone()));
     map.insert("score".to_string(), serde_json::json!(r.score));
     map.insert("name".to_string(), serde_json::Value::String(r.name.clone()));
     map.insert(

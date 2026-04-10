@@ -40,12 +40,16 @@ export const ModeBar = memo(function ModeBar() {
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
   const expanded = useAppStore((s) => s.sidebarExpanded);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
+  const activeRepo = useAppStore((s) => s.activeRepo);
 
-  // Fetch health score for badge
+  // Fetch health score for badge.
+  // Scope by `activeRepo` so the badge refetches after a repo switch instead
+  // of flashing the stale grade of the previously-open repo for up to 60 s.
   const { data: health } = useQuery({
-    queryKey: ["code-health-badge"],
+    queryKey: ["code-health-badge", activeRepo],
     queryFn: () => commands.getCodeHealth(),
     staleTime: 60_000,
+    enabled: !!activeRepo,
   });
 
   // Fetch LLM config for chat badge

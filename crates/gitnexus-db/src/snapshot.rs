@@ -30,8 +30,20 @@ pub fn save_snapshot(graph: &KnowledgeGraph, path: &Path) -> Result<(), DbError>
         std::fs::create_dir_all(parent).map_err(|e| snapshot_err(e.to_string()))?;
     }
 
-    // Write to temporary file first to avoid data loss on partial write
-    let temp_path = path.with_extension("tmp");
+    // Write to temporary file first to avoid data loss on partial write.
+    //
+    // Use a unique pid+nanosecond suffix so concurrent saves (e.g. the
+    // desktop app and the CLI both touching the same repo, or two CLI
+    // invocations from different shells) cannot collide on a single shared
+    // `graph.tmp`. With a fixed temp name, both processes would race on
+    // file creation and the loser could end up with a half-written or
+    // foreign payload landing as the "atomic" snapshot.
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_path = path.with_extension(format!("tmp.{pid}.{nanos}"));
     let file = File::create(&temp_path)
         .map_err(|e| snapshot_err(format!("Failed to create temporary snapshot file: {e}")))?;
 
@@ -47,14 +59,52 @@ pub fn save_snapshot(graph: &KnowledgeGraph, path: &Path) -> Result<(), DbError>
     drop(writer);
 
     // Atomic rename: temp file becomes the real snapshot
-    // This ensures the old snapshot is only replaced when the new one is fully written
-    // On Windows, rename fails if the destination exists; remove it first.
+    // This ensures the old snapshot is only replaced when the new one is fully written.
+    //
+    // On Windows, `std::fs::rename` fails if the destination exists. The previous
+    // implementation removed the destination first, leaving a window during which
+    // a concurrent reader (another Tauri IPC call, the MCP server, etc.) would
+    // see "file not found" and treat the repo as empty. We avoid that by renaming
+    // the existing snapshot to a `.bak` first, then moving the temp file into place,
+    // then cleaning up the backup. This keeps `path` valid at every observable
+    // moment from a reader's perspective.
     #[cfg(target_os = "windows")]
     {
-        let _ = std::fs::remove_file(path);
+        if path.exists() {
+            // Per-process unique backup name so concurrent writers don't
+            // clobber each other's `.bak` file mid-rename.
+            let bak_path = path.with_extension(format!("bak.{pid}.{nanos}"));
+            // If a stale .bak from a previous failed save exists, drop it.
+            let _ = std::fs::remove_file(&bak_path);
+            std::fs::rename(path, &bak_path).map_err(|e| {
+                // Clean up the temp file if backup failed so we don't leak
+                // half-written snapshots into `.gitnexus`.
+                let _ = std::fs::remove_file(&temp_path);
+                snapshot_err(format!("Cannot back up existing snapshot: {e}"))
+            })?;
+            if let Err(e) = std::fs::rename(&temp_path, path) {
+                // Roll back: restore the original from .bak so we don't lose data.
+                let _ = std::fs::rename(&bak_path, path);
+                let _ = std::fs::remove_file(&temp_path);
+                return Err(snapshot_err(format!(
+                    "Failed to finalize snapshot (rename): {e}"
+                )));
+            }
+            // Best-effort cleanup of the backup; failure here is non-fatal.
+            let _ = std::fs::remove_file(&bak_path);
+            return Ok(());
+        }
     }
-    std::fs::rename(&temp_path, path)
-        .map_err(|e| snapshot_err(format!("Failed to finalize snapshot (rename): {e}")))?;
+
+    if let Err(e) = std::fs::rename(&temp_path, path) {
+        // Best-effort cleanup so a failed rename doesn't leave behind a
+        // growing pile of `.tmp.*` files in `.gitnexus/` after interrupted
+        // saves (e.g. full disk, permission errors on shared volumes).
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(snapshot_err(format!(
+            "Failed to finalize snapshot (rename): {e}"
+        )));
+    }
 
     Ok(())
 }

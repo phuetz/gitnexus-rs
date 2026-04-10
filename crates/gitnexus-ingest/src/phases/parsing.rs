@@ -171,12 +171,19 @@ fn parse_single_file(file: &FileEntry, lang: SupportedLanguage) -> FileParsed {
     let mut matches = cursor.matches(&query, tree.root_node(), content_bytes);
 
     while let Some(m) = matches.next() {
-        // Collect captures for this match into a map: capture_name -> text
+        // Collect captures for this match into a map: capture_name -> text.
+        // We also collect multi-value captures separately for capture names
+        // where one match legitimately produces several captures (e.g.
+        // `class Foo implements IBar, IBaz` emits multiple
+        // `@heritage.implements` captures in a single match — `HashMap::insert`
+        // would silently keep only the last one).
         let mut captures: HashMap<&str, (&str, tree_sitter::Node)> = HashMap::new();
+        let mut multi_captures: HashMap<&str, Vec<&str>> = HashMap::new();
         for capture in m.captures {
             let Some(name) = capture_names.get(capture.index as usize) else { continue };
             if let Ok(text) = capture.node.utf8_text(content_bytes) {
                 captures.insert(name, (text, capture.node));
+                multi_captures.entry(name).or_default().push(text);
             }
         }
 
@@ -184,6 +191,7 @@ fn parse_single_file(file: &FileEntry, lang: SupportedLanguage) -> FileParsed {
         // The pattern type is determined by which captures are present
         process_match(
             &captures,
+            &multi_captures,
             file,
             lang,
             &file_node_id,
@@ -364,10 +372,12 @@ fn process_razor_extras(
                         while let Some(m) = matches.next() {
                             let mut captures: HashMap<&str, (&str, tree_sitter::Node)> =
                                 HashMap::new();
+                            let mut multi_captures: HashMap<&str, Vec<&str>> = HashMap::new();
                             for capture in m.captures {
                                 let Some(name) = capture_names.get(capture.index as usize) else { continue };
                                 if let Ok(text) = capture.node.utf8_text(content_bytes) {
                                     captures.insert(name, (text, capture.node));
+                                    multi_captures.entry(name).or_default().push(text);
                                 }
                             }
 
@@ -380,6 +390,7 @@ fn process_razor_extras(
 
                             process_match(
                                 &captures,
+                                &multi_captures,
                                 &virtual_file,
                                 SupportedLanguage::JavaScript,
                                 &virtual_file_id,
@@ -482,8 +493,10 @@ fn process_razor_extras(
 }
 
 /// Process a single query match and extract nodes/edges/data.
+#[allow(clippy::too_many_arguments)]
 fn process_match(
     captures: &HashMap<&str, (&str, tree_sitter::Node)>,
+    multi_captures: &HashMap<&str, Vec<&str>>,
     file: &FileEntry,
     lang: SupportedLanguage,
     file_node_id: &str,
@@ -569,13 +582,13 @@ fn process_match(
 
     // --- Original TS: @call with @call.name ---
     if captures.contains_key("call") && captures.contains_key("call.name") {
-        extract_call(captures, file, file_node_id, extracted);
+        extract_call(captures, file, lang, file_node_id, extracted);
         return;
     }
 
     // --- Original TS: @heritage with @heritage.extends / @heritage.implements / @heritage.trait ---
     if captures.contains_key("heritage") || captures.contains_key("heritage.impl") {
-        extract_heritage(captures, file, extracted);
+        extract_heritage(captures, multi_captures, file, extracted);
         return;
     }
 
@@ -902,7 +915,7 @@ fn process_match(
     }
     // --- Function calls ---
     else if captures.contains_key("call.function") || captures.contains_key("call.method") {
-        extract_call(captures, file, file_node_id, extracted);
+        extract_call(captures, file, lang, file_node_id, extracted);
     }
     // --- Constructor calls (new expressions) ---
     else if captures.contains_key("new.constructor") || captures.contains_key("new.type") {
@@ -914,7 +927,7 @@ fn process_match(
         || captures.contains_key("heritage.conforms") || captures.contains_key("heritage.protocol")
         || captures.contains_key("heritage.uses_trait")
     {
-        extract_heritage(captures, file, extracted);
+        extract_heritage(captures, multi_captures, file, extracted);
     }
     // --- Assignments (member/field) ---
     else if captures.contains_key("assignment.property") {
@@ -1150,6 +1163,7 @@ fn find_enclosing_class_id(
                     k if k.contains("record") => "Record",
                     k if k.contains("trait") => "Trait",
                     k if k.contains("impl") => "Impl",
+                    k if k.contains("enum") => "Enum",
                     _ => "Class",
                 };
                 let qualified = format!("{}:{}", file_path, class_name);
@@ -1182,6 +1196,12 @@ fn find_enclosing_method_id(
         // JavaScript / TypeScript
         "method_definition",
         "function_declaration",
+        // Anonymous JS/TS function-like nodes (named via parent variable_declarator
+        // or property assignment).
+        "arrow_function",
+        "function_expression",
+        // Kotlin / Swift / generic lambdas
+        "lambda_expression",
         // C / C++
         // (function_definition already listed)
         // Generic
@@ -1192,13 +1212,39 @@ fn find_enclosing_method_id(
     while let Some(ancestor) = cursor {
         let kind = ancestor.kind();
         if METHOD_KINDS.contains(&kind) {
-            if let Some(name_node) = ancestor.child_by_field_name("name") {
+            // 1. Direct `name` field — works for declarations and method_definition.
+            // 2. Fallback for arrow_function / function_expression: walk up to a
+            //    `variable_declarator` (e.g. `const foo = () => {}`) or `pair` /
+            //    `property_assignment` (object literal `{ foo: () => {} }`) and
+            //    grab its name.
+            let name_node = ancestor.child_by_field_name("name").or_else(|| {
+                let parent = ancestor.parent()?;
+                match parent.kind() {
+                    "variable_declarator"
+                    | "pair"
+                    | "property_assignment"
+                    | "field_definition"
+                    | "public_field_definition" => parent.child_by_field_name("name"),
+                    _ => None,
+                }
+            });
+            if let Some(name_node) = name_node {
                 let method_name = name_node.utf8_text(content).ok()?;
                 let label_str = if kind.contains("constructor") {
                     "Constructor"
                 } else if kind == "function_declaration"
                     || kind == "function_definition"
                     || kind == "function_item"
+                    || kind == "arrow_function"
+                    || kind == "function_expression"
+                    || kind == "lambda_expression"
+                    // C# `local_function_statement` is registered as
+                    // `@definition.function` by the C# query, which generates
+                    // a Function node ID. If we classify it as "Method" here,
+                    // every CALLS edge from inside a C# local function points
+                    // to a phantom `Method:...` node and the call disappears
+                    // from impact analysis.
+                    || kind == "local_function_statement"
                 {
                     "Function"
                 } else {
@@ -1214,6 +1260,10 @@ fn find_enclosing_method_id(
 }
 
 /// Count parameters from a params string like "(a, b, c)" or "(a: int, b: str)".
+///
+/// Splits on top-level commas and discards empty segments so trailing commas
+/// (e.g. `"(a, b, )"`) and whitespace-only argument lists do not inflate the
+/// arity. A pure empty list `"()"` returns 0.
 fn count_parameters(params: &str) -> u32 {
     let trimmed = params.trim();
     // Remove surrounding parens
@@ -1226,22 +1276,45 @@ fn count_parameters(params: &str) -> u32 {
     if inner.is_empty() {
         return 0;
     }
-    // Count top-level commas (not inside nested parens/brackets/braces)
-    // We only track parens, brackets, and braces as nesting delimiters.
-    // Angle brackets (< >) are ambiguous (comparison vs generics), so we
-    // track them separately and only consider them nesting when balanced.
+    // Walk the string, splitting at top-level commas (not inside nested
+    // parens/brackets/braces). Angle brackets are tracked separately because
+    // `<` / `>` are ambiguous between comparison operators and generics.
     let mut depth = 0i32;
     let mut angle_depth = 0i32;
-    let mut count = 1u32;
+    let mut count = 0u32;
+    let mut current_has_content = false;
     for ch in inner.chars() {
         match ch {
-            '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' => depth -= 1,
-            '<' => angle_depth += 1,
-            '>' if angle_depth > 0 => angle_depth -= 1,
-            ',' if depth == 0 && angle_depth == 0 => count += 1,
-            _ => {}
+            '(' | '[' | '{' => {
+                depth += 1;
+                current_has_content = true;
+            }
+            ')' | ']' | '}' => {
+                depth -= 1;
+                current_has_content = true;
+            }
+            '<' => {
+                angle_depth += 1;
+                current_has_content = true;
+            }
+            '>' if angle_depth > 0 => {
+                angle_depth -= 1;
+                current_has_content = true;
+            }
+            ',' if depth == 0 && angle_depth == 0 => {
+                if current_has_content {
+                    count += 1;
+                }
+                current_has_content = false;
+            }
+            c if c.is_whitespace() => {}
+            _ => {
+                current_has_content = true;
+            }
         }
+    }
+    if current_has_content {
+        count += 1;
     }
     count
 }
@@ -1275,6 +1348,7 @@ fn extract_import(
 fn extract_call(
     captures: &HashMap<&str, (&str, tree_sitter::Node)>,
     file: &FileEntry,
+    lang: SupportedLanguage,
     file_node_id: &str,
     extracted: &mut ExtractedData,
 ) {
@@ -1298,6 +1372,50 @@ fn extract_call(
         } else {
             return;
         };
+
+    // Language-specific call routing. The Ruby provider redirects calls like
+    // `require 'foo'`, `include Bar`, and `attr_accessor :baz` to imports,
+    // heritage, and property declarations respectively. Without this hook,
+    // every `require` in a Ruby project produced an unresolved Calls edge
+    // and zero Imports edges existed for any Ruby file. The route is opt-in
+    // — `route_call` returns `None` for languages that don't override it.
+    let provider = gitnexus_lang::registry::get_provider(lang);
+    let call_text = captures
+        .get("call")
+        .and_then(|(_, node)| node.utf8_text(file.content.as_bytes()).ok())
+        .unwrap_or("");
+    if let Some(routed) = provider.route_call(&called_name, call_text) {
+        use gitnexus_lang::call_routing::CallRoutingResult;
+        match routed {
+            CallRoutingResult::Import { import_path, is_relative } => {
+                // The Ruby resolver treats a path as relative only if it
+                // starts with `./` or `../`. `require_relative 'models/user'`
+                // (without the dot prefix) is also relative in Ruby — anchor
+                // it to the calling file by injecting `./` when the call
+                // form is `require_relative` but the path is bare.
+                let normalized = if is_relative
+                    && !import_path.starts_with("./")
+                    && !import_path.starts_with("../")
+                {
+                    format!("./{import_path}")
+                } else {
+                    import_path
+                };
+                extracted.imports.push(ExtractedImport {
+                    file_path: file.path.clone(),
+                    raw_import_path: normalized,
+                    language: lang.as_str().to_string(),
+                });
+                return;
+            }
+            CallRoutingResult::Skip => return,
+            // Heritage / Properties / Call routing not yet wired here — the
+            // Ruby `include` / `attr_accessor` patterns currently still flow
+            // through as plain calls so name-based resolution can pick them
+            // up. Treat them like normal calls for now.
+            _ => {}
+        }
+    }
 
     // Count args
     let arg_count = captures.get("call.args").map(|(text, _)| count_parameters(text));
@@ -1356,6 +1474,7 @@ fn extract_new_call(
 /// Extract heritage (extends/implements/trait) information.
 fn extract_heritage(
     captures: &HashMap<&str, (&str, tree_sitter::Node)>,
+    multi_captures: &HashMap<&str, Vec<&str>>,
     file: &FileEntry,
     extracted: &mut ExtractedData,
 ) {
@@ -1367,89 +1486,30 @@ fn extract_heritage(
         .or_else(|| captures.get("heritage.extension"))
         .map(|(text, _)| text.to_string());
 
-    // Heritage extends
-    if let Some((parent, _)) = captures.get("heritage.extends") {
-        if let Some(ref cls) = class_name {
+    let push_all = |key: &str, kind: &str, extracted: &mut ExtractedData| {
+        let Some(ref cls) = class_name else { return };
+        let Some(items) = multi_captures.get(key) else { return };
+        for item in items {
             extracted.heritage.push(ExtractedHeritage {
                 file_path: file.path.clone(),
                 class_name: cls.clone(),
-                parent_name: parent.to_string(),
-                kind: "extends".to_string(),
+                parent_name: (*item).to_string(),
+                kind: kind.to_string(),
             });
         }
-    }
+    };
 
-    // Heritage implements
-    if let Some((iface, _)) = captures.get("heritage.implements") {
-        if let Some(ref cls) = class_name {
-            extracted.heritage.push(ExtractedHeritage {
-                file_path: file.path.clone(),
-                class_name: cls.clone(),
-                parent_name: iface.to_string(),
-                kind: "implements".to_string(),
-            });
-        }
-    }
-
-    // Heritage trait (Rust impl Trait for Type)
-    if let Some((trait_name, _)) = captures.get("heritage.trait") {
-        if let Some(ref cls) = class_name {
-            extracted.heritage.push(ExtractedHeritage {
-                file_path: file.path.clone(),
-                class_name: cls.clone(),
-                parent_name: trait_name.to_string(),
-                kind: "implements".to_string(),
-            });
-        }
-    }
-
-    // Heritage embeds (Go embedded structs)
-    if let Some((embedded, _)) = captures.get("heritage.embeds") {
-        if let Some(ref cls) = class_name {
-            extracted.heritage.push(ExtractedHeritage {
-                file_path: file.path.clone(),
-                class_name: cls.clone(),
-                parent_name: embedded.to_string(),
-                kind: "extends".to_string(),
-            });
-        }
-    }
-
-    // Heritage conforms (Swift protocol conformance)
-    if let Some((protocol, _)) = captures.get("heritage.conforms") {
-        if let Some(ref cls) = class_name {
-            extracted.heritage.push(ExtractedHeritage {
-                file_path: file.path.clone(),
-                class_name: cls.clone(),
-                parent_name: protocol.to_string(),
-                kind: "implements".to_string(),
-            });
-        }
-    }
-
-    // Heritage protocol
-    if let Some((protocol, _)) = captures.get("heritage.protocol") {
-        if let Some(ref cls) = class_name {
-            extracted.heritage.push(ExtractedHeritage {
-                file_path: file.path.clone(),
-                class_name: cls.clone(),
-                parent_name: protocol.to_string(),
-                kind: "implements".to_string(),
-            });
-        }
-    }
-
-    // Heritage uses_trait (PHP)
-    if let Some((trait_name, _)) = captures.get("heritage.uses_trait") {
-        if let Some(ref cls) = class_name {
-            extracted.heritage.push(ExtractedHeritage {
-                file_path: file.path.clone(),
-                class_name: cls.clone(),
-                parent_name: trait_name.to_string(),
-                kind: "uses".to_string(),
-            });
-        }
-    }
+    // For every heritage capture name, iterate over ALL matched values, not
+    // just the last one stored in `captures`. The HashMap-based `captures`
+    // silently overwrites repeats, so a class implementing multiple interfaces
+    // (`class Foo : IBar, IBaz`) used to record only the last interface.
+    push_all("heritage.extends", "extends", extracted);
+    push_all("heritage.implements", "implements", extracted);
+    push_all("heritage.trait", "implements", extracted);
+    push_all("heritage.embeds", "extends", extracted);
+    push_all("heritage.conforms", "implements", extracted);
+    push_all("heritage.protocol", "implements", extracted);
+    push_all("heritage.uses_trait", "uses", extracted);
 }
 
 /// Extract assignment (member/field) information.

@@ -76,10 +76,18 @@ pub async fn run(path: Option<&str>) -> Result<()> {
     loop {
         match rx.recv() {
             Ok(Ok(events)) => {
-                // Check if any source files changed
+                // Check if any source files changed.
+                // `DebouncedEventKind::Any` is emitted for a normal coalesced
+                // change. `AnyContinuous` is emitted when the file is under
+                // continuous rapid writes (e.g., editor format-on-save loops)
+                // and the debounce timeout elapses anyway — we still need to
+                // reindex in that case, so match both variants.
                 let mut has_source_changes = false;
                 for event in &events {
-                    if event.kind == DebouncedEventKind::Any {
+                    if matches!(
+                        event.kind,
+                        DebouncedEventKind::Any | DebouncedEventKind::AnyContinuous
+                    ) {
                         let path = &event.path;
                         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                             if SupportedLanguage::from_extension(&format!(".{ext}")).is_some() {
@@ -88,8 +96,18 @@ pub async fn run(path: Option<&str>) -> Result<()> {
                                     .unwrap_or(path)
                                     .to_string_lossy()
                                     .replace('\\', "/");
+                                // Filter out build artifacts and metadata. The
+                                // contains("/target/") check missed `target/` at
+                                // the repo root, causing rebuild loops on Rust
+                                // projects.
+                                let in_target = rel.starts_with("target/")
+                                    || rel.contains("/target/");
+                                let in_node_modules = rel.starts_with("node_modules/")
+                                    || rel.contains("/node_modules/");
                                 if !rel.starts_with(".gitnexus")
-                                    && !rel.contains("/target/")
+                                    && !rel.starts_with(".git/")
+                                    && !in_target
+                                    && !in_node_modules
                                 {
                                     has_source_changes = true;
                                     break;
@@ -138,7 +156,13 @@ pub async fn run(path: Option<&str>) -> Result<()> {
                                     result.nodes_added,
                                 );
 
-                                // Save updated snapshot
+                                // Save updated snapshot FIRST, then the manifest.
+                                // `incremental_update` hands the new manifest back
+                                // to the caller instead of persisting it itself —
+                                // saving the manifest before the snapshot is durable
+                                // can silently strand the on-disk graph in a stale
+                                // state if the snapshot write fails (the next run
+                                // sees "no changes" and loads the old snapshot).
                                 let g = match graph.lock() {
                                     Ok(g) => g,
                                     Err(e) => {
@@ -146,9 +170,34 @@ pub async fn run(path: Option<&str>) -> Result<()> {
                                         e.into_inner()
                                     }
                                 };
-                                match snapshot::save_snapshot(&g, &snap_path) {
-                                    Ok(_) => println!("    {} Snapshot saved", "OK".green()),
-                                    Err(e) => eprintln!("    {} Failed to save snapshot: {}", "!".red(), e),
+                                let snapshot_saved = match snapshot::save_snapshot(&g, &snap_path) {
+                                    Ok(_) => {
+                                        println!("    {} Snapshot saved", "OK".green());
+                                        true
+                                    }
+                                    Err(e) => {
+                                        eprintln!("    {} Failed to save snapshot: {}", "!".red(), e);
+                                        false
+                                    }
+                                };
+                                // Only update the manifest once the snapshot is
+                                // durably on disk, otherwise the manifest would
+                                // claim files are current while the graph still
+                                // reflects the pre-update state.
+                                if snapshot_saved {
+                                    let manifest_file = gitnexus_ingest::manifest::manifest_path(
+                                        &storage.storage_path,
+                                    );
+                                    if let Err(e) = gitnexus_ingest::manifest::save_manifest(
+                                        &result.new_manifest,
+                                        &manifest_file,
+                                    ) {
+                                        eprintln!(
+                                            "    {} Failed to save manifest: {}",
+                                            "!".red(),
+                                            e
+                                        );
+                                    }
                                 }
                                 println!(
                                     "    {} Graph: {} nodes, {} edges total",

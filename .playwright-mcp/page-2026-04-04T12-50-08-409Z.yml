@@ -1,0 +1,221 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - link "Aller au contenu principal" [ref=e4] [cursor=pointer]:
+        - /url: "#main-content"
+      - heading "GitNexus — Plateforme d'intelligence de code" [level=1] [ref=e5]
+      - generic [ref=e6]:
+        - navigation "Mode navigation" [ref=e7]:
+          - generic [ref=e8]:
+            - button "Explorer" [ref=e11] [cursor=pointer]:
+              - img [ref=e13]
+            - generic [ref=e17]:
+              - button "Analyze" [active] [ref=e18] [cursor=pointer]:
+                - img [ref=e19]
+              - generic: B+
+            - button "Chat" [ref=e23] [cursor=pointer]:
+              - img [ref=e24]
+            - button "Manage" [ref=e28] [cursor=pointer]:
+              - img [ref=e29]
+            - button "Command Palette" [ref=e33] [cursor=pointer]:
+              - img [ref=e34]
+            - button "Expand sidebar" [ref=e37] [cursor=pointer]:
+              - img [ref=e38]
+        - main [ref=e41]:
+          - option "All" [selected]
+          - option "Calls"
+          - option "Structure"
+          - option "Heritage"
+          - option "Impact"
+          - option "Dead Code"
+          - option "Tracing"
+          - generic [ref=e393]:
+            - generic [ref=e394]:
+              - heading "Analytics" [level=2] [ref=e396]
+              - navigation [ref=e397]:
+                - button "Overview" [ref=e398]:
+                  - img [ref=e399]
+                  - generic [ref=e404]: Overview
+                - button "Hotspots" [ref=e405]:
+                  - img [ref=e406]
+                  - generic [ref=e408]: Hotspots
+                - button "Coupling" [ref=e409]:
+                  - img [ref=e410]
+                  - generic [ref=e413]: Coupling
+                - button "Ownership" [ref=e414]:
+                  - img [ref=e415]
+                  - generic [ref=e420]: Ownership
+                - button "Coverage" [ref=e421]:
+                  - img [ref=e422]
+                  - generic [ref=e424]: Coverage
+                - button "Diagrams" [ref=e425]:
+                  - img [ref=e426]
+                  - generic [ref=e430]: Diagrams
+                - button "Report" [ref=e431]:
+                  - img [ref=e432]
+                  - generic [ref=e435]: Report
+                - button "Health" [ref=e436]:
+                  - img [ref=e437]
+                  - generic [ref=e439]: Health
+            - generic [ref=e442]:
+              - generic [ref=e444]:
+                - generic [ref=e445]:
+                  - img [ref=e446]
+                  - generic [ref=e449]:
+                    - generic [ref=e450]: B+
+                    - generic [ref=e451]: 78/100
+                - generic [ref=e452]:
+                  - generic [ref=e453]: Santé du code
+                  - generic [ref=e454]:
+                    - generic [ref=e455]: Points chauds
+                    - generic [ref=e458]: 65%
+                  - generic [ref=e459]:
+                    - generic [ref=e460]: Cohésion
+                    - generic [ref=e463]: 85%
+                  - generic [ref=e464]:
+                    - generic [ref=e465]: Traçabilité
+                    - generic [ref=e467]: 0%
+                  - generic [ref=e468]:
+                    - generic [ref=e469]: Propriété
+                    - generic [ref=e472]: 72%
+                  - generic [ref=e473]:
+                    - generic [ref=e474]: Complexité
+                    - generic [ref=e477]: 86%
+                - generic [ref=e479]: "Max CC: 12 · Avg: 4.2"
+              - generic [ref=e480]:
+                - generic [ref=e481]:
+                  - generic [ref=e482]: gitnexus-rs
+                  - generic [ref=e483]:
+                    - generic [ref=e484]:
+                      - strong [ref=e485]: "22"
+                      - text: nodes
+                    - generic [ref=e486]:
+                      - strong [ref=e487]: "25"
+                      - text: edges
+                    - generic [ref=e488]:
+                      - strong [ref=e489]: "0"
+                      - text: files
+                - generic [ref=e490]: Small
+              - generic [ref=e491]:
+                - generic [ref=e493]:
+                  - img [ref=e495]
+                  - generic [ref=e499]:
+                    - generic [ref=e500]: "0"
+                    - generic [ref=e501]: Files
+                - generic [ref=e503]:
+                  - img [ref=e505]
+                  - generic [ref=e509]:
+                    - generic [ref=e510]: "7"
+                    - generic [ref=e511]: Functions
+                - generic [ref=e513]:
+                  - img [ref=e515]
+                  - generic [ref=e525]:
+                    - generic [ref=e526]: "0"
+                    - generic [ref=e527]: Classes
+                - generic [ref=e529]:
+                  - img [ref=e531]
+                  - generic [ref=e536]:
+                    - generic [ref=e537]: "5"
+                    - generic [ref=e538]: Modules
+                - generic [ref=e540]:
+                  - img [ref=e542]
+                  - generic [ref=e545]:
+                    - generic [ref=e546]: "25"
+                    - generic [ref=e547]: Relations
+                - generic [ref=e549]:
+                  - img [ref=e551]
+                  - generic [ref=e555]:
+                    - generic [ref=e556]: "1"
+                    - generic [ref=e557]: Languages
+                - generic [ref=e559]:
+                  - img [ref=e561]
+                  - generic [ref=e563]:
+                    - generic [ref=e564]: "0"
+                    - generic [ref=e565]: Entry Points
+                - generic [ref=e567]:
+                  - img [ref=e569]
+                  - generic [ref=e573]:
+                    - generic [ref=e574]: "0"
+                    - generic [ref=e575]: Processes
+                - generic [ref=e577]:
+                  - img [ref=e579]
+                  - generic [ref=e581]:
+                    - generic [ref=e582]: "0"
+                    - generic [ref=e583]: Traced
+              - generic [ref=e584]:
+                - generic [ref=e585]: Node Type Distribution
+                - generic [ref=e586]:
+                  - img [ref=e587]:
+                    - generic [ref=e593]: "22"
+                    - generic [ref=e594]: symbols
+                  - generic [ref=e595]:
+                    - generic [ref=e596]:
+                      - text: Struct
+                      - generic [ref=e598]: "8"
+                    - generic [ref=e599]:
+                      - text: Function
+                      - generic [ref=e601]: "7"
+                    - generic [ref=e602]:
+                      - text: Module
+                      - generic [ref=e604]: "5"
+                    - generic [ref=e605]:
+                      - text: Trait
+                      - generic [ref=e607]: "2"
+              - generic [ref=e608]:
+                - generic [ref=e609]: Top Connected Nodes
+                - generic [ref=e610]:
+                  - generic [ref=e611] [cursor=pointer]:
+                    - generic [ref=e613]: KnowledgeGraph
+                    - generic [ref=e614]: Struct
+                    - generic [ref=e615]: src/core/graph.rs
+                    - generic [ref=e616]: "6"
+                  - generic [ref=e617] [cursor=pointer]:
+                    - generic [ref=e619]: parse_file
+                    - generic [ref=e620]: Function
+                    - generic [ref=e621]: src/ingest/parser.rs
+                    - generic [ref=e622]: "5"
+                  - generic [ref=e623] [cursor=pointer]:
+                    - generic [ref=e625]: run_pipeline
+                    - generic [ref=e626]: Function
+                    - generic [ref=e627]: src/pipeline.rs
+                    - generic [ref=e628]: "4"
+                  - generic [ref=e629] [cursor=pointer]:
+                    - generic [ref=e631]: resolve_imports
+                    - generic [ref=e632]: Function
+                    - generic [ref=e633]: src/ingest/imports.rs
+                    - generic [ref=e634]: "3"
+                  - generic [ref=e635] [cursor=pointer]:
+                    - generic [ref=e637]: LanguageProvider
+                    - generic [ref=e638]: Trait
+                    - generic [ref=e639]: src/lang/provider.rs
+                    - generic [ref=e640]: "3"
+                  - generic [ref=e641] [cursor=pointer]:
+                    - generic [ref=e643]: Parser
+                    - generic [ref=e644]: Struct
+                    - generic [ref=e645]: src/ingest/parser.rs
+                    - generic [ref=e646]: "3"
+                  - generic [ref=e647] [cursor=pointer]:
+                    - generic [ref=e649]: ingest
+                    - generic [ref=e650]: Module
+                    - generic [ref=e651]: src/ingest/mod.rs
+                    - generic [ref=e652]: "3"
+                  - generic [ref=e653] [cursor=pointer]:
+                    - generic [ref=e655]: detect_communities
+                    - generic [ref=e656]: Function
+                    - generic [ref=e657]: src/ingest/community.rs
+                    - generic [ref=e658]: "2"
+              - generic [ref=e660]:
+                - generic [ref=e661]:
+                  - img [ref=e662]
+                  - text: Insights
+                - generic [ref=e667]: Codebase looks healthy — no critical issues detected
+      - contentinfo [ref=e82]:
+        - generic [ref=e83]:
+          - generic [ref=e383]: gitnexus-rs
+          - generic [ref=e385]: Analyze
+          - generic [ref=e387]: "View: Overview"
+          - generic [ref=e85]:
+            - generic [ref=e391]: gpt-4
+            - generic [ref=e89]: GitNexus v0.1.0
+    - region "Notifications alt+T"
+  - tooltip "Analyze (Ctrl+2)"

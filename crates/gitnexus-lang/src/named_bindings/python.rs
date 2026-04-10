@@ -8,14 +8,30 @@ use super::types::NamedBinding;
 pub fn extract(import_text: &str) -> Option<Vec<NamedBinding>> {
     let text = import_text.trim();
 
-    // `from x import Y, Z as W`
-    if let Some(import_pos) = text.find(" import ") {
+    // `from x import Y, Z as W` (also tolerates parenthesized / multi-line forms
+    // such as `from x import (\n    Y,\n    Z as W,\n)` and trailing comments).
+    //
+    // Use `rfind` so a stray `" import "` inside the module names portion
+    // (unusual but possible when tree-sitter error-recovery captures extra
+    // text) does not split the statement at the wrong position. In valid
+    // Python there is exactly one `" import "` boundary — the LAST one.
+    if let Some(import_pos) = text.rfind(" import ") {
         let names_part = &text[import_pos + 8..];
+        // Strip a wrapping `(...)` if present, drop comments, normalize whitespace.
+        let cleaned: String = names_part
+            .lines()
+            .map(|line| line.split('#').next().unwrap_or("").trim())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let cleaned = cleaned.trim();
+        let cleaned = cleaned.strip_prefix('(').unwrap_or(cleaned);
+        let cleaned = cleaned.strip_suffix(')').unwrap_or(cleaned);
         let mut bindings = Vec::new();
 
-        for part in names_part.split(',') {
-            let part = part.trim().trim_end_matches(')');
-            if part.is_empty() {
+        for part in cleaned.split(',') {
+            let part = part.trim().trim_matches(|c: char| c == '(' || c == ')');
+            let part = part.trim();
+            if part.is_empty() || part == "*" {
                 continue;
             }
 

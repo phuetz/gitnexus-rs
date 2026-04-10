@@ -343,8 +343,7 @@ fn generate_entities_detail_doc(
             .iter_relationships()
             .filter(|r| {
                 r.source_id == entity.id
-                    && (r.rel_type.as_str() == "HasAssociation"
-                        || r.rel_type.as_str() == "HasNavigationProperty")
+                    && matches!(r.rel_type, gitnexus_core::graph::types::RelationshipType::AssociatesWith)
             })
             .filter_map(|r| {
                 graph.get_node(&r.target_id).map(|target| {
@@ -437,18 +436,32 @@ fn generate_services_detail_doc(
         writeln!(f, "**Type :** {} | **Fichier :** `{}`", svc_type, svc.properties.file_path.replace('\\', "/"))?;
         writeln!(f)?;
 
-        // Constructor dependencies
-        let deps: Vec<&GraphNode> = graph
-            .iter_nodes()
-            .filter(|n| {
-                n.label == NodeLabel::Constructor
-                    && n.properties.file_path == svc.properties.file_path
+        // Constructor-injected dependencies. Read the `DependsOn` edges
+        // emitted by aspnet_mvc.rs Pass 10, which already resolved each
+        // constructor parameter to an interface/service node and recorded
+        // the reason as `constructor_injection:{iface_type}`. The previous
+        // implementation listed Constructor nodes filtered by file_path —
+        // which just printed the service's own class name back at the user
+        // because in C# the constructor's `name` equals the class name.
+        let mut deps: Vec<String> = graph
+            .iter_relationships()
+            .filter(|r| {
+                r.source_id == svc.id
+                    && r.rel_type == RelationshipType::DependsOn
+                    && r.reason.starts_with("constructor_injection")
+            })
+            .filter_map(|r| {
+                graph
+                    .get_node(&r.target_id)
+                    .map(|n| n.properties.name.clone())
             })
             .collect();
+        deps.sort();
+        deps.dedup();
         if !deps.is_empty() {
             writeln!(f, "**Dépendances injectées :**")?;
             for dep in &deps {
-                writeln!(f, "- `{}`", dep.properties.name)?;
+                writeln!(f, "- `{}`", dep)?;
             }
             writeln!(f)?;
         }
@@ -488,15 +501,15 @@ fn generate_services_detail_doc(
             writeln!(f)?;
         }
 
-        // Which controllers use this service
+        // Which controllers use this service. Use exact ID matches only —
+        // the previous substring fallback (`source_id.contains(&class_name)`)
+        // matched any node ID containing the controller's name as a substring,
+        // producing false positives like OrderController matching OrderDetail.
         let callers: Vec<String> = controllers
             .iter()
             .filter(|c| {
                 graph.iter_relationships().any(|r| {
-                    (r.source_id == c.id && r.target_id == svc.id)
-                        || (r.rel_type.as_str().contains("Calls")
-                            && r.source_id.contains(&c.properties.name)
-                            && r.target_id.contains(&svc.properties.name))
+                    r.source_id == c.id && r.target_id == svc.id
                 })
             })
             .map(|c| c.properties.name.clone())
@@ -791,8 +804,9 @@ fn generate_entities_doc(
             writeln!(f, "|--------|------------|--------|")?;
             for rel in &associations {
                 let target_name = rel.target_id.rsplit(':').next().unwrap_or(&rel.target_id);
+                let source_name = rel.source_id.rsplit(':').next().unwrap_or(&rel.source_id);
                 let card = &rel.reason;
-                writeln!(f, "| {} | {} | {} |", target_name, card, rel.reason)?;
+                writeln!(f, "| {} | {} | {} |", target_name, card, source_name)?;
             }
             writeln!(f)?;
         }
@@ -952,13 +966,22 @@ fn generate_views_doc(
 }
 
 fn extract_view_folder(file_path: &str) -> String {
-    let lower = file_path.to_lowercase();
-    if let Some(idx) = lower.find("views/").or_else(|| lower.find("views\\")) {
-        let after = &file_path[idx + 6..];
-        after.split(['/', '\\']).next().unwrap_or("Shared").to_string()
-    } else {
-        "Autres".to_string()
+    // Walk path components and look for "Views" case-insensitively. Lowercasing
+    // the whole path and indexing back into the original is unsafe — characters
+    // like Turkish 'İ' lowercase to 3 bytes (vs 2 in the original), so a byte
+    // index found in the lowered string can land in the middle of a multi-byte
+    // char in the original and panic on slicing
+    // (`extract_view_folder("Aİa/views/Ωfoo")` previously panicked with
+    // `byte index 12 is not a char boundary` on the `&file_path[idx + 6..]`
+    // line). The framework convention always spells the folder "Views" with
+    // ASCII characters, so ASCII case folding is sufficient here.
+    let mut parts = file_path.split(['/', '\\']);
+    while let Some(part) = parts.next() {
+        if part.eq_ignore_ascii_case("Views") {
+            return parts.next().unwrap_or("Shared").to_string();
+        }
     }
+    "Autres".to_string()
 }
 
 // ─── Areas Documentation ────────────────────────────────────────────────
@@ -1141,8 +1164,6 @@ fn generate_er_diagram_doc(
         writeln!(f)?;
     }
 
-    writeln!(f, "```")?;
-    writeln!(f)?;
     writeln!(
         f,
         "> This diagram is auto-generated from the knowledge graph. Entity properties are extracted from data annotations and .edmx models."
@@ -1621,12 +1642,52 @@ fn sanitize_mermaid(name: &str) -> String {
 }
 
 /// Escape a label for safe use inside Mermaid `["..."]` quoted strings.
+/// Uses HTML entity form (`&amp;`, `&lt;`, etc.) — consistent with the rest
+/// of the codebase and Mermaid's documented escape syntax. The previous
+/// `#amp;` / `#quot;` shortcuts worked only in live rendering and leaked
+/// literal `#amp;` strings into HTML/DOCX exports and search index text.
 fn escape_mermaid_label(label: &str) -> String {
     label
-        .replace('&', "#amp;")
-        .replace('"', "#quot;")
-        .replace('<', "#lt;")
-        .replace('>', "#gt;")
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('[', "&#91;")
+        .replace(']', "&#93;")
         .replace('\n', " ")
         .replace('\r', "")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_view_folder_basic() {
+        assert_eq!(extract_view_folder("/MyApp/Views/Home/Index.cshtml"), "Home");
+        assert_eq!(extract_view_folder("MyApp\\Views\\Account\\Login.cshtml"), "Account");
+        assert_eq!(extract_view_folder("MyApp/Controllers/HomeController.cs"), "Autres");
+    }
+
+    #[test]
+    fn extract_view_folder_unicode_does_not_panic() {
+        // Path with Turkish 'İ' (2 bytes) lowercases to 'i' + combining dot
+        // (3 bytes), which used to shift byte indices and panic when slicing
+        // the original. The walking-by-component implementation must handle
+        // this safely without panicking.
+        let _ = extract_view_folder("Aİa/views/Ωfoo");
+        let _ = extract_view_folder("/SrcΩ/Views/Foo/Bar.cshtml");
+        let _ = extract_view_folder("İVIEWS/Home/Index.cshtml");
+        // Real Turkish project layout
+        assert_eq!(
+            extract_view_folder("/proje/Views/Müşteri/Index.cshtml"),
+            "Müşteri"
+        );
+    }
+
+    #[test]
+    fn extract_view_folder_views_at_end() {
+        // "Views" with no folder after — falls back to "Shared".
+        assert_eq!(extract_view_folder("/MyApp/Views"), "Shared");
+    }
 }

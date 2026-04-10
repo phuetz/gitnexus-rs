@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { X } from "lucide-react";
 import { NODE_COLORS } from "../../lib/graph-adapter";
 import { useI18n } from "../../hooks/use-i18n";
 import type { CytoNode } from "../../lib/tauri-commands";
@@ -61,11 +62,11 @@ export function GraphLegend({ nodes, expanded, onExpand, onCollapse }: GraphLege
             </span>
             <button
               onClick={onCollapse}
-              className="ml-2 text-xs transition-colors hover:brightness-125"
+              className="ml-2 transition-colors hover:brightness-125 p-0.5 rounded"
               style={{ color: "var(--text-3)" }}
               aria-label={t("graph.collapseLegend")}
             >
-              ×
+              <X size={12} />
             </button>
           </div>
           <div

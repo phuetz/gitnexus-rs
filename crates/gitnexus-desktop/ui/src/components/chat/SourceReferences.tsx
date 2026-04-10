@@ -93,6 +93,8 @@ function SourceCard({
   const lang = (source.filePath ?? "").split(".").pop() || "";
   const relevanceWidth = Math.min(source.relevanceScore * 100, 100);
 
+  const toggleExpanded = () => setExpanded(!expanded);
+
   return (
     <div
       className="rounded-lg overflow-hidden"
@@ -101,10 +103,20 @@ function SourceCard({
         border: "1px solid var(--surface-border)",
       }}
     >
-      {/* Header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-2.5 py-2 text-left"
+      {/* Header — role=button on a div because we need a nested button inside,
+          and nested <button> elements are invalid HTML. */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={toggleExpanded}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggleExpanded();
+          }
+        }}
+        className="w-full flex items-center gap-2 px-2.5 py-2 text-left cursor-pointer"
       >
         {/* Expand indicator */}
         {source.snippet ? (
@@ -168,7 +180,7 @@ function SourceCard({
             <Star size={10} />
           </button>
         )}
-      </button>
+      </div>
 
       {/* Expanded details */}
       {expanded && (

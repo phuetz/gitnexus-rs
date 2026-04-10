@@ -10,7 +10,7 @@ interface GraphMinimapProps {
   onOpacityChange: (v: number) => void;
   onClose: () => void;
   sigmaRef: React.RefObject<Sigma | null>;
-  graphRef: React.RefObject<Graph<SigmaNodeAttributes, SigmaEdgeAttributes>>;
+  graphRef: React.RefObject<Graph<SigmaNodeAttributes, SigmaEdgeAttributes> | null>;
 }
 
 export function GraphMinimap({
@@ -61,27 +61,34 @@ export function GraphMinimap({
       ctx.fill();
     });
 
-    // Viewport rectangle
-    const cam = sigma.getCamera().getState();
+    // Viewport rectangle.
+    // Use Sigma's `viewportToGraph` to transform the four screen corners into
+    // graph coordinates, then map them through the same scale used for nodes.
+    // The previous math collapsed to `(graphW * 0.5 - graphW * 0.5) === 0`,
+    // leaving the viewport box systematically misaligned.
     const dim = sigma.getDimensions();
-    const vpHW = (cam.ratio * dim.width) / (2 * dim.width);
-    const vpHH = (cam.ratio * dim.height) / (2 * dim.height);
+    const tl = sigma.viewportToGraph({ x: 0, y: 0 });
+    const br = sigma.viewportToGraph({ x: dim.width, y: dim.height });
 
-    const normToMiniX = (nx: number) =>
-      padding + (nx * graphW + (graphW * 0.5 - graphW * 0.5)) * scale;
-    const normToMiniY = (ny: number) =>
-      padding + (ny * graphH + (graphH * 0.5 - graphH * 0.5)) * scale;
+    const graphToMiniX = (gx: number) => padding + (gx - minX) * scale;
+    const graphToMiniY = (gy: number) => padding + (gy - minY) * scale;
 
-    const vpX = normToMiniX(cam.x - vpHW);
-    const vpY = normToMiniY(cam.y - vpHH);
-    const vpW2 = vpHW * 2 * graphW * scale;
-    const vpH2 = vpHH * 2 * graphH * scale;
+    // Sigma's Y axis can be inverted relative to mini-canvas Y; normalize
+    // so width/height are positive regardless of orientation.
+    const vx1 = graphToMiniX(tl.x);
+    const vx2 = graphToMiniX(br.x);
+    const vy1 = graphToMiniY(tl.y);
+    const vy2 = graphToMiniY(br.y);
+    const vpX = Math.min(vx1, vx2);
+    const vpY = Math.min(vy1, vy2);
+    const vpW = Math.abs(vx2 - vx1);
+    const vpH = Math.abs(vy2 - vy1);
 
     ctx.strokeStyle = "#7aa2f7";
     ctx.lineWidth = 1.5;
     ctx.fillStyle = "rgba(122, 162, 247, 0.12)";
-    ctx.fillRect(vpX, vpY, vpW2, vpH2);
-    ctx.strokeRect(vpX, vpY, vpW2, vpH2);
+    ctx.fillRect(vpX, vpY, vpW, vpH);
+    ctx.strokeRect(vpX, vpY, vpW, vpH);
   }, [sigmaRef, graphRef]);
 
   // Throttled draw via RAF
@@ -94,16 +101,18 @@ export function GraphMinimap({
     });
   }, [draw]);
 
-  // Attach to sigma afterRender
+  // Attach to sigma afterRender — include `visible` so re-subscribes when minimap shown
   useEffect(() => {
+    if (!visible) return;
     const sigma = sigmaRef.current;
     if (!sigma) return;
     sigma.on("afterRender", drawThrottled);
+    drawThrottled(); // initial draw
     return () => {
       sigma.removeListener("afterRender", drawThrottled);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [sigmaRef, drawThrottled]);
+  }, [sigmaRef, drawThrottled, visible]);
 
   if (!visible) return null;
 

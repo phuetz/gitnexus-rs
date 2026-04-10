@@ -46,19 +46,23 @@ pub fn run(log_file: &str, path: Option<&str>) -> Result<()> {
 
     for line in log_content.lines() {
         // Try structured pattern first
+        let mut matched_line = false;
         for cap in method_pattern.captures_iter(line) {
             let class_name = cap.get(1).unwrap().as_str();
             let method_name = cap.get(2).unwrap().as_str();
             let key = format!("{}.{}", class_name, method_name);
             *trace_counts.entry(key).or_insert(0) += 1;
+            matched_line = true;
         }
 
-        // Try simple pattern
-        for cap in simple_pattern.captures_iter(line) {
-            let class_name = cap.get(1).unwrap().as_str();
-            let method_name = cap.get(2).unwrap().as_str();
-            let key = format!("{}.{}", class_name, method_name);
-            *trace_counts.entry(key).or_insert(0) += 1;
+        // Try simple pattern only if structured pattern didn't match
+        if !matched_line {
+            for cap in simple_pattern.captures_iter(line) {
+                let class_name = cap.get(1).unwrap().as_str();
+                let method_name = cap.get(2).unwrap().as_str();
+                let key = format!("{}.{}", class_name, method_name);
+                *trace_counts.entry(key).or_insert(0) += 1;
+            }
         }
     }
 
@@ -89,7 +93,9 @@ pub fn run(log_file: &str, path: Option<&str>) -> Result<()> {
             if let Some(node) = graph.get_node_mut(&node_id) {
                 node.properties.is_traced = Some(true);
                 let current = node.properties.trace_call_count.unwrap_or(0);
-                node.properties.trace_call_count = Some(current + count);
+                // saturating_add to avoid panic on extremely high-volume
+                // traces (millions of invocations across multiple imports).
+                node.properties.trace_call_count = Some(current.saturating_add(*count));
                 updated_nodes += 1;
             }
         } else {

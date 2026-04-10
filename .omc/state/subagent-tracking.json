@@ -1,0 +1,33 @@
+{
+  "agents": [
+    {
+      "agent_id": "a4f4d1de42e7a555d",
+      "agent_type": "oh-my-claudecode:document-specialist",
+      "started_at": "2026-04-04T00:38:42.922Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-04-04T00:39:49.254Z",
+      "duration_ms": 66332
+    },
+    {
+      "agent_id": "a67d2023d4d13ca28",
+      "agent_type": "oh-my-claudecode:verifier",
+      "started_at": "2026-04-04T06:30:43.983Z",
+      "parent_mode": "none",
+      "status": "running"
+    },
+    {
+      "agent_id": "a4c28f19d84ce0281",
+      "agent_type": "Explore",
+      "started_at": "2026-04-04T06:39:15.573Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-04-04T06:39:50.986Z",
+      "duration_ms": 35413
+    }
+  ],
+  "total_spawned": 3,
+  "total_completed": 2,
+  "total_failed": 0,
+  "last_updated": "2026-04-04T06:39:51.101Z"
+}

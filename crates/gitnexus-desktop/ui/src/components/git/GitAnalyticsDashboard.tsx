@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Flame, Link2, Users } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
+import { useAppStore } from "../../stores/app-store";
 import { AnimatedPage } from "../shared/motion";
 import { HotspotsView } from "./HotspotsView";
 import { CouplingView } from "./CouplingView";
@@ -22,22 +23,25 @@ const TABS: { id: Tab; i18nKey: string; icon: typeof Flame }[] = [
 
 export function GitAnalyticsDashboard() {
   const { t } = useI18n();
+  const activeRepo = useAppStore((s) => s.activeRepo);
   const [tab, setTab] = useState<Tab>("hotspots");
 
+  // All git analytics queries scope on `activeRepo` to avoid serving stale
+  // cached results from the previously-active repo on switch.
   const { data: hotspots, isLoading: loadingH } = useQuery({
-    queryKey: ["git-hotspots"],
+    queryKey: ["git-hotspots", activeRepo],
     queryFn: () => commands.getHotspots(90),
     staleTime: 60_000,
   });
 
   const { data: coupling, isLoading: loadingC } = useQuery({
-    queryKey: ["git-coupling"],
+    queryKey: ["git-coupling", activeRepo],
     queryFn: () => commands.getCoupling(3),
     staleTime: 60_000,
   });
 
   const { data: ownership, isLoading: loadingO } = useQuery({
-    queryKey: ["git-ownership"],
+    queryKey: ["git-ownership", activeRepo],
     queryFn: () => commands.getOwnership(),
     staleTime: 60_000,
   });

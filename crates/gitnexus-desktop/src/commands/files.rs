@@ -61,12 +61,20 @@ pub async fn read_file_content(
     // If line range specified, extract subset
     let content = match (start_line, end_line) {
         (Some(start), Some(end)) => {
-            let start = (start as usize).saturating_sub(1);
-            let end = end as usize;
-            let take_count = end.saturating_sub(start);
+            // Reject inverted ranges instead of silently returning empty.
+            // Without this, callers passing reversed args (or off-by-one)
+            // would see an empty file with no indication something is wrong.
+            if start == 0 || end < start {
+                return Err(format!(
+                    "Invalid line range: start={}, end={} (start must be >= 1 and end >= start)",
+                    start, end
+                ));
+            }
+            let start_idx = (start as usize) - 1;
+            let take_count = (end as usize) - start_idx;
             content
                 .lines()
-                .skip(start)
+                .skip(start_idx)
                 .take(take_count)
                 .collect::<Vec<_>>()
                 .join("\n")
@@ -74,12 +82,15 @@ pub async fn read_file_content(
         _ => content,
     };
 
-    // Detect language from extension
+    // Detect language from extension. Use the canonical short name from
+    // `as_str()` instead of the Debug representation: the latter returns
+    // variant names like "CPlusPlus" / "CSharp" / "Php", while frontend
+    // syntax highlighters expect the canonical "cpp" / "csharp" / "php".
     let language = Path::new(&file_path)
         .extension()
         .and_then(|ext| ext.to_str())
         .and_then(|ext| SupportedLanguage::from_extension(&format!(".{}", ext)))
-        .map(|l| format!("{:?}", l).to_lowercase());
+        .map(|l| l.as_str().to_string());
 
     Ok(FileContent {
         path: file_path,
@@ -94,44 +105,56 @@ fn build_tree_from_paths(paths: &[String]) -> Vec<FileTreeNode> {
     let paths: Vec<String> = paths.iter().map(|p| p.replace('\\', "/")).collect();
     let paths_ref: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
 
-    build_tree_impl(&paths_ref)
+    build_tree_impl(&paths_ref, "")
 }
 
-fn build_tree_impl(paths: &[&str]) -> Vec<FileTreeNode> {
+/// Recursive tree builder. `prefix` is the accumulated path prefix from the
+/// root, used so leaf and folder nodes carry the full repo-relative path
+/// (which the frontend uses to invoke read_file_content).
+fn build_tree_impl(paths: &[&str], prefix: &str) -> Vec<FileTreeNode> {
     let mut dir_children: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut root_files = Vec::new();
+    let mut local_files: Vec<String> = Vec::new();
 
     for path in paths {
-        let parts: Vec<&str> = path.split('/').collect();
+        let parts: Vec<&str> = path.splitn(2, '/').collect();
         if parts.len() > 1 {
             dir_children
                 .entry(parts[0].to_string())
                 .or_default()
-                .push(parts[1..].join("/"));
+                .push(parts[1].to_string());
         } else {
-            root_files.push(path.to_string());
+            local_files.push(path.to_string());
         }
     }
 
     let mut result = Vec::new();
 
+    let join = |base: &str, name: &str| -> String {
+        if base.is_empty() {
+            name.to_string()
+        } else {
+            format!("{base}/{name}")
+        }
+    };
+
     // Add directories
     for (dir_name, child_paths) in &dir_children {
         let child_refs: Vec<&str> = child_paths.iter().map(|s| s.as_str()).collect();
-        let children = build_tree_impl(&child_refs);
+        let dir_path = join(prefix, dir_name);
+        let children = build_tree_impl(&child_refs, &dir_path);
         result.push(FileTreeNode {
             name: dir_name.clone(),
-            path: dir_name.clone(),
+            path: dir_path,
             is_dir: true,
             children,
         });
     }
 
     // Add files at this level
-    for file_path in &root_files {
+    for file_name in &local_files {
         result.push(FileTreeNode {
-            name: file_path.clone(),
-            path: file_path.clone(),
+            name: file_name.clone(),
+            path: join(prefix, file_name),
             is_dir: false,
             children: Vec::new(),
         });

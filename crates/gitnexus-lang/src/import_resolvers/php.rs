@@ -45,6 +45,14 @@ pub fn resolve(raw_path: &str, file_path: &str, ctx: &ResolveCtx<'_>) -> ImportR
         for (prefix, dir) in autoload {
             let prefix_normalized = prefix.replace('\\', "/").trim_end_matches('/').to_string();
             if let Some(rest) = namespace_path.strip_prefix(&prefix_normalized) {
+                // PSR-4 prefixes must match on a namespace boundary, not as a
+                // raw substring: prefix `App` should NOT match `AppExtended`.
+                // After stripping, the next char must be `/` (separator) or
+                // empty (the prefix matched the entire namespace), otherwise
+                // we'd silently rewrite an unrelated file path.
+                if !rest.is_empty() && !rest.starts_with('/') {
+                    continue;
+                }
                 let rest = rest.trim_start_matches('/');
                 let candidate = if dir.is_empty() {
                     format!("{rest}.php")

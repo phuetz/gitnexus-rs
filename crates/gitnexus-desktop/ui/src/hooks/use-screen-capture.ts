@@ -1,5 +1,4 @@
 import { useEffect, useCallback } from "react";
-import { toPng } from "html-to-image";
 
 /**
  * Hook that adds Ctrl+Shift+S to capture a screenshot of the app.
@@ -12,6 +11,7 @@ export function useScreenCapture() {
     if (!root) return;
 
     try {
+      const { toPng } = await import("html-to-image");
       const dataUrl = await toPng(root, {
         backgroundColor: "#090b10",
         pixelRatio: 2,

@@ -149,26 +149,6 @@ pub fn enrich_aspnet_mvc(
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Pass 1c: Group partial classes by name for content merging
-    // ──────────────────────────────────────────────────────────────────────
-    let partial_class_regex = Regex::new(r"partial\s+class\s+(\w+)").expect("regex pattern must compile");
-    let mut partial_classes: HashMap<String, Vec<String>> = HashMap::new();
-    let cs_files_for_partial: Vec<&FileEntry> = file_entries
-        .iter()
-        .filter(|f| f.path.ends_with(".cs"))
-        .collect();
-
-    for entry in &cs_files_for_partial {
-        for cap in partial_class_regex.captures_iter(&entry.content) {
-            let class_name = &cap[1];
-            partial_classes
-                .entry(class_name.to_string())
-                .or_default()
-                .push(entry.content.clone());
-        }
-    }
-
-    // ──────────────────────────────────────────────────────────────────────
     // Pass 2: Scan C# files for controllers and DbContexts
     // ──────────────────────────────────────────────────────────────────────
     let cs_files: Vec<&FileEntry> = file_entries
@@ -238,9 +218,12 @@ pub fn enrich_aspnet_mvc(
                 // These will be linked in a later pass when all entities are known
                 // For now, record them
                 let target_id = format!("DbEntity:*:{}", nav.target_type);
+                // Scope by source file to avoid ID collisions when two files
+                // both define an entity with the same class name (e.g., a
+                // generated EF class and a domain model in another namespace).
                 let rel_id = format!(
-                    "assoc:{}:{}:{}",
-                    entity.class_name, nav.name, nav.target_type
+                    "assoc:{}:{}:{}:{}",
+                    entry.path, entity.class_name, nav.name, nav.target_type
                 );
                 let cardinality = if nav.is_collection { "1:*" } else { "*:1" };
 
@@ -284,7 +267,10 @@ pub fn enrich_aspnet_mvc(
                 .unwrap_or_else(|| format!("DbEntity:*:{}", es.entity_type));
 
             graph.add_relationship(GraphRelationship {
-                id: format!("maps:{}:{}", ctx.class_name, es.entity_type),
+                // Scope by file_path so partial-class DbContexts (multiple
+                // files defining the same DbContext class) don't collide on
+                // the same `maps:Class:Entity` ID.
+                id: format!("maps:{}:{}:{}", file_path, ctx.class_name, es.entity_type),
                 source_id: ctx_id.clone(),
                 target_id: entity_node_id,
                 rel_type: RelationshipType::MapsToEntity,
@@ -358,7 +344,7 @@ pub fn enrich_aspnet_mvc(
 
             if let Some(area_id) = area_nodes.get(area_name) {
                 graph.add_relationship(GraphRelationship {
-                    id: format!("area:{}:{}", ctrl.class_name, area_name),
+                    id: format!("area:{}:{}:{}", file_path, ctrl.class_name, area_name),
                     source_id: ctrl_id.clone(),
                     target_id: area_id.clone(),
                     rel_type: RelationshipType::BelongsToArea,
@@ -413,9 +399,11 @@ pub fn enrich_aspnet_mvc(
                 },
             });
 
-            // HAS_ACTION relationship
+            // HAS_ACTION relationship — scope edge ID by file_path so two
+            // controllers with the same class name in different files don't
+            // silently clobber each other.
             graph.add_relationship(GraphRelationship {
-                id: format!("action:{}:{}", ctrl.class_name, action.name),
+                id: format!("action:{}:{}:{}", file_path, ctrl.class_name, action.name),
                 source_id: ctrl_id.clone(),
                 target_id: action_id.clone(),
                 rel_type: RelationshipType::HasAction,
@@ -432,7 +420,7 @@ pub fn enrich_aspnet_mvc(
                     .unwrap_or_else(|| format!("ViewModel:*:{}", model_type));
 
                 graph.add_relationship(GraphRelationship {
-                    id: format!("binds:{}:{}:{}", ctrl.class_name, action.name, model_type),
+                    id: format!("binds:{}:{}:{}:{}", file_path, ctrl.class_name, action.name, model_type),
                     source_id: action_id.clone(),
                     target_id,
                     rel_type: RelationshipType::BindsModel,
@@ -513,8 +501,12 @@ pub fn enrich_aspnet_mvc(
                     }
 
                     let ctrl_id = format!("Controller:{}:{}", file_path, ctrl.class_name);
+                    // Scope edge ID by `filter_key` (which includes params) so
+                    // a controller carrying the same filter type with different
+                    // params produces distinct edges instead of silently
+                    // overwriting earlier ones via add_relationship.
                     graph.add_relationship(GraphRelationship {
-                        id: format!("filter:{}:{}", ctrl.class_name, filter_name),
+                        id: format!("filter:{}:{}:{}", file_path, ctrl.class_name, filter_key),
                         source_id: ctrl_id,
                         target_id: filter_id,
                         rel_type: RelationshipType::HasFilter,
@@ -559,7 +551,7 @@ pub fn enrich_aspnet_mvc(
 
                 let ctrl_id = format!("Controller:{}:{}", file_path, ctrl.class_name);
                 graph.add_relationship(GraphRelationship {
-                    id: format!("filter:{}:{}", ctrl.class_name, filter_name),
+                    id: format!("filter:{}:{}:{}", file_path, ctrl.class_name, filter_name),
                     source_id: ctrl_id,
                     target_id: filter_id,
                     rel_type: RelationshipType::HasFilter,
@@ -606,8 +598,11 @@ pub fn enrich_aspnet_mvc(
                     base_ctrl_id.clone()
                 });
 
+            // Scope edge ID by source file_path so two derived controllers
+            // with the same class name in different areas/folders don't
+            // collide and silently overwrite each other.
             graph.add_relationship(GraphRelationship {
-                id: format!("inherits:{}:{}", ctrl.class_name, base_name),
+                id: format!("inherits:{}:{}:{}", file_path, ctrl.class_name, base_name),
                 source_id: ctrl_id,
                 target_id: resolved_base_id,
                 rel_type: RelationshipType::Inherits,
@@ -700,9 +695,19 @@ pub fn enrich_aspnet_mvc(
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Pass 6b: Detect @Html.Partial and @Html.RenderAction calls in views
+    // Pass 6b: Detect @Html.Partial / @Html.RenderPartial calls in views
+    //
+    // This pass exists to create `PartialView:{name}` nodes that Pass 13 and
+    // other passes reference by ID without materialising the node themselves.
+    // `@Html.RenderAction(...)` used to be matched here too, but RenderAction
+    // invokes a *controller action*, not a partial view — its first argument
+    // is the action name, not a view name. Routing it through this pass
+    // created a spurious `PartialView:{action_name}` node and a semantically
+    // wrong `UsesPartial` edge. Pass 13 (below) already handles RenderAction
+    // correctly via `extract_partial_references`, emitting a real
+    // `CallsAction` edge, so we must not shadow it here.
     // ──────────────────────────────────────────────────────────────────────
-    let partial_regex = Regex::new(r#"@?\s*Html\.(Partial|RenderPartial|RenderAction)\("([^"]+)""#).expect("regex pattern must compile");
+    let partial_regex = Regex::new(r#"@?\s*Html\.(Partial|RenderPartial)\("([^"]+)""#).expect("regex pattern must compile");
 
     for entry in &view_files {
         let view_id = format!("View:{}", entry.path);
@@ -1109,26 +1114,43 @@ pub fn enrich_aspnet_mvc(
         let refs = extract_partial_references(&entry.content);
         let view_id = format!("View:{}", entry.path);
         for pref in &refs {
-            let target_id = if pref.helper_type == "Partial" || pref.helper_type == "RenderPartial" {
-                // Link to partial view file
-                format!("PartialView:{}:{}", entry.path, pref.partial_name)
+            let is_partial_helper =
+                pref.helper_type == "Partial" || pref.helper_type == "RenderPartial";
+            // Resolve the target up front so we can skip the edge when
+            // there is nothing real to point at — previously the
+            // Action/RenderAction branch constructed a wildcard target
+            // `ControllerAction:*:{ctrl}Controller:{action}` that never
+            // matched the real node IDs (`ControllerAction:{file_path}:
+            // {class_name}:{action_name}`) because the `*` segment stands
+            // in for `file_path`, so every `@Html.Action` reference
+            // produced a dangling edge. Use `resolve_action_node_id`,
+            // mirroring Pass 8b/14, so we either create a real edge or
+            // skip the reference entirely.
+            let (target_id, confidence, rel_type) = if is_partial_helper {
+                // Link to partial view node — Pass 6b creates these as
+                // `PartialView:{partial_name}` (no source-path prefix), so
+                // we must match that exact format or every edge here would
+                // dangle and silently overwrite Pass 6b's UsesPartial edges.
+                (
+                    format!("PartialView:{}", pref.partial_name),
+                    0.85,
+                    RelationshipType::UsesPartial,
+                )
             } else if let Some(ctrl) = &pref.controller_name {
                 // Html.Action/RenderAction → controller action
-                format!("ControllerAction:*:{}Controller:{}", ctrl, pref.partial_name)
+                match resolve_action_node_id(&all_controllers, ctrl, &pref.partial_name) {
+                    Some((action_id, conf)) => (action_id, conf, RelationshipType::CallsAction),
+                    None => continue,
+                }
             } else {
                 continue;
-            };
-            let rel_type = if pref.helper_type == "Partial" || pref.helper_type == "RenderPartial" {
-                RelationshipType::UsesPartial
-            } else {
-                RelationshipType::CallsAction
             };
             graph.add_relationship(GraphRelationship {
                 id: format!("partial_ref:{}:{}:{}", entry.path, pref.partial_name, pref.line_number),
                 source_id: view_id.clone(),
                 target_id,
                 rel_type,
-                confidence: 0.85,
+                confidence,
                 reason: format!("razor_{}", pref.helper_type.to_lowercase()),
                 step: None,
             });
@@ -1405,7 +1427,10 @@ fn run_pass_10_services(
                 }
 
                 graph.add_relationship(GraphRelationship {
-                    id: format!("implements:{}:{}", svc.class_name, iface_name),
+                    // Scope by file_path so two different files defining
+                    // services with the same class name (e.g., area-scoped
+                    // duplicates) don't collide on the same edge ID.
+                    id: format!("implements:{}:{}:{}", entry.path, svc.class_name, iface_name),
                     source_id: svc_id.clone(),
                     target_id: iface_id.clone(),
                     rel_type: RelationshipType::Implements,
@@ -1444,9 +1469,13 @@ fn run_pass_10_services(
 
             if let Some(target_id) = target_id {
                 graph.add_relationship(GraphRelationship {
+                    // Include the controller's file_path so area-scoped
+                    // controllers (Areas/Admin/HomeController vs
+                    // Controllers/HomeController) don't collide on the
+                    // same `depends:HomeController:IFoo:...` edge ID.
                     id: format!(
-                        "depends:{}:{}:{}",
-                        ctrl.class_name, iface_type, target_id
+                        "depends:{}:{}:{}:{}",
+                        file_path, ctrl.class_name, iface_type, target_id
                     ),
                     source_id: ctrl_id.clone(),
                     target_id,
@@ -1516,18 +1545,19 @@ fn run_pass_11_tracing(
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 /// Infer area name from file path: Areas/<Name>/Controllers/...
+///
+/// Splits on path separators and case-insensitively matches the "Areas" segment.
+/// Operates on segments rather than byte offsets to avoid panics on paths
+/// containing multi-byte UTF-8 characters before the area marker.
 fn infer_area_from_path(path: &str) -> Option<String> {
-    let lower = path.to_lowercase().replace('\\', "/");
-    let (idx, offset) = if let Some(idx) = lower.find("/areas/") {
-        (idx, idx + 7)
-    } else if lower.starts_with("areas/") {
-        (0, 6)
-    } else {
-        return None;
-    };
-    let _ = idx;
-    let after = &path[offset..];
-    after.split('/').next().map(|s| s.to_string())
+    let normalized = path.replace('\\', "/");
+    let segments: Vec<&str> = normalized.split('/').collect();
+    for (i, seg) in segments.iter().enumerate() {
+        if seg.eq_ignore_ascii_case("areas") && i + 1 < segments.len() {
+            return Some(segments[i + 1].to_string());
+        }
+    }
+    None
 }
 
 /// Infer controller and action names from view path.

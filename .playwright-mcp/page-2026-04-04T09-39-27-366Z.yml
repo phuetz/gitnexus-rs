@@ -1,0 +1,222 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - link "Aller au contenu principal" [ref=e4] [cursor=pointer]:
+        - /url: "#main-content"
+      - heading "GitNexus — Plateforme d'intelligence de code" [level=1] [ref=e5]
+      - generic [ref=e6]:
+        - navigation "Mode navigation" [ref=e7]:
+          - generic [ref=e8]:
+            - button "Explorer" [active] [ref=e10]:
+              - img [ref=e12]
+            - button "Analyze" [ref=e16]:
+              - img [ref=e17]
+            - button "Chat" [ref=e20]:
+              - img [ref=e21]
+            - button "Manage" [ref=e24]:
+              - img [ref=e25]
+            - button "Command Palette" [ref=e29]:
+              - img [ref=e30]
+        - main [ref=e33]:
+          - generic [ref=e472]:
+            - generic [ref=e475]:
+              - generic [ref=e477]:
+                - generic [ref=e478]:
+                  - generic [ref=e479]:
+                    - img [ref=e480]
+                    - heading "Fichiers" [level=2] [ref=e482]
+                  - generic [ref=e483]: "15"
+                - generic [ref=e485]:
+                  - img [ref=e486]
+                  - textbox "Rechercher des fichiers":
+                    - /placeholder: Rechercher des fichiers…
+                - tree "File explorer" [ref=e490]:
+                  - treeitem "src" [expanded] [ref=e491]:
+                    - button "src" [ref=e492]:
+                      - img [ref=e493]
+                      - img [ref=e495]
+                      - generic: src
+                    - group [ref=e497]:
+                      - treeitem "main.rs" [ref=e498]:
+                        - button "main.rs" [ref=e499]:
+                          - img [ref=e502]
+                          - generic: main.rs
+                      - treeitem "pipeline.rs" [ref=e505]:
+                        - button "pipeline.rs" [ref=e506]:
+                          - img [ref=e509]
+                          - generic: pipeline.rs
+                      - treeitem "parser.rs" [ref=e512]:
+                        - button "parser.rs" [ref=e513]:
+                          - img [ref=e516]
+                          - generic: parser.rs
+                      - treeitem "core" [ref=e519]:
+                        - button "core" [ref=e520]:
+                          - img [ref=e522]
+                          - img [ref=e524]
+                          - generic: core
+                      - treeitem "ingest" [ref=e526]:
+                        - button "ingest" [ref=e527]:
+                          - img [ref=e529]
+                          - img [ref=e531]
+                          - generic: ingest
+                      - treeitem "lang" [ref=e533]:
+                        - button "lang" [ref=e534]:
+                          - img [ref=e536]
+                          - img [ref=e538]
+                          - generic: lang
+                      - treeitem "search" [ref=e540]:
+                        - button "search" [ref=e541]:
+                          - img [ref=e543]
+                          - img [ref=e545]
+                          - generic: search
+                  - treeitem "Cargo.toml" [ref=e547]:
+                    - button "Cargo.toml" [ref=e548]:
+                      - img [ref=e550]
+                      - generic: Cargo.toml
+                  - treeitem "README.md" [ref=e553]:
+                    - button "README.md" [ref=e554]:
+                      - img [ref=e556]
+                      - generic: README.md
+              - generic [ref=e560]:
+                - generic [ref=e562]:
+                  - img [ref=e563]
+                  - generic [ref=e567]: Features
+                - generic [ref=e568]:
+                  - button "Pipeline Core Main ingestion pipeline 5" [ref=e569]:
+                    - generic [ref=e571]:
+                      - generic [ref=e572]: Pipeline Core
+                      - generic [ref=e573]: Main ingestion pipeline
+                    - generic [ref=e574]: "5"
+                  - button "Language Providers Tree-sitter language support 13" [ref=e575]:
+                    - generic [ref=e577]:
+                      - generic [ref=e578]: Language Providers
+                      - generic [ref=e579]: Tree-sitter language support
+                    - generic [ref=e580]: "13"
+                  - button "Database Layer Storage and query execution 4" [ref=e581]:
+                    - generic [ref=e583]:
+                      - generic [ref=e584]: Database Layer
+                      - generic [ref=e585]: Storage and query execution
+                    - generic [ref=e586]: "4"
+            - separator [ref=e587]
+            - generic [ref=e596]:
+              - generic [ref=e597]:
+                - toolbar "Graph controls" [ref=e599]:
+                  - generic "Graph granularity level" [ref=e600]:
+                    - button "Packages" [ref=e602] [cursor=pointer]
+                    - button "Modules" [ref=e604] [cursor=pointer]
+                    - button "Symboles" [ref=e606] [cursor=pointer]
+                  - button "Disposition" [ref=e609] [cursor=pointer]:
+                    - text: Force
+                    - img [ref=e610]
+                  - button "Ajuster la vue" [ref=e613] [cursor=pointer]:
+                    - img [ref=e614]
+                  - button "Export graph as PNG" [ref=e620] [cursor=pointer]:
+                    - img [ref=e621]
+                  - button "Show process flows" [ref=e625] [cursor=pointer]:
+                    - img [ref=e626]
+                  - generic [ref=e630]:
+                    - generic [ref=e631]: 22 nœuds
+                    - generic [ref=e632]: 25 arêtes
+                  - generic [ref=e633]:
+                    - generic [ref=e634]: "Edges:"
+                    - button "CALLS" [ref=e635] [cursor=pointer]
+                    - button "IMPORTS" [ref=e636] [cursor=pointer]
+                    - button "HAS METHOD" [ref=e637] [cursor=pointer]
+                    - button "EXTENDS" [ref=e638] [cursor=pointer]
+                    - button "CALLS ACTION" [ref=e639] [cursor=pointer]
+                    - button "CONTAINS" [ref=e640] [cursor=pointer]
+                  - generic [ref=e641]:
+                    - generic [ref=e642]: "Depth:"
+                    - button "1" [ref=e643] [cursor=pointer]
+                    - button "2" [ref=e644] [cursor=pointer]
+                    - button "3" [ref=e645] [cursor=pointer]
+                    - button "All" [ref=e646] [cursor=pointer]
+                - generic [ref=e647]:
+                  - generic [ref=e648]:
+                    - img [ref=e649]
+                    - combobox [ref=e652] [cursor=pointer]:
+                      - option "All" [selected]
+                      - option "Calls"
+                      - option "Structure"
+                      - option "Heritage"
+                      - option "Impact"
+                      - option "Dead Code"
+                      - option "Tracing"
+                  - generic [ref=e653]:
+                    - generic [ref=e654]: Depth
+                    - group "Ego network depth" [ref=e655]:
+                      - button "Depth 1" [ref=e656]: "1"
+                      - button "Depth 2" [pressed] [ref=e657]: "2"
+                      - button "Depth 3" [ref=e658]: "3"
+                - generic [ref=e660]:
+                  - button "Graph" [ref=e661] [cursor=pointer]:
+                    - img [ref=e663]
+                    - generic [ref=e668]: Graph
+                  - button "Treemap" [ref=e669] [cursor=pointer]:
+                    - img [ref=e670]
+                    - generic [ref=e674]: Treemap
+              - generic [ref=e675]:
+                - generic [ref=e676]:
+                  - generic [ref=e678]:
+                    - img [ref=e679]
+                    - generic [ref=e683]: Features
+                  - generic [ref=e684]:
+                    - button "Pipeline Core Main ingestion pipeline 5" [ref=e685]:
+                      - generic [ref=e687]:
+                        - generic [ref=e688]: Pipeline Core
+                        - generic [ref=e689]: Main ingestion pipeline
+                      - generic [ref=e690]: "5"
+                    - button "Language Providers Tree-sitter language support 13" [ref=e691]:
+                      - generic [ref=e693]:
+                        - generic [ref=e694]: Language Providers
+                        - generic [ref=e695]: Tree-sitter language support
+                      - generic [ref=e696]: "13"
+                    - button "Database Layer Storage and query execution 4" [ref=e697]:
+                      - generic [ref=e699]:
+                        - generic [ref=e700]: Database Layer
+                        - generic [ref=e701]: Storage and query execution
+                      - generic [ref=e702]: "4"
+                - generic [ref=e703]:
+                  - img "Knowledge graph visualization" [ref=e704]
+                  - button "Close minimap" [ref=e707] [cursor=pointer]:
+                    - img [ref=e708]
+                  - button "Requête Cypher (Ctrl+Entrée pour exécuter)" [ref=e713] [cursor=pointer]:
+                    - img [ref=e714]
+                  - generic [ref=e716]:
+                    - button "Zoom in" [ref=e718] [cursor=pointer]: +
+                    - button "Zoom out" [ref=e720] [cursor=pointer]: −
+                    - button "Fit view" [ref=e722] [cursor=pointer]: ⊞
+                  - button "Légende" [ref=e724]
+                - generic [ref=e725]:
+                  - generic [ref=e727]:
+                    - img [ref=e728]
+                    - generic [ref=e732]: Groupes fonctionnels
+                    - generic [ref=e733]: (3)
+                  - generic [ref=e734]:
+                    - button "Language Providers 13" [ref=e735] [cursor=pointer]:
+                      - generic [ref=e738]:
+                        - generic [ref=e739]: Language Providers
+                        - generic [ref=e740]: "13"
+                    - button "Pipeline Core 5" [ref=e743] [cursor=pointer]:
+                      - generic [ref=e746]:
+                        - generic [ref=e747]: Pipeline Core
+                        - generic [ref=e748]: "5"
+                    - button "Database Layer 4" [ref=e751] [cursor=pointer]:
+                      - generic [ref=e754]:
+                        - generic [ref=e755]: Database Layer
+                        - generic [ref=e756]: "4"
+                  - generic [ref=e759]: Clic pour isoler · Ctrl+Clic pour combiner
+            - separator [ref=e760]
+            - paragraph [ref=e768]: Select a symbol to inspect
+      - contentinfo [ref=e39]:
+        - generic [ref=e40]:
+          - generic [ref=e316]: gitnexus-rs
+          - generic [ref=e318]: Explorateur de graphe
+          - generic [ref=e320]:
+            - generic [ref=e769]: "Vue:"
+            - text: Niveau package
+          - generic [ref=e42]:
+            - generic [ref=e321]: gpt-4
+            - generic [ref=e46]: GitNexus v0.1.0
+    - region "Notifications alt+T"
+  - tooltip "Explorer (Ctrl+1)"

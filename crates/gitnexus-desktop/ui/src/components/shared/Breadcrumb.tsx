@@ -10,9 +10,13 @@ import { commands } from "../../lib/tauri-commands";
 export function SymbolBreadcrumb() {
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
+  const activeRepo = useAppStore((s) => s.activeRepo);
 
+  // Scope by `activeRepo` so that a selected node ID persisted in the store
+  // across a repo switch doesn't return the previous repo's cached context.
+  // Two different repos can theoretically produce the same qualified node id.
   const { data: context } = useQuery({
-    queryKey: ["symbol-context", selectedNodeId],
+    queryKey: ["symbol-context", activeRepo, selectedNodeId],
     queryFn: () => commands.getSymbolContext(selectedNodeId!),
     enabled: !!selectedNodeId,
     staleTime: 30_000,

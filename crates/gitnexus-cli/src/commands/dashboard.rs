@@ -309,9 +309,22 @@ impl App {
         let path = &item.path;
 
         if item.is_dir {
-            // Load all symbols under this directory
+            // Match the directory boundary explicitly. A bare `starts_with`
+            // would let `path = "src/foo"` also pull in symbols from
+            // `src/foobar/...` because "src/foobar/..." literally starts with
+            // "src/foo". Append a trailing `/` so we only accept files that
+            // are direct or nested children of this exact directory.
+            // Same substring-vs-segment pattern as the cross_ref / functional
+            // generator fixes earlier in this audit.
+            let dir_prefix = if path.ends_with('/') {
+                path.clone()
+            } else {
+                format!("{}/", path)
+            };
             for node in self.graph.iter_nodes() {
-                if is_symbol_label(node.label) && node.properties.file_path.starts_with(path) {
+                if is_symbol_label(node.label)
+                    && node.properties.file_path.starts_with(&dir_prefix)
+                {
                     let lines = match (node.properties.start_line, node.properties.end_line) {
                         (Some(s), Some(e)) => format!("{s}-{e}"),
                         (Some(s), None) => format!("{s}"),
@@ -1874,20 +1887,36 @@ pub fn run(path: Option<&str>) -> anyhow::Result<()> {
 
     let mut app = App::new(graph, repo_name);
 
-    // Setup terminal
+    // Setup terminal. If any setup step fails after `enable_raw_mode`
+    // succeeds, we MUST roll back what we've done — otherwise the user's
+    // shell is left in raw mode + alternate screen after we exit.
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    if let Err(e) = execute!(stdout, EnterAlternateScreen) {
+        let _ = disable_raw_mode();
+        return Err(e.into());
+    }
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let mut terminal = match Terminal::new(backend) {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = execute!(io::stdout(), LeaveAlternateScreen);
+            let _ = disable_raw_mode();
+            return Err(e.into());
+        }
+    };
 
     // Main event loop
     let result = run_event_loop(&mut terminal, &mut app);
 
-    // Restore terminal
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
+    // Always restore terminal, ignoring cleanup errors. If we used `?` here
+    // and a cleanup step failed, it would mask the original `result` (which
+    // is the user's actual error from the event loop) — diagnosing a TUI
+    // crash is much harder when the real error is replaced by a generic
+    // "failed to leave alternate screen".
+    let _ = disable_raw_mode();
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let _ = terminal.show_cursor();
 
     result
 }

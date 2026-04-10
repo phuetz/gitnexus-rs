@@ -30,8 +30,24 @@ pub fn resolve(raw_path: &str, _file_path: &str, ctx: &ResolveCtx<'_>) -> Import
             return ImportResult::Unresolved;
         }
     } else {
-        // No go.mod info; try the full path as a directory suffix
-        cleaned.clone()
+        // No go.mod info available. Without a module prefix we cannot
+        // distinguish stdlib (`"log"`, `"net/http"`), third-party
+        // (`"github.com/foo/bar"`), and project-local imports. If we
+        // optimistically suffix-match, a project that happens to contain a
+        // `log/` directory will get a spurious `Imports` edge from every
+        // file that imports the stdlib `"log"` package. Reject anything
+        // that looks like stdlib (no `.` in the first segment) or external
+        // (first segment contains `.`) and only accept paths that look
+        // unambiguously project-local — which without a module path is
+        // essentially impossible. The conservative choice is to bail out.
+        let first_segment = cleaned.split('/').next().unwrap_or("");
+        if first_segment.contains('.') {
+            // Looks like a domain (github.com/...), definitely external
+            return ImportResult::Unresolved;
+        }
+        // Pure-identifier first segment without `.` — almost certainly
+        // a stdlib package (`log`, `net`, `strings`, `os/exec`...).
+        return ImportResult::Unresolved;
     };
 
     if local_path.is_empty() {

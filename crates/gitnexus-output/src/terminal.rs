@@ -6,6 +6,29 @@ use colored::Colorize;
 
 use crate::traits::{OutputFormatter, TreeItem};
 
+/// Approximate display width of a string in terminal columns.
+/// Counts Unicode scalar values rather than bytes so Latin/Cyrillic/etc. accents
+/// pad correctly. Does not account for CJK fullwidth or zero-width combining
+/// marks, but is a meaningful improvement over `str::len()` (byte count).
+fn display_width(s: &str) -> usize {
+    s.chars().count()
+}
+
+/// Pad `s` on the right to `width` columns using `display_width` for sizing.
+fn pad_right(s: &str, width: usize) -> String {
+    let w = display_width(s);
+    if w >= width {
+        s.to_string()
+    } else {
+        let mut out = String::with_capacity(s.len() + (width - w));
+        out.push_str(s);
+        for _ in 0..(width - w) {
+            out.push(' ');
+        }
+        out
+    }
+}
+
 /// Terminal formatter that produces colored output with Unicode box-drawing.
 pub struct TerminalFormatter {
     no_color: bool,
@@ -39,14 +62,14 @@ impl OutputFormatter for TerminalFormatter {
             return format!("  {}\n  (no data)\n", title.bold().cyan());
         }
 
-        // Calculate column widths
+        // Calculate column widths using display width (chars), not byte length
         let col_count = headers.len();
-        let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+        let mut widths: Vec<usize> = headers.iter().map(|h| display_width(h)).collect();
 
         for row in rows {
             for (i, cell) in row.iter().enumerate() {
                 if i < col_count {
-                    widths[i] = widths[i].max(cell.len());
+                    widths[i] = widths[i].max(display_width(cell));
                 }
             }
         }
@@ -69,11 +92,11 @@ impl OutputFormatter for TerminalFormatter {
         // Header row: │ hdr │ hdr │
         out.push_str("  \u{2502}");
         for (i, header) in headers.iter().enumerate() {
-            out.push_str(&format!(
-                " {:<width$} ",
-                header.bold(),
-                width = widths[i]
-            ));
+            // Pad first using display width, then colorize so ANSI escapes
+            // don't break alignment. The format!{:<width$} pads by bytes which
+            // is wrong for multi-byte cells.
+            let padded = pad_right(header, widths[i]);
+            out.push_str(&format!(" {} ", padded.bold()));
             out.push('\u{2502}');
         }
         out.push('\n');
@@ -88,14 +111,16 @@ impl OutputFormatter for TerminalFormatter {
         }
         out.push_str("\u{2524}\n");
 
-        // Data rows
+        // Data rows. Emit blank cells for any columns missing from the row
+        // so ragged input (rows shorter than the header) still produces a
+        // visually aligned box with the right border in the expected place.
         for row in rows {
             out.push_str("  \u{2502}");
-            for (i, cell) in row.iter().enumerate() {
-                if i < col_count {
-                    out.push_str(&format!(" {:<width$} ", cell, width = widths[i]));
-                    out.push('\u{2502}');
-                }
+            for (i, width) in widths.iter().enumerate().take(col_count) {
+                let cell = row.get(i).map(|s| s.as_str()).unwrap_or("");
+                let padded = pad_right(cell, *width);
+                out.push_str(&format!(" {} ", padded));
+                out.push('\u{2502}');
             }
             out.push('\n');
         }
@@ -119,15 +144,11 @@ impl OutputFormatter for TerminalFormatter {
         out.push_str(&format!("\n  {}\n", title.bold().cyan()));
         out.push_str(&format!("  {}\n", "\u{2500}".repeat(40).dimmed()));
 
-        let max_key_len = items.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+        let max_key_len = items.iter().map(|(k, _)| display_width(k)).max().unwrap_or(0);
 
         for (key, value) in items {
-            out.push_str(&format!(
-                "  {:<width$}  {}\n",
-                key.yellow(),
-                value,
-                width = max_key_len
-            ));
+            let padded = pad_right(key, max_key_len);
+            out.push_str(&format!("  {}  {}\n", padded.yellow(), value));
         }
         out.push('\n');
 
@@ -177,7 +198,7 @@ impl OutputFormatter for TerminalFormatter {
         }
 
         let max_count = items.iter().map(|(_, c)| *c).max().unwrap_or(1);
-        let max_label_len = items.iter().map(|(l, _)| l.len()).max().unwrap_or(0);
+        let max_label_len = items.iter().map(|(l, _)| display_width(l)).max().unwrap_or(0);
         let bar_max_width = 25;
 
         for (item_label, count) in items {
@@ -189,13 +210,13 @@ impl OutputFormatter for TerminalFormatter {
             let bar_full = "\u{2588}".repeat(bar_len);
             let bar_empty = "\u{2591}".repeat(bar_max_width - bar_len);
 
+            let padded_label = pad_right(item_label, max_label_len);
             out.push_str(&format!(
-                "  {:<width$}  {:>6}  {}{}\n",
-                item_label.yellow(),
+                "  {}  {:>6}  {}{}\n",
+                padded_label.yellow(),
                 count,
                 bar_full.green(),
                 bar_empty.dimmed(),
-                width = max_label_len
             ));
         }
         out.push('\n');

@@ -120,9 +120,17 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
         }
 
         let repo_name = parts[0];
+        let lower = repo_name.to_lowercase();
         let entry = registry.iter().find(|e| {
+            // Match by exact name first; fall back to path that ends with
+            // `/repo_name` (or `\repo_name`) on a segment boundary so a
+            // user passing "foo" doesn't accidentally select "myfoo".
             e.name.eq_ignore_ascii_case(repo_name)
-                || e.path.to_lowercase().ends_with(&repo_name.to_lowercase())
+                || {
+                    let path_lower = e.path.to_lowercase().replace('\\', "/");
+                    path_lower == lower
+                        || path_lower.ends_with(&format!("/{}", lower))
+                }
         })?;
 
         let snap_path = std::path::Path::new(&entry.storage_path).join("graph.bin");
@@ -223,7 +231,7 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
 
 const HELP_TEXT: &str = r#"GitNexus - Graph-powered code intelligence for AI agents
 
-Available MCP Tools (14):
+Available MCP Tools (15):
   list_repos              - List all indexed repositories
   query                   - Natural language search across the knowledge graph
   context                 - 360-degree view of a code symbol
@@ -237,6 +245,7 @@ Available MCP Tools (14):
   coverage                - Tracing coverage and dead code detection
   diagram                 - Generate Mermaid diagrams
   report                  - Code health report (grade A-E)
+  business                - Get business process documentation
   analyze_execution_trace - Map execution trace to source code steps
 
 Cypher Operators:

@@ -63,13 +63,21 @@ fn wire_swift_implicit_imports(
     import_map: &HashMap<String, HashSet<String>>,
     add_edge: &mut dyn FnMut(&str, &str),
 ) {
-    // Group files by directory (proxy for SPM target)
+    // Group files by directory (proxy for SPM target).
+    //
+    // Paths reaching this function are normally already normalized to forward
+    // slashes by the ingestion pipeline, but we cannot assume that — Swift
+    // projects on Windows that bypass `ResolveCtx` normalization (e.g.,
+    // through a different code path or a future caller) would otherwise
+    // collapse every file into a single empty-directory group, producing
+    // a quadratic explosion of false-positive implicit edges between
+    // unrelated files. Accept either separator defensively.
     let mut dir_groups: HashMap<String, Vec<&str>> = HashMap::new();
     for file in language_files {
-        let dir = file
+        let last_sep = file
             .rfind('/')
-            .map(|i| &file[..i])
-            .unwrap_or("");
+            .max(file.rfind('\\'));
+        let dir = last_sep.map(|i| &file[..i]).unwrap_or("");
         dir_groups.entry(dir.to_string()).or_default().push(file);
     }
 

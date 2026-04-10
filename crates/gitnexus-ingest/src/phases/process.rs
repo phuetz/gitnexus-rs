@@ -312,14 +312,23 @@ fn bfs_trace(
     start_id: &str,
     callees_of: &HashMap<String, Vec<String>>,
 ) -> Vec<ProcessTrace> {
+    /// Hard cap on total traces per BFS to bound exponential blowup. Replaces
+    /// the previous edge-dedup which silently dropped valid paths whenever a
+    /// directed edge was reused in a different prefix within the same BFS.
+    const MAX_TRACES: usize = 4096;
+    /// Hard cap on the queue size to bound peak memory.
+    const MAX_QUEUE: usize = 16384;
+
     let mut traces: Vec<ProcessTrace> = Vec::new();
     let mut queue: VecDeque<(Vec<String>, usize)> = VecDeque::new();
 
     queue.push_back((vec![start_id.to_string()], 0));
 
-    let mut seen_paths: HashSet<String> = HashSet::new();
-
     while let Some((path, depth)) = queue.pop_front() {
+        if traces.len() >= MAX_TRACES {
+            break;
+        }
+
         if depth >= MAX_DEPTH {
             if path.len() >= MIN_STEPS {
                 traces.push(ProcessTrace { steps: path });
@@ -358,12 +367,9 @@ fn bfs_trace(
                 continue;
             }
 
-            // Deduplicate partial paths
-            let path_key = format!("{}->{}", current, callee);
-            if seen_paths.contains(&path_key) {
-                continue;
+            if queue.len() >= MAX_QUEUE {
+                break;
             }
-            seen_paths.insert(path_key);
 
             let mut new_path = path.clone();
             new_path.push(callee.clone());
@@ -412,6 +418,10 @@ fn deduplicate_traces(mut traces: Vec<ProcessTrace>) -> Vec<ProcessTrace> {
                     .all(|step| existing.steps.contains(step))
         });
 
+        // Only mark the pair as "seen" when we actually kept a trace for it.
+        // Marking on subset-discard would block a later non-subset trace with
+        // the same (entry, terminal) but a distinct intermediate path —
+        // which is sort-order dependent and was discarding valid call graphs.
         if !is_subset {
             seen_pairs.insert(pair);
             kept.push(trace);

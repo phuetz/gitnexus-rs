@@ -81,20 +81,16 @@ pub fn search_fts(
 }
 
 /// Build a Cypher FTS query for a specific table.
-fn build_fts_query(table: &str, escaped_query: &str, limit: usize) -> String {
-    format!(
-        "CALL QUERY_FTS_INDEX('fts_{table}', '{escaped_query}') \
-         YIELD node, score \
-         WITH node, score \
-         ORDER BY score DESC \
-         LIMIT {limit} \
-         RETURN node.id AS nodeId, \
-                node.name AS name, \
-                node.filePath AS filePath, \
-                node.startLine AS startLine, \
-                node.endLine AS endLine, \
-                score"
-    )
+///
+/// The in-memory Cypher executor's `parse_call` only reads `funcname(args...)`
+/// and stops at the closing `)`; YIELD/WITH/ORDER BY/LIMIT/RETURN clauses are
+/// silently ignored, and `execute_call` hardcodes its own per-table limit.
+/// Result keys come from `fts_result_to_json`, not from RETURN aliases.
+///
+/// We deliberately emit only the bits the parser actually consumes — adding
+/// fake clauses here just misleads future readers into thinking they take effect.
+fn build_fts_query(table: &str, escaped_query: &str, _limit: usize) -> String {
+    format!("CALL QUERY_FTS_INDEX('fts_{table}', '{escaped_query}')")
 }
 
 /// Parse a JSON row from an FTS query result into a BM25SearchResult.
@@ -133,22 +129,31 @@ fn merge_by_file_path(
 ) -> HashMap<String, BM25SearchResult> {
     let mut merged: HashMap<String, BM25SearchResult> = HashMap::new();
 
+    // Track the best individual score per file to keep the highest-scoring node's metadata
+    let mut best_individual: HashMap<String, f64> = HashMap::new();
+
     for result in results {
+        let file_path = result.file_path.clone();
+        let individual_score = result.score;
         merged
-            .entry(result.file_path.clone())
+            .entry(file_path.clone())
             .and_modify(|existing| {
-                let old_score = existing.score;
-                existing.score += result.score;
-                // Keep the higher-scoring node's metadata
-                if result.score > old_score {
+                existing.score += individual_score;
+                // Keep the highest individual-scoring node's metadata (not accumulated)
+                let best = best_individual.get(&file_path).copied().unwrap_or(0.0);
+                if individual_score > best {
                     existing.node_id = result.node_id.clone();
                     existing.name = result.name.clone();
                     existing.label = result.label.clone();
                     existing.start_line = result.start_line;
                     existing.end_line = result.end_line;
+                    best_individual.insert(file_path.clone(), individual_score);
                 }
             })
-            .or_insert(result);
+            .or_insert_with(|| {
+                best_individual.insert(file_path, individual_score);
+                result
+            });
     }
 
     merged
@@ -163,7 +168,10 @@ mod tests {
         let q = build_fts_query("Function", "handleLogin", 10);
         assert!(q.contains("fts_Function"));
         assert!(q.contains("handleLogin"));
-        assert!(q.contains("LIMIT 10"));
+        // The in-memory parser doesn't honor YIELD/LIMIT/RETURN clauses on
+        // CALL queries, so build_fts_query intentionally emits only the bare
+        // CALL — see the doc-comment on the function.
+        assert!(q.starts_with("CALL QUERY_FTS_INDEX"));
     }
 
     #[test]

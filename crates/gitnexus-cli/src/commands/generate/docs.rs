@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Write;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::json;
 use tracing::{info, warn};
@@ -17,13 +17,18 @@ use super::functional::{generate_functional_guide, describe_project_fr};
 use super::health::generate_project_health;
 use super::deployment::{generate_deployment_guide, describe_service_fr};
 use super::analytics::generate_git_analytics_pages;
+use super::business::generate_business_docs;
 
 pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: &Path) -> Result<()> {
-    // Clean old generated files to avoid stale duplicates
+    // Clean old generated files to avoid stale duplicates. Propagate the
+    // remove error so callers know the directory wasn't actually cleared
+    // (otherwise stale files mix with newly generated ones, producing a
+    // corrupt output state with no diagnostic).
     if docs_dir.exists() {
-        let _ = std::fs::remove_dir_all(&docs_dir);
+        std::fs::remove_dir_all(docs_dir)
+            .with_context(|| format!("Failed to clean docs dir {}", docs_dir.display()))?;
     }
-    std::fs::create_dir_all(&docs_dir)?;
+    std::fs::create_dir_all(docs_dir)?;
     let modules_dir = docs_dir.join("modules");
     std::fs::create_dir_all(&modules_dir)?;
 
@@ -50,7 +55,7 @@ pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: 
 
     // 1. Generate overview.md
     generate_docs_overview(
-        &docs_dir,
+        docs_dir,
         repo_name,
         file_count,
         node_count,
@@ -61,14 +66,14 @@ pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: 
     )?;
 
     // 1b. Generate functional guide (business-oriented documentation)
-    generate_functional_guide(&docs_dir, repo_name, graph)?;
+    generate_functional_guide(docs_dir, repo_name, graph)?;
 
     // 1c. Generate project health dashboard
-    generate_project_health(&docs_dir, graph)?;
+    generate_project_health(docs_dir, graph)?;
 
     // 2. Generate architecture.md
     generate_docs_architecture(
-        &docs_dir,
+        docs_dir,
         &communities,
         graph,
         &edge_map,
@@ -78,7 +83,7 @@ pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: 
     )?;
 
     // 3. Generate getting-started.md
-    generate_docs_getting_started(&docs_dir, repo_name, &communities, graph)?;
+    generate_docs_getting_started(docs_dir, repo_name, &communities, graph)?;
 
     // 4. Generate per-module files
     let module_page_count = generate_docs_modules(
@@ -90,14 +95,17 @@ pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: 
     )?;
 
     // 5b. Generate deployment guide
-    generate_deployment_guide(&docs_dir, repo_name, graph)?;
+    generate_deployment_guide(docs_dir, repo_name, graph)?;
 
     // 5d. Generate git analytics pages (hotspots, coupling, ownership)
-    let git_analytics_count = generate_git_analytics_pages(&docs_dir, repo_path)?;
+    let git_analytics_count = generate_git_analytics_pages(docs_dir, repo_path)?;
+
+    // 5e. Generate business process documentation
+    let business_page_count = generate_business_docs(graph, docs_dir)?;
 
     // 5c. Generate ASP.NET MVC specific documentation (if applicable)
     let aspnet_pages = if super::super::generate_aspnet::has_aspnet_content(graph) {
-        let pages = super::super::generate_aspnet::generate_aspnet_docs(graph, &docs_dir)?;
+        let pages = super::super::generate_aspnet::generate_aspnet_docs(graph, docs_dir)?;
         if !pages.is_empty() {
             info!("ASP.NET docs generated: {} pages", pages.len());
             println!(
@@ -111,13 +119,13 @@ pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: 
         Vec::new()
     };
 
-    // Total page count: static pages (overview, architecture, getting-started, deployment, functional-guide, project-health) + git analytics + module pages + ASP.NET pages
-    let total_pages = 6 + git_analytics_count + module_page_count + aspnet_pages.len();
+    // Total page count: static pages (overview, architecture, getting-started, deployment, functional-guide, project-health) + git analytics + module pages + ASP.NET pages + business pages
+    let total_pages = 6 + git_analytics_count + module_page_count + aspnet_pages.len() + business_page_count;
     info!("Documentation generated: {} pages total", total_pages);
 
     // 6. Generate _index.json LAST so it includes ASP.NET pages
     generate_docs_index(
-        &docs_dir,
+        docs_dir,
         repo_name,
         file_count,
         node_count,
@@ -125,6 +133,7 @@ pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: 
         communities.len(),
         &communities,
         &aspnet_pages,
+        business_page_count > 0,
     )?;
 
     println!(
@@ -147,6 +156,7 @@ fn generate_docs_index(
     module_count: usize,
     communities: &BTreeMap<String, CommunityInfo>,
     aspnet_pages: &[(String, String, String)],
+    has_business: bool,
 ) -> Result<()> {
     let now = chrono::Local::now().to_rfc3339();
 
@@ -162,6 +172,36 @@ fn generate_docs_index(
                 "path": format!("modules/{}.md", filename),
                 "icon": "box"
             }));
+        }
+    }
+
+    // Build Business Processes children
+    let mut business_children = Vec::new();
+    if has_business {
+        let processes_dir = docs_dir.join("processes");
+        if processes_dir.exists() {
+            let mut entries: Vec<_> = std::fs::read_dir(&processes_dir)?.filter_map(|e| e.ok()).collect();
+            entries.sort_by_key(|e| e.path());
+            for entry in entries {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "md") {
+                    let filename = path.file_stem().unwrap().to_string_lossy().to_string();
+                    let title = match filename.as_str() {
+                        "courriers" => "Système de Courriers",
+                        "paiements-lifecycle" => "Cycle de Paiement",
+                        "baremes-calcul" => "Calcul des Barèmes",
+                        "entites-financieres" => "Entités Financières",
+                        "fournisseurs" => "Gestion des Fournisseurs",
+                        _ => &filename,
+                    };
+                    business_children.push(json!({
+                        "id": format!("biz-{}", filename),
+                        "title": title,
+                        "path": format!("processes/{}.md", filename),
+                        "icon": "workflow"
+                    }));
+                }
+            }
         }
     }
 
@@ -240,6 +280,15 @@ fn generate_docs_index(
             "children": module_children
         }),
     ];
+
+    if !business_children.is_empty() {
+        pages_array.push(json!({
+            "id": "business",
+            "title": "Processus Métier",
+            "icon": "workflow",
+            "children": business_children
+        }));
+    }
 
     // Add ASP.NET section if pages exist
     if !aspnet_pages.is_empty() {
@@ -340,27 +389,23 @@ fn generate_docs_overview(
     }
     writeln!(f)?;
 
-    // Metrics table
-    writeln!(f, "| Metric | Value |")?;
-    writeln!(f, "|--------|-------|")?;
-    writeln!(f, "| Source Files | {} |", file_count)?;
-    writeln!(f, "| Code Symbols | {} |", node_count)?;
-    writeln!(f, "| Relationships | {} |", edge_count)?;
+    // Metrics grid (Cards)
+    writeln!(f, "<div class=\"dashboard-grid\">")?;
+    writeln!(f, "  <div class=\"stat-card\"><i data-lucide=\"file-code\"></i><span class=\"value\">{}</span><span class=\"label\">Files</span></div>", file_count)?;
+    writeln!(f, "  <div class=\"stat-card\"><i data-lucide=\"binary\"></i><span class=\"value\">{}</span><span class=\"label\">Symbols</span></div>", node_count)?;
     if controller_count > 0 {
-        writeln!(f, "| Controllers | {} |", controller_count)?;
+        writeln!(f, "  <div class=\"stat-card\"><i data-lucide=\"server\"></i><span class=\"value\">{}</span><span class=\"label\">Controllers</span></div>", controller_count)?;
     }
     if view_count > 0 {
-        writeln!(f, "| Views | {} |", view_count)?;
+        writeln!(f, "  <div class=\"stat-card\"><i data-lucide=\"layout\"></i><span class=\"value\">{}</span><span class=\"label\">Views</span></div>", view_count)?;
     }
     if entity_count > 0 {
-        writeln!(f, "| Database Entities | {} |", entity_count)?;
+        writeln!(f, "  <div class=\"stat-card\"><i data-lucide=\"database\"></i><span class=\"value\">{}</span><span class=\"label\">Entities</span></div>", entity_count)?;
     }
     if service_count > 0 {
-        writeln!(f, "| Services | {} |", service_count)?;
+        writeln!(f, "  <div class=\"stat-card\"><i data-lucide=\"component\"></i><span class=\"value\">{}</span><span class=\"label\">Services</span></div>", service_count)?;
     }
-    if ui_count > 0 {
-        writeln!(f, "| UI Components | {} |", ui_count)?;
-    }
+    writeln!(f, "</div>")?;
     writeln!(f)?;
 
     // Technology Stack as a proper table
@@ -440,8 +485,15 @@ fn generate_docs_overview(
         let total_files = graph.iter_nodes()
             .filter(|n| n.label == NodeLabel::File)
             .count();
+        // Restrict the numerator to File nodes — `is_traced` is also set on
+        // Method nodes by `extract_tracing_info`, so without this filter the
+        // count would mix methods + files and the displayed percentage could
+        // exceed 100%, silently suppressing the "low tracing coverage" alert
+        // below (which only fires when `traced_pct < 10.0`). The sibling
+        // `project-health.md` generator applies the same filter for the same
+        // reason — keep the two in sync.
         let traced_files = graph.iter_nodes()
-            .filter(|n| n.properties.is_traced == Some(true))
+            .filter(|n| n.label == NodeLabel::File && n.properties.is_traced == Some(true))
             .count();
         let traced_pct = if total_files > 0 {
             (traced_files as f64 / total_files as f64) * 100.0
@@ -781,7 +833,12 @@ fn generate_docs_architecture(
     writeln!(f, "**See also:** [Overview](./overview.md) · [Getting Started](./getting-started.md)")?;
     writeln!(f)?;
     writeln!(f, "---")?;
-    writeln!(f, "[<- Previous: Overview](./overview.md) | [Next: Getting Started ->](./getting-started.md)")?;
+    // Mirror the static page order built in `generate_docs_modules`
+    // (overview -> project-health -> architecture -> getting-started). The
+    // previous footer hard-coded `Previous: Overview`, skipping the
+    // project-health page that sits between them and breaking the back-link
+    // chain when the user clicked Previous from architecture.
+    writeln!(f, "[<- Previous: Santé du Projet](./project-health.md) | [Next: Getting Started ->](./getting-started.md)")?;
 
     let _ = edge_map;
 
@@ -922,7 +979,13 @@ fn generate_docs_getting_started(
     writeln!(f, "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)")?;
     writeln!(f)?;
     writeln!(f, "---")?;
-    writeln!(f, "[<- Previous: Architecture](./architecture.md) | [Next: Modules ->](./modules/)")?;
+    // Point Next at `deployment.md` (a real file at docs root) rather than
+    // `./modules/`, which was a bare directory path that most markdown
+    // viewers render as a 404 / file-listing instead of navigating to a
+    // page. Deployment is the actual next page in the static doc order
+    // (overview -> project-health -> architecture -> getting-started ->
+    // deployment -> modules).
+    writeln!(f, "[<- Previous: Architecture](./architecture.md) | [Next: Déploiement ->](./deployment.md)")?;
 
     println!("  {} getting-started.md", "OK".green());
     Ok(())
@@ -982,14 +1045,53 @@ fn generate_docs_modules(
         page_order.push((filename.clone(), info.label.clone()));
     }
 
+    // Pre-compute action counts per controller file_path so we can drop
+    // controllers that the per-controller loop below will skip (it bails out
+    // when `actions.len() < 3`). Without this filter, the skipped controllers
+    // still land in `page_order`, which causes neighbouring pages' nav
+    // footers to emit `[Next: FooController](./ctrl-FooController.md)` links
+    // pointing at files that were never written to disk.
+    let mut action_counts: HashMap<String, usize> = HashMap::new();
+    for n in graph.iter_nodes() {
+        if n.label == NodeLabel::ControllerAction {
+            *action_counts.entry(n.properties.file_path.clone()).or_insert(0) += 1;
+        }
+    }
+
     let mut controllers: Vec<&GraphNode> = graph.iter_nodes()
         .filter(|n| n.label == NodeLabel::Controller)
+        .filter(|c| action_counts.get(&c.properties.file_path).copied().unwrap_or(0) >= 3)
         .collect();
     controllers.sort_by(|a, b| a.properties.name.cmp(&b.properties.name));
 
+    // Derive one filename per controller, disambiguating collisions with a
+    // numeric suffix. Controller node IDs already include `file_path`, so
+    // two controllers with the same class name in different areas (e.g.
+    // `Areas/Admin/HomeController.cs:HomeController` and
+    // `Controllers/HomeController.cs:HomeController`) both end up in this
+    // list. Previously both produced `ctrl-HomeController.md` and the
+    // second `std::fs::write` silently clobbered the first on disk, with
+    // the nav footer for the overwritten page pointing at another
+    // controller's content.
+    //
+    // The disambiguator is appended as `-2`, `-3`, ... rather than
+    // prepended with the area name because `enrichment.rs::collect_evidence`
+    // extracts the controller name by `strip_prefix("ctrl-")` and then
+    // substring-matches it against graph node names; inserting an area
+    // prefix like `ctrl-admin-homecontroller` would break that match. The
+    // base stem (`ctrl-homecontroller`) must still be a substring of the
+    // controller's lower-cased name. Enrichment trims the trailing `-N`
+    // before matching so the duplicates still resolve to the same node set.
+    let mut used_filenames: HashSet<String> = HashSet::new();
     let ctrl_filenames: Vec<(String, String)> = controllers.iter()
         .map(|c| {
-            let fname = format!("ctrl-{}", sanitize_filename(&c.properties.name));
+            let base = format!("ctrl-{}", sanitize_filename(&c.properties.name));
+            let mut fname = base.clone();
+            let mut n = 2u32;
+            while !used_filenames.insert(fname.clone()) {
+                fname = format!("{}-{}", base, n);
+                n += 1;
+            }
             (fname, c.properties.name.clone())
         })
         .collect();
@@ -1220,6 +1322,26 @@ fn generate_docs_modules(
     // Due to the extreme size, the controller, data model, services, UI, AJAX, and
     // external services page generation code follows the exact same logic from the original.
 
+    // Pre-canonicalize the repo root once so we can verify every source path
+    // we read for action snippets stays inside the repository. Graph node
+    // `file_path` values are normally sanitized workspace-relative paths, but
+    // the snapshot is just a JSON file in `.gitnexus/` and could contain `..`
+    // segments if it was hand-crafted or came from a malicious source.
+    // Without this guard, action snippets and API method bodies would be read
+    // from arbitrary filesystem locations and embedded in the generated docs.
+    // The sibling `enrichment.rs::collect_evidence` already enforces this for
+    // the same reason — keep the two in sync.
+    let repo_root_canonical = std::fs::canonicalize(repo_path).ok();
+    let read_repo_source = |rel_path: &str| -> Option<String> {
+        let source_path = repo_path.join(rel_path);
+        let canonical = std::fs::canonicalize(&source_path).ok()?;
+        let root = repo_root_canonical.as_ref()?;
+        if !canonical.starts_with(root) {
+            return None;
+        }
+        std::fs::read_to_string(&source_path).ok()
+    };
+
     for (ctrl_idx, ctrl) in controllers.iter().enumerate() {
         let ctrl_name = &ctrl.properties.name;
         let (filename, _) = &ctrl_filenames[ctrl_idx];
@@ -1230,7 +1352,9 @@ fn generate_docs_modules(
             .collect();
         actions.sort_by(|a, b| a.properties.start_line.unwrap_or(0).cmp(&b.properties.start_line.unwrap_or(0)));
 
-        if actions.len() < 3 { continue; }
+        // Controllers with fewer than 3 actions were already filtered out
+        // upstream when building `controllers` so they don't pollute
+        // `page_order` with dangling nav links.
 
         let action_ids: HashSet<String> = actions.iter().map(|a| a.id.clone()).collect();
         let caller_rels: Vec<&GraphRelationship> = graph.iter_relationships()
@@ -1394,8 +1518,7 @@ fn generate_docs_modules(
                     let caller_strs: Vec<String> = callers.iter().map(|(name, stype)| format!("{} ({})", name, stype)).collect();
                     if !caller_strs.is_empty() { content.push_str(&format!("**Appelé par :** {}\n", caller_strs.join(", "))); }
                 }
-                let source_path = repo_path.join(&ctrl.properties.file_path);
-                if let Ok(source) = std::fs::read_to_string(&source_path) {
+                if let Some(source) = read_repo_source(&ctrl.properties.file_path) {
                     if let Some(snippet) = extract_method_body(&source, &action.properties.name, 50) {
                         content.push_str("\n```csharp\n"); content.push_str(&snippet); content.push_str("```\n");
                     }
@@ -1583,8 +1706,7 @@ fn generate_docs_modules(
                     let file_short = file.rsplit(['/', '\\']).next().unwrap_or(file);
                     if file_short.contains("Ldap") { continue; }
                     content.push_str(&format!("**Fichier : `{}`**\n\n| Méthode | Paramètres | Retour |\n|---------|-----------|--------|\n", file_short));
-                    let source_path = repo_path.join(file);
-                    let source_content = std::fs::read_to_string(&source_path).unwrap_or_default();
+                    let source_content = read_repo_source(file).unwrap_or_default();
                     for method in methods {
                         let method_name = &method.properties.name;
                         let signatures = if !source_content.is_empty() { extract_all_method_signatures(&source_content, method_name) } else { vec![("-".to_string(), "-".to_string())] };

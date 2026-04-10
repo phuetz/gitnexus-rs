@@ -54,17 +54,20 @@ pub fn analyze_ownership(repo_path: &Path) -> Result<Vec<FileOwnership>, Ownersh
         }
         if let Some(rest) = line.strip_prefix("COMMIT:") {
             // Parse: HASH author_name <email>
-            // Find the email in angle brackets
-            if let (Some(email_start), Some(email_end)) = (rest.rfind('<'), rest.rfind('>')) {
-                let email = rest[email_start + 1..email_end].trim().to_string();
-                // Author name is between the hash and the email
-                let after_hash = rest.split_once(' ').map(|x| x.1).unwrap_or("");
-                let name = after_hash[..after_hash.rfind('<').unwrap_or(after_hash.len())]
-                    .trim()
-                    .to_string();
-                current_author = Some((name, email));
-            } else {
-                current_author = None;
+            // Find the email in angle brackets. Require email_start < email_end,
+            // otherwise a malformed line like "Foo> <Bar" would cause a slice
+            // panic on `rest[email_start + 1..email_end]`.
+            match (rest.rfind('<'), rest.rfind('>')) {
+                (Some(email_start), Some(email_end)) if email_start < email_end => {
+                    let email = rest[email_start + 1..email_end].trim().to_string();
+                    // Author name is between the hash and the email
+                    let after_hash = rest.split_once(' ').map(|x| x.1).unwrap_or("");
+                    let name = after_hash[..after_hash.rfind('<').unwrap_or(after_hash.len())]
+                        .trim()
+                        .to_string();
+                    current_author = Some((name, email));
+                }
+                _ => current_author = None,
             }
         } else if let Some(ref author) = current_author {
             // This is a filename

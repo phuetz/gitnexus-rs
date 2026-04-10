@@ -5,6 +5,7 @@ Graph-powered code intelligence for AI agents. GitNexus builds a knowledge graph
 Written in Rust. Supports 14 programming languages. Ships with a desktop app and an HTML documentation generator.
 
 [Version française](README.fr.md)
+[Modernization Roadmap](MODERNIZATION.md)
 
 ## Why GitNexus? (vs AI coding assistants alone)
 
@@ -34,12 +35,15 @@ It's the difference between asking someone to **read a book** vs giving them the
 - **Knowledge Graph** -- Parses source code into a rich graph of symbols (functions, classes, modules, imports, calls, inheritance) with 50+ node types and typed relationships
 - **14 Languages** -- JavaScript, TypeScript, Python, Java, C, C++, C#, Go, Rust, Ruby, PHP, Kotlin, Swift, Razor via tree-sitter
 - **ASP.NET MVC 5 Deep Support** -- Controllers, actions, Razor views, Entity Framework 6 EDMX, Telerik/Kendo UI grids, jQuery/AJAX mapping, service/repository layer detection (see below)
-- **HTML Documentation Generator** -- DeepWiki-style single-page HTML site with full-text search (Ctrl+K), syntax highlighting, copy buttons, callouts, breadcrumbs, Previous/Next navigation, scroll spy TOC, mobile responsive
-- **LLM Enrichment** -- Optional `--enrich` mode that augments documentation with grounded LLM prose, structured JSON payloads, evidence citations, provenance tracking, and anti-hallucination validation
-- **Ask the Codebase** -- `gitnexus ask "question"` CLI command for graph-powered Q&A with streaming responses
+- **HTML Documentation Generator** -- Professional "DeepWiki" HTML site with full-text search (Ctrl+K), Lucide icons, dynamic sidebar, syntax highlighting, copy buttons, reading time estimation, and automated cross-reference linking between symbols.
+- **Interactive UX** -- Single-page application (SPA) with native browser history support, breadcrumbs, Previous/Next navigation, scroll spy TOC, mobile responsive design, and interactive Mermaid diagrams with click-to-zoom/fullscreen.
+- **Business Process Documentation** -- Automated generation of high-level functional reports (B1-B5) for complex flows like Payment Lifecycles, Calculation Engines, and Document Generation, featuring rich Mermaid Sequence and Flowchart diagrams.
+- **LLM Enrichment** -- Optional `--enrich` mode that augments documentation with grounded LLM prose, structured JSON payloads, evidence citations, provenance tracking, and anti-hallucination validation.
+- **Ask the Codebase** -- `gitnexus ask "question"` CLI command for graph-powered Q&A with streaming responses.
+- **Page Feedback** -- Built-in feedback widget on every documentation page to track content quality and utility.
 - **Desktop App** -- Tauri v2 desktop application with interactive graph visualization, treemap view, intelligent chat, and command palette (Ctrl+K)
 - **Intelligent Chat** -- AI-powered code Q&A with streaming responses, query complexity analysis, multi-step research plans, and deep research mode. Supports Ollama, OpenAI, Anthropic, OpenRouter, and Gemini (with reasoning/thinking mode)
-- **MCP Server** -- 7 tools accessible to any MCP-compatible AI agent (Claude, Cursor, VS Code, etc.)
+- **MCP Server** -- 15 tools accessible to any MCP-compatible AI agent (Claude, Cursor, VS Code, etc.)
 - **Claude Code Skill** -- Built-in `/gitnexus` skill that lets Claude query the knowledge graph during your conversation, with automatic invocation on natural language questions
 - **Code Health Report** -- `gitnexus report` command combining hotspots, temporal coupling, ownership analysis, and graph metrics into a single health score (A-E)
 - **Hybrid Search** -- BM25 lexical search + optional ONNX semantic embeddings, fused with Reciprocal Rank Fusion
@@ -79,16 +83,14 @@ gitnexus generate --path D:\path\to\your\mvc5-project html
 ```
 
 The HTML site includes:
-- **Overview** with technology stack, project structure, and metrics
+- **Overview** with technology stack, project structure, and interactive project metrics
 - **Architecture diagram** (Mermaid) showing Presentation → Business Logic → Data Access layers
+- **Business Processes** (B1-B5) with high-level flows for Courriers, Payments, and Calculation Engines
 - **Per-controller pages** with action signatures, parameters (linked to data model), callers, and source code
 - **Data model pages** with per-entity relationship diagrams and per-domain ER diagrams
 - **Functional guide** with business descriptions in French, criticality levels, and Mermaid flow diagrams
-- **External services page** with full WebAPI method signatures including all overloads
-- **Views & Templates** grouped by screen, filtered by type (grids, forms, partials)
-- **Service layer** with descriptions and "Used By" controller links
-- **Sequence diagrams** for critical flows (beneficiary search, case creation, accounting export)
-- **Dark/light theme** toggle with sidebar search and Previous/Next navigation
+- **Interactive Elements**: Zoomable Mermaid diagrams, clickable source files with copy-to-clipboard, and native browser history support
+- **Dark/light theme** toggle with sidebar search, breadcrumbs, and Previous/Next navigation
 
 ## Quick Start
 
@@ -522,6 +524,18 @@ The desktop app communicates with the Rust backend via Tauri IPC:
 | Kotlin | `.kt` `.kts` |
 | Swift | `.swift` |
 | Razor | `.cshtml` `.razor` |
+
+## Origin & Credits
+
+GitNexus-RS is a Rust-based, high-performance implementation and extension of the original **[GitNexus](https://github.com/abhigyanpatwari/GitNexus)** project by [Abhigyan Patwari](https://github.com/abhigyanpatwari).
+
+While the original implementation is primarily TypeScript-based, this Rust version focuses on:
+- **Performance**: High-speed parallel indexing of large repositories using Rayon and Tree-sitter.
+- **Native Desktop Experience**: A Tauri v2 desktop application with built-in graph visualization.
+- **Enterprise Enrichment**: Specialized deep-parsers for legacy enterprise stacks (ASP.NET MVC 5, EF6, Telerik).
+- **Embedded Graph DB**: Tight integration with KuzuDB for low-memory, high-query-performance persistent storage.
+
+We are deeply grateful for the original vision and architectural foundation laid out by the [GitNexus](https://github.com/abhigyanpatwari/GitNexus) project.
 
 ## License
 

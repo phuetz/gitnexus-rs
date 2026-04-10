@@ -24,7 +24,7 @@ const EXAMPLES = [
   },
   {
     i18nKey: "cypher.preset.deadCode",
-    query: "MATCH (n:Method) WHERE n.name STARTS WITH 'Get' RETURN DISTINCT n.name, n.filePath LIMIT 20",
+    query: "MATCH (n:Method) WHERE n.isDeadCandidate = true RETURN n.name, n.filePath LIMIT 20",
   },
   {
     i18nKey: "cypher.preset.topCallers",

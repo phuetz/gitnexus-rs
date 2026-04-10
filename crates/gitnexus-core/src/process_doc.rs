@@ -183,10 +183,18 @@ pub fn collect_process_entities(graph: &KnowledgeGraph, steps: &[ProcessStep]) -
                 if matches!(entity_node.label, NodeLabel::DbEntity | NodeLabel::DbContext)
                     && seen.insert(rel.target_id.clone())
                 {
-                    let access_type = if rel.reason.contains("write") || rel.reason.contains("insert") {
-                        EntityAccessType::Write
-                    } else if rel.reason.contains("read") && rel.reason.contains("write") {
+                    // Order matters: the ReadWrite branch must run BEFORE the
+                    // Write branch, otherwise a reason like "read+write" would
+                    // hit the Write arm (because it contains "write") and the
+                    // ReadWrite variant would be unreachable dead code.
+                    let access_type = if rel.reason.contains("read") && rel.reason.contains("write") {
                         EntityAccessType::ReadWrite
+                    } else if rel.reason.contains("write")
+                        || rel.reason.contains("insert")
+                        || rel.reason.contains("update")
+                        || rel.reason.contains("delete")
+                    {
+                        EntityAccessType::Write
                     } else {
                         EntityAccessType::Read
                     };
@@ -266,18 +274,31 @@ pub fn collect_code_evidence(step: &ProcessStep, repo_path: &Path) -> Vec<Eviden
     let mut evidence = Vec::new();
 
     if let (Some(start), Some(end)) = (step.start_line, step.end_line) {
+        // Path traversal guard: `step.file_path` originates from a graph
+        // snapshot that could contain `..` segments (corrupted or hand-
+        // crafted), and we must not let them escape the repo root and
+        // exfiltrate arbitrary files into the generated documentation.
         let full_path = repo_path.join(&step.file_path);
-        if let Some(source) = trace::extract_source_lines(&full_path, start, end) {
-            evidence.push(Evidence {
-                id: format!("CODE:{}", step.node_id),
-                source: EvidenceSource::Code,
-                content: source,
-                file_path: step.file_path.clone(),
-                start_line: Some(start),
-                end_line: Some(end),
-                confidence: 1.0,
-                staleness_warning: false,
-            });
+        let source_safe = match (
+            full_path.canonicalize().ok(),
+            repo_path.canonicalize().ok(),
+        ) {
+            (Some(canon), Some(root)) => canon.starts_with(&root),
+            _ => false,
+        };
+        if source_safe {
+            if let Some(source) = trace::extract_source_lines(&full_path, start, end) {
+                evidence.push(Evidence {
+                    id: format!("CODE:{}", step.node_id),
+                    source: EvidenceSource::Code,
+                    content: source,
+                    file_path: step.file_path.clone(),
+                    start_line: Some(start),
+                    end_line: Some(end),
+                    confidence: 1.0,
+                    staleness_warning: false,
+                });
+            }
         }
     }
 
@@ -439,7 +460,11 @@ pub fn generate_sequence_diagram(steps: &[ProcessStep]) -> String {
         let participant = step.class_name.as_deref().unwrap_or("System");
         if !seen_participants.contains(&participant) {
             seen_participants.push(participant);
-            lines.push(format!("    participant {} as {}", sanitize_mermaid_id(participant), participant));
+            lines.push(format!(
+                "    participant {} as {}",
+                sanitize_mermaid_id(participant),
+                escape_mermaid_label(participant)
+            ));
         }
     }
 
@@ -447,7 +472,7 @@ pub fn generate_sequence_diagram(steps: &[ProcessStep]) -> String {
     for window in steps.windows(2) {
         let from = window[0].class_name.as_deref().unwrap_or("System");
         let to = window[1].class_name.as_deref().unwrap_or("System");
-        let label = &window[1].name;
+        let label = escape_mermaid_label(&window[1].name);
 
         if from == to {
             lines.push(format!(
@@ -482,7 +507,7 @@ pub fn generate_sequence_diagram(steps: &[ProcessStep]) -> String {
             "    {}->>{}:  {}()",
             sanitize_mermaid_id(participant),
             sanitize_mermaid_id(participant),
-            s.name
+            escape_mermaid_label(&s.name)
         ));
     }
 
@@ -499,7 +524,11 @@ pub fn generate_component_diagram(components: &[ComponentInfo]) -> String {
 
     for comp in components {
         let id = sanitize_mermaid_id(&comp.name);
-        let label = format!("{}\\n({})", comp.name, comp.label.as_str());
+        let label = format!(
+            "{}\\n({})",
+            escape_mermaid_label(&comp.name),
+            comp.label.as_str()
+        );
         lines.push(format!("    {}[\"{}\" ]", id, label));
     }
 
@@ -522,6 +551,22 @@ pub fn generate_component_diagram(components: &[ComponentInfo]) -> String {
 
 fn sanitize_mermaid_id(id: &str) -> String {
     id.replace(|c: char| !c.is_alphanumeric() && c != '_', "_")
+}
+
+/// Escape a label for safe use inside Mermaid `["..."]` quoted strings and
+/// `participant X as <label>` declarations. Uses HTML entity encoding — the
+/// backslash escapes that some toolchains recommend are not honored by
+/// Mermaid 11.x, but `&quot;`, `&lt;`, `&gt;`, `&amp;`, `&#91;`, `&#93;` are.
+/// Without this, C# generics like `List<string>` or indexers like `Foo[int]`
+/// corrupt the diagram source and the whole graph fails to render.
+fn escape_mermaid_label(label: &str) -> String {
+    label
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('[', "&#91;")
+        .replace(']', "&#93;")
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────

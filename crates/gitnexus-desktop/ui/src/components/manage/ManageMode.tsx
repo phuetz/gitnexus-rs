@@ -1,10 +1,18 @@
-import React, { useState } from "react";
+import React, { lazy, Suspense, useState } from "react";
 import { Database, Download, BookOpen, Settings, Globe, Sun, Moon, Monitor } from "lucide-react";
 import { useAppStore, type ThemeMode } from "../../stores/app-store";
 import { useI18n, type Locale } from "../../hooks/use-i18n";
-import { RepoManager } from "../repos/RepoManager";
-import { ExportPanel } from "../export/ExportPanel";
-import { DocsViewer } from "../docs/DocsViewer";
+import { LoadingOrbs } from "../shared/LoadingOrbs";
+
+const RepoManager = lazy(() =>
+  import("../repos/RepoManager").then((m) => ({ default: m.RepoManager })),
+);
+const ExportPanel = lazy(() =>
+  import("../export/ExportPanel").then((m) => ({ default: m.ExportPanel })),
+);
+const DocsViewer = lazy(() =>
+  import("../docs/DocsViewer").then((m) => ({ default: m.DocsViewer })),
+);
 
 type ManageTab = "repos" | "docs" | "settings";
 
@@ -155,6 +163,11 @@ function SettingsContent() {
 export function ManageMode() {
   const { t } = useI18n();
   const [tab, setTab] = useState<ManageTab>("repos");
+  const manageFallback = (
+    <div className="flex items-center justify-center h-full">
+      <LoadingOrbs />
+    </div>
+  );
 
   return (
     <div className="h-full flex flex-col">
@@ -196,17 +209,23 @@ export function ManageMode() {
       {tab === "docs" ? (
         /* Docs get full remaining height for proper treeview layout */
         <div className="flex-1 min-h-0">
-          <DocsViewer />
+          <Suspense fallback={manageFallback}>
+            <DocsViewer />
+          </Suspense>
         </div>
       ) : (
         <div className="flex-1 overflow-auto p-6" style={{ maxWidth: 900, margin: "0 auto", width: "100%" }}>
           {tab === "repos" && (
             <>
               <Section icon={Database} title={t("manage.repositories")}>
-                <RepoManager />
+                <Suspense fallback={manageFallback}>
+                  <RepoManager />
+                </Suspense>
               </Section>
               <Section icon={Download} title={t("manage.export")}>
-                <ExportPanel />
+                <Suspense fallback={manageFallback}>
+                  <ExportPanel />
+                </Suspense>
               </Section>
             </>
           )}

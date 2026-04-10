@@ -9,6 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
 use gitnexus_core::graph::types::*;
@@ -22,9 +23,91 @@ use crate::types::{ChatConfig, ChatMessage, ChatRequest, ChatResponse, ChatSourc
 
 const DEFAULT_CONFIG_FILENAME: &str = "chat-config.json";
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedChatConfig {
+    provider: String,
+    base_url: String,
+    model: String,
+    max_tokens: u32,
+    #[serde(default)]
+    reasoning_effort: String,
+}
+
+impl From<&ChatConfig> for PersistedChatConfig {
+    fn from(config: &ChatConfig) -> Self {
+        Self {
+            provider: config.provider.clone(),
+            base_url: config.base_url.clone(),
+            model: config.model.clone(),
+            max_tokens: config.max_tokens,
+            reasoning_effort: config.reasoning_effort.clone(),
+        }
+    }
+}
+
+impl From<PersistedChatConfig> for ChatConfig {
+    fn from(config: PersistedChatConfig) -> Self {
+        ChatConfig {
+            provider: config.provider,
+            api_key: String::new(),
+            base_url: config.base_url,
+            model: config.model,
+            max_tokens: config.max_tokens,
+            reasoning_effort: config.reasoning_effort,
+        }
+    }
+}
+
 fn config_path() -> PathBuf {
     let home = dirs_fallback();
     home.join(".gitnexus").join(DEFAULT_CONFIG_FILENAME)
+}
+
+/// Detect whether `base_url` points at a local LLM endpoint that doesn't
+/// require an API key. Centralized so all callers (chat_ask, chat_execute_plan,
+/// chat_execute_step) agree on the rule. Previously some callsites only
+/// matched `"localhost"` and missed `127.0.0.1`, silently degrading to a
+/// graph-only response when Ollama was reachable on the loopback IP.
+pub fn is_local_llm_url(base_url: &str) -> bool {
+    base_url.contains("localhost")
+        || base_url.contains("127.0.0.1")
+        || base_url.contains("[::1]")
+}
+
+/// Sanitize an LLM error response body before surfacing it in the UI.
+///
+/// LLM providers occasionally echo the request's Authorization header back
+/// in error responses (e.g. "Invalid api key sk-abc..."), and a few echo
+/// the full request payload. Truncate aggressively and scrub anything that
+/// looks like a bearer token or API key so the user (or application logs)
+/// can't accidentally leak credentials when displaying the error toast.
+pub(crate) fn sanitize_llm_error_body(body: &str) -> String {
+    const MAX_LEN: usize = 300;
+    let truncated: String = body.chars().take(MAX_LEN).collect();
+    // Replace anything that looks like an API key / bearer token.
+    let mut out = String::with_capacity(truncated.len());
+    for word in truncated.split_whitespace() {
+        let lower = word.to_ascii_lowercase();
+        let looks_secret = lower.starts_with("sk-")
+            || lower.starts_with("bearer")
+            || lower.starts_with("api_key")
+            || lower.starts_with("apikey")
+            || lower.starts_with("token=")
+            || (word.len() > 20 && word.chars().filter(|c| c.is_ascii_alphanumeric()).count() > 18);
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        if looks_secret {
+            out.push_str("[REDACTED]");
+        } else {
+            out.push_str(word);
+        }
+    }
+    if body.chars().count() > MAX_LEN {
+        out.push_str(" …");
+    }
+    out
 }
 
 fn dirs_fallback() -> PathBuf {
@@ -37,16 +120,42 @@ fn dirs_fallback() -> PathBuf {
         })
 }
 
-fn load_config() -> ChatConfig {
-    let path = config_path();
-    if path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(config) = serde_json::from_str(&content) {
-                return config;
+fn env_api_key_candidates(provider: &str) -> &'static [&'static str] {
+    match provider {
+        "openai" => &["OPENAI_API_KEY", "GITNEXUS_API_KEY"],
+        "anthropic" => &["ANTHROPIC_API_KEY", "GITNEXUS_API_KEY"],
+        "openrouter" => &["OPENROUTER_API_KEY", "GITNEXUS_API_KEY"],
+        "gemini" => &["GEMINI_API_KEY", "GOOGLE_API_KEY", "GITNEXUS_API_KEY"],
+        _ => &["GITNEXUS_API_KEY"],
+    }
+}
+
+fn hydrate_api_key_from_env(mut config: ChatConfig) -> ChatConfig {
+    if !config.api_key.is_empty() {
+        return config;
+    }
+    for key in env_api_key_candidates(&config.provider) {
+        if let Ok(value) = std::env::var(key) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                config.api_key = trimmed.to_string();
+                break;
             }
         }
     }
-    ChatConfig::default()
+    config
+}
+
+fn load_persisted_config() -> ChatConfig {
+    let path = config_path();
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(config) = serde_json::from_str::<PersistedChatConfig>(&content) {
+                return hydrate_api_key_from_env(config.into());
+            }
+        }
+    }
+    hydrate_api_key_from_env(ChatConfig::default())
 }
 
 fn save_config(config: &ChatConfig) -> Result<(), String> {
@@ -54,9 +163,14 @@ fn save_config(config: &ChatConfig) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let content = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+    let content = serde_json::to_string_pretty(&PersistedChatConfig::from(config))
+        .map_err(|e| e.to_string())?;
     std::fs::write(&path, content).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+async fn load_config(state: &AppState) -> ChatConfig {
+    state.chat_config().await.unwrap_or_else(load_persisted_config)
 }
 
 // ─── Tauri Commands ──────────────────────────────────────────────────
@@ -68,7 +182,7 @@ pub async fn chat_ask(
     state: State<'_, AppState>,
     request: ChatRequest,
 ) -> Result<ChatResponse, String> {
-    let config = load_config();
+    let config = load_config(&state).await;
 
     // 1. Get the active repo's graph and FTS index
     let (graph, _indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
@@ -87,7 +201,7 @@ pub async fn chat_ask(
     // 5. Call LLM if configured.
     // Skip LLM when no API key AND not targeting a local server (localhost).
     // Local servers (e.g. Ollama, LM Studio) typically don't need an API key.
-    let is_local_llm = config.base_url.contains("localhost") || config.base_url.contains("127.0.0.1");
+    let is_local_llm = is_local_llm_url(&config.base_url);
     if config.api_key.is_empty() && !is_local_llm {
         return Ok(build_graph_only_response(&search_results, &sources, &graph));
     }
@@ -113,21 +227,25 @@ pub async fn chat_ask(
 
 /// Get the current chat configuration.
 #[tauri::command]
-pub async fn chat_get_config() -> Result<ChatConfig, String> {
-    Ok(load_config())
+pub async fn chat_get_config(state: State<'_, AppState>) -> Result<ChatConfig, String> {
+    Ok(load_config(&state).await)
 }
 
 /// Save chat configuration (LLM provider settings).
 #[tauri::command]
-pub async fn chat_set_config(config: ChatConfig) -> Result<(), String> {
+pub async fn chat_set_config(
+    state: State<'_, AppState>,
+    config: ChatConfig,
+) -> Result<(), String> {
+    state.set_chat_config(config.clone()).await;
     save_config(&config)
 }
 
 // ─── Public Helpers (used by chat_executor) ─────────────────────────
 
 /// Public config loader for the executor module.
-pub fn load_config_pub() -> ChatConfig {
-    load_config()
+pub async fn load_config_pub(state: &AppState) -> ChatConfig {
+    load_config(state).await
 }
 
 /// Public LLM call for the executor module.
@@ -201,7 +319,7 @@ fn build_sources(
             None => continue,
         };
 
-        // Skip non-code nodes (Community, Process, File, etc.)
+        // Skip non-code nodes (Community, Process, File, etc.) except DocChunks
         match node.label {
             NodeLabel::Function
             | NodeLabel::Method
@@ -211,12 +329,17 @@ fn build_sources(
             | NodeLabel::Trait
             | NodeLabel::Interface
             | NodeLabel::Enum
-            | NodeLabel::TypeAlias => {}
+            | NodeLabel::TypeAlias
+            | NodeLabel::DocChunk => {}
             _ => continue,
         }
 
-        // Try to read a code snippet
-        let snippet = read_code_snippet(repo_path, &node.properties.file_path, node.properties.start_line, node.properties.end_line);
+        // Try to read a code snippet or use DocChunk content
+        let snippet = if node.label == NodeLabel::DocChunk {
+            node.properties.content.clone()
+        } else {
+            read_code_snippet(repo_path, &node.properties.file_path, node.properties.start_line, node.properties.end_line)
+        };
 
         // Get relationships for context
         let mut callers = Vec::new();
@@ -273,6 +396,22 @@ fn read_code_snippet(
     end_line: Option<u32>,
 ) -> Option<String> {
     let full_path = repo_path.join(file_path);
+    // Path traversal guard: ensure the resolved path stays inside the repo.
+    // The graph node `file_path` field is sourced from snapshots that may
+    // contain `..` segments (a corrupted or hand-crafted graph), and without
+    // this check the snippet would happily include arbitrary files from the
+    // host filesystem in the LLM prompt context.
+    let canonical_repo = repo_path
+        .canonicalize()
+        .unwrap_or_else(|_| repo_path.to_path_buf());
+    match full_path.canonicalize() {
+        Ok(canonical) if !canonical.starts_with(&canonical_repo) => {
+            tracing::warn!("read_code_snippet: path traversal blocked: {}", file_path);
+            return None;
+        }
+        Err(_) => return None, // file doesn't exist or permission denied
+        _ => {}
+    }
     let content = std::fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
 
@@ -473,64 +612,77 @@ async fn call_llm_streaming(
     let status = response.status();
     if !status.is_success() {
         let error_text = response.text().await.unwrap_or_default();
-        return Err(format!("LLM API error ({}): {}", status, error_text));
+        return Err(format!(
+            "LLM API error ({}): {}",
+            status,
+            sanitize_llm_error_body(&error_text)
+        ));
     }
 
     let mut full_text = String::new();
     let mut stream = response.bytes_stream();
-    // Buffer for incomplete SSE lines spanning multiple chunks
-    let mut line_buffer = String::new();
-    const MAX_LINE_BUFFER: usize = 1_048_576; // 1MB safety cap
+    // Buffer raw bytes (not String) so multi-byte UTF-8 sequences that span
+    // chunk boundaries are not corrupted by `from_utf8_lossy`. Lines are decoded
+    // only after a complete `\n` is in the buffer.
+    let mut byte_buffer: Vec<u8> = Vec::new();
+    const MAX_LINE_BUFFER: usize = 1_048_576; // 1MB safety cap for a single partial line
 
     use futures_util::StreamExt;
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Stream error: {}", e))?;
-        let text = String::from_utf8_lossy(&chunk);
-
-        line_buffer.push_str(&text);
-        if line_buffer.len() > MAX_LINE_BUFFER {
-            return Err("SSE stream buffer exceeded 1MB — aborting".to_string());
-        }
-
-        // Process complete lines from the buffer
-        while let Some(newline_pos) = line_buffer.find('\n') {
-            let line = line_buffer[..newline_pos].trim_end_matches('\r').to_string();
-            line_buffer = line_buffer[newline_pos + 1..].to_string();
-
-            if let Some(data) = line.strip_prefix("data: ") {
-                let data = data.trim();
-                if data == "[DONE]" {
-                    continue;
-                }
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                    if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
-                        if !delta.is_empty() {
-                            full_text.push_str(delta);
-                            let _ = app_handle.emit("chat-stream-chunk", delta);
-                        }
+    let process_line = |line: &str, full_text: &mut String, app_handle: &AppHandle| {
+        if let Some(data) = line.strip_prefix("data: ") {
+            let data = data.trim();
+            if data == "[DONE]" {
+                return;
+            }
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
+                    if !delta.is_empty() {
+                        full_text.push_str(delta);
+                        let _ = app_handle.emit("chat-stream-chunk", delta);
                     }
                 }
             }
+        }
+    };
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Stream error: {}", e))?;
+        byte_buffer.extend_from_slice(&chunk);
+
+        // Drain complete lines (terminated by `\n`) from the buffer.
+        while let Some(newline_pos) = byte_buffer.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = byte_buffer.drain(..=newline_pos).collect();
+            // Strip the trailing `\n` (and optional `\r`) before decoding.
+            let mut end = line_bytes.len() - 1;
+            if end > 0 && line_bytes[end - 1] == b'\r' {
+                end -= 1;
+            }
+            // Decode lossily — at this point we have a complete line so any
+            // remaining replacement characters represent genuine bad bytes,
+            // not chunk-boundary artifacts.
+            let line = String::from_utf8_lossy(&line_bytes[..end]);
+            process_line(&line, &mut full_text, app_handle);
+        }
+
+        // Cap the *residual* partial line length, not the total buffer.
+        // Checking total-buffer-size before draining (as the previous code did)
+        // falsely aborts a legitimate chunk that happens to contain many
+        // complete lines summing to >1MB, because the check fires before the
+        // drain gets a chance to shrink the buffer. Moving the check after the
+        // drain loop makes the cap measure what it's actually meant to limit:
+        // an unbounded single line from a misbehaving server that never emits
+        // a newline.
+        if byte_buffer.len() > MAX_LINE_BUFFER {
+            return Err("SSE stream partial line exceeded 1MB — aborting".to_string());
         }
     }
 
-    // Process any remaining data in the buffer (last line without trailing newline)
-    if !line_buffer.is_empty() {
-        let line = line_buffer.trim();
-        if let Some(data) = line.strip_prefix("data: ") {
-            let data = data.trim();
-            if data != "[DONE]" {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                    if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
-                        if !delta.is_empty() {
-                            full_text.push_str(delta);
-                            let _ = app_handle.emit("chat-stream-chunk", delta);
-                        }
-                    }
-                }
-            }
-        }
+    // Process any trailing line without a final newline.
+    if !byte_buffer.is_empty() {
+        let line = String::from_utf8_lossy(&byte_buffer);
+        let trimmed = line.trim();
+        process_line(trimmed, &mut full_text, app_handle);
     }
 
     // Signal stream completion
@@ -558,7 +710,11 @@ async fn call_llm(
     let status = response.status();
     if !status.is_success() {
         let error_text = response.text().await.unwrap_or_default();
-        return Err(format!("LLM API error ({}): {}", status, error_text));
+        return Err(format!(
+            "LLM API error ({}): {}",
+            status,
+            sanitize_llm_error_body(&error_text)
+        ));
     }
 
     let json: serde_json::Value = response
@@ -616,7 +772,7 @@ fn build_graph_only_response(
         }
 
         if let Some(snippet) = &source.snippet {
-            let lang = detect_language(&source.file_path);
+            let lang = if source.symbol_type == "DocChunk" { "markdown" } else { detect_language(&source.file_path) };
             // Show first 15 lines of snippet
             let short: String = snippet.lines().take(15).collect::<Vec<_>>().join("\n");
             answer.push_str(&format!("\n```{}\n{}\n```\n\n", lang, short));
@@ -630,3 +786,57 @@ fn build_graph_only_response(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn sample_config() -> ChatConfig {
+        ChatConfig {
+            provider: "openai".to_string(),
+            api_key: "sk-secret-value".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            model: "gpt-4o-mini".to_string(),
+            max_tokens: 1234,
+            reasoning_effort: "high".to_string(),
+        }
+    }
+
+    #[test]
+    fn persisted_config_never_contains_api_key() {
+        let persisted = PersistedChatConfig::from(&sample_config());
+        let json = serde_json::to_string(&persisted).unwrap();
+
+        assert!(!json.contains("apiKey"));
+        assert!(!json.contains("sk-secret-value"));
+        assert!(json.contains("provider"));
+    }
+
+    #[test]
+    fn hydrate_api_key_uses_provider_specific_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("GITNEXUS_API_KEY");
+        std::env::set_var("OPENAI_API_KEY", "sk-env-value");
+
+        let hydrated = hydrate_api_key_from_env(ChatConfig {
+            api_key: String::new(),
+            ..sample_config()
+        });
+
+        assert_eq!(hydrated.api_key, "sk-env-value");
+        std::env::remove_var("OPENAI_API_KEY");
+    }
+
+    #[test]
+    fn hydrate_api_key_does_not_override_explicit_secret() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("OPENAI_API_KEY", "sk-env-value");
+
+        let hydrated = hydrate_api_key_from_env(sample_config());
+
+        assert_eq!(hydrated.api_key, "sk-secret-value");
+        std::env::remove_var("OPENAI_API_KEY");
+    }
+}

@@ -50,7 +50,8 @@
       "Bash(xargs grep:*)",
       "Bash(TAURI_CLI_NO_DEV_SERVER_WAIT=true cargo run)",
       "Bash(grep -rn \"sigma\\\\\\\\.js\\\\|graphology\\\\|@sigma\" package.json)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:1420/)"
     ]
   }
 }

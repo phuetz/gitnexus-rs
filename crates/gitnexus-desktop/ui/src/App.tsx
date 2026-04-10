@@ -1,20 +1,42 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { MotionConfig, useReducedMotion } from "framer-motion";
 import { ModeBar } from "./components/layout/ModeBar";
 import { ModeRouter } from "./components/layout/ModeRouter";
 import { StatusBar } from "./components/layout/StatusBar";
-import { SearchModal } from "./components/search/SearchModal";
-import { SettingsModal } from "./components/layout/SettingsModal";
-import { CommandPalette } from "./components/layout/CommandPalette";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useScreenCapture } from "./hooks/use-screen-capture";
 import { useI18n } from "./hooks/use-i18n";
 import { useAppStore } from "./stores/app-store";
 import { commands } from "./lib/tauri-commands";
+import { LoadingOrbs } from "./components/shared/LoadingOrbs";
+
+const SearchModal = lazy(() =>
+  import("./components/search/SearchModal").then((m) => ({ default: m.SearchModal })),
+);
+const SettingsModal = lazy(() =>
+  import("./components/layout/SettingsModal").then((m) => ({ default: m.SettingsModal })),
+);
+const CommandPalette = lazy(() =>
+  import("./components/layout/CommandPalette").then((m) => ({ default: m.CommandPalette })),
+);
+
+const modalFallback = (
+  <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+    <LoadingOrbs />
+  </div>
+);
 
 function App() {
   const { t, locale } = useI18n();
   const shouldReduceMotion = useReducedMotion();
+  const searchOpen = useAppStore((s) => s.searchOpen);
+  const settingsOpen = useAppStore((s) => s.settingsOpen);
+  const commandPaletteOpen = useAppStore((s) => s.commandPaletteOpen);
+  const [modalLoadState, setModalLoadState] = useState({
+    search: false,
+    settings: false,
+    commandPalette: false,
+  });
   useKeyboardShortcuts();
   useScreenCapture();
 
@@ -53,6 +75,19 @@ function App() {
     return () => { ignore = true; };
   }, []);
 
+  const nextModalLoadState = {
+    search: modalLoadState.search || searchOpen,
+    settings: modalLoadState.settings || settingsOpen,
+    commandPalette: modalLoadState.commandPalette || commandPaletteOpen,
+  };
+  if (
+    nextModalLoadState.search !== modalLoadState.search ||
+    nextModalLoadState.settings !== modalLoadState.settings ||
+    nextModalLoadState.commandPalette !== modalLoadState.commandPalette
+  ) {
+    setModalLoadState(nextModalLoadState);
+  }
+
   return (
     <MotionConfig reducedMotion={shouldReduceMotion ? "always" : "never"}>
     <div className="flex flex-col h-screen w-screen overflow-hidden" style={{ background: "var(--bg-0)" }}>
@@ -74,9 +109,21 @@ function App() {
         <StatusBar />
       </footer>
 
-      <SearchModal />
-      <SettingsModal />
-      <CommandPalette />
+      {modalLoadState.search && (
+        <Suspense fallback={modalFallback}>
+          <SearchModal />
+        </Suspense>
+      )}
+      {modalLoadState.settings && (
+        <Suspense fallback={modalFallback}>
+          <SettingsModal />
+        </Suspense>
+      )}
+      {modalLoadState.commandPalette && (
+        <Suspense fallback={modalFallback}>
+          <CommandPalette />
+        </Suspense>
+      )}
     </div>
     </MotionConfig>
   );

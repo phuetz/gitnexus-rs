@@ -4,16 +4,21 @@ import { toast } from "sonner";
 import { Workflow, Copy, Search } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
+import { useAppStore } from "../../stores/app-store";
 
 export function DiagramView() {
   const { t } = useI18n();
+  const activeRepo = useAppStore((s) => s.activeRepo);
   const [target, setTarget] = useState("");
   const [searchTarget, setSearchTarget] = useState("");
   const [renderError, setRenderError] = useState(false);
   const mermaidRef = useRef<HTMLDivElement>(null);
+  const mermaidInitialized = useRef(false);
 
+  // Scope by `activeRepo` so switching repos doesn't resurrect a diagram from
+  // the previous repo when the same `searchTarget` name happens to be used.
   const { data: diagram, isLoading } = useQuery({
-    queryKey: ["diagram", searchTarget],
+    queryKey: ["diagram", activeRepo, searchTarget],
     queryFn: () => commands.getDiagram(searchTarget),
     enabled: searchTarget.length > 0,
     staleTime: 60_000,
@@ -29,16 +34,19 @@ export function DiagramView() {
     (async () => {
       try {
         const mermaid = await import("mermaid");
-        mermaid.default.initialize({
-          startOnLoad: false,
-          theme: "dark",
-          themeVariables: {
-            primaryColor: "#7aa2f7",
-            primaryTextColor: "#c0caf5",
-            lineColor: "#565f89",
-            secondaryColor: "#bb9af7",
-          },
-        });
+        if (!mermaidInitialized.current) {
+          mermaid.default.initialize({
+            startOnLoad: false,
+            theme: "dark",
+            themeVariables: {
+              primaryColor: "#7aa2f7",
+              primaryTextColor: "#c0caf5",
+              lineColor: "#565f89",
+              secondaryColor: "#bb9af7",
+            },
+          });
+          mermaidInitialized.current = true;
+        }
 
         const id = `mermaid-diagram-${Date.now()}`;
         const { svg } = await mermaid.default.render(id, diagram.mermaid);

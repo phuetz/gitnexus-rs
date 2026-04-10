@@ -204,7 +204,14 @@ fn extract_section<'a>(content: &'a str, tag: &str) -> Option<&'a str> {
     let open_pattern = format!("<{}", tag);
     let close_pattern = format!("</{}>", tag);
     let start = content.find(&open_pattern)?;
-    let end = content.find(&close_pattern)?;
+    // Search for the closing tag *after* the opening tag. Without this, a
+    // malformed (or maliciously crafted) EDMX file containing an orphan
+    // `</Tag>` somewhere before the matching `<Tag` would make
+    // `content[start..end + close_pattern.len()]` panic with
+    // `begin <= end (32 <= 24)`. Restrict the search range so end is always
+    // ≥ start, returning None when no balanced close is found.
+    let end_relative = content[start..].find(&close_pattern)?;
+    let end = start + end_relative;
     Some(&content[start..end + close_pattern.len()])
 }
 
@@ -287,10 +294,18 @@ fn parse_properties(block: &str) -> Vec<EdmxProperty> {
 
     while let Some(start) = block[search..].find("<Property ") {
         let abs = search + start;
-        let line_end = block[abs..].find("/>")
-            .or_else(|| block[abs..].find(">"))
-            .map(|e| abs + e + 2)
-            .unwrap_or(block.len());
+        // `+2` is correct for self-closing `/>` (skips both bytes), but the
+        // fallback `>` is only one byte — adding 2 would overshoot by one and
+        // panic the next iteration's `block[search..]` when `>` happens to be
+        // the last byte of `block`. Split the two cases so each adds the
+        // right number of bytes, and clamp to `block.len()` defensively.
+        let line_end = if let Some(e) = block[abs..].find("/>") {
+            (abs + e + 2).min(block.len())
+        } else if let Some(e) = block[abs..].find('>') {
+            (abs + e + 1).min(block.len())
+        } else {
+            block.len()
+        };
         let prop_str = &block[abs..line_end];
 
         let name = extract_attr(prop_str, "Property", "Name").unwrap_or_default();
@@ -335,10 +350,14 @@ fn parse_navigation_properties(block: &str) -> Vec<EdmxNavigationProperty> {
 
     while let Some(start) = block[search..].find("<NavigationProperty ") {
         let abs = search + start;
-        let line_end = block[abs..].find("/>")
-            .or_else(|| block[abs..].find(">"))
-            .map(|e| abs + e + 2)
-            .unwrap_or(block.len());
+        // Same off-by-one fix as parse_properties: `/>` is 2 bytes, `>` is 1.
+        let line_end = if let Some(e) = block[abs..].find("/>") {
+            (abs + e + 2).min(block.len())
+        } else if let Some(e) = block[abs..].find('>') {
+            (abs + e + 1).min(block.len())
+        } else {
+            block.len()
+        };
         let nav_str = &block[abs..line_end];
 
         let name = extract_attr(nav_str, "NavigationProperty", "Name").unwrap_or_default();
@@ -409,10 +428,14 @@ fn parse_association_ends(block: &str) -> Vec<EdmxAssociationEnd> {
 
     while let Some(start) = block[search..].find("<End ") {
         let abs = search + start;
-        let line_end = block[abs..].find("/>")
-            .or_else(|| block[abs..].find(">"))
-            .map(|e| abs + e + 2)
-            .unwrap_or(block.len());
+        // Same off-by-one fix as parse_properties: `/>` is 2 bytes, `>` is 1.
+        let line_end = if let Some(e) = block[abs..].find("/>") {
+            (abs + e + 2).min(block.len())
+        } else if let Some(e) = block[abs..].find('>') {
+            (abs + e + 1).min(block.len())
+        } else {
+            block.len()
+        };
         let end_str = &block[abs..line_end];
 
         let role = extract_attr(end_str, "End", "Role").unwrap_or_default();
@@ -463,10 +486,14 @@ fn parse_entity_sets(csdl: &str) -> Vec<EdmxEntitySet> {
 
     while let Some(start) = csdl[search..].find("<EntitySet ") {
         let abs = search + start;
-        let line_end = csdl[abs..].find("/>")
-            .or_else(|| csdl[abs..].find(">"))
-            .map(|e| abs + e + 2)
-            .unwrap_or(csdl.len());
+        // Same off-by-one fix as parse_properties: `/>` is 2 bytes, `>` is 1.
+        let line_end = if let Some(e) = csdl[abs..].find("/>") {
+            (abs + e + 2).min(csdl.len())
+        } else if let Some(e) = csdl[abs..].find('>') {
+            (abs + e + 1).min(csdl.len())
+        } else {
+            csdl.len()
+        };
         let set_str = &csdl[abs..line_end];
 
         let name = extract_attr(set_str, "EntitySet", "Name").unwrap_or_default();
@@ -603,7 +630,7 @@ mod tests {
         assert_eq!(price.scale, Some(2));
 
         // Check navigation properties
-        assert!(product.navigation_properties.len() >= 1);
+        assert!(!product.navigation_properties.is_empty());
         let cat_nav = product
             .navigation_properties
             .iter()
@@ -721,5 +748,55 @@ mod tests {
 
         // clean_entity_type_name should strip the namespace prefix
         assert_eq!(clean_entity_type_name("Self.PersonEntity"), "PersonEntity");
+    }
+
+    #[test]
+    fn extract_section_handles_orphan_close_tag() {
+        // Malformed input where </EntityType> appears BEFORE the matching
+        // <EntityType — used to panic with `begin <= end (32 <= 24)` because
+        // the close tag was searched globally and could land before the open
+        // tag. Should now find the close *after* the open and return a valid
+        // slice (or None if there is no balanced close).
+        let content = "<Container></EntityType><Schema><EntityType Name=\"X\"></EntityType></Schema>";
+        let section = extract_section(content, "EntityType");
+        assert!(section.is_some(), "Expected a slice once the close-after-open search is in place");
+        let s = section.unwrap();
+        assert!(s.starts_with("<EntityType Name=\"X\""));
+        assert!(s.ends_with("</EntityType>"));
+    }
+
+    #[test]
+    fn extract_section_returns_none_when_no_balanced_close() {
+        // Open tag exists but no matching close anywhere — must not panic.
+        let content = "<EntityType Name=\"X\"><Property /";
+        let section = extract_section(content, "EntityType");
+        assert!(section.is_none());
+    }
+
+    #[test]
+    fn parse_edmx_does_not_panic_on_malformed_input() {
+        // Malformed EDMX with stray close tags — should parse to *something*
+        // (possibly empty) without panicking.
+        let bad = "</EntityType><edmx:Edmx><EntityType Name=\"X\"></EntityType>";
+        let _ = parse_edmx(bad);
+        let bad2 = "</Schema></EntityType></Property>";
+        let _ = parse_edmx(bad2);
+    }
+
+    #[test]
+    fn parse_properties_handles_non_self_closing_at_eof() {
+        // Regression test: a non-self-closing `<Property ...>` tag where `>`
+        // is the LAST byte of the block triggered an off-by-one panic. The
+        // helpers used `+2` for both `/>` and `>` cases, so the fallback
+        // overshot by one and the next iteration's `block[search..]` panicked
+        // with "byte index N out of bounds".
+        let bad = "<EntityType Name=\"E\"><Property Name=\"X\">";
+        // Must not panic.
+        let _ = parse_edmx(bad);
+
+        // Same shape with NavigationProperty / End / EntitySet.
+        let _ = parse_edmx("<EntityType Name=\"E\"><NavigationProperty Name=\"N\">");
+        let _ = parse_edmx("<Association Name=\"A\"><End Role=\"R\">");
+        let _ = parse_edmx("<EntityContainer><EntitySet Name=\"S\">");
     }
 }

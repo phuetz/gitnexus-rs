@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "active": true,
+  "skill": "ralph",
+  "keyword": "ralph",
+  "phase": "planning",
+  "activated_at": "2026-04-08T16:50:21.873Z",
+  "updated_at": "2026-04-09T02:46:57.657Z",
+  "source": "keyword-detector",
+  "session_id": "",
+  "thread_id": "019d6df0-e242-7513-9786-e8ccfbdda0e6",
+  "turn_id": "019d701d-4818-7170-8f56-1d61ed2a2923",
+  "iteration": 2,
+  "last_turn_at": "2026-04-09T02:59:12.748Z"
+}

@@ -24,17 +24,45 @@ pub fn escape_cypher_string(s: &str) -> String {
 }
 
 /// Strip single-line (`//`) and block (`/* */`) comments from a Cypher query.
+///
+/// String literals are tracked so that `//` or `/* */` appearing INSIDE a
+/// quoted string are NOT mistaken for comment markers. Without this, a query
+/// like `MATCH (n) WHERE n.text = "// CREATE foo" CREATE (m)...` would have
+/// the in-string `//` strip everything to end-of-line including the real
+/// `CREATE` that follows, bypassing `is_write_query`'s safety check.
 fn strip_cypher_comments(query: &str) -> String {
     let mut result = String::with_capacity(query.len());
     let chars: Vec<char> = query.chars().collect();
     let mut i = 0;
+    let mut in_string: Option<char> = None; // active string quote, if any
     while i < chars.len() {
-        if i + 1 < chars.len() && chars[i] == '/' && chars[i + 1] == '/' {
+        let c = chars[i];
+        if let Some(quote) = in_string {
+            // Inside a string literal: emit verbatim. Honor `\X` escape
+            // sequences so a `\"` inside a double-quoted string is not
+            // mis-interpreted as the closing quote, and likewise for `\'`.
+            if c == '\\' && i + 1 < chars.len() {
+                result.push(c);
+                result.push(chars[i + 1]);
+                i += 2;
+                continue;
+            }
+            result.push(c);
+            if c == quote {
+                in_string = None;
+            }
+            i += 1;
+        } else if c == '\'' || c == '"' {
+            // Enter string literal — emit the opening quote.
+            in_string = Some(c);
+            result.push(c);
+            i += 1;
+        } else if i + 1 < chars.len() && c == '/' && chars[i + 1] == '/' {
             // Skip line comment
             while i < chars.len() && chars[i] != '\n' {
                 i += 1;
             }
-        } else if i + 1 < chars.len() && chars[i] == '/' && chars[i + 1] == '*' {
+        } else if i + 1 < chars.len() && c == '/' && chars[i + 1] == '*' {
             // Skip block comment
             i += 2;
             while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
@@ -42,7 +70,7 @@ fn strip_cypher_comments(query: &str) -> String {
             }
             i += 2; // skip */
         } else {
-            result.push(chars[i]);
+            result.push(c);
             i += 1;
         }
     }
@@ -62,24 +90,34 @@ pub fn is_write_query(query: &str) -> bool {
     let upper = cleaned.to_uppercase();
     // Check for write keywords as whole words (preceded by whitespace or start-of-string)
     let write_patterns = [
-        "CREATE", "DELETE", "SET ", "MERGE", "DROP", "REMOVE", "DETACH", "ALTER",
+        "CREATE", "DELETE", "SET", "MERGE", "DROP", "REMOVE", "DETACH", "ALTER",
     ];
 
     for pattern in &write_patterns {
-        // Check if the pattern appears as a standalone keyword
-        if let Some(pos) = upper.find(pattern) {
-            // Verify it's at a word boundary (start of string or preceded by whitespace/paren)
-            if pos == 0 {
-                return true;
+        // Check ALL occurrences of the pattern, not just the first
+        let pattern_len = pattern.len();
+        let bytes = upper.as_bytes();
+        let mut search_start = 0;
+        while let Some(offset) = upper[search_start..].find(pattern) {
+            let pos = search_start + offset;
+            search_start = pos + 1;
+
+            // Left boundary: start of string or preceded by whitespace/paren/brace/semicolon
+            let left_ok = pos == 0 || matches!(
+                bytes[pos - 1],
+                b' ' | b'\n' | b'\t' | b'(' | b'{' | b';'
+            );
+            if !left_ok {
+                continue;
             }
-            let prev_byte = upper.as_bytes()[pos - 1];
-            if prev_byte == b' '
-                || prev_byte == b'\n'
-                || prev_byte == b'\t'
-                || prev_byte == b'('
-                || prev_byte == b'{'
-                || prev_byte == b';'
-            {
+
+            // Right boundary: end of string or followed by whitespace/paren/brace/semicolon
+            let end_pos = pos + pattern_len;
+            let right_ok = end_pos >= bytes.len() || matches!(
+                bytes[end_pos],
+                b' ' | b'\n' | b'\t' | b'(' | b')' | b'{' | b'}' | b';'
+            );
+            if right_ok {
                 return true;
             }
         }
@@ -141,6 +179,25 @@ mod tests {
     fn test_is_write_query_case_insensitive() {
         assert!(is_write_query("create (n:File {id: '1'})"));
         assert!(is_write_query("match (n) delete n"));
+    }
+
+    #[test]
+    fn test_is_write_query_string_literal_comment_bypass() {
+        // Regression: a `//` inside a string literal must NOT be treated as
+        // a line comment, otherwise stripping it would also discard a real
+        // CREATE / DELETE / SET that follows on the same line and bypass
+        // the write check entirely.
+        assert!(is_write_query(
+            "MATCH (n) WHERE n.text = \"// foo\" CREATE (m:File {id: 'x'}) RETURN m"
+        ));
+        assert!(is_write_query(
+            "MATCH (n) WHERE n.text = '/* x */' DELETE n"
+        ));
+        // Comments OUTSIDE strings still get stripped, so a write keyword
+        // hidden in a real comment is not flagged.
+        assert!(!is_write_query(
+            "// CREATE (n:File)\nMATCH (n) RETURN n"
+        ));
     }
 
     #[test]

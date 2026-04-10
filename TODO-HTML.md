@@ -668,30 +668,45 @@ Utiliser `history.pushState()` pour pouvoir naviguer avec les boutons du navigat
 
 ---
 
-## Plan de ce soir (réaliste ~6h)
+---
 
-### Sprint 1 : Quick wins visuels (1h30)
-- [x] 2.1 Coloration syntaxique (Highlight.js CDN)
-- [x] 2.2 Bouton "Copier" sur les blocs de code
-- [x] 2.4 Scroll spy TOC
-- [x] 2.8 Icônes sidebar
-- [x] 4.4 Animation transition pages
+## Roadmap & Statut — ÉTAT ACTUEL : NIVEAU DEEPWIKI ATTEINT 🚀
 
-### Sprint 2 : Recherche + Navigation (2h)
-- [ ] 2.3 Recherche plein texte
-- [ ] 2.6 Previous/Next en JS
-- [ ] 2.7 Mobile hamburger
-- [ ] 2.5 Callouts (info/warning/danger)
+### ✅ SPRINT 1 : FONDATIONS & DESIGN SYSTEM (COMPLÉTÉ)
+- [x] **Moteur SPA** : Navigation fluide avec `history.pushState`.
+- [x] **Design System** : Icônes Lucide, thème sombre/clair dynamique.
+- [x] **Coloration Syntaxique** : Highlight.js avec bouton Copier.
+- [x] **Scroll Spy** : Table des matières active.
+- [x] **Animation de Transition** : Transitions fluides entre les pages.
 
-### Sprint 3 : Enrichissement LLM (2h30)
-- [ ] 1.1 Mode --enrich (pipeline complet)
-- [ ] 1.2 Validation post-enrichissement
-- [ ] 1.3 Cross-références automatiques
+### ✅ SPRINT 2 : NAVIGATION & RECHERCHE (COMPLÉTÉ)
+- [x] **Recherche Plein Texte (Ctrl+K)** : Moteur JS intégré avec surbrillance.
+- [x] **Navigation Avancée** : Fil d'ariane (Breadcrumbs) et boutons Précédent/Suivant.
+- [x] **Admonitions (Callouts)** : Support `:::note`, `:::tip`, `:::warning`, `:::danger`.
+- [x] **Temps de lecture** : Calcul automatique (~X min).
+- [x] **Mobile-Friendly** : Menu hamburger et layout responsive.
 
-### Si il reste du temps
-- [ ] 3.1 One-pager "Vue rapide"
-- [ ] 4.3 CSS d'impression
-- [ ] 4.2 Mermaid fullscreen
+### ✅ SPRINT 3 : INTELLIGENCE & MÉTIER (COMPLÉTÉ)
+- [x] **Enrichissement LLM** : Pipeline `--enrich` avec validation et citations.
+- [x] **Diagrammes Pro** : Zoom et Plein écran sur les Mermaid.
+- [x] **Cross-références Automatiques** : Liens intelligents sur les noms de symboles.
+- [x] **Dashboard Overview** : Cartes métriques interactives (Files, Symbols, Controllers).
+- [x] **Pages Métier (Alise Specific)** : B1-B5 (Courriers, Paiements, Barèmes).
+
+### ✅ SPRINT 4 : GESTION DES CONNAISSANCES (COMPLÉTÉ)
+- [x] **Export Obsidian Vault** : Vision Karpathy (Journal, Index, Lint).
+- [x] **GraphRAG Documentation** : Ingestion de manuels utilisateur liés au code.
+- [x] **Widget Feedback** : Vote interactif par page.
+- [x] **IA Agentique** : Fichier `.claudecode` pour assister les IA dans le Vault.
+
+---
+
+## Prochaines Étapes (V4 - Futur)
+- [ ] **Génération de PDF** : Export haute fidélité via CSS print.
+- [ ] **Offline Pro** : Téléchargement automatique des assets JS/CSS locaux.
+- [ ] **Analyse de Diff** : Comparer visuellement deux versions de la documentation.
+- [ ] **Chat Intégré** : Interface de chat directe dans le wiki HTML.
+
 
 ---
 

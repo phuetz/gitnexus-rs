@@ -10,7 +10,7 @@ use tracing::info;
 
 use gitnexus_core::graph::KnowledgeGraph;
 
-use super::markdown::{markdown_to_html, extract_title_from_md};
+use super::markdown::{markdown_to_html, extract_title_from_md, html_escape};
 
 pub(super) fn generate_html_site(
     graph: &KnowledgeGraph,
@@ -23,16 +23,24 @@ pub(super) fn generate_html_site(
         ));
     }
 
-    // 1. Collect all .md files from docs/
-    let mut pages: BTreeMap<String, (String, String)> = BTreeMap::new(); // id -> (title, html_content)
+    // 1. Collect all .md files from docs/.
+    // Titles are HTML-escaped at extraction time because they flow into three
+    // sinks where they would otherwise allow script injection: the sidebar
+    // HTML (interpolated into `<a>` text), the `pages_json` object consumed
+    // via `innerHTML` in `buildBreadcrumb`/`buildPageNav`, and the
+    // `search_index` rendered via `innerHTML` in the search overlay. All
+    // three consumers render titles as HTML, so escaping once at the source
+    // closes every downstream vector.
+    let mut pages: BTreeMap<String, (String, String)> = BTreeMap::new(); // id -> (escaped title, html_content)
 
-    for entry in std::fs::read_dir(&docs_dir)? {
+    for entry in std::fs::read_dir(docs_dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "md") {
             let content = std::fs::read_to_string(&path)?;
             let filename = path.file_stem().unwrap().to_string_lossy().to_string();
-            let title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());
+            let raw_title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());
+            let title = html_escape(&raw_title);
             let html = markdown_to_html(&content);
             pages.insert(filename, (title, html));
         }
@@ -47,7 +55,8 @@ pub(super) fn generate_html_site(
             if path.extension().is_some_and(|e| e == "md") {
                 let content = std::fs::read_to_string(&path)?;
                 let filename = path.file_stem().unwrap().to_string_lossy().to_string();
-                let title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());
+                let raw_title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());
+                let title = html_escape(&raw_title);
                 let html = markdown_to_html(&content);
                 pages.insert(format!("modules/{}", filename), (title, html));
             }
@@ -63,7 +72,8 @@ pub(super) fn generate_html_site(
             if path.extension().is_some_and(|e| e == "md") {
                 let content = std::fs::read_to_string(&path)?;
                 let filename = path.file_stem().unwrap().to_string_lossy().to_string();
-                let title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());
+                let raw_title = extract_title_from_md(&content).unwrap_or_else(|| filename.clone());
+                let title = html_escape(&raw_title);
                 let html = markdown_to_html(&content);
                 pages.insert(format!("processes/{}", filename), (title, html));
             }
@@ -224,9 +234,8 @@ pub(super) fn generate_html_site(
     let edge_count = graph.relationship_count();
     let project_name = repo_path
         .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "repository".to_string());
     let stats_str = format!(
         "{} nodes &middot; {} relations &middot; {} pages",
         node_count,
@@ -234,14 +243,28 @@ pub(super) fn generate_html_site(
         pages.len()
     );
 
-    // 5. Get first page content
+    // 5. Get first page content.
+    // Use `first_page_id` (computed from the preferred overview order) so the
+    // initially-rendered page matches the sidebar's `active` link. Previously
+    // this took `pages.values().next()`, i.e. the BTreeMap's alphabetically
+    // first entry — e.g. "architecture" — while the sidebar highlighted
+    // "overview" as active. The DOMContentLoaded handler does NOT call
+    // showPage() on startup, so that mismatch was visible until the user
+    // clicked something.
     let first_page_html = pages
-        .values()
-        .next()
+        .get(first_page_id)
         .map(|(_, html)| html.as_str())
+        .or_else(|| pages.values().next().map(|(_, html)| html.as_str()))
         .unwrap_or("<h1>Documentation</h1><p>No pages generated yet.</p>");
 
     // 6. Assemble HTML from template
+    let index_json_path = docs_dir.join("_index.json");
+    let index_json = if index_json_path.exists() {
+        std::fs::read_to_string(&index_json_path)?
+    } else {
+        "{}".to_string()
+    };
+
     let pages_json_str = serde_json::to_string(&pages_json)?;
     let final_html = build_html_template(
         &project_name,
@@ -251,6 +274,7 @@ pub(super) fn generate_html_site(
         &pages_json_str,
         &page_order_json,
         &search_index_json,
+        &index_json,
     );
 
     // 7. Check for local mermaid.min.js (offline support)
@@ -294,7 +318,17 @@ fn build_html_template(
     pages_json: &str,
     page_order_json: &str,
     search_index_json: &str,
+    index_json: &str,
 ) -> String {
+    // `project_name` is derived from the OS folder name (`repo_path.file_name()`)
+    // and `stats` is built from internal counts, but the folder name is
+    // attacker-controllable when indexing untrusted repositories. Both values
+    // are interpolated directly into HTML element bodies and the <title> tag,
+    // so escape them to prevent script injection in the generated index.html.
+    let project_name = super::markdown::html_escape(project_name);
+    let stats = super::markdown::html_escape(stats);
+    let project_name = project_name.as_str();
+    let stats = stats.as_str();
     format!(
         r##"<!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -302,6 +336,7 @@ fn build_html_template(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{project_name} — Documentation</title>
+  <script src="https://unpkg.com/lucide@latest"></script>
   <script src="mermaid.min.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';s.onload=function(){{if(typeof mermaid!=='undefined'){{mermaid.initialize({{theme:'dark',startOnLoad:false,securityLevel:'loose'}});renderMermaid();}}}};document.head.appendChild(s);"></script>
   <link rel="stylesheet" href="hljs-dark.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github-dark.min.css'">
   <script src="hljs.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/highlight.js@11/lib/core.min.js'"></script>
@@ -376,7 +411,15 @@ fn build_html_template(
                     border:1px solid var(--border); border-radius:8px; padding:6px 12px;
                     color:var(--text-muted); cursor:pointer; font-size:12px; z-index:100; }}
     .mermaid {{ background:var(--bg-surface); border-radius:8px; padding:16px; margin:16px 0;
-               border:1px solid var(--border); text-align:center; }}
+               border:1px solid var(--border); text-align:center; cursor: zoom-in; position: relative; }}
+    .mermaid:hover::after {{ content: 'Click to zoom'; position: absolute; top: 8px; right: 8px; font-size: 10px; color: var(--text-muted); background: var(--bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }}
+    .mermaid-modal {{
+      display: none; position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,0.9); align-items: center; justify-content: center;
+      padding: 40px; cursor: zoom-out;
+    }}
+    .mermaid-modal.open {{ display: flex; }}
+    .mermaid-modal svg {{ max-width: 100%; max-height: 100%; transform-origin: center; transition: transform 0.2s; }}
     .search {{ padding:8px 16px; }}
     .search input {{ width:100%; padding:6px 10px; background:var(--bg); border:1px solid var(--border);
                     border-radius:6px; color:var(--text); font-size:12px; outline:none; }}
@@ -411,16 +454,74 @@ fn build_html_template(
     .code-wrapper:hover .copy-btn {{ opacity: 1; }}
     .copy-btn.copied {{ color: var(--accent); }}
     .callout {{
-      border-radius: 8px; padding: 12px 16px; margin: 16px 0;
-      border-left: 4px solid; display: flex; gap: 10px;
+      border-radius: 8px; padding: 16px 20px; margin: 20px 0;
+      border-left: 4px solid; display: flex; gap: 12px;
+      font-size: 14px;
     }}
-    .callout-icon {{ font-size: 16px; flex-shrink: 0; margin-top: 2px; }}
+    .callout-icon {{ flex-shrink: 0; margin-top: 2px; color: inherit; opacity: 0.8; }}
+    .callout-icon svg {{ width: 20px; height: 20px; }}
     .callout-content {{ flex: 1; }}
-    .callout-content p {{ margin: 0; }}
+    .callout-title {{ font-weight: 600; font-size: 14px; margin-bottom: 6px; letter-spacing: 0.02em; color: var(--text); }}
+    .callout-content p {{ margin: 0; line-height: 1.6; color: var(--text-muted); }}
+    .callout-content p + p {{ margin-top: 12px; }}
     .callout-note {{ background: rgba(106,161,248,0.08); border-color: var(--accent); }}
     .callout-tip {{ background: rgba(74,222,128,0.08); border-color: #4ade80; }}
     .callout-warning {{ background: rgba(251,191,36,0.08); border-color: #fbbf24; }}
     .callout-danger {{ background: rgba(248,113,113,0.08); border-color: #f87171; }}
+    
+    /* Dashboard Cards */
+    .dashboard-grid {{
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px; margin: 24px 0;
+    }}
+    .stat-card {{
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px; text-align: center;
+      transition: transform 0.2s, border-color 0.2s;
+    }}
+    .stat-card:hover {{ transform: translateY(-2px); border-color: var(--accent); }}
+    .stat-card i {{ color: var(--accent); margin-bottom: 12px; display: block; }}
+    .stat-card .value {{ font-size: 28px; font-weight: 700; color: var(--text); display: block; }}
+    .stat-card .label {{ font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }}
+    
+    /* Chat Widget */
+    .chat-widget {{ position: fixed; bottom: 24px; right: 24px; z-index: 1000; font-family: var(--font); }}
+    .chat-toggle {{
+      width: 56px; height: 56px; border-radius: 28px; background: var(--accent); color: white;
+      border: none; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      display: flex; align-items: center; justify-content: center; transition: transform 0.2s;
+    }}
+    .chat-toggle:hover {{ transform: scale(1.05); }}
+    .chat-panel {{
+      position: absolute; bottom: 72px; right: 0; width: 380px; height: 500px;
+      background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2); display: none; flex-direction: column; overflow: hidden;
+    }}
+    .chat-panel.open {{ display: flex; }}
+    .chat-header {{
+      padding: 12px 16px; background: var(--bg-surface); border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }}
+    .chat-header-title {{ display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }}
+    .chat-close {{ background: none; border: none; color: var(--text-muted); cursor: pointer; }}
+    .chat-messages {{ flex: 1; overflow-y: auto; padding: 16px; display: flex; flexDirection: column; gap: 12px; }}
+    .message {{ padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; max-width: 85%; }}
+    .message.user {{ background: var(--accent); color: white; align-self: flex-end; border-bottom-right-radius: 2px; }}
+    .message.assistant {{ background: var(--bg-3); color: var(--text); align-self: flex-start; border-bottom-left-radius: 2px; }}
+    .message.system {{ background: transparent; color: var(--text-muted); align-self: center; text-align: center; font-style: italic; font-size: 12px; }}
+    .chat-input-container {{ padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; }}
+    #chat-input {{
+      flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 12px; color: var(--text); font-size: 13px; resize: none; min-height: 36px; max-height: 120px;
+      outline: none;
+    }}
+    #chat-input:focus {{ border-color: var(--accent); }}
+    #chat-send {{
+      width: 36px; height: 36px; border-radius: 18px; background: var(--accent); color: white;
+      border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }}
+    #chat-send:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+
     .breadcrumb {{
       font-size: 12px; color: var(--text-muted); margin-bottom: 16px;
       display: flex; gap: 6px; align-items: center;
@@ -494,6 +595,7 @@ fn build_html_template(
       <div id="search-results" style="max-height:400px;overflow-y:auto;padding:8px;"></div>
     </div>
   </div>
+  <div id="mermaid-modal" class="mermaid-modal" onclick="closeMermaidModal()"></div>
   <header class="header">
     <h1>{project_name}</h1>
     <span class="stats">{stats}</span>
@@ -503,7 +605,7 @@ fn build_html_template(
     <div class="search">
       <input type="text" placeholder="Filter pages..." oninput="filterPages(this.value)">
     </div>
-    {sidebar_nav}
+    <div id="dynamic-sidebar"></div>
   </nav>
   <main class="main" id="content">
     {first_page_content}
@@ -512,25 +614,113 @@ fn build_html_template(
     <h3>On this page</h3>
     <div id="toc-links"></div>
   </aside>
+
+  <!-- Integrated Chat UI -->
+  <div id="chat-widget" class="chat-widget">
+    <button id="chat-toggle" class="chat-toggle" onclick="toggleChat()">
+      <i data-lucide="message-square"></i>
+      <span class="chat-badge" id="chat-badge" style="display:none"></span>
+    </button>
+    <div id="chat-panel" class="chat-panel">
+      <div class="chat-header">
+        <div class="chat-header-title">
+          <i data-lucide="bot" style="width:16px;height:16px;"></i>
+          <span>GitNexus Assistant</span>
+        </div>
+        <button class="chat-close" onclick="toggleChat()"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+      </div>
+      <div id="chat-messages" class="chat-messages">
+        <div class="message system">
+          Bonjour ! Je suis l'assistant GitNexus. Je peux répondre à vos questions sur ce projet en utilisant le graphe de connaissances.
+        </div>
+      </div>
+      <div class="chat-input-container">
+        <textarea id="chat-input" placeholder="Posez une question sur le code..." onkeydown="handleChatKey(event)"></textarea>
+        <button id="chat-send" onclick="sendChatMessage()"><i data-lucide="send" style="width:16px;height:16px;"></i></button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const PAGES = {pages_json};
     const PAGE_ORDER = {page_order_json};
     const SEARCH_INDEX = {search_index_json};
+    const INDEX_JSON = {index_json};
     let currentPage = null;
-    function showPage(id, anchor) {{
+
+    function buildDynamicSidebar() {{
+      const container = document.getElementById('dynamic-sidebar');
+      if (!INDEX_JSON || !Array.isArray(INDEX_JSON)) {{
+        container.innerHTML = `{sidebar_nav}`; // Fallback
+        return;
+      }}
+
+      let html = '';
+      INDEX_JSON.forEach((section, i) => {{
+        if (section.children && section.children.length > 0) {{
+          html += `<div class="section-title"><i data-lucide="${{section.icon || 'folder'}}" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;"></i>${{section.title.toUpperCase()}}</div>`;
+          section.children.forEach(child => {{
+            // Use path or ID to construct the data-page ID.
+            const pageId = child.path ? child.path.replace('.md', '') : child.id;
+            html += `<a href="#" data-page="${{pageId}}" onclick="showPage('${{pageId}}'); return false;"><i data-lucide="${{child.icon || 'file-text'}}" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;"></i>${{child.title}}</a>`;
+          }});
+        }} else {{
+            const pageId = section.path ? section.path.replace('.md', '') : section.id;
+            html += `<a href="#" data-page="${{pageId}}" onclick="showPage('${{pageId}}'); return false;"><i data-lucide="${{section.icon || 'file-text'}}" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;"></i>${{section.title}}</a>`;
+        }}
+      }});
+      container.innerHTML = html;
+    }}
+
+    function showPage(id, anchor, skipHistory = false) {{
       const page = PAGES[id];
       if (!page) return;
       currentPage = id;
+      
+      if (!skipHistory) {{
+        const url = "#" + id + (anchor ? "%23" + anchor : "");
+        history.pushState({{id: id, anchor: anchor}}, "", url);
+      }}
+
       const content = document.getElementById('content');
       content.style.opacity = '0';
       setTimeout(() => {{
         content.innerHTML = page.html;
         const breadcrumb = buildBreadcrumb(id, page.title);
         content.insertAdjacentHTML('afterbegin', breadcrumb);
+        
+        // Estimated reading time
+        const wordCount = content.textContent.split(/\\s+/).length;
+        const readTime = Math.max(1, Math.ceil(wordCount / 200));
+        content.insertAdjacentHTML('afterbegin', `<div class="reading-time" style="font-size:12px; color:var(--text-muted); margin-bottom:16px;"><i data-lucide="clock" style="width:12px;height:12px;vertical-align:middle;margin-right:4px;"></i>~${{readTime}} min de lecture</div>`);
+
+        // Feedback buttons
+        const feedbackHtml = `
+          <div class="page-feedback" style="margin-top:40px; padding-top:20px; border-top:1px solid var(--border); text-align:center;">
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">Cette page est-elle utile ?</p>
+            <div style="display:flex; gap:10px; justify-content:center;">
+              <button class="feedback-btn" onclick="submitFeedback('${{id}}', true)" style="background:var(--bg-surface); border:1px solid var(--border); border-radius:6px; padding:6px 12px; cursor:pointer; display:flex; align-items:center; gap:6px;"><i data-lucide="thumbs-up" style="width:14px;height:14px;"></i> Oui</button>
+              <button class="feedback-btn" onclick="submitFeedback('${{id}}', false)" style="background:var(--bg-surface); border:1px solid var(--border); border-radius:6px; padding:6px 12px; cursor:pointer; display:flex; align-items:center; gap:6px;"><i data-lucide="thumbs-down" style="width:14px;height:14px;"></i> Non</button>
+            </div>
+            <div id="feedback-thanks" style="display:none; color:#4ade80; font-size:12px; margin-top:8px;">Merci pour votre retour !</div>
+          </div>
+        `;
+        content.insertAdjacentHTML('beforeend', feedbackHtml);
+        
         content.insertAdjacentHTML('beforeend', buildPageNav(id));
         document.querySelectorAll('.sidebar a[data-page]').forEach(a => a.classList.remove('active'));
         const link = document.querySelector('.sidebar a[data-page="' + id + '"]');
         if (link) {{ link.classList.add('active'); link.scrollIntoView({{block:'nearest'}}); }}
+        
+        // Make `<details>` list items clickable if they look like paths
+        document.querySelectorAll('details li').forEach(li => {{
+            const text = li.textContent.trim();
+            if (text.includes('/') && text.includes('.')) {{
+                // Create a basic GitHub-like file icon
+                li.innerHTML = `<i data-lucide="file-code" style="width:12px;height:12px;vertical-align:middle;margin-right:6px;opacity:0.7;"></i><span style="font-family:monospace; font-size:12px; cursor:copy;" onclick="navigator.clipboard.writeText('${{text}}'); this.style.color='var(--accent)'; setTimeout(()=>this.style.color='', 1000);" title="Click to copy path">${{text}}</span>`;
+            }}
+        }});
+
         buildToc();
         addCopyButtons();
         renderMermaid();
@@ -541,7 +731,23 @@ fn build_html_template(
             }}
           }});
         }}
+        if (typeof lucide !== 'undefined') {{
+          lucide.createIcons({{
+            attrs: {{
+              class: ["lucide-icon"]
+            }}
+          }});
+        }}
         initScrollSpy();
+        
+        // Restore feedback state
+        const feedbackState = localStorage.getItem('feedback_' + id);
+        if (feedbackState) {{
+            document.getElementById('feedback-thanks').style.display = 'block';
+            document.getElementById('feedback-thanks').textContent = 'Vous avez déjà évalué cette page.';
+            document.querySelectorAll('.feedback-btn').forEach(btn => btn.style.display = 'none');
+        }}
+
         content.style.opacity = '1';
         if (anchor) {{
           setTimeout(() => {{
@@ -553,6 +759,18 @@ fn build_html_template(
         }}
       }}, 100);
     }}
+
+    function submitFeedback(id, isPositive) {{
+        localStorage.setItem('feedback_' + id, isPositive ? 'yes' : 'no');
+        document.getElementById('feedback-thanks').style.display = 'block';
+        document.querySelectorAll('.feedback-btn').forEach(btn => btn.style.display = 'none');
+    }}
+
+    window.onpopstate = function(event) {{
+      if (event.state && event.state.id) {{
+        showPage(event.state.id, event.state.anchor, true);
+      }}
+    }};
     function buildBreadcrumb(id, title) {{
       const parts = id.split('/');
       let html = '<div class="breadcrumb"><a href="#" onclick="showPage(PAGE_ORDER[0]); return false;">Documentation</a>';
@@ -628,19 +846,145 @@ fn build_html_template(
       }});
     }}
     function renderMermaid() {{
-      document.querySelectorAll('pre code.language-mermaid').forEach(block => {{
-        const div = document.createElement('div');
-        div.className = 'mermaid';
-        div.textContent = block.textContent;
-        block.parentElement.replaceWith(div);
-      }});
-      const nodes = document.querySelectorAll('.mermaid');
-      if (nodes.length === 0) return;
+      const nodes = document.querySelectorAll('pre code.language-mermaid');
+      if (nodes.length > 0) {{
+        nodes.forEach(block => {{
+          const div = document.createElement('div');
+          div.className = 'mermaid';
+          div.textContent = block.textContent;
+          block.parentElement.replaceWith(div);
+        }});
+      }}
       if (typeof mermaid !== 'undefined') {{
-        try {{ mermaid.run({{nodes}}); }} catch(e) {{ console.warn('Mermaid render error:', e); }}
+        try {{
+          mermaid.run();
+          setTimeout(setupMermaidZoom, 200);
+        }} catch(e) {{ console.warn('Mermaid render error:', e); }}
       }} else {{
         setTimeout(renderMermaid, 500);
       }}
+    }}
+
+    function setupMermaidZoom() {{
+      document.querySelectorAll('.mermaid').forEach(div => {{
+        div.onclick = (e) => {{
+          const svg = div.querySelector('svg');
+          if (svg) openMermaidModal(svg.cloneNode(true));
+        }};
+      }});
+    }}
+
+    function openMermaidModal(svg) {{
+      const modal = document.getElementById('mermaid-modal');
+      modal.innerHTML = '';
+      modal.appendChild(svg);
+      modal.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      
+      let scale = 1;
+      svg.style.transform = `scale(${{scale}})`;
+      modal.onwheel = (e) => {{
+        e.preventDefault();
+        scale += e.deltaY * -0.001;
+        scale = Math.min(Math.max(.125, scale), 4);
+        svg.style.transform = `scale(${{scale}})`;
+      }};
+    }}
+
+    function closeMermaidModal() {{
+      const modal = document.getElementById('mermaid-modal');
+      modal.classList.remove('open');
+      document.body.style.overflow = '';
+    }}
+
+    /* Chat Logic */
+    function toggleChat() {{
+      const panel = document.getElementById('chat-panel');
+      panel.classList.toggle('open');
+      if (panel.classList.contains('open')) {{
+        document.getElementById('chat-input').focus();
+        document.getElementById('chat-badge').style.display = 'none';
+      }}
+    }}
+
+    function handleChatKey(e) {{
+      if (e.key === 'Enter' && !e.shiftKey) {{
+        e.preventDefault();
+        sendChatMessage();
+      }}
+    }}
+
+    async function sendChatMessage() {{
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      addMessage(text, 'user');
+      input.value = '';
+      input.style.height = 'auto';
+
+      const sendBtn = document.getElementById('chat-send');
+      sendBtn.disabled = true;
+
+      const loadingMsg = addMessage('...', 'assistant');
+      loadingMsg.classList.add('pulse-subtle');
+
+      try {{
+        // We assume the server is running on the same host if served via 'gitnexus serve'
+        const repoName = document.querySelector('header h1').textContent;
+        const response = await fetch('/api/chat', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{
+            question: text,
+            repo: repoName,
+            history: getChatHistory()
+          }})
+        }});
+
+        if (!response.ok) throw new Error('Erreur serveur');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        loadingMsg.textContent = '';
+        loadingMsg.classList.remove('pulse-subtle');
+
+        while (true) {{
+          const {{ done, value }} = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, {{ stream: true }});
+          // Simple parsing of SSE or raw stream
+          loadingMsg.textContent += chunk;
+          const container = document.getElementById('chat-messages');
+          container.scrollTop = container.scrollHeight;
+        }}
+      }} catch (err) {{
+        loadingMsg.textContent = "Désolé, je ne peux pas répondre pour le moment. Assurez-vous que 'gitnexus serve' est en cours d'exécution.";
+        loadingMsg.classList.add('error');
+      }} finally {{
+        sendBtn.disabled = false;
+      }}
+    }}
+
+    function addMessage(text, role) {{
+      const container = document.getElementById('chat-messages');
+      const div = document.createElement('div');
+      div.className = `message ${{role}}`;
+      div.textContent = text;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+      return div;
+    }}
+
+    function getChatHistory() {{
+      const messages = [];
+      document.querySelectorAll('.message.user, .message.assistant').forEach(msg => {{
+        messages.push({{
+          role: msg.classList.contains('user') ? 'user' : 'assistant',
+          content: msg.textContent
+        }});
+      }});
+      return messages.slice(-10);
     }}
     function initSearch() {{
       const searchInput = document.getElementById('search-input');
@@ -714,6 +1058,7 @@ fn build_html_template(
         const theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'default' : 'dark';
         mermaid.initialize({{ theme, startOnLoad: false, securityLevel: 'loose' }});
       }}
+      buildDynamicSidebar();
       buildToc();
       renderMermaid();
       addCopyButtons();
@@ -723,6 +1068,13 @@ fn build_html_template(
         document.querySelectorAll('pre code').forEach(block => {{
           if (!block.classList.contains('language-mermaid')) {{
             hljs.highlightElement(block);
+          }}
+        }});
+      }}
+      if (typeof lucide !== 'undefined') {{
+        lucide.createIcons({{
+          attrs: {{
+            class: ["lucide-icon"]
           }}
         }});
       }}

@@ -101,13 +101,14 @@ fn build_field_type_map(
 /// Resolve all extracted calls and create CALLS edges.
 ///
 /// Resolution tiers:
-/// 0. Receiver-aware: _service.Method() → resolve via DI type map (C# only)
-/// 1. Same-file exact match
-/// 2a. Named import binding chain
-/// 2b. Package-scoped fuzzy match
-/// 3. Global fuzzy match
+/// - 0: Receiver-aware: _service.Method() → resolve via DI type map (C# only)
+/// - 1: Same-file exact match
+/// - 2a: Named import binding chain
+/// - 2b: Package-scoped fuzzy match
+/// - 3: Global fuzzy match
 ///
 /// Creates CALLS edges in the graph with confidence based on resolution tier.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_calls(
     graph: &mut KnowledgeGraph,
     extracted: &ExtractedData,
@@ -141,47 +142,40 @@ pub fn resolve_calls(
         ctx.enable_cache(&call.file_path);
 
         // Tier 0: Field-type-aware resolution for C# files
-        // If the calling file has declared "CourriersService courriersService" as a field,
-        // and the called method "CreerCourrier" exists in CourriersService.cs,
-        // create a high-confidence Calls edge.
+        // If the call has a receiver (e.g., _courriersService.CreerCourrier()),
+        // look up the receiver's type from the field map and resolve the method
+        // in that specific service type's file.
         if call.file_path.ends_with(".cs") {
-            // Get all service types declared as fields in this file
-            let file_types: Vec<&String> = field_type_map
-                .iter()
-                .filter(|((fp, _), _)| fp == &call.file_path)
-                .map(|(_, type_name)| type_name)
-                .collect();
-
-            if !file_types.is_empty() {
-                // Check if the called method exists in any of these service types' files
-                if let Some(candidates) = symbol_table.lookup_global(&call.called_name) {
-                    let target = candidates.iter().find(|def| {
-                        (def.symbol_type == NodeLabel::Method || def.symbol_type == NodeLabel::Function)
-                            && file_types.iter().any(|svc_type| {
-                                let impl_name = svc_type.strip_prefix('I').unwrap_or(svc_type);
-                                def.file_path.contains(impl_name)
+            if let Some(ref receiver) = call.receiver_name {
+                // Look up the specific receiver's type from the field map
+                if let Some(svc_type) = field_type_map.get(&(call.file_path.clone(), receiver.clone())) {
+                    if let Some(candidates) = symbol_table.lookup_global(&call.called_name) {
+                        let impl_name = svc_type.strip_prefix('I').unwrap_or(svc_type);
+                        let target = candidates.iter().find(|def| {
+                            (def.symbol_type == NodeLabel::Method || def.symbol_type == NodeLabel::Function)
+                                && (def.file_path.contains(impl_name)
                                     || def.owner_id.as_deref()
                                         .map(|o| o.contains(impl_name))
-                                        .unwrap_or(false)
-                            })
-                    });
+                                        .unwrap_or(false))
+                        });
 
-                    if let Some(target_def) = target {
-                        let edge_id = format!("calls_di_{}_{}", call.source_id, target_def.node_id);
-                        if graph.get_relationship(&edge_id).is_none() {
-                            graph.add_relationship(GraphRelationship {
-                                id: edge_id,
-                                source_id: call.source_id.clone(),
-                                target_id: target_def.node_id.clone(),
-                                rel_type: RelationshipType::Calls,
-                                confidence: 0.85,
-                                reason: format!("field-type:{}", call.called_name),
-                                step: None,
-                            });
-                            edge_count += 1;
-                            receiver_resolved += 1;
+                        if let Some(target_def) = target {
+                            let edge_id = format!("calls_di_{}_{}", call.source_id, target_def.node_id);
+                            if graph.get_relationship(&edge_id).is_none() {
+                                graph.add_relationship(GraphRelationship {
+                                    id: edge_id,
+                                    source_id: call.source_id.clone(),
+                                    target_id: target_def.node_id.clone(),
+                                    rel_type: RelationshipType::Calls,
+                                    confidence: 0.85,
+                                    reason: format!("field-type:{}:{}", receiver, call.called_name),
+                                    step: None,
+                                });
+                                edge_count += 1;
+                                receiver_resolved += 1;
+                            }
+                            continue;
                         }
-                        continue;
                     }
                 }
             }

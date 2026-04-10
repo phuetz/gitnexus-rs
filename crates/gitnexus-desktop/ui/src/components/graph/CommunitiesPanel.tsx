@@ -18,9 +18,12 @@ export function CommunitiesPanel() {
   const selectedFeatures = useAppStore((s) => s.selectedFeatures);
   const toggleFeature = useAppStore((s) => s.toggleFeature);
   const resetFeatures = useAppStore((s) => s.resetFeatures);
+  const activeRepo = useAppStore((s) => s.activeRepo);
 
+  // Scope by `activeRepo` — without it, switching repos would keep showing
+  // the previous repo's community list until `staleTime` expired.
   const { data: features } = useQuery({
-    queryKey: ["features"],
+    queryKey: ["features", activeRepo],
     queryFn: () => commands.getFeatures(),
     staleTime: 60_000,
   });

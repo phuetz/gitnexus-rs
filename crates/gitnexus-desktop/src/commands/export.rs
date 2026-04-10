@@ -43,6 +43,52 @@ pub async fn export_docs_docx(state: State<'_, AppState>) -> Result<String, Stri
     Ok(output_path.display().to_string())
 }
 
+/// Export documentation as an Obsidian Vault.
+#[tauri::command]
+pub async fn export_obsidian_vault(state: State<'_, AppState>) -> Result<String, String> {
+    let repo_path = get_active_repo_path(&state).await?;
+    let (graph, _, _, _) = state.get_repo(None).await?;
+    let docs_dir = repo_path.join(".gitnexus").join("docs");
+
+    if !docs_dir.exists() {
+        std::fs::create_dir_all(&docs_dir).map_err(|e| e.to_string())?;
+    }
+
+    use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
+    use gitnexus_output::obsidian::{CommunityInfo, generate_obsidian_vault};
+    use std::collections::BTreeMap;
+
+    let mut communities = BTreeMap::new();
+    for node in graph.iter_nodes() {
+        if node.label == NodeLabel::Community {
+            let label = node.properties.heuristic_label.clone()
+                .unwrap_or_else(|| node.properties.name.clone());
+            communities.insert(node.id.clone(), CommunityInfo {
+                label,
+                description: node.properties.description.clone(),
+                member_ids: Vec::new(),
+            });
+        }
+    }
+
+    for rel in graph.iter_relationships() {
+        if rel.rel_type == RelationshipType::MemberOf {
+            if let Some(info) = communities.get_mut(&rel.target_id) {
+                info.member_ids.push(rel.source_id.clone());
+            }
+        }
+    }
+
+    let vault_path = tokio::task::spawn_blocking(move || {
+        generate_obsidian_vault(&graph, &docs_dir, &communities)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+    .map_err(|e| format!("Obsidian export failed: {}", e))?;
+
+    Ok(vault_path)
+}
+
 /// Get ASP.NET specific stats for the UI dashboard.
 #[tauri::command]
 pub async fn get_aspnet_stats(state: State<'_, AppState>) -> Result<AspNetStats, String> {
@@ -474,7 +520,7 @@ fn table_ooxml(rows: &[&str]) -> (String, Vec<(String, String)>) {
     if rows.is_empty() { return (String::new(), Vec::new()); }
     let mut out = String::new();
     let mut links = Vec::new();
-    let header: Vec<String> = rows[0].split('|').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    let header = parse_table_row(rows[0]);
     let col_count = header.len();
     if col_count == 0 { return (String::new(), Vec::new()); }
     let data_start = if rows.len() > 1 && rows[1].contains("---") { 2 } else { 1 };
@@ -498,7 +544,7 @@ fn table_ooxml(rows: &[&str]) -> (String, Vec<(String, String)>) {
 
     // Data rows
     for (i, row) in rows.iter().enumerate().skip(data_start) {
-        let cells: Vec<String> = row.split('|').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        let cells = parse_table_row(row);
         let bg = if (i - data_start) % 2 == 0 { "FFFFFF" } else { "F5F7FA" };
         out.push_str("<w:tr>");
         for (j, cell) in cells.iter().enumerate() {
@@ -520,6 +566,26 @@ fn table_ooxml(rows: &[&str]) -> (String, Vec<(String, String)>) {
     out.push_str("</w:tbl>");
     out.push_str(r#"<w:p><w:pPr><w:spacing w:after="160"/></w:pPr></w:p>"#);
     (out, links)
+}
+
+/// Split a markdown pipe row into cells, dropping only the leading and
+/// trailing empty tokens that come from the surrounding `|` sentinels.
+/// Interior empty cells (e.g. `| a | | c |`) are preserved — naively
+/// filtering all empties shifts every subsequent column one position left
+/// and corrupts the rendered table, breaking alignment with the header
+/// (which determines `col_count`).
+fn parse_table_row(line: &str) -> Vec<String> {
+    let raw: Vec<String> = line.split('|').map(|s| s.trim().to_string()).collect();
+    let start = if raw.first().is_some_and(|s| s.is_empty()) { 1 } else { 0 };
+    let end = if raw.last().is_some_and(|s| s.is_empty()) {
+        raw.len().saturating_sub(1)
+    } else {
+        raw.len()
+    };
+    if start >= end {
+        return Vec::new();
+    }
+    raw[start..end].to_vec()
 }
 
 /// Handle inline markdown: **bold**, *italic*, `code`, [text](url)

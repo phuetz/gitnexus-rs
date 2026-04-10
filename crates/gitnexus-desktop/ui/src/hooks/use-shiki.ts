@@ -4,7 +4,8 @@
  * them with our own line-number gutter and hover styles.
  */
 import { useState, useEffect } from "react";
-import type { HighlighterCore, ThemedToken } from "shiki";
+import type { ThemedToken } from "@shikijs/core";
+import { getUiHighlighter } from "../lib/shiki-runtime";
 
 /** Map from our backend language names to Shiki grammar ids */
 const LANG_MAP: Record<string, string> = {
@@ -32,41 +33,20 @@ const LANG_MAP: Record<string, string> = {
   shell: "bash",
 };
 
-// Singleton highlighter — created once, reused everywhere
-let highlighterPromise: Promise<HighlighterCore> | null = null;
+const loadedLangs = new Set<string>();
 
-function getHighlighter(): Promise<HighlighterCore> {
-  if (!highlighterPromise) {
-    highlighterPromise = import("shiki").then((shiki) =>
-      shiki.createHighlighter({
-        themes: ["github-dark-default"],
-        langs: [
-          "rust",
-          "typescript",
-          "javascript",
-          "python",
-          "java",
-          "c",
-          "cpp",
-          "csharp",
-          "go",
-          "php",
-          "ruby",
-          "kotlin",
-          "swift",
-          "toml",
-          "json",
-          "yaml",
-          "markdown",
-          "html",
-          "css",
-          "sql",
-          "bash",
-        ],
-      })
-    );
+async function ensureLanguageLoaded(
+  highlighter: Awaited<ReturnType<typeof getUiHighlighter>>,
+  lang: string
+): Promise<boolean> {
+  if (loadedLangs.has(lang)) return true;
+  try {
+    await highlighter.loadLanguage(lang as never);
+    loadedLangs.add(lang);
+    return true;
+  } catch {
+    return false;
   }
-  return highlighterPromise;
 }
 
 export type TokenizedLine = ThemedToken[];
@@ -82,29 +62,35 @@ export function useShikiTokens(
   const [tokens, setTokens] = useState<TokenizedLine[] | null>(null);
   const [ready, setReady] = useState(false);
 
-  // Handle no-code case via render-time state adjustment (avoids setState in effect)
-  const [prevCode, setPrevCode] = useState(code);
-  if (code !== prevCode) {
-    setPrevCode(code);
-    if (!code) {
+  // Handle no-code or unknown-language cases via render-time state adjustment.
+  // (Synchronous setState inside an effect is forbidden by react-hooks/set-state-in-effect.)
+  const lang = LANG_MAP[language || ""];
+  const [prevKey, setPrevKey] = useState<string>(`${code ?? ""}|${lang ?? ""}`);
+  const currentKey = `${code ?? ""}|${lang ?? ""}`;
+  if (currentKey !== prevKey) {
+    setPrevKey(currentKey);
+    if (!code || !lang) {
+      // No code, or language not supported by Shiki — fall back to plain text.
       setTokens(null);
       setReady(true);
     }
   }
 
-  // Async highlighter load for actual code
+  // Async highlighter load for actual code with a supported language.
   useEffect(() => {
     if (!code) return;
+    if (!lang) return;
 
     let cancelled = false;
-    const lang = LANG_MAP[language || ""] || "text";
 
-    getHighlighter()
-      .then((hl) => {
+    getUiHighlighter()
+      .then(async (hl) => {
+        if (cancelled) return;
+        const langOk = await ensureLanguageLoaded(hl, lang);
         if (cancelled) return;
         // codeToTokensBase returns an array of lines, each line is an array of tokens
         const result = hl.codeToTokensBase(code, {
-          lang: lang as never,
+          lang: langOk ? (lang as never) : ("text" as never),
           theme: "github-dark-default",
         });
         setTokens(result);
@@ -120,7 +106,7 @@ export function useShikiTokens(
     return () => {
       cancelled = true;
     };
-  }, [code, language]);
+  }, [code, language, lang]);
 
   return { tokens, ready };
 }

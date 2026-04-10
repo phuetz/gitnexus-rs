@@ -198,6 +198,14 @@ pub fn resolve_method_node(
 
 /// Read source lines from a file given 1-indexed start/end line numbers.
 pub fn extract_source_lines(file_path: &Path, start: u32, end: u32) -> Option<String> {
+    // Reject inverted ranges. Without this guard, `end.saturating_sub(start)`
+    // returns 0 when end < start, then `.saturating_add(1)` makes it 1, so we
+    // would silently return one line at `start` instead of nothing — which
+    // misleads downstream evidence collection (process_doc.rs, trace_doc.rs)
+    // about which lines actually correspond to a step. Fail closed instead.
+    if end < start {
+        return None;
+    }
     let content = std::fs::read_to_string(file_path).ok()?;
     let line_count = end.saturating_sub(start).saturating_add(1) as usize;
     let lines: Vec<&str> = content

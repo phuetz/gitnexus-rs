@@ -1,0 +1,403 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775216941207,
+  "projectRoot": "C:\\Users\\patri\\CascadeProjects\\gitnexus-rs",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Rust",
+        "version": "1.75",
+        "confidence": "high",
+        "markers": [
+          "Cargo.toml"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "axum",
+        "version": null,
+        "category": "backend"
+      }
+    ],
+    "packageManager": "cargo",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "cargo build",
+    "testCommand": "cargo test",
+    "lintCommand": "cargo clippy",
+    "devCommand": "cargo run",
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "Captures": {
+      "path": "Captures",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775216941146,
+      "keyFiles": [
+        "idees.png"
+      ]
+    },
+    "crates": {
+      "path": "crates",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775216941147,
+      "keyFiles": []
+    },
+    "skills": {
+      "path": "skills",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775216941147,
+      "keyFiles": [
+        "languages.md",
+        "src.md"
+      ]
+    },
+    "target": {
+      "path": "target",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775216941148,
+      "keyFiles": []
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 0,
+      "lastAccessed": 1775216941148,
+      "keyFiles": []
+    },
+    "wiki": {
+      "path": "wiki",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775216941148,
+      "keyFiles": [
+        "languages.md",
+        "src.md"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\graph\\GraphExplorer.tsx",
+      "accessCount": 63,
+      "lastAccessed": 1775260918610,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src",
+      "accessCount": 33,
+      "lastAccessed": 1775226297850,
+      "type": "directory"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\stores\\app-store.ts",
+      "accessCount": 22,
+      "lastAccessed": 1775284023564,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\layout\\ModeRouter.tsx",
+      "accessCount": 21,
+      "lastAccessed": 1775260887375,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 17,
+      "lastAccessed": 1775226411090,
+      "type": "directory"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\hooks\\use-sigma.ts",
+      "accessCount": 15,
+      "lastAccessed": 1775245302916,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\chat\\ChatPanel.tsx",
+      "accessCount": 13,
+      "lastAccessed": 1775261808083,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\lib\\tauri-commands.ts",
+      "accessCount": 13,
+      "lastAccessed": 1775284022737,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\repos\\RepoManager.tsx",
+      "accessCount": 12,
+      "lastAccessed": 1775260907325,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\hooks\\use-keyboard-shortcuts.ts",
+      "accessCount": 11,
+      "lastAccessed": 1775221088596,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\src\\commands\\graph.rs",
+      "accessCount": 11,
+      "lastAccessed": 1775261233017,
+      "type": "file"
+    },
+    {
+      "path": "CLAUDE.md",
+      "accessCount": 10,
+      "lastAccessed": 1775284852354,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\App.tsx",
+      "accessCount": 9,
+      "lastAccessed": 1775261532658,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\lib\\graph-adapter.ts",
+      "accessCount": 8,
+      "lastAccessed": 1775245582350,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\diagram\\DiagramView.tsx",
+      "accessCount": 7,
+      "lastAccessed": 1775261259761,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\index.css",
+      "accessCount": 6,
+      "lastAccessed": 1775220468924,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\explorer\\LensSelector.tsx",
+      "accessCount": 6,
+      "lastAccessed": 1775221061941,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\src\\commands\\mod.rs",
+      "accessCount": 6,
+      "lastAccessed": 1775284777232,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\hooks\\use-tauri-query.ts",
+      "accessCount": 5,
+      "lastAccessed": 1775260914943,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\layout\\DetailPanel.tsx",
+      "accessCount": 5,
+      "lastAccessed": 1775260934488,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\src\\types.rs",
+      "accessCount": 5,
+      "lastAccessed": 1775260968537,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\repos\\RepoDashboard.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1775219961950,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\layout\\ModeBar.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1775220454270,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\stores\\chat-store.ts",
+      "accessCount": 4,
+      "lastAccessed": 1775220457796,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\report\\ReportView.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1775260891253,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\src\\commands\\context.rs",
+      "accessCount": 4,
+      "lastAccessed": 1775260894879,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\src\\commands\\impact.rs",
+      "accessCount": 4,
+      "lastAccessed": 1775260895060,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\src\\main.rs",
+      "accessCount": 4,
+      "lastAccessed": 1775260897297,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\main.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1775261533168,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\package.json",
+      "accessCount": 4,
+      "lastAccessed": 1775284024232,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\git\\HotspotsView.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775219670201,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\git\\CouplingView.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775219670683,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\git\\OwnershipView.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775219671767,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\layout\\Sidebar.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775219853347,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\layout\\MainView.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775219856715,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\src",
+      "accessCount": 3,
+      "lastAccessed": 1775220513873,
+      "type": "directory"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\hooks\\use-responsive.ts",
+      "accessCount": 3,
+      "lastAccessed": 1775221030455,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\src\\lib.rs",
+      "accessCount": 3,
+      "lastAccessed": 1775260888776,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\src\\state.rs",
+      "accessCount": 3,
+      "lastAccessed": 1775260899066,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\Cargo.toml",
+      "accessCount": 3,
+      "lastAccessed": 1775260906354,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\layout\\CodeInspectorPanel.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775219607415,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\health\\CodeHealthCard.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775219660928,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\export\\ExportPanel.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775219662269,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\git\\GitAnalyticsDashboard.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775219672159,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\layout\\PanelSeparator.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775219699439,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\graph\\FeatureNavigator.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775245302229,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\vite.config.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775260873908,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\files\\FileTreeView.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775260930408,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\tauri.conf.json",
+      "accessCount": 1,
+      "lastAccessed": 1775217361022,
+      "type": "file"
+    },
+    {
+      "path": "crates\\gitnexus-desktop\\ui\\src\\components\\impact\\ImpactView.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775217372011,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

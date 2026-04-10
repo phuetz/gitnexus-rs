@@ -56,7 +56,7 @@ pub fn process_heritage(
             // Determine edge type based on heritage kind and language
             let rel_type = match heritage.kind.as_str() {
                 "implements" | "heritage.implements" => RelationshipType::Implements,
-                "trait" | "heritage.trait" => RelationshipType::Implements,
+                "trait" | "heritage.trait" | "uses" => RelationshipType::Implements,
                 _ => {
                     // Check language-specific interface patterns
                     let lang =

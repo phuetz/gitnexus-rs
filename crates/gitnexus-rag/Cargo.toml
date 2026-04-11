@@ -9,3 +9,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 pulldown-cmark = "0.9"
+# DOCX ingestion (Open XML = ZIP + XML)
+zip.workspace = true
+quick-xml = "0.38"

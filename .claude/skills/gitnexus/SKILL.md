@@ -25,6 +25,8 @@ Always use the full path when invoking from other projects. Within the gitnexus-
 gitnexus analyze [path]              # Index a repository
 gitnexus analyze [path] --force      # Force re-index
 gitnexus analyze [path] --incremental # Only re-parse changed files
+gitnexus analyze [path] --embeddings  # Generate ONNX semantic embeddings (feature gated)
+gitnexus analyze [path] --skip-git    # Skip git history phases (required for non-git folders)
 gitnexus status                       # Check if index exists
 ```
 
@@ -64,7 +66,7 @@ gitnexus report --path D:\taf\Alise_v2        # Text report with grade A-E
 gitnexus report --path D:\taf\Alise_v2 --json # JSON output
 ```
 
-### 7. Git analytics
+### 7. Git analytics (requires the target to be a git repo)
 
 ```bash
 gitnexus hotspots --path [path]       # Most changed files (last 90 days)
@@ -116,8 +118,9 @@ gitnexus shell                                # REPL with tab completion
 
 ```bash
 gitnexus mcp                                       # Start MCP server (stdio, JSON-RPC 2.0)
-# 13 tools: list_repos, query, context, impact, detect_changes, rename,
-#           cypher, hotspots, coupling, ownership, coverage, diagram, report
+# 15 tools: list_repos, query, context, impact, detect_changes, rename,
+#           cypher, hotspots, coupling, ownership, coverage, diagram, report,
+#           business, analyze_execution_trace
 # 5 prompts: detect_impact, generate_map, analyze_hotspots, find_dead_code, trace_dependencies
 ```
 
@@ -133,6 +136,7 @@ gitnexus serve --port 3000 --host 0.0.0.0          # Expose on all interfaces
 #   GET  /api/repos/:name/search?q=  — Search symbols
 #   GET  /api/repos/:name/stats      — Repository statistics
 #   GET  /api/repos/:name/hotspots   — File hotspots
+#   POST /api/chat                   — Streaming chat endpoint
 ```
 
 ### 13. Validate LLM config
@@ -147,13 +151,36 @@ gitnexus config test                              # Check API key + test connect
 gitnexus list                                      # Show all indexed repositories
 ```
 
-### 15. Generate documentation
+### 15. Generate documentation (all formats)
 
 ```bash
-gitnexus generate html --path [path]                    # HTML site (DeepWiki-style)
-gitnexus generate html --path [path] --enrich           # With LLM enrichment
-gitnexus generate docs --path [path]                    # Markdown pages
-gitnexus generate all --path [path]                     # All formats
+gitnexus generate context   --path [path]    # AGENTS.md at repo root
+gitnexus generate agents    --path [path]    # Alias for context
+gitnexus generate wiki      --path [path]    # /wiki/*.md (one per module)
+gitnexus generate skills    --path [path]    # /skills/*.md
+gitnexus generate docs      --path [path]    # .gitnexus/docs/*.md (overview, architecture, modules, entities, functional_guide, project_health, deployment…)
+gitnexus generate docx      --path [path]    # documentation.docx (Word, full doc with TOC)
+gitnexus generate html      --path [path]    # DeepWiki-style HTML site (full-text search, Mermaid, Shiki, dark mode)
+gitnexus generate obsidian  --path [path]    # obsidian_vault/ (Cerveau Numérique: Index.md + Symboles/ Modules/ Processus/ Fichiers/)
+gitnexus generate process-doc --path [path]  # Process doc from execution traces (needs --traces-dir)
+gitnexus generate all       --path [path]    # All formats above in one run
+```
+
+Flags available on every `generate` subcommand:
+
+```
+--path <repo>              Target indexed repo (default: cwd)
+--output-dir <dir>         Override output directory (default: .gitnexus/docs)
+--enrich                   Enable LLM enrichment (requires chat-config.json)
+--enrich-profile <profile> fast | quality | strict       (default: quality)
+--enrich-lang <lang>       auto | fr | en                (default: fr)
+--enrich-citations         Include source citations      (default: true)
+--traces-dir <dir>         Directory of trace files for process-doc
+```
+
+Typical full-featured run on a French enterprise codebase:
+```bash
+gitnexus generate all --path D:\taf\Alise_v2 --enrich --enrich-profile strict --enrich-lang fr
 ```
 
 ### 16. Trace files (all sources for a feature)
@@ -173,11 +200,53 @@ gitnexus diagram BeneficiaireController --type class     # Class diagram with me
 gitnexus diagram CourrierController --output flow.md     # Write to file
 ```
 
-### 18. Import execution traces
+### 18. Import execution traces (enrich the graph with runtime data)
 
 ```bash
-gitnexus trace-import D:\logs\production.log             # Enrich graph with runtime data
+gitnexus trace-import D:\logs\production.log             # JSON/NDJSON/CSV
 gitnexus trace-import trace.csv --path D:\taf\MyProject  # Specify repo path
+```
+
+### 19. RAG — import external documentation
+
+```bash
+gitnexus rag-import D:\taf\Alise_v2\Doc --path D:\taf\Alise_v2
+```
+
+Supported input formats: **`.md`** and **`.docx`** (native OOXML extractor — no conversion step needed). Creates `Document` / `DocChunk` nodes and links them to code symbols via `Mentions` (word-boundary NER, confidence 0.8). Run `gitnexus ask` afterwards to query across code + specifications.
+
+### 20. Generate doc from an execution trace
+
+```bash
+gitnexus trace-doc D:\logs\trace.json --output flow.md --path D:\taf\Alise_v2
+```
+
+Uses the LLM to turn a JSON execution trace into readable markdown documentation of the flow.
+
+### 21. Watch — incremental file watcher
+
+```bash
+gitnexus watch [path]                            # Re-index on file changes (debounced)
+```
+
+### 22. Dashboard — TUI explorer
+
+```bash
+gitnexus dashboard [path]                        # Interactive terminal UI over the graph
+```
+
+### 23. Clean — delete an index
+
+```bash
+gitnexus clean                                   # Delete index for current repo (prompts)
+gitnexus clean --force                           # Skip confirmation
+gitnexus clean --all                             # Delete every indexed repo
+```
+
+### 24. Setup — configure editor MCP integration
+
+```bash
+gitnexus setup                                   # Auto-configure VS Code / Cursor / etc. to talk to gitnexus mcp
 ```
 
 ## How to use this skill
@@ -185,7 +254,7 @@ gitnexus trace-import trace.csv --path D:\taf\MyProject  # Specify repo path
 When the user asks about code structure, architecture, dependencies, or impact:
 
 1. **Check if the repo is indexed**: run `gitnexus status` in the relevant directory
-2. **If not indexed**: run `gitnexus analyze [path]` first
+2. **If not indexed**: run `gitnexus analyze [path]` first (add `--skip-git` if the target isn't a git repo)
 3. **Choose the right command** based on the question:
    - "Where is X defined?" → `gitnexus query "X"` or `gitnexus context X`
    - "What calls X?" → `gitnexus impact X --direction upstream`
@@ -199,6 +268,7 @@ When the user asks about code structure, architecture, dependencies, or impact:
    - "Generate a diagram of X" → `gitnexus diagram X --type flowchart`
    - "Show the sequence for X" → `gitnexus diagram X --type sequence`
    - "Import logs to enrich" → `gitnexus trace-import logfile.log`
+   - "Cross-reference code with functional specs" → `gitnexus rag-import <docs-folder>` then `gitnexus ask "…"`
 4. **Parse the output** and present it clearly with file paths and relationships
 5. **Combine multiple commands** if needed for complex questions
 
@@ -210,6 +280,7 @@ The knowledge graph contains these node types (50+):
 - **UI**: UiComponent (Telerik/Kendo grids), ScriptFile, AjaxCall
 - **Data**: Entity (EF6), Association, NavigationProperty
 - **Infrastructure**: File, Directory, Import, Export
+- **RAG**: Document, DocChunk (from `rag-import`)
 
 ## Relationship types
 
@@ -219,6 +290,7 @@ Key relationships in the graph:
 - `Inherits`, `Implements` — type hierarchy
 - `DependsOn`, `RendersComponent`, `IncludesScript` — UI dependencies
 - `HasAssociation`, `HasNavigationProperty` — data model links
+- `BelongsTo`, `Mentions` — RAG doc-to-code anchors
 
 ## Code quality metrics (computed during analysis)
 
@@ -244,6 +316,8 @@ Features: Sigma.js WebGL graph (ForceAtlas2), fuzzy search, navigation history (
 - Supports 14 languages: JS, TS, Python, Java, C, C++, C#, Go, Rust, Ruby, PHP, Kotlin, Swift, Razor
 - Skips `obj/`, `bin/`, `node_modules/`, `packages/` directories during analysis
 - For ASP.NET MVC projects: controllers, views, EF6 entities, Telerik grids, jQuery AJAX are all in the graph
+- `rag-import` accepts both `.md` and `.docx` (native OOXML extractor — the chunker reuses the header-driven splitter used for markdown, so Word headings / titres are preserved)
+- Use `--skip-git` when indexing a folder that isn't a git repo; `hotspots`/`coupling`/`ownership` will return empty in that case — it's expected
 - Cypher supports: MATCH, WHERE (=, <>, !=, CONTAINS, STARTS WITH, ENDS WITH, AND, OR, NOT), RETURN DISTINCT, count(), ORDER BY, LIMIT
 - All `--json` flags output machine-readable JSON
 - Graph nodes sorted by importance (connectivity + entry point score + exported/traced status)

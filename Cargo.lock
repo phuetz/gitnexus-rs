@@ -1850,9 +1850,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "pulldown-cmark",
+ "quick-xml",
  "serde",
  "serde_json",
  "tracing",
+ "zip",
 ]
 
 [[package]]

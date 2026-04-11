@@ -15,6 +15,13 @@ mod onnx {
     use std::path::Path;
 
     pub struct OnnxEmbedder {
+        // TODO: wire up real inference. The session is loaded (so we still
+        // surface model-load errors early, and tests cover that path), but
+        // embed() currently returns zero vectors — we need a tokenizer and
+        // a proper input-tensor build before we can call session.run().
+        // Kept on the struct so the placeholder doesn't require a rewrite
+        // of callers when the real impl lands.
+        #[allow(dead_code)]
         session: Session,
         dims: usize,
     }

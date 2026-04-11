@@ -260,8 +260,8 @@ enum Commands {
         path: Option<String>,
     },
 
-    /// Import external documentation (Markdown, PDF) for GraphRAG
-    #[command(after_help = "Examples:\n  gitnexus rag-import ./docs\n  gitnexus rag-import D:\\Specs --path D:\\taf\\MyProject")]
+    /// Import external documentation (Markdown, DOCX) for GraphRAG
+    #[command(after_help = "Examples:\n  gitnexus rag-import ./docs\n  gitnexus rag-import D:\\Specs --path D:\\taf\\MyProject\n\nSupported formats: .md (Markdown), .docx (Microsoft Word OOXML). Other files are silently skipped.")]
     RagImport {
         /// Path to the documentation directory
         docs_dir: String,

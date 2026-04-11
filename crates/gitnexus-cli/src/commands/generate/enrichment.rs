@@ -3,7 +3,7 @@
 #[allow(unused_imports)]
 use std::collections::{BTreeSet, HashSet};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use colored::Colorize;
@@ -98,6 +98,125 @@ fn is_cached(cache_dir: &Path, page_name: &str, current_hash: &str) -> bool {
 fn write_cache(cache_dir: &Path, page_name: &str, hash: &str) {
     let _ = std::fs::create_dir_all(cache_dir);
     let _ = std::fs::write(cache_dir.join(format!("{}.hash", page_name)), hash);
+}
+
+// ─── LLM Response Cache, Debug Dump, Atomic Write (scope 5) ──────────
+//
+// These helpers make `gitnexus generate ... --enrich` crash-resumable.
+// The existing `.hash` cache only records WHICH pages were enriched,
+// not the actual LLM responses — so a crash partway through loses all
+// API-generated content that hadn't been written to disk yet. The LLM
+// cache below stores the raw response keyed by the hash of the
+// request body, so a re-run with the same prompt serves from disk and
+// skips the HTTP call entirely. Debug dumps preserve malformed
+// responses for post-mortem, and atomic writes prevent half-written
+// pages on crash.
+
+/// Walk up from a docs page path until we find (or can create) the
+/// `.gitnexus/docs/_meta/` directory that holds enrichment metadata.
+fn meta_dir_for(page_path: &Path) -> Option<PathBuf> {
+    // page_path is typically `.../.gitnexus/docs/<maybe-subdir>/name.md`
+    // and we want `.../.gitnexus/docs/_meta/`.
+    let mut p = page_path.parent()?;
+    for _ in 0..6 {
+        if p.file_name().and_then(|n| n.to_str()) == Some("docs") {
+            return Some(p.join("_meta"));
+        }
+        p = p.parent()?;
+    }
+    None
+}
+
+fn llm_cache_dir_for(page_path: &Path) -> Option<PathBuf> {
+    meta_dir_for(page_path).map(|m| m.join("cache").join("llm"))
+}
+
+fn llm_debug_dir_for(page_path: &Path) -> Option<PathBuf> {
+    meta_dir_for(page_path).map(|m| m.join("debug"))
+}
+
+/// Hash an LLM request body into a filesystem-safe cache key. FNV-1a
+/// is good enough here — we only need a deterministic name that
+/// changes when the prompt or parameters change.
+fn llm_body_hash(body: &serde_json::Value) -> String {
+    let canonical = serde_json::to_string(body).unwrap_or_default();
+    format!("{:x}", md5_simple(&canonical))
+}
+
+/// Check if we already have a cached LLM response for this exact
+/// request body. Returns the raw `message.content` string if so.
+///
+/// If this returns `Some(_)`, the caller can skip the HTTP request
+/// entirely and parse the cached content as if it had just arrived.
+/// Crashed `--enrich` runs resume for free.
+fn try_cached_llm_response(page_path: &Path, body: &serde_json::Value) -> Option<String> {
+    let dir = llm_cache_dir_for(page_path)?;
+    let hash = llm_body_hash(body);
+    let file = dir.join(format!("{hash}.txt"));
+    let content = std::fs::read_to_string(&file).ok()?;
+    if content.is_empty() {
+        return None;
+    }
+    tracing::debug!(
+        "enrichment: LLM cache hit for {} ({})",
+        page_path.display(),
+        hash
+    );
+    Some(content)
+}
+
+/// Persist a successful LLM response (the raw `message.content`
+/// string, not the wrapping JSON envelope) so future runs can replay
+/// it from disk.
+fn store_llm_response(page_path: &Path, body: &serde_json::Value, raw_content: &str) {
+    let Some(dir) = llm_cache_dir_for(page_path) else {
+        return;
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let hash = llm_body_hash(body);
+    let file = dir.join(format!("{hash}.txt"));
+    let _ = std::fs::write(&file, raw_content);
+}
+
+/// Dump a malformed LLM response to disk so the developer can inspect
+/// what the model actually returned. Triggered on JSON parse failure
+/// in the structured enrichment path — the warning log alone doesn't
+/// tell you *what* was in the response.
+fn dump_debug_raw(page_path: &Path, raw: &str) {
+    let Some(dir) = llm_debug_dir_for(page_path) else {
+        return;
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let stem = page_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+    let out = dir.join(format!("{stem}.raw.txt"));
+    if std::fs::write(&out, raw).is_ok() {
+        tracing::debug!(
+            "enrichment: dumped raw LLM response to {}",
+            out.display()
+        );
+    }
+}
+
+/// Write `content` to `page_path` atomically: emit a sibling `.tmp`
+/// file and rename it over the target. Rename-within-a-directory is
+/// atomic on Windows and Unix, so a crash during the write leaves
+/// either the old or the new content — never a half-written page.
+fn atomic_write_page(page_path: &Path, content: &str) -> std::io::Result<()> {
+    // Use a sibling file in the same directory to stay on the same
+    // volume — std::fs::rename is only atomic within a filesystem.
+    let tmp = match (page_path.parent(), page_path.file_name()) {
+        (Some(parent), Some(name)) => parent.join(format!("{}.enriching.tmp", name.to_string_lossy())),
+        _ => page_path.with_extension("enriching.tmp"),
+    };
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, page_path)
 }
 
 /// Load LLM config from ~/.gitnexus/chat-config.json
@@ -513,54 +632,71 @@ SOURCES D'EVIDENCE :
         body["reasoning_effort"] = serde_json::Value::String(effort);
     }
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(profile.timeout_secs))
-        .build()
-        .map_err(|e| anyhow::anyhow!("HTTP client: {}", e))?;
+    // Scope 5.1 — check the LLM response cache BEFORE opening a
+    // socket. A previous successful call with the same request body
+    // is replayed for free, so crashed or re-run `--enrich` sessions
+    // resume without new API cost.
+    let cached = try_cached_llm_response(page_path, &body);
 
-    // Retry logic based on profile
-    let mut last_err = None;
-    let mut json_resp: Option<serde_json::Value> = None;
-    for attempt in 0..=profile.max_retries {
-        if attempt > 0 {
-            debug!("Retry attempt {} for {}", attempt, page_path.display());
-            std::thread::sleep(std::time::Duration::from_secs(2 * attempt as u64));
-        }
+    let raw_owned: String = if let Some(cached) = cached {
+        cached
+    } else {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(profile.timeout_secs))
+            .build()
+            .map_err(|e| anyhow::anyhow!("HTTP client: {}", e))?;
 
-        // Build a fresh request each attempt (RequestBuilder is consumed on send)
-        let mut req = client.post(&url).json(&body);
-        if !config.api_key.is_empty() {
-            req = req.header("Authorization", format!("Bearer {}", config.api_key));
-        }
+        // Retry logic based on profile
+        let mut last_err = None;
+        let mut json_resp: Option<serde_json::Value> = None;
+        for attempt in 0..=profile.max_retries {
+            if attempt > 0 {
+                debug!("Retry attempt {} for {}", attempt, page_path.display());
+                std::thread::sleep(std::time::Duration::from_secs(2 * attempt as u64));
+            }
 
-        match req.send() {
-            Ok(resp) if resp.status().is_success() => {
-                json_resp = resp.json().ok();
-                if json_resp.is_some() {
-                    last_err = None;
-                    break;
+            // Build a fresh request each attempt (RequestBuilder is consumed on send)
+            let mut req = client.post(&url).json(&body);
+            if !config.api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", config.api_key));
+            }
+
+            match req.send() {
+                Ok(resp) if resp.status().is_success() => {
+                    json_resp = resp.json().ok();
+                    if json_resp.is_some() {
+                        last_err = None;
+                        break;
+                    }
+                    last_err = Some(anyhow::anyhow!("Failed to parse LLM JSON response"));
                 }
-                last_err = Some(anyhow::anyhow!("Failed to parse LLM JSON response"));
-            }
-            Ok(resp) => {
-                last_err = Some(anyhow::anyhow!("LLM error: {}", resp.status()));
-            }
-            Err(e) => {
-                last_err = Some(anyhow::anyhow!("LLM request: {}", e));
+                Ok(resp) => {
+                    last_err = Some(anyhow::anyhow!("LLM error: {}", resp.status()));
+                }
+                Err(e) => {
+                    last_err = Some(anyhow::anyhow!("LLM request: {}", e));
+                }
             }
         }
-    }
 
-    if let Some(err) = last_err {
-        if json_resp.is_none() {
-            return Err(err);
+        if let Some(err) = last_err {
+            if json_resp.is_none() {
+                return Err(err);
+            }
         }
-    }
 
-    let json_resp = json_resp.ok_or_else(|| anyhow::anyhow!("No LLM response after retries"))?;
-    let raw_content = json_resp["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("No content"))?;
+        let json_resp =
+            json_resp.ok_or_else(|| anyhow::anyhow!("No LLM response after retries"))?;
+        let raw = json_resp["choices"][0]["message"]["content"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("No content"))?
+            .to_string();
+
+        // Cache the success for future replays (scope 5.1).
+        store_llm_response(page_path, &body, &raw);
+        raw
+    };
+    let raw_content: &str = &raw_owned;
 
     // Try to extract JSON from response (might be wrapped in ```json blocks)
     let json_str = raw_content
@@ -579,8 +715,14 @@ SOURCES D'EVIDENCE :
                 page_path.display(),
                 e
             );
-            // Fallback: use old freeform enrichment
-            enrich_page_freeform(page_path, graph, config)?;
+            // Scope 5.2 — dump the raw response so we can inspect
+            // what the model actually returned. Without this, every
+            // parse failure is a black box with only the parse error
+            // to go on.
+            dump_debug_raw(page_path, raw_content);
+            // Fallback: use old freeform enrichment (with retries —
+            // see scope 5.3).
+            enrich_page_freeform(page_path, graph, config, profile.max_retries)?;
             // Build minimal provenance for freeform fallback
             let page_id = page_path
                 .file_stem()
@@ -712,8 +854,10 @@ SOURCES D'EVIDENCE :
         return Err(anyhow::anyhow!("Enriched too short"));
     }
 
-    // Write enriched content
-    std::fs::write(page_path, &enriched)?;
+    // Scope 5.4 — atomic write so a crash mid-write leaves either
+    // the pre-enrichment or post-enrichment content, never a
+    // half-flushed file.
+    atomic_write_page(page_path, &enriched)?;
 
     // Build provenance entry
     let page_id = page_path
@@ -744,10 +888,17 @@ SOURCES D'EVIDENCE :
 // ─── Freeform Enrichment (legacy fallback) ────────────────────────────
 
 /// Enrich a single Markdown page with LLM-generated prose (freeform, legacy mode).
+///
+/// `max_retries` comes from the active `EnrichProfile` — the legacy
+/// implementation did exactly one attempt, which meant a single
+/// transient network blip on a slow Gemini response would silently
+/// leave the page un-enriched. The retry loop mirrors the structured
+/// path (scope 5.3) and also honors the LLM response cache (scope 5.1).
 fn enrich_page_freeform(
     page_path: &Path,
     graph: &KnowledgeGraph,
     config: &LlmConfig,
+    max_retries: u32,
 ) -> Result<()> {
     let content = std::fs::read_to_string(page_path)?;
     if content.len() < 100 {
@@ -821,33 +972,79 @@ CONTENU À ENRICHIR :"#,
         body["reasoning_effort"] = serde_json::Value::String(effort);
     }
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+    // Scope 5.1 — LLM response cache: cheap replay on re-runs.
+    let cached = try_cached_llm_response(page_path, &body);
 
-    let mut request = client.post(&url).json(&body);
-    if !config.api_key.is_empty() {
-        request = request.header("Authorization", format!("Bearer {}", config.api_key));
-    }
+    let enriched_owned: String = if let Some(cached) = cached {
+        cached
+    } else {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
-    let response = request
-        .send()
-        .map_err(|e| anyhow::anyhow!("LLM request failed: {}", e))?;
+        // Scope 5.3 — retry loop (the legacy code did a single
+        // .send() with no retry, so one transient Gemini blip
+        // silently left the page un-enriched).
+        let mut last_err: Option<anyhow::Error> = None;
+        let mut raw: Option<String> = None;
+        for attempt in 0..=max_retries {
+            if attempt > 0 {
+                debug!(
+                    "Retry freeform attempt {} for {}",
+                    attempt,
+                    page_path.display()
+                );
+                std::thread::sleep(std::time::Duration::from_secs(2 * attempt as u64));
+            }
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let err = response.text().unwrap_or_default();
-        return Err(anyhow::anyhow!("LLM error ({}): {}", status, err));
-    }
+            let mut request = client.post(&url).json(&body);
+            if !config.api_key.is_empty() {
+                request = request.header("Authorization", format!("Bearer {}", config.api_key));
+            }
 
-    let json_resp: serde_json::Value = response
-        .json()
-        .map_err(|e| anyhow::anyhow!("Failed to parse LLM response: {}", e))?;
+            let response = match request.send() {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = Some(anyhow::anyhow!("LLM request failed: {}", e));
+                    continue;
+                }
+            };
 
-    let enriched = json_resp["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("No content in LLM response"))?;
+            if !response.status().is_success() {
+                let status = response.status();
+                let err = response.text().unwrap_or_default();
+                last_err = Some(anyhow::anyhow!("LLM error ({}): {}", status, err));
+                continue;
+            }
+
+            let json_resp: serde_json::Value = match response.json() {
+                Ok(v) => v,
+                Err(e) => {
+                    last_err = Some(anyhow::anyhow!("Failed to parse LLM response: {}", e));
+                    continue;
+                }
+            };
+
+            match json_resp["choices"][0]["message"]["content"].as_str() {
+                Some(s) => {
+                    raw = Some(s.to_string());
+                    last_err = None;
+                    break;
+                }
+                None => {
+                    last_err = Some(anyhow::anyhow!("No content in LLM response"));
+                }
+            }
+        }
+
+        let raw = raw.ok_or_else(|| {
+            last_err.unwrap_or_else(|| anyhow::anyhow!("LLM response empty after retries"))
+        })?;
+        store_llm_response(page_path, &body, &raw);
+        raw
+    };
+    let enriched: &str = &enriched_owned;
 
     // Validation: enriched must be at least 50% of original length
     if enriched.len() < content.len() / 2 {
@@ -863,8 +1060,8 @@ CONTENU À ENRICHIR :"#,
         return Ok(());
     }
 
-    // Write enriched content
-    std::fs::write(page_path, enriched)?;
+    // Scope 5.4 — atomic write (see structured path for rationale).
+    atomic_write_page(page_path, enriched)?;
     Ok(())
 }
 
@@ -944,7 +1141,8 @@ DOCUMENT ORIGINAL (pour comparaison) :
         let orig_pipes = enriched.chars().filter(|c| *c == '|').count();
         let rev_pipes = reviewed.chars().filter(|c| *c == '|').count();
         if rev_pipes >= orig_pipes / 2 && reviewed.len() >= enriched.len() / 2 {
-            std::fs::write(page_path, reviewed)?;
+            // Scope 5.4 — atomic write.
+            atomic_write_page(page_path, reviewed)?;
         }
     }
 
@@ -1239,5 +1437,91 @@ mod tests {
         let json = r#"{"not": "a valid payload"}"#;
         // Verify that parsing invalid JSON doesn't panic — either Ok with defaults or Err is fine
         let _result: Result<EnrichedPayload, _> = serde_json::from_str(json);
+    }
+
+    // ─── Scope 5 — LLM cache / atomic write tests ───────────────────
+
+    #[test]
+    fn test_llm_body_hash_is_deterministic() {
+        let a = serde_json::json!({
+            "model": "gemini-2.5-flash",
+            "messages": [{"role": "user", "content": "hello"}],
+            "temperature": 0.3,
+        });
+        let b = a.clone();
+        assert_eq!(llm_body_hash(&a), llm_body_hash(&b));
+    }
+
+    #[test]
+    fn test_llm_body_hash_changes_on_prompt_change() {
+        let a = serde_json::json!({"model": "gpt", "prompt": "A"});
+        let b = serde_json::json!({"model": "gpt", "prompt": "B"});
+        assert_ne!(llm_body_hash(&a), llm_body_hash(&b));
+    }
+
+    #[test]
+    fn test_llm_cache_roundtrip_in_docs_tree() {
+        // Build a minimal docs/ tree so meta_dir_for can resolve _meta/
+        // relative to it, then store and retrieve a fake LLM response.
+        let root = std::env::temp_dir().join(format!("gitnexus-enr-test-{}", std::process::id()));
+        let docs_dir = root.join("docs");
+        let page_dir = docs_dir.join("modules");
+        std::fs::create_dir_all(&page_dir).unwrap();
+        let page = page_dir.join("sample.md");
+        std::fs::write(&page, "# sample\nbody\n").unwrap();
+
+        let body = serde_json::json!({
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "hi"}],
+        });
+        assert!(try_cached_llm_response(&page, &body).is_none());
+
+        store_llm_response(&page, &body, "cached raw text");
+        let got = try_cached_llm_response(&page, &body);
+        assert_eq!(got.as_deref(), Some("cached raw text"));
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_atomic_write_page_overwrites_atomically() {
+        let root = std::env::temp_dir().join(format!("gitnexus-atomic-test-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let page = root.join("page.md");
+
+        // Initial write.
+        atomic_write_page(&page, "first").unwrap();
+        assert_eq!(std::fs::read_to_string(&page).unwrap(), "first");
+
+        // Overwrite.
+        atomic_write_page(&page, "second").unwrap();
+        assert_eq!(std::fs::read_to_string(&page).unwrap(), "second");
+
+        // The temp sibling should not linger.
+        let tmp = root.join("page.md.enriching.tmp");
+        assert!(!tmp.exists(), "temp file leaked: {}", tmp.display());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_dump_debug_raw_writes_to_meta_debug() {
+        let root = std::env::temp_dir().join(format!("gitnexus-debug-test-{}", std::process::id()));
+        let docs_dir = root.join("docs");
+        std::fs::create_dir_all(&docs_dir).unwrap();
+        let page = docs_dir.join("broken.md");
+        std::fs::write(&page, "stub").unwrap();
+
+        dump_debug_raw(&page, "not a valid json response");
+
+        let dump = docs_dir.join("_meta").join("debug").join("broken.raw.txt");
+        assert!(dump.exists(), "debug dump not written at {}", dump.display());
+        assert_eq!(
+            std::fs::read_to_string(&dump).unwrap(),
+            "not a valid json response"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

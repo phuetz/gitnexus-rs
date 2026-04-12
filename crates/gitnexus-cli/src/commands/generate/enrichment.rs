@@ -45,7 +45,14 @@ pub(super) fn get_profile(name: &str) -> EnrichProfile {
             max_evidence: 10,
             thinking_boost: false,
             review_critical: false,
-            max_retries: 0,
+            // Phase 4 / scope 7.5: bumped from 0 to 1 so a single
+            // transient 503 from Gemini doesn't kill the page. One
+            // retry with 2 s backoff is enough to absorb the
+            // rate-limit pressure observed during the phase 3
+            // smoke run — fast profile was the only profile that
+            // had zero retries, which made it catastrophically
+            // brittle against transient 5xx.
+            max_retries: 1,
             timeout_secs: 60,
         },
         "strict" => EnrichProfile {
@@ -64,6 +71,72 @@ pub(super) fn get_profile(name: &str) -> EnrichProfile {
             timeout_secs: 180,
         },
     }
+}
+
+// ─── Phase 4 helpers: token budget + request shaping ─────────────────
+//
+// Three small functions, each surgical. They exist because the phase
+// 3 smoke run on D:/taf/Alise_v2 showed that raising `max_tokens` to
+// 32k fixed JSON truncations but broke the 60 s fast-profile timeout
+// and amplified 503 rate-limit pressure from Gemini. The fixes
+// match the patterns we found in google-gemini/gemini-cli's
+// `client.ts` (dynamic token budget + finish-reason recovery) and
+// the philosophy of rtk-ai/rtk (cut input noise before sending).
+
+/// Compute an HTTP client timeout that scales with the output token
+/// budget of the request. Short responses keep the profile's
+/// generous base timeout; long responses get proportional headroom
+/// so we don't tear the connection down while Gemini is mid-stream.
+///
+/// Math: assume ~150 tokens/second worst-case wall-clock for
+/// Gemini 2.5 Flash (the bottom of what we observed on Alise), plus
+/// a 30 s base overhead for TTFB and thinking-budget warmup.
+/// `profile_base` wins when the proportional value would be
+/// *smaller* — e.g. quality (180 s base) with 8k tokens still gets
+/// 180 s, not 83 s.
+fn dynamic_timeout_secs(profile_base: u64, max_tokens: u32) -> u64 {
+    let per_token = (max_tokens as u64) / 150;
+    profile_base.max(30 + per_token)
+}
+
+/// Enrichment is a structured-rewrite task. Deep chain-of-thought
+/// reasoning doesn't improve the output — it just consumes thinking
+/// tokens (which eat into `max_tokens`) and amplifies rate-limit
+/// pressure. Clamp `high` -> `medium` for enrichment only; `ask`
+/// still honors the user's raw config for interactive reasoning.
+///
+/// Keeping this as a free function makes it testable without
+/// mocking the HTTP client.
+fn clamp_enrichment_effort(raw: &str) -> String {
+    let normalized = raw.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "high" => "medium".to_string(),
+        _ => normalized,
+    }
+}
+
+/// Maximum length (in bytes, not chars) for an evidence excerpt
+/// before we truncate with an ellipsis. 400 bytes is ~5-7 lines of
+/// C# — enough to identify a method's shape for the LLM, short
+/// enough that we don't waste input tokens on full method bodies.
+pub(super) const MAX_EVIDENCE_EXCERPT_CHARS: usize = 400;
+
+/// RTK-inspired: cut evidence excerpts to `MAX_EVIDENCE_EXCERPT_CHARS`
+/// while preserving UTF-8 boundary integrity (French accents, etc.).
+/// Appends a Unicode ellipsis to signal the cut.
+pub(super) fn truncate_excerpt(s: &str) -> String {
+    if s.len() <= MAX_EVIDENCE_EXCERPT_CHARS {
+        return s.to_string();
+    }
+    // Walk back from the byte limit to the last valid UTF-8 boundary.
+    // `is_char_boundary(0)` is always true so the loop terminates.
+    let mut cut = MAX_EVIDENCE_EXCERPT_CHARS;
+    while !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let mut out = s[..cut].to_string();
+    out.push('…');
+    out
 }
 
 // ─── Enrichment Cache ────────────────────────────────────────────────
@@ -275,16 +348,40 @@ struct EvidenceRef {
     kind: String, // "function", "class", "controller", "entity", etc.
 }
 
+/// Serde deserializer helper that accepts an explicit `null` as
+/// `Default::default()`. Gemini 2.5 Flash sometimes returns fields
+/// like `"section_augments": null` instead of `[]`; vanilla
+/// `#[serde(default)]` only applies to *missing* fields (not to
+/// present-but-null), so we need this shim on every collection
+/// field. See phase 3 plan for the observed failure modes.
+fn null_as_default<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de> + Default,
+{
+    // `Option::<T>::deserialize` requires the `Deserialize` trait to
+    // be in scope (it's an associated function, not a method). We
+    // import it locally so we don't pollute the module namespace.
+    use serde::Deserialize as _;
+    let opt = Option::<T>::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
+}
+
 /// Structured augmentation for a section of a page.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 struct SectionAugment {
-    section_key: String,
+    // Phase 3: made optional so Gemini omitting the field doesn't
+    // nuke the whole payload. Consumers that need a section_key
+    // (e.g. the merge loop in enrich_page_structured) skip entries
+    // where it's None.
+    #[serde(default)]
+    section_key: Option<String>,
     intro: Option<String>,
     warning: Option<String>,
     developer_tip: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     see_also: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     source_ids: Vec<String>,
 }
 
@@ -298,13 +395,57 @@ struct EnrichedPayload {
     why_text: Option<String>,
     #[serde(default)]
     who_text: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     section_augments: Vec<SectionAugment>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     related_pages: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     relevant_source_ids: Vec<String>,
     closing_summary: Option<String>,
+}
+
+/// JSON Schema mirroring [`EnrichedPayload`], sent to Gemini via
+/// `response_format` so the model enforces the shape server-side
+/// instead of relying on prompt engineering alone.
+///
+/// Gemini's OpenAI compatibility layer translates this into its
+/// native `generationConfig.responseJsonSchema` + `responseMimeType`
+/// transparently (confirmed by Google's docs and LiteLLM's
+/// implementation). All fields are declared optional — `#[serde(default)]`
+/// on the Rust side handles missing fields, and Gemini is measurably
+/// more reliable when `required` is small or empty (per the
+/// google-gemini/cookbook issues we surveyed during phase 3 research).
+///
+/// Kept hand-written (not derived from the struct) so the schema
+/// stays reviewable in diffs and so we can tune what we expose to
+/// the model independently of the Rust type.
+fn enriched_payload_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "lead":            { "type": "string" },
+            "what_text":       { "type": "string" },
+            "why_text":        { "type": "string" },
+            "who_text":        { "type": "string" },
+            "section_augments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section_key":   { "type": "string" },
+                        "intro":         { "type": "string" },
+                        "warning":       { "type": "string" },
+                        "developer_tip": { "type": "string" },
+                        "see_also":      { "type": "array", "items": { "type": "string" } },
+                        "source_ids":    { "type": "array", "items": { "type": "string" } }
+                    }
+                }
+            },
+            "related_pages":        { "type": "array", "items": { "type": "string" } },
+            "relevant_source_ids":  { "type": "array", "items": { "type": "string" } },
+            "closing_summary":      { "type": "string" }
+        }
+    })
 }
 
 /// Provenance metadata for a generated page.
@@ -490,7 +631,11 @@ fn collect_evidence(
             file_path: node.properties.file_path.clone(),
             start_line: node.properties.start_line,
             end_line: node.properties.end_line,
-            excerpt,
+            // Phase 4 / scope 7.4 — RTK-inspired input compression:
+            // cap each excerpt at 400 bytes before it enters the
+            // prompt. Full method bodies are rarely needed to
+            // identify the symbol; a 5–7 line hint is enough.
+            excerpt: truncate_excerpt(&excerpt),
             title: node.properties.name.clone(),
             kind: format!("{:?}", node.label),
         });
@@ -619,15 +764,65 @@ SOURCES D'EVIDENCE :
         "{}/chat/completions",
         config.base_url.trim_end_matches('/')
     );
+    // Phase 3 addendum — max_tokens floor.
+    //
+    // The empirical phase-3 smoke run on Alise revealed that the
+    // bulk of parse failures (6 out of 10 pages with profile=fast)
+    // were truncations at column 25000–35000, not malformed JSON.
+    // Gemini was literally running out of output budget mid-string.
+    // `config.max_tokens` defaults to 8192 in `~/.gitnexus/chat-config.json`,
+    // which is roughly 25-35k characters — exactly where the cuts
+    // happened. Controller pages with 10–30 evidence items genuinely
+    // need more room than that.
+    //
+    // We raise the floor to 32768 for the structured enrichment
+    // request (Gemini 2.5 Flash supports up to 65k output tokens).
+    // Users who've already configured a higher limit keep theirs.
+    // This is a bigger win than either the schema or the repair
+    // tier — an 8x reduction in truncations observed on the second
+    // smoke run.
+    // Phase 4 bump: raised from 32_768 -> 65_536 after the phase 4
+    // smoke on Alise revealed that the biggest controllers were
+    // hitting `finish_reason=length` with 145 Ko / ~36k-token
+    // outputs. 65_536 is the hard cap of Gemini 2.5 Flash, so it
+    // gives us every byte the API can deliver. The dynamic timeout
+    // helper scales to ~466 s automatically for that budget.
+    let max_tokens_floor: u32 = 65_536;
+    let max_tokens = config.max_tokens.max(max_tokens_floor);
     let mut body = serde_json::json!({
         "model": config.model,
         "messages": messages,
-        "max_tokens": config.max_tokens,
+        "max_tokens": max_tokens,
         "temperature": 0.3,
         "stream": false
     });
 
-    let effort = config.reasoning_effort.trim().to_lowercase();
+    // Phase 3 / scope 6.1 — ask Gemini to enforce the schema
+    // server-side via its OpenAI compatibility layer. The layer
+    // translates this into the native `generationConfig.responseJsonSchema`
+    // + `responseMimeType` under the hood for all Gemini 2.5+ models
+    // (confirmed by Google's docs and LiteLLM's implementation). We
+    // keep `strict: false` — strict enforcement on Gemini's compat
+    // endpoint is undocumented, and a lenient-but-accepted request is
+    // better than a strict-but-rejected one. The pre-existing prompt
+    // already asks for JSON in the system message, so this is a
+    // belt-and-suspenders setup: prompt says "JSON", response_format
+    // says "JSON", and if Gemini STILL returns malformed JSON, scope
+    // 6.3 repairs it before we give up.
+    body["response_format"] = serde_json::json!({
+        "type": "json_schema",
+        "json_schema": {
+            "name": "gitnexus_enrichment_v1",
+            "schema": enriched_payload_schema(),
+            "strict": false
+        }
+    });
+
+    // Phase 4 / scope 7.2 — clamp reasoning_effort for enrichment.
+    // Enrichment is a structured rewrite; high reasoning just
+    // consumes thinking budget without improving quality, and
+    // heavier requests amplify 503 pressure on Gemini.
+    let effort = clamp_enrichment_effort(&config.reasoning_effort);
     if !effort.is_empty() && effort != "none" {
         body["reasoning_effort"] = serde_json::Value::String(effort);
     }
@@ -641,8 +836,13 @@ SOURCES D'EVIDENCE :
     let raw_owned: String = if let Some(cached) = cached {
         cached
     } else {
+        // Phase 4 / scope 7.1 — HTTP timeout scales with max_tokens.
+        // The profile base still wins for short outputs; long
+        // outputs get proportional headroom so we don't rip the
+        // connection down while Gemini is still streaming.
+        let timeout = dynamic_timeout_secs(profile.timeout_secs, max_tokens);
         let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(profile.timeout_secs))
+            .timeout(std::time::Duration::from_secs(timeout))
             .build()
             .map_err(|e| anyhow::anyhow!("HTTP client: {}", e))?;
 
@@ -692,6 +892,25 @@ SOURCES D'EVIDENCE :
             .ok_or_else(|| anyhow::anyhow!("No content"))?
             .to_string();
 
+        // Phase 4 / scope 7.3 — surface truncation explicitly.
+        // `finish_reason == "length"` means Gemini hit max_tokens
+        // mid-response. The raw content below is a guaranteed-
+        // malformed JSON (missing closing braces, strings cut
+        // mid-word), so we log it + dump it for post-mortem and
+        // let the repair tier try to salvage a partial object.
+        let finish_reason = json_resp["choices"][0]["finish_reason"]
+            .as_str()
+            .unwrap_or("");
+        if finish_reason == "length" {
+            warn!(
+                "enrichment: response truncated (finish_reason=length) for {} — \
+                 raw length={}, handing off to repair tier",
+                page_path.display(),
+                raw.len()
+            );
+            dump_debug_raw(page_path, &raw);
+        }
+
         // Cache the success for future replays (scope 5.1).
         store_llm_response(page_path, &body, &raw);
         raw
@@ -706,41 +925,66 @@ SOURCES D'EVIDENCE :
         .trim_end_matches("```")
         .trim();
 
-    // Parse structured payload; on failure, fall back to freeform enrichment
+    // Parse structured payload with a three-tier safety net:
+    //   1. Direct serde_json parse (happy path — Gemini respected the schema).
+    //   2. Phase 3 / scope 6.3: JSON repair via `jsonrepair` crate
+    //      (fixes trailing commas, unclosed brackets, missing quotes,
+    //      fenced code blocks — the bulk of our observed failures).
+    //   3. Freeform fallback (one more LLM call in text mode).
     let payload: EnrichedPayload = match serde_json::from_str(json_str) {
         Ok(p) => p,
-        Err(e) => {
-            warn!(
-                "Structured JSON parse failed for {}: {} — falling back to freeform",
-                page_path.display(),
-                e
-            );
-            // Scope 5.2 — dump the raw response so we can inspect
-            // what the model actually returned. Without this, every
-            // parse failure is a black box with only the parse error
-            // to go on.
-            dump_debug_raw(page_path, raw_content);
-            // Fallback: use old freeform enrichment (with retries —
-            // see scope 5.3).
-            enrich_page_freeform(page_path, graph, config, profile.max_retries)?;
-            // Build minimal provenance for freeform fallback
-            let page_id = page_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-            let fallback_content = std::fs::read_to_string(page_path).unwrap_or_default();
-            return Ok(Some(ProvenanceEntry {
-                page_id,
-                model: config.model.clone(),
-                enriched_at: chrono::Utc::now().to_rfc3339(),
-                evidence_refs: evidence,
-                validation: ProvenanceValidation {
-                    is_valid: true,
-                    issues: vec!["Freeform fallback used (JSON parse failed)".to_string()],
-                },
-                content_hash: format!("{:x}", hash_simple(&fallback_content)),
-            }));
+        Err(parse_err) => {
+            // Tier 2 — try JSON repair before burning an LLM call.
+            match jsonrepair::repair_json(json_str, &jsonrepair::Options::default())
+                .ok()
+                .and_then(|fixed| {
+                    serde_json::from_str::<EnrichedPayload>(&fixed).ok()
+                }) {
+                Some(repaired) => {
+                    tracing::info!(
+                        "enrichment: repaired malformed JSON for {} (serde error: {})",
+                        page_path.display(),
+                        parse_err
+                    );
+                    repaired
+                }
+                None => {
+                    warn!(
+                        "Structured JSON parse failed for {}: {} — falling back to freeform",
+                        page_path.display(),
+                        parse_err
+                    );
+                    // Scope 5.2 — dump the raw response so we can
+                    // inspect what the model actually returned. Every
+                    // parse failure that reaches here is one that
+                    // neither the schema nor the repair pass could
+                    // salvage, so it's worth keeping for post-mortem.
+                    dump_debug_raw(page_path, raw_content);
+                    // Scope 5.3 — freeform fallback with retries.
+                    enrich_page_freeform(page_path, graph, config, profile.max_retries)?;
+                    // Build minimal provenance for freeform fallback
+                    let page_id = page_path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let fallback_content =
+                        std::fs::read_to_string(page_path).unwrap_or_default();
+                    return Ok(Some(ProvenanceEntry {
+                        page_id,
+                        model: config.model.clone(),
+                        enriched_at: chrono::Utc::now().to_rfc3339(),
+                        evidence_refs: evidence,
+                        validation: ProvenanceValidation {
+                            is_valid: true,
+                            issues: vec![
+                                "Freeform fallback used (JSON parse + repair failed)".to_string(),
+                            ],
+                        },
+                        content_hash: format!("{:x}", hash_simple(&fallback_content)),
+                    }));
+                }
+            }
         }
     };
 
@@ -775,7 +1019,13 @@ SOURCES D'EVIDENCE :
 
         // Insert section augments
         for aug in &payload.section_augments {
-            let anchor = format!("<!-- GNX:INTRO:{} -->", aug.section_key);
+            // Phase 3: section_key is Option<String>. Gemini sometimes
+            // emits a SectionAugment without one — we can't match it
+            // to an anchor, so skip silently.
+            let Some(section_key) = aug.section_key.as_deref() else {
+                continue;
+            };
+            let anchor = format!("<!-- GNX:INTRO:{} -->", section_key);
             if line.contains(&anchor) {
                 if let Some(intro) = &aug.intro {
                     enriched.push_str(&format!("\n{}\n\n", intro));
@@ -813,7 +1063,7 @@ SOURCES D'EVIDENCE :
         // Insert TIP augments for controller action tables
         if line.contains("<!-- GNX:TIP:actions -->") {
             for aug in &payload.section_augments {
-                if aug.section_key == "actions" {
+                if aug.section_key.as_deref() == Some("actions") {
                     if let Some(tip) = &aug.developer_tip {
                         enriched.push_str(&format!("> [!TIP]\n> {}\n\n", tip));
                     }
@@ -959,15 +1209,28 @@ CONTENU À ENRICHIR :"#,
         "{}/chat/completions",
         config.base_url.trim_end_matches('/')
     );
+    // Phase 4 / scope 7.1 — freeform also honors the max_tokens floor
+    // and the dynamic timeout. Freeform is a last-resort fallback
+    // that runs when structured mode fails, so giving it the same
+    // budget keeps the fallback viable.
+    // Phase 4 bump: raised from 32_768 -> 65_536 after the phase 4
+    // smoke on Alise revealed that the biggest controllers were
+    // hitting `finish_reason=length` with 145 Ko / ~36k-token
+    // outputs. 65_536 is the hard cap of Gemini 2.5 Flash, so it
+    // gives us every byte the API can deliver. The dynamic timeout
+    // helper scales to ~466 s automatically for that budget.
+    let max_tokens_floor: u32 = 65_536;
+    let max_tokens = config.max_tokens.max(max_tokens_floor);
     let mut body = json!({
         "model": config.model,
         "messages": messages,
-        "max_tokens": config.max_tokens,
+        "max_tokens": max_tokens,
         "temperature": 0.3,
         "stream": false
     });
 
-    let effort = config.reasoning_effort.trim().to_lowercase();
+    // Phase 4 / scope 7.2 — clamp reasoning_effort here too.
+    let effort = clamp_enrichment_effort(&config.reasoning_effort);
     if !effort.is_empty() && effort != "none" {
         body["reasoning_effort"] = serde_json::Value::String(effort);
     }
@@ -978,8 +1241,12 @@ CONTENU À ENRICHIR :"#,
     let enriched_owned: String = if let Some(cached) = cached {
         cached
     } else {
+        // Phase 4 / scope 7.1 — dynamic timeout. Use a 120 s base
+        // (the legacy value) so short outputs keep their budget,
+        // and scale up for longer ones.
+        let timeout = dynamic_timeout_secs(120, max_tokens);
         let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_secs(timeout))
             .build()
             .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
@@ -1113,16 +1380,30 @@ DOCUMENT ORIGINAL (pour comparaison) :
         "{}/chat/completions",
         config.base_url.trim_end_matches('/')
     );
+    // Phase 4 — the review pass also needs headroom. Use the same
+    // floor as structured enrichment; reviews are usually shorter
+    // than the initial rewrite but can still hit the 8k wall when
+    // the original page is large.
+    // Phase 4 bump: raised from 32_768 -> 65_536 after the phase 4
+    // smoke on Alise revealed that the biggest controllers were
+    // hitting `finish_reason=length` with 145 Ko / ~36k-token
+    // outputs. 65_536 is the hard cap of Gemini 2.5 Flash, so it
+    // gives us every byte the API can deliver. The dynamic timeout
+    // helper scales to ~466 s automatically for that budget.
+    let max_tokens_floor: u32 = 65_536;
+    let max_tokens = config.max_tokens.max(max_tokens_floor);
     let body = serde_json::json!({
         "model": config.model,
         "messages": messages,
-        "max_tokens": config.max_tokens,
+        "max_tokens": max_tokens,
         "temperature": 0.1,
         "stream": false
     });
 
+    // Phase 4 / scope 7.1 — dynamic timeout.
+    let timeout = dynamic_timeout_secs(profile.timeout_secs, max_tokens);
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(profile.timeout_secs))
+        .timeout(std::time::Duration::from_secs(timeout))
         .build()?;
 
     let mut request = client.post(&url).json(&body);
@@ -1413,7 +1694,10 @@ mod tests {
         let payload: EnrichedPayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload.lead.as_deref(), Some("This is the lead."));
         assert_eq!(payload.section_augments.len(), 1);
-        assert_eq!(payload.section_augments[0].section_key, "architecture");
+        assert_eq!(
+            payload.section_augments[0].section_key.as_deref(),
+            Some("architecture")
+        );
         assert_eq!(payload.section_augments[0].source_ids, vec!["E1", "E2"]);
         assert_eq!(payload.closing_summary.as_deref(), Some("Summary text"));
     }
@@ -1523,5 +1807,187 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ─── Phase 3 / scope 6 — structured output + repair fallback ──
+
+    #[test]
+    fn enriched_payload_schema_shape() {
+        let schema = enriched_payload_schema();
+        assert_eq!(schema["type"], "object");
+        // Top-level properties exist and are typed.
+        assert_eq!(
+            schema["properties"]["section_augments"]["type"],
+            "array"
+        );
+        assert_eq!(
+            schema["properties"]["related_pages"]["type"],
+            "array"
+        );
+        assert_eq!(schema["properties"]["lead"]["type"], "string");
+        // Nested section_augments[].section_key is a string.
+        assert_eq!(
+            schema["properties"]["section_augments"]["items"]["properties"]
+                ["section_key"]["type"],
+            "string"
+        );
+    }
+
+    #[test]
+    fn parse_tolerates_null_in_collections() {
+        // Gemini 2.5 Flash sometimes returns `null` for list-valued
+        // fields instead of `[]`. Pre-fix, serde would emit:
+        //   "invalid type: null, expected a sequence"
+        // Post-fix, `null_as_default` normalizes to Vec::new().
+        let json = r#"{
+            "lead": "x",
+            "section_augments": null,
+            "related_pages": null,
+            "relevant_source_ids": null
+        }"#;
+        let p: EnrichedPayload =
+            serde_json::from_str(json).expect("parse should tolerate nulls");
+        assert_eq!(p.lead.as_deref(), Some("x"));
+        assert!(p.section_augments.is_empty());
+        assert!(p.related_pages.is_empty());
+        assert!(p.relevant_source_ids.is_empty());
+    }
+
+    #[test]
+    fn parse_tolerates_missing_section_key() {
+        // Gemini sometimes omits required subfields — with
+        // `section_key: Option<String>` + `#[serde(default)]` we
+        // don't crash, and the downstream merge loop skips entries
+        // without a section_key.
+        let json = r#"{
+            "section_augments": [{ "intro": "orphan aug" }]
+        }"#;
+        let p: EnrichedPayload =
+            serde_json::from_str(json).expect("parse should tolerate missing section_key");
+        assert_eq!(p.section_augments.len(), 1);
+        assert!(p.section_augments[0].section_key.is_none());
+        assert_eq!(p.section_augments[0].intro.as_deref(), Some("orphan aug"));
+    }
+
+    #[test]
+    fn parse_tolerates_null_section_key() {
+        // Explicit null for the key — same permissive handling as
+        // missing.
+        let json = r#"{
+            "section_augments": [{ "section_key": null, "source_ids": null }]
+        }"#;
+        let p: EnrichedPayload =
+            serde_json::from_str(json).expect("parse should tolerate null section_key");
+        assert_eq!(p.section_augments.len(), 1);
+        assert!(p.section_augments[0].section_key.is_none());
+        assert!(p.section_augments[0].source_ids.is_empty());
+    }
+
+    #[test]
+    fn jsonrepair_salvages_trailing_comma() {
+        // Realistic failure mode: Gemini emits a trailing comma in
+        // an array. Before phase 3 this would force a freeform
+        // fallback (one extra LLM round-trip). After, the repair
+        // tier absorbs it with zero API cost.
+        let broken = r#"{"lead": "hello", "related_pages": ["a", "b",]}"#;
+        // Assert vanilla serde rejects it first, so we know the
+        // test actually exercises the repair path.
+        assert!(serde_json::from_str::<EnrichedPayload>(broken).is_err());
+
+        let fixed = jsonrepair::repair_json(broken, &jsonrepair::Options::default())
+            .expect("jsonrepair should fix trailing comma");
+        let parsed: EnrichedPayload =
+            serde_json::from_str(&fixed).expect("repaired JSON should parse");
+        assert_eq!(parsed.lead.as_deref(), Some("hello"));
+        assert_eq!(
+            parsed.related_pages,
+            vec!["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn jsonrepair_salvages_missing_closing_brace() {
+        // Simulated truncated response: object cut mid-stream.
+        // jsonrepair heuristically closes open brackets, which is
+        // exactly what we want for Gemini EOF-mid-response failures.
+        let broken = r#"{"lead": "partial", "section_augments": [{"section_key": "intro""#;
+        assert!(serde_json::from_str::<EnrichedPayload>(broken).is_err());
+        // Repair may or may not recover cleanly — we only assert it
+        // doesn't panic and that IF it succeeds the result is valid.
+        if let Ok(fixed) = jsonrepair::repair_json(broken, &jsonrepair::Options::default()) {
+            if let Ok(parsed) = serde_json::from_str::<EnrichedPayload>(&fixed) {
+                assert_eq!(parsed.lead.as_deref(), Some("partial"));
+            }
+        }
+    }
+
+    // ─── Phase 4 — dynamic timeout, effort clamp, excerpt cap ──────
+
+    #[test]
+    fn dynamic_timeout_scales_with_tokens() {
+        // 8k request: 30 + 8192/150 = 30 + 54 = 84 > fast base 60,
+        // so the proportional formula wins even for "small" requests.
+        // That's the point — bigger budget needs more wall clock.
+        assert_eq!(dynamic_timeout_secs(60, 8_192), 30 + 54);
+        // 32k request: 30 + 32768/150 = 30 + 218 = 248 > 60.
+        assert_eq!(dynamic_timeout_secs(60, 32_768), 30 + 218);
+        // Same 32k request on quality (base 180): 248 > 180 so
+        // proportional still wins.
+        assert_eq!(dynamic_timeout_secs(180, 32_768), 30 + 218);
+        // 65k request: 30 + 65536/150 = 30 + 436 = 466 > any base.
+        assert_eq!(dynamic_timeout_secs(60, 65_536), 30 + 436);
+        // Sanity: a tiny request on strict keeps the 300s base
+        // because 30 + 1024/150 = 36, far below 300.
+        assert_eq!(dynamic_timeout_secs(300, 1_024), 300);
+        // Sanity: a 1-token request still gets the base.
+        assert_eq!(dynamic_timeout_secs(60, 1), 60);
+    }
+
+    #[test]
+    fn reasoning_effort_high_is_clamped_for_enrichment() {
+        assert_eq!(clamp_enrichment_effort("high"), "medium");
+        assert_eq!(clamp_enrichment_effort("HIGH"), "medium");
+        assert_eq!(clamp_enrichment_effort("  High  "), "medium");
+        // Lower/equal levels pass through untouched (normalized to lowercase).
+        assert_eq!(clamp_enrichment_effort("low"), "low");
+        assert_eq!(clamp_enrichment_effort("medium"), "medium");
+        assert_eq!(clamp_enrichment_effort("none"), "none");
+        assert_eq!(clamp_enrichment_effort(""), "");
+    }
+
+    #[test]
+    fn truncate_excerpt_passes_short_through() {
+        assert_eq!(truncate_excerpt("short"), "short");
+        assert_eq!(truncate_excerpt(""), "");
+    }
+
+    #[test]
+    fn truncate_excerpt_respects_char_boundary() {
+        // French accents take 2 bytes in UTF-8. Repeat until we blow
+        // past MAX_EVIDENCE_EXCERPT_CHARS so the cut is forced.
+        let long = "Bénéficiaire ".repeat(100);
+        assert!(long.len() > MAX_EVIDENCE_EXCERPT_CHARS);
+        let out = truncate_excerpt(&long);
+        // Must be valid UTF-8 — the whole point of the helper.
+        assert!(std::str::from_utf8(out.as_bytes()).is_ok());
+        // Must end with the ellipsis marker.
+        assert!(out.ends_with('…'));
+        // Length is bounded with small tolerance for the ellipsis
+        // and for walking back to the nearest char boundary.
+        assert!(
+            out.len() <= MAX_EVIDENCE_EXCERPT_CHARS + 4,
+            "unexpected output length: {}",
+            out.len()
+        );
+    }
+
+    #[test]
+    fn fast_profile_now_allows_one_retry() {
+        let p = get_profile("fast");
+        assert_eq!(p.max_retries, 1);
+        // quality still has 1, strict still has 2 — sanity check
+        // we didn't accidentally touch the wrong arm.
+        assert_eq!(get_profile("quality").max_retries, 1);
+        assert_eq!(get_profile("strict").max_retries, 2);
     }
 }

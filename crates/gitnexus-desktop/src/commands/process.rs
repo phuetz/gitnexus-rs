@@ -176,7 +176,7 @@ pub async fn get_process_flows(
     flows.sort_by(|a, b| b.step_count.cmp(&a.step_count));
 
     // Add synthetic business flows (Heuristic-based for Alise)
-    add_synthetic_business_flows(graph, &mut flows);
+    add_synthetic_business_flows(&graph, &mut flows);
 
     Ok(flows)
 }

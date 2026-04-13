@@ -62,7 +62,6 @@ pub fn incremental_update(
     graph: &mut KnowledgeGraph,
 ) -> Result<IncrementalResult, crate::IngestError> {
     let manifest_file = manifest::manifest_path(storage_path);
-    let _ = manifest_file; // Manifest is now persisted by the caller, after the snapshot.
     let mut result = IncrementalResult::default();
 
     // Step 1: Load old manifest (or start fresh)

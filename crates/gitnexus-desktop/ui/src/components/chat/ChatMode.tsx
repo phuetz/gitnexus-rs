@@ -10,14 +10,24 @@
 
 import { lazy, Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MessageSquare, Settings2 } from "lucide-react";
+import { MessageSquare, Settings2, ChevronDown, Database, Compass, BookOpen } from "lucide-react";
+import { Group, Panel } from "react-resizable-panels";
+import { PanelSeparator } from "../layout/PanelSeparator";
+import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
+import { useRepos, useOpenRepo } from "../../hooks/use-tauri-query";
 import { ChatPanel } from "./ChatPanel";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
+import { useResponsive } from "../../hooks/use-responsive";
+import { ChatHistorySidebar } from "./ChatHistorySidebar";
+import { toast } from "sonner";
 
 const ChatSettings = lazy(() =>
   import("./ChatSettings").then((m) => ({ default: m.ChatSettings })),
+);
+const GraphExplorer = lazy(() =>
+  import("../graph/GraphExplorer").then((m) => ({ default: m.GraphExplorer })),
 );
 
 // ─── No-repo empty state ─────────────────────────────────────────────
@@ -25,11 +35,11 @@ const ChatSettings = lazy(() =>
 function NoRepoState() {
   return (
     <div
-      className="flex items-center justify-center h-full"
-      style={{ color: "var(--text-2)" }}
+      className="flex items-center justify-center h-full w-full"
+      style={{ color: "var(--text-2)", background: "var(--bg-0)" }}
     >
       <div className="text-center">
-        <MessageSquare
+        <Database
           size={48}
           style={{ color: "var(--text-4)", margin: "0 auto 16px" }}
         />
@@ -41,7 +51,7 @@ function NoRepoState() {
             color: "var(--text-0)",
           }}
         >
-          No repository loaded
+          No repository selected
         </p>
         <p
           style={{
@@ -50,7 +60,7 @@ function NoRepoState() {
             color: "var(--text-3)",
           }}
         >
-          Open a repository to start chatting about your code
+          Select a repository from the dropdown above to start chatting
         </p>
       </div>
     </div>
@@ -63,7 +73,7 @@ function NoLlmSetup() {
   const setMode = useAppStore((s) => s.setMode);
 
   return (
-    <div className="flex items-center justify-center h-full">
+    <div className="flex items-center justify-center h-full w-full" style={{ background: "var(--bg-0)" }}>
       <div
         className="text-center p-8 rounded-xl"
         style={{
@@ -111,6 +121,47 @@ function NoLlmSetup() {
   );
 }
 
+// ─── Repo Selector ───────────────────────────────────────────────────
+
+function RepoSelector() {
+  const activeRepo = useAppStore((s) => s.activeRepo);
+  const setActiveRepo = useAppStore((s) => s.setActiveRepo);
+  const { data: repos } = useRepos();
+  const openRepo = useOpenRepo();
+
+  const handleSwitchRepo = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const name = e.target.value;
+    if (!name) return;
+    try {
+      await openRepo.mutateAsync(name);
+      setActiveRepo(name);
+      toast.success("Switched to " + name);
+    } catch (err) {
+      console.error(err);
+      toast.error(`Failed to switch repo: ${String(err)}`);
+    }
+  };
+
+  return (
+    <div className="relative flex items-center">
+      <select
+        value={activeRepo || ""}
+        onChange={handleSwitchRepo}
+        className="appearance-none bg-transparent outline-none pl-2 pr-8 py-1 rounded cursor-pointer text-[14px] font-medium"
+        style={{ color: "var(--text-1)", border: "1px solid var(--surface-border)" }}
+      >
+        <option value="" disabled>Select Repository</option>
+        {repos?.map((repo) => (
+          <option key={repo.name} value={repo.name}>
+            {repo.name}
+          </option>
+        ))}
+      </select>
+      <ChevronDown size={14} className="absolute right-2 pointer-events-none" style={{ color: "var(--text-3)" }} />
+    </div>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────────────
 
 export function ChatMode() {
@@ -118,6 +169,7 @@ export function ChatMode() {
   const setMode = useAppStore((s) => s.setMode);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const { isCompact } = useResponsive();
 
   // Fetch LLM config to detect unconfigured state
   const { data: chatConfig, isLoading: configLoading } = useQuery({
@@ -127,93 +179,143 @@ export function ChatMode() {
     retry: 1,
   });
 
-  // Guard: no repo loaded
-  if (!activeRepo) {
-    return <NoRepoState />;
-  }
-
-  // Guard: while config is loading, show spinner to avoid UI flashes
-  if (configLoading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="pulse-subtle" style={{ color: "var(--text-3)", fontSize: 13 }}>
-          Loading assistant configuration...
-        </div>
-      </div>
-    );
-  }
-
-  // Guard: config loaded but no LLM configured (non-Ollama with no API key)
-  const isConfigured =
-    !chatConfig ||
-    chatConfig.provider === "ollama" ||
-    (chatConfig.apiKey != null && chatConfig.apiKey.trim().length > 0);
-
-  if (!isConfigured) {
-    return <NoLlmSetup />;
-  }
-
-  // Cross-mode navigation handler: navigate to Explorer and select the node.
-  // We don't have the node name in scope here (the chat side doesn't load
-  // the graphology graph), so pass null explicitly. This makes the missing
-  // name visible in the navigation history rather than silently undefined.
   const handleNavigateToNode = (nodeId: string) => {
     setMode("explorer");
     setSelectedNodeId(nodeId, null);
   };
 
+  const isConfigured =
+    !chatConfig ||
+    chatConfig.provider === "ollama" ||
+    (chatConfig.apiKey != null && chatConfig.apiKey.trim().length > 0);
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Header: title + settings button */}
-      <div
-        className="shrink-0 flex items-center justify-between px-4 py-2"
-        style={{
-          background: "var(--glass-bg)",
-          backdropFilter: "blur(var(--glass-blur))",
-          borderBottom: "1px solid var(--glass-border)",
-        }}
-      >
-        <h2
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: 16,
-            fontWeight: 600,
-            color: "var(--text-0)",
-          }}
-        >
-          Chat
-        </h2>
-        <button
-          onClick={() => setSettingsOpen(true)}
-          className="p-1.5 rounded-lg transition-colors"
-          style={{ color: "var(--text-3)" }}
-          title="Chat AI Settings"
-          aria-label="Open chat AI settings"
-        >
-          <Settings2 size={16} />
-        </button>
-      </div>
-
-      {/* Chat panel — manages its own messages, context bar, and filter modals */}
-      <div className="flex-1 min-h-0">
-        <ChatPanel
-          onOpenSettings={() => setSettingsOpen(true)}
-          onNavigateToNode={handleNavigateToNode}
-        />
-      </div>
-
-      {/* Settings modal */}
-      {settingsOpen && (
-        <Suspense
-          fallback={
-            <div className="fixed inset-0 z-50 flex items-center justify-center">
-              <LoadingOrbs />
-            </div>
-          }
-        >
-          <ChatSettings onClose={() => setSettingsOpen(false)} />
-        </Suspense>
+    <Group orientation="horizontal" className="h-full w-full">
+      {/* Sidebar Panel */}
+      {!isCompact && (
+        <>
+          <Panel defaultSize={15} minSize={10} maxSize={25} collapsible>
+            <ErrorBoundary>
+              <ChatHistorySidebar />
+            </ErrorBoundary>
+          </Panel>
+          <PanelSeparator />
+        </>
       )}
-    </div>
+
+      {/* Graph Panel */}
+      <Panel minSize={30}>
+        <ErrorBoundary>
+          <Suspense
+            fallback={
+              <div className="h-full flex items-center justify-center">
+                <LoadingOrbs />
+              </div>
+            }
+          >
+            {activeRepo ? <GraphExplorer /> : <NoRepoState />}
+          </Suspense>
+        </ErrorBoundary>
+      </Panel>
+
+      <PanelSeparator />
+
+      {/* Chat Panel */}
+      <Panel
+        defaultSize={isCompact ? 50 : 35}
+        minSize={25}
+        maxSize={60}
+        collapsible
+      >
+        <div className="flex flex-col h-full w-full" style={{ background: "var(--bg-0)" }}>
+          {/* Header: Repo selector + settings button */}
+          <div
+            className="shrink-0 flex items-center justify-between px-4 py-2"
+            style={{
+              background: "var(--glass-bg)",
+              backdropFilter: "blur(var(--glass-blur))",
+              borderBottom: "1px solid var(--glass-border)",
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <MessageSquare size={16} style={{ color: "var(--accent)" }} />
+              <RepoSelector />
+            </div>
+            
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setMode("explorer")}
+                className="p-1.5 rounded-lg transition-colors"
+                style={{ color: "var(--text-3)", cursor: "pointer" }}
+                title="Open File Explorer & Graph"
+                aria-label="Open Explorer"
+              >
+                <Compass size={16} />
+              </button>
+              
+              <button
+                onClick={() => {
+                  useAppStore.getState().setMode("manage");
+                  // Depending on the implementation, opening docs might require dispatching an event
+                  // or just navigating to manage. The manage mode defaults to showing tabs.
+                  // (Assuming Manage Mode handles the "docs" tab selection if implemented or user can click it)
+                }}
+                className="p-1.5 rounded-lg transition-colors"
+                style={{ color: "var(--text-3)", cursor: "pointer" }}
+                title="Open Documentation"
+                aria-label="Open Documentation"
+              >
+                <BookOpen size={16} />
+              </button>
+
+              <div style={{ width: 1, height: 16, background: "var(--surface-border)", margin: "0 4px" }} />
+
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className="p-1.5 rounded-lg transition-colors"
+                style={{ color: "var(--text-3)", cursor: "pointer" }}
+                title="Chat AI Settings"
+                aria-label="Open chat AI settings"
+              >
+                <Settings2 size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Main content area */}
+          <div className="flex-1 min-h-0">
+            {configLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="pulse-subtle" style={{ color: "var(--text-3)", fontSize: 13 }}>
+                  Loading assistant configuration...
+                </div>
+              </div>
+            ) : !isConfigured ? (
+              <NoLlmSetup />
+            ) : !activeRepo ? (
+              <NoRepoState />
+            ) : (
+              <ChatPanel
+                onOpenSettings={() => setSettingsOpen(true)}
+                onNavigateToNode={handleNavigateToNode}
+              />
+            )}
+          </div>
+
+          {/* Settings modal */}
+          {settingsOpen && (
+            <Suspense
+              fallback={
+                <div className="fixed inset-0 z-50 flex items-center justify-center">
+                  <LoadingOrbs />
+                </div>
+              }
+            >
+              <ChatSettings onClose={() => setSettingsOpen(false)} />
+            </Suspense>
+          )}
+        </div>
+      </Panel>
+    </Group>
   );
 }

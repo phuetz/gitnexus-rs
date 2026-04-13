@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use axum::{
     routing::post,
-    Router,
     Json,
     extract::State,
     http::StatusCode,
@@ -77,7 +76,7 @@ async fn chat_handler(
     let registry = backend_guard.registry();
     let repo_entry = registry.iter().find(|e| e.name == payload.repo)
         .or_else(|| registry.first()) // Fallback to first repo if name doesn't match
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("No repository found")))?;
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "No repository found".to_string()))?;
     
     let repo_path = repo_entry.path.clone();
     drop(backend_guard); // Release lock before calling LLM
@@ -109,12 +108,4 @@ async fn shutdown_signal() {
         .await
         .expect("Failed to install ctrl+c handler");
     println!("\nShutting down...");
-}
-
-fn is_loopback_host(host: &str) -> bool {
-    matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]")
-}
-
-fn can_bind_http(host: &str, has_http_token: bool, insecure_http_allowed: bool) -> bool {
-    is_loopback_host(host) || has_http_token || insecure_http_allowed
 }

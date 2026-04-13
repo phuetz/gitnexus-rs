@@ -9,4 +9,5 @@ export const LENS_EDGE_TYPES: Record<LensType, string[] | null> = {
   impact: ["CALLS", "IMPORTS", "DEPENDS_ON"],
   "dead-code": null,
   tracing: null,
+  hotspots: null,
 };

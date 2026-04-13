@@ -20,8 +20,6 @@ interface GraphToolbarRowProps {
   onFlows: () => void;
   hiddenEdgeTypes: Set<string>;
   onToggleEdgeType: (type: string) => void;
-  depthFilter: number | null;
-  onDepthFilterChange: (depth: number | null) => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
 }
@@ -35,8 +33,6 @@ export function GraphToolbarRow({
   onFlows,
   hiddenEdgeTypes,
   onToggleEdgeType,
-  depthFilter,
-  onDepthFilterChange,
   viewMode,
   onViewModeChange,
 }: GraphToolbarRowProps) {
@@ -57,8 +53,6 @@ export function GraphToolbarRow({
           onExport={onExport}
           hiddenEdgeTypes={hiddenEdgeTypes}
           onToggleEdgeType={onToggleEdgeType}
-          depthFilter={depthFilter}
-          onDepthFilterChange={onDepthFilterChange}
           onFlows={onFlows}
         />
       </div>

@@ -413,6 +413,8 @@ const en = {
   "lens.deadCode.desc": "Highlight dead code candidates",
   "lens.tracing": "Tracing",
   "lens.tracing.desc": "Highlight traced methods",
+  "lens.hotspots": "Hotspots",
+  "lens.hotspots.desc": "Highlight frequently changed files",
   "lens.ariaLabel": "Graph lens filter",
 
   // ── Cypher Presets ──
@@ -906,6 +908,8 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "lens.deadCode.desc": "Mettre en surbrillance les candidats code mort",
   "lens.tracing": "Traçage",
   "lens.tracing.desc": "Mettre en surbrillance les méthodes tracées",
+  "lens.hotspots": "Points chauds",
+  "lens.hotspots.desc": "Mettre en surbrillance les fichiers fréquemment modifiés",
   "lens.ariaLabel": "Filtre de lentille du graphe",
 
   // ── Cypher Presets ──

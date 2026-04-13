@@ -6,13 +6,14 @@
  */
 
 import { useEffect, useRef, useMemo, useState, useId } from "react";
-import { ChevronRight, BookOpen } from "lucide-react";
+import { ChevronRight, BookOpen, Play } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import { getUiHighlighter } from "../../lib/shiki-runtime";
 import { t as tRaw } from "../../lib/i18n";
 import { useI18n } from "../../hooks/use-i18n";
+import { PresentationMode } from "./PresentationMode";
 // Shiki is loaded via the shared UI runtime inside HighlightedCode.
 
 /** Strip inline event handlers and script elements from SVG to prevent XSS. */
@@ -421,7 +422,7 @@ function DocsBreadcrumb({ title, onNavigate }: { title: string; onNavigate?: (pa
 
   return (
     <nav
-      className="flex items-center gap-1 mb-6 text-[12px]"
+      className="flex items-center gap-1 text-[12px]"
       aria-label="Breadcrumb"
     >
       <button
@@ -463,6 +464,7 @@ function DocsBreadcrumb({ title, onNavigate }: { title: string; onNavigate?: (pa
 export function DocsContent({ content, title, onNavigate }: DocsContentProps) {
   const { t } = useI18n();
   const contentRef = useRef<HTMLDivElement>(null);
+  const [isPresentationMode, setIsPresentationMode] = useState(false);
 
   // Derive table of contents from markdown headings (pure computation, no useEffect needed)
   const toc = useMemo(() => {
@@ -497,7 +499,18 @@ export function DocsContent({ content, title, onNavigate }: DocsContentProps) {
       {/* Main content */}
       <div ref={contentRef} className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-8 py-8">
-          <DocsBreadcrumb title={title} onNavigate={onNavigate} />
+          <div className="flex items-center justify-between mb-6">
+            <DocsBreadcrumb title={title} onNavigate={onNavigate} />
+            <button
+              onClick={() => setIsPresentationMode(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition-colors hover:bg-[var(--bg-3)]"
+              style={{ color: "var(--text-1)" }}
+              title="Present as slideshow"
+            >
+              <Play size={12} style={{ color: "var(--accent)" }} />
+              Present
+            </button>
+          </div>
           <article className="docs-prose">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
               {content}
@@ -505,6 +518,14 @@ export function DocsContent({ content, title, onNavigate }: DocsContentProps) {
           </article>
         </div>
       </div>
+
+      {isPresentationMode && (
+        <PresentationMode 
+          content={content} 
+          title={title} 
+          onExit={() => setIsPresentationMode(false)} 
+        />
+      )}
 
       {/* Table of contents (right sidebar) */}
       {toc.length > 2 && (

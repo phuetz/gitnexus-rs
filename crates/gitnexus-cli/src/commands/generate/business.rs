@@ -6,10 +6,7 @@ use std::path::Path;
 use anyhow::Result;
 use colored::Colorize;
 
-use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
-
-use super::utils::*;
 
 /// Generate business-specific process documentation (B1-B5).
 pub(super) fn generate_business_docs(

@@ -11,7 +11,7 @@
  * - Conversation history
  */
 
-import { lazy, Suspense, useState, useRef, useEffect, useCallback, forwardRef } from "react";
+import { lazy, Suspense, useState, useRef, useEffect, useCallback, useMemo, forwardRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useI18n } from "../../hooks/use-i18n";
 import { ChatSuggestions } from "./ChatSuggestions";
@@ -30,13 +30,12 @@ import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
 import { isTauri } from "../../lib/tauri-env";
 import type {
-  ChatSource as ChatSourceType,
   ChatSmartResponse,
-  ResearchPlan,
   QueryComplexity,
 } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
 import { useChatStore } from "../../stores/chat-store";
+import { useChatSessionStore, type Message } from "../../stores/chat-session-store";
 import { ChatContextBar } from "./ChatContextBar";
 
 const FileFilterModal = lazy(() =>
@@ -57,19 +56,6 @@ const SourceReferences = lazy(() =>
 const ChatMarkdown = lazy(() =>
   import("./ChatMarkdown").then((m) => ({ default: m.ChatMarkdown })),
 );
-
-// ─── Types ──────────────────────────────────────────────────────────
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  sources?: ChatSourceType[];
-  model?: string | null;
-  plan?: ResearchPlan;
-  complexity?: QueryComplexity;
-  timestamp: number;
-}
 
 // ─── Props ──────────────────────────────────────────────────────────
 
@@ -98,28 +84,15 @@ function renderFilterModals(activeModal: string | null, closeModal: () => void) 
 
 export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) {
   const { t } = useI18n();
-  const activeRepo = useAppStore((s) => s.activeRepo);
-  const storageKey = `gitnexus-chat-${activeRepo || "global"}`;
+  const activeRepo = useAppStore((s) => s.activeRepo) || "global";
+  
+  const getActiveSession = useChatSessionStore(s => s.getActiveSession);
+  const addMessage = useChatSessionStore(s => s.addMessage);
+  const clearSessionMessages = useChatSessionStore(s => s.clearSessionMessages);
 
-  const [messages, setMessages] = useState<Message[]>(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (!saved) return [];
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed)) return [];
-      // Validate each message has required fields to prevent render crashes
-      return parsed.filter(
-        (m: unknown): m is Message =>
-          typeof m === "object" &&
-          m !== null &&
-          typeof (m as Message).id === "string" &&
-          typeof (m as Message).role === "string" &&
-          typeof (m as Message).content === "string"
-      );
-    } catch {
-      return [];
-    }
-  });
+  const activeSession = getActiveSession(activeRepo);
+  const messages = useMemo(() => activeSession?.messages || [], [activeSession?.messages]);
+
   const [input, setInput] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -135,39 +108,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     setActivePlan,
   } = useChatStore();
 
-  // Persist messages to localStorage (keep last 100)
-  useEffect(() => {
-    try {
-      const toSave = messages.slice(-100);
-      localStorage.setItem(storageKey, JSON.stringify(toSave));
-    } catch {
-      // localStorage full or unavailable — silently ignore
-    }
-  }, [messages, storageKey]);
-
-  // Reload messages when activeRepo changes
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (!saved) { setMessages([]); return; }
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed)) { setMessages([]); return; }
-      setMessages(
-        parsed.filter(
-          (m: unknown): m is Message =>
-            typeof m === "object" &&
-            m !== null &&
-            typeof (m as Message).id === "string" &&
-            typeof (m as Message).role === "string" &&
-            typeof (m as Message).content === "string"
-        )
-      );
-    } catch {
-      setMessages([]);
-    }
-  }, [storageKey]);
-
-  // Auto-scroll to bottom
+  // Scroll to bottom when messages change or streaming updates
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingText]);
@@ -275,6 +216,12 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       setStreamingText("");
       streamingMsgIdRef.current = null;
 
+      if (response.sources && response.sources.length > 0) {
+        useAppStore.getState().setSearchMatchIds(response.sources.map(s => s.nodeId));
+      } else {
+        useAppStore.getState().setSearchMatchIds([]);
+      }
+
       const assistantMessage: Message = {
         id: `msg-${Date.now()}`,
         role: "assistant",
@@ -285,7 +232,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         complexity: response.complexity,
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, assistantMessage]);
+      addMessage(activeRepo, assistantMessage);
       if (response.plan) {
         setActivePlan(response.plan);
       }
@@ -301,7 +248,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         content: `**Error:** ${(error as Error).message}\n\nCould not get an AI response. Check your LLM configuration in Chat Settings (\u2699\uFE0F button), or use Ollama for local inference.`,
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      addMessage(activeRepo, errorMessage);
     },
   });
 
@@ -315,11 +262,11 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       content: question,
       timestamp: Date.now(),
     };
-    setMessages((prev) => [...prev, userMessage]);
+    addMessage(activeRepo, userMessage);
     setInput("");
 
     askMutation.mutate(question);
-  }, [input, askMutation]);
+  }, [input, askMutation, addMessage, activeRepo]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -397,8 +344,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
           </button>
           <button
             onClick={() => {
-              setMessages([]);
-              localStorage.removeItem(storageKey);
+              clearSessionMessages(activeRepo);
               toast.success(t("chat.conversationCleared"));
             }}
             className="text-[11px] hover-surface rounded px-2 py-1"
@@ -439,7 +385,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
               aria-live="assertive"
             >
               <Suspense fallback={<MarkdownFallback content={streamingText} />}>
-                <ChatMarkdown content={streamingText} />
+                <ChatMarkdown content={streamingText} onNavigateToNode={onNavigateToNode} />
               </Suspense>
               <span className="typing-cursor" />
             </div>
@@ -533,6 +479,25 @@ function MessageBubble({
     );
   }, [message.content, t]);
 
+  const handleExportMessage = useCallback(() => {
+    try {
+      const date = new Date().toISOString().split("T")[0];
+      const filename = `gitnexus-response-${date}.md`;
+      const blob = new Blob([message.content], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Response exported successfully");
+    } catch (e) {
+      toast.error(`Failed to export: ${String(e)}`);
+    }
+  }, [message.content]);
+
   if (message.role === "user") {
     return (
       <div className="group relative fade-in">
@@ -592,6 +557,15 @@ function MessageBubble({
         style={{ marginTop: -2 }}
       >
         <button
+          onClick={handleExportMessage}
+          className="p-1 rounded transition-colors"
+          style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
+          title="Export response as Markdown"
+          aria-label="Export response"
+        >
+          <Download size={12} />
+        </button>
+        <button
           onClick={handleCopyMessage}
           className="p-1 rounded transition-colors"
           style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
@@ -616,7 +590,7 @@ function MessageBubble({
         style={{ color: "var(--text-1)" }}
       >
         <Suspense fallback={<MarkdownFallback content={message.content} />}>
-          <ChatMarkdown content={message.content} />
+          <ChatMarkdown content={message.content} onNavigateToNode={onNavigateToNode} />
         </Suspense>
       </div>
 

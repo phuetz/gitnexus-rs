@@ -132,12 +132,14 @@ fn bfs_impact(
             rel_type,
             R::Calls
                 | R::CallsAction
+                | R::CallsService
                 | R::Imports
                 | R::Inherits
                 | R::Implements
                 | R::Extends
                 | R::Uses
                 | R::Overrides
+                | R::DependsOn
                 | R::RendersView
                 | R::HandlesRoute
                 | R::Fetches

@@ -12,6 +12,7 @@ const LENS_OPTIONS: { value: LensType; i18nKey: string }[] = [
   { value: "impact", i18nKey: "lens.impact" },
   { value: "dead-code", i18nKey: "lens.deadCode" },
   { value: "tracing", i18nKey: "lens.tracing" },
+  { value: "hotspots", i18nKey: "lens.hotspots" },
 ];
 
 export const LensSelector = memo(function LensSelector() {

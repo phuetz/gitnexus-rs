@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Workflow, ChevronRight, Activity, FileText } from "lucide-react";
-import { commands, ProcessFlow } from "../../lib/tauri-commands";
+import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 import { useAppStore } from "../../stores/app-store";
 import { LoadingOrbs } from "../shared/LoadingOrbs";
@@ -51,6 +51,7 @@ const MermaidDiagram = memo(function MermaidDiagram({ definition, id }: { defini
   return (
     <div
       ref={containerRef}
+      className="mermaid"
       style={{
         width: "100%",
         display: "flex",
@@ -112,7 +113,7 @@ export function ProcessFlowsView() {
             {t("analyze.processFlows")}
           </h2>
           <p style={{ fontSize: 13, color: "var(--text-3)" }}>
-            {t("analyze.flowsDesc", { count: flows.length })}
+            {t("analyze.flowsDesc").replace("{count}", (flows?.length || 0).toString())}
           </p>
         </div>
       </div>
@@ -171,7 +172,7 @@ export function ProcessFlowsView() {
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>
-                  {t("analyze.stepCount", { count: flow.stepCount })}
+                  {t("analyze.stepCount").replace("{count}", (flow.stepCount || 0).toString())}
                 </div>
               </div>
             </button>
@@ -204,7 +205,7 @@ export function ProcessFlowsView() {
                           border: "1px solid var(--surface-border)",
                         }}
                       >
-                        <div style={{ width: 20, height: 20, borderRadius: 10, background: "var(--bg-3)", display: "flex", alignItems: "center", justifyCenter: "center", fontSize: 10, fontWeight: 700, color: "var(--text-2)" }}>
+                        <div style={{ width: 20, height: 20, borderRadius: 10, background: "var(--bg-3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "var(--text-2)" }}>
                           {idx + 1}
                         </div>
                         <div className="flex-1 min-w-0">

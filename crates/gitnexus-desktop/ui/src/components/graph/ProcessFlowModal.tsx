@@ -30,9 +30,6 @@ export function ProcessFlowModal({ open, onClose }: Props) {
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  // Scope by `activeRepo`. The old key was also `staleTime: Infinity`, so
-  // without the repo in the key the modal would keep showing the previous
-  // repo's process flows forever after a repo switch.
   const { data: flows } = useQuery({
     queryKey: ["process-flows", activeRepo],
     queryFn: () => commands.getProcessFlows(),

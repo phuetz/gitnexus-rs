@@ -287,8 +287,7 @@ mod tests {
 
     #[test]
     fn test_router_creation() {
-        let backend = Arc::new(Mutex::new(LocalBackend::new()));
-        let _router = mcp_http_router(backend);
+        let _router = mcp_http_router();
         // Router creation should not panic
     }
 

@@ -145,6 +145,7 @@ const MOCK_SEARCH_RESULTS: SearchResult[] = [
   { nodeId: "n1", name: "run_pipeline", label: "Function", filePath: "src/pipeline.rs", score: 0.95, startLine: 42 },
   { nodeId: "n3", name: "KnowledgeGraph", label: "Struct", filePath: "src/core/graph.rs", score: 0.88, startLine: 10 },
   { nodeId: "n6", name: "LanguageProvider", label: "Trait", filePath: "src/lang/mod.rs", score: 0.82, startLine: 5 },
+  { nodeId: "biz-courriers", name: "Système de Courriers", label: "Process", filePath: "business/processes", score: 0.9, startLine: 1 },
 ];
 
 const MOCK_FILE_TREE: FileTreeNode[] = [
@@ -662,15 +663,16 @@ export const MOCK_RESPONSES: Record<string, unknown | ((args?: Record<string, un
   ] as ModuleQuickPick[],
 
   export_docs_docx: "/tmp/gitnexus-docs.docx",
+  export_obsidian_vault: "/tmp/gitnexus-obsidian-vault",
 
   get_aspnet_stats: {
-    controllers: 0,
-    actions: 0,
-    apiEndpoints: 0,
-    views: 0,
-    entities: 0,
-    dbContexts: 0,
-    areas: 0,
+    controllers: 12,
+    actions: 85,
+    apiEndpoints: 4,
+    views: 42,
+    entities: 28,
+    dbContexts: 2,
+    areas: 1,
   } satisfies AspNetStats,
 
   // Git analytics — return empty arrays (no git history in mock mode)
@@ -715,5 +717,17 @@ export const MOCK_RESPONSES: Record<string, unknown | ((args?: Record<string, un
   get_diagram: { mermaid: "graph LR\n  A[core] --> B[ingest]\n  B --> C[lang]\n  A --> D[search]\n  A --> E[db]", title: "Module Dependencies" },
 
   // Process Flows
-  get_process_flows: [],
+  get_process_flows: [
+    {
+      id: "biz-courriers",
+      name: "Système de Courriers",
+      processType: "business",
+      stepCount: 5,
+      steps: [
+        { nodeId: "n1", name: "Selection", label: "ControllerAction", filePath: "CourrierController.cs" },
+        { nodeId: "n2", name: "Generation", label: "Method", filePath: "CourrierService.cs" },
+      ],
+      mermaid: "sequenceDiagram\n  Utilisateur->>Controller: Selection\n  Controller->>Service: Generer",
+    }
+  ],
 };

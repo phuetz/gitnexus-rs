@@ -187,7 +187,7 @@ pub fn ask_question(question: &str, path: Option<&str>, stream_cb: Option<Stream
                     full_answer.push_str(delta);
                 }
             }
-        } else if !stream_cb.is_some() {
+        } else if stream_cb.is_none() {
             // Non-streaming response body parsing if stream is false
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
                  if let Some(content) = json.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("message")).and_then(|m| m.get("content")).and_then(|v| v.as_str()) {

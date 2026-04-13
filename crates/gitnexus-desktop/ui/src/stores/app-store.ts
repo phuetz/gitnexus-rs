@@ -6,7 +6,7 @@ export type DetailTab = "context" | "code" | "properties" | "layers" | "health";
 export type ThemeMode = "dark" | "light" | "system";
 export type AppMode = 'explorer' | 'analyze' | 'chat' | 'manage';
 export type AnalyzeView = 'overview' | 'hotspots' | 'coupling' | 'ownership' | 'coverage' | 'diagram' | 'report' | 'health' | 'processes';
-export type LensType = 'all' | 'calls' | 'structure' | 'heritage' | 'impact' | 'dead-code' | 'tracing';
+export type LensType = 'all' | 'calls' | 'structure' | 'heritage' | 'impact' | 'dead-code' | 'tracing' | 'hotspots';
 
 interface HistoryEntry {
   nodeId: string;
@@ -180,7 +180,7 @@ export const useAppStore = create<AppState>()(
         set({ theme });
       },
 
-      mode: 'explorer',
+      mode: 'chat',
       setMode: (mode) => set({ mode }),
       analyzeView: 'overview',
       setAnalyzeView: (view) => set({ analyzeView: view }),
@@ -191,7 +191,7 @@ export const useAppStore = create<AppState>()(
       explorerLeftCollapsed: false,
       setExplorerLeftCollapsed: (collapsed) => set({ explorerLeftCollapsed: collapsed }),
 
-      sidebarExpanded: false,
+      sidebarExpanded: true,
       setSidebarExpanded: (expanded) => set({ sidebarExpanded: expanded }),
       toggleSidebar: () => set((s) => ({ sidebarExpanded: !s.sidebarExpanded })),
 

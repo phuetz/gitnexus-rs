@@ -624,7 +624,7 @@ mod tests {
         let md = "> [!WARNING]\n> This is a warning\n";
         let html = markdown_to_html(md);
         assert!(html.contains("callout-warning"));
-        assert!(html.contains("\u{26a0}\u{fe0f}"));
+        assert!(html.contains("triangle-alert"));
     }
 
     #[test]

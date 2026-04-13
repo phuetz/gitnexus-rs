@@ -310,6 +310,7 @@ pub(super) fn strip_html_tags(html: &str) -> String {
 }
 
 /// Build the complete self-contained HTML template.
+#[allow(clippy::too_many_arguments)]
 fn build_html_template(
     project_name: &str,
     stats: &str,

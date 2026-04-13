@@ -4,7 +4,7 @@ test.describe("GitNexus desktop UI smoke", () => {
   test("loads the welcome screen in browser mode", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "GitNexus" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "GitNexus", exact: true })).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Analyze Project/i }),
     ).toBeVisible();

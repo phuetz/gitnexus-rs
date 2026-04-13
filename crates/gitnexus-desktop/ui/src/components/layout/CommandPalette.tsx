@@ -19,6 +19,7 @@ import {
   Code2,
   Layers,
   Sparkles,
+  Workflow,
 } from "lucide-react";
 import { AnimatedModal } from "../shared/motion";
 import { useAppStore } from "../../stores/app-store";
@@ -29,7 +30,7 @@ type CommandItem = {
   id: string;
   label: string;
   group: string;
-  icon: typeof Compass;
+  icon: React.ComponentType<{ className?: string; size?: number; style?: React.CSSProperties }>;
   shortcut?: string;
   action: () => void;
 };
@@ -80,6 +81,13 @@ function buildCommands(t: (key: string) => string): CommandItem[] {
       group: t("cmd.group.analyzeViews"),
       icon: LayoutDashboard,
       action: () => { store.setMode("analyze"); store.setAnalyzeView("overview"); },
+    },
+    {
+      id: "view-processes",
+      label: t("cmd.view") + " " + t("analyze.nav.processes"),
+      group: t("cmd.group.analyzeViews"),
+      icon: Workflow,
+      action: () => { store.setMode("analyze"); store.setAnalyzeView("processes"); },
     },
     {
       id: "view-hotspots",
@@ -181,6 +189,13 @@ function buildCommands(t: (key: string) => string): CommandItem[] {
       icon: Sparkles,
       action: () => store.setActiveLens("tracing"),
     },
+    {
+      id: "lens-hotspots",
+      label: t("cmd.lens") + " " + t("lens.hotspots"),
+      group: t("cmd.group.lenses"),
+      icon: Flame,
+      action: () => store.setActiveLens("hotspots"),
+    },
 
     // Actions
     {
@@ -201,7 +216,7 @@ function buildCommands(t: (key: string) => string): CommandItem[] {
   ];
 }
 
-function CommandItem({ item, onSelect }: { item: CommandItem; onSelect: () => void }) {
+function CommandPaletteItem({ item, onSelect }: { item: CommandItem; onSelect: () => void }) {
   return (
     <Command.Item
       key={item.id}
@@ -320,7 +335,7 @@ export function CommandPalette() {
               return (
                 <Command.Group key={group} heading={group} style={{ marginBottom: 4 }}>
                   {items.map((item) => (
-                    <CommandItem
+                    <CommandPaletteItem
                       key={item.id}
                       item={item}
                       onSelect={() => {

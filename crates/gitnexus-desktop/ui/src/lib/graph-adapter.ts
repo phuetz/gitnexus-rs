@@ -12,6 +12,8 @@ export interface SigmaNodeAttributes {
   y: number;
   size: number;
   color: string;
+  originalSize: number;
+  originalColor: string;
   label: string;
   nodeType: string;
   filePath: string;
@@ -160,6 +162,8 @@ export function buildGraphologyGraph(
       y: Math.sin(angle) * radius,
       size,
       color,
+      originalSize: size,
+      originalColor: color,
       label: node.name,
       nodeType: node.label,
       filePath: node.filePath,

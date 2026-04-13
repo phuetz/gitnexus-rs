@@ -33,6 +33,13 @@ cd crates/gitnexus-desktop/ui && npm run dev    # Vite dev server
 cd crates/gitnexus-desktop/ui && npm run lint   # ESLint
 cd crates/gitnexus-desktop/ui && npm run build  # tsc + vite build
 
+# Build NexusBrain (separate Tauri app)
+cd nexus-brain && npm install && npm run build && cd ..
+cd nexus-brain/src-tauri && cargo build && cd ../..
+
+# Run NexusBrain in dev mode
+cd nexus-brain/src-tauri && cargo tauri dev
+
 # Run the CLI
 cargo run -p gitnexus-cli -- <command>
 
@@ -54,7 +61,7 @@ cargo clippy --workspace
 
 ## Workspace Architecture
 
-11 active crates in `crates/` (gitnexus-lsp, gitnexus-storage, and gitnexus-types are excluded from the workspace), with a strict dependency flow:
+12 active crates in `crates/` (gitnexus-lsp, gitnexus-storage, and gitnexus-types are excluded from the workspace), with a strict dependency flow:
 
 ```
 gitnexus-cli (binary: "gitnexus")
@@ -66,6 +73,7 @@ gitnexus-cli (binary: "gitnexus")
   ├── gitnexus-query       (Query execution)
   ├── gitnexus-output      (Output formatting)
   ├── gitnexus-git         (Git analytics: hotspots, coupling, ownership)
+  ├── gitnexus-rag         (GraphRAG: doc chunking and semantic anchoring into the graph)
   └── gitnexus-core        (Core types: KnowledgeGraph, NodeLabel, SymbolTable, config)
        └── gitnexus-types  (Shared type definitions)
 
@@ -74,6 +82,9 @@ gitnexus-desktop (Tauri v2 desktop app)
   ├── gitnexus-git
   ├── gitnexus-search
   └── gitnexus-core
+
+nexus-brain (separate Tauri v2 app — "Knowledge IDE", Obsidian-like vault editor)
+  └── standalone — reads Markdown Vaults exported by GitNexus, not a workspace member
 ```
 
 **Core** (`gitnexus-core`): In-memory knowledge graph with HashMap-based O(1) node/relationship lookup. Defines `NodeLabel` (52 variants), `RelationshipType` (27 variants including `Calls`, `HasMethod`, `HasProperty`, `HasAction`), `SymbolDefinition`, and pipeline types. Node properties include `is_traced`, `is_dead_candidate`, `trace_call_count`. Not thread-safe on its own; wrapped in `Arc<RwLock<>>` when shared.
@@ -99,7 +110,11 @@ Uses rayon for parallel file processing with a 20MB chunk budget and LRU AST cac
 
 **Git** (`gitnexus-git`): Git history analysis: `analyze_hotspots` (file churn scoring), `analyze_coupling` (temporal coupling between files), `analyze_ownership` (author distribution per file). Used by CLI and desktop app.
 
-**Desktop** (`gitnexus-desktop`): Tauri v2 desktop app with React 19 frontend. Accesses `KnowledgeGraph` + `GraphIndexes` + `FtsIndex` directly via Tauri IPC (not via MCP envelope — this is a deliberate performance choice). Frontend uses Sigma.js + Graphology for graph visualization, Zustand + TanStack Query for state, Tailwind CSS v4 + framer-motion for styling/animations. 18 Tauri command modules in `src/commands/` bridge frontend↔Rust. Four app modes: Explorer (graph + lenses), Analyze (hotspots/coupling/ownership/coverage/diagram/report/health), Chat (LLM Q&A with context), Manage (repo CRUD). State in `ui/src/stores/app-store.ts` (Zustand) and `ui/src/hooks/use-tauri-query.ts` (TanStack Query wrapper for IPC). Graph rendering: `ui/src/components/graph/GraphExplorer.tsx` (hot path).
+**RAG** (`gitnexus-rag`): GraphRAG integration — ingests external documentation (Markdown, PDF, DOCX), chunks it into `DocChunk` structs, and anchors chunks semantically into the knowledge graph. Uses pulldown-cmark for Markdown parsing.
+
+**Desktop** (`gitnexus-desktop`): Tauri v2 desktop app with React 19 frontend. Accesses `KnowledgeGraph` + `GraphIndexes` + `FtsIndex` directly via Tauri IPC (not via MCP envelope — this is a deliberate performance choice). Frontend uses Sigma.js + Graphology for graph visualization, Zustand + TanStack Query for state, Tailwind CSS v4 + framer-motion for styling/animations. 17 Tauri command modules in `src/commands/` bridge frontend↔Rust. Four app modes: Explorer (graph + lenses), Analyze (hotspots/coupling/ownership/coverage/diagram/report/health), Chat (LLM Q&A with context), Manage (repo CRUD). State in `ui/src/stores/app-store.ts` (Zustand) and `ui/src/hooks/use-tauri-query.ts` (TanStack Query wrapper for IPC). Graph rendering: `ui/src/components/graph/GraphExplorer.tsx` (hot path).
+
+**NexusBrain** (`nexus-brain/`): Separate Tauri v2 app (not a workspace member) — an Obsidian-like "Knowledge IDE" that reads Markdown Vaults exported by the GitNexus desktop app's "Digital Brain" export feature. React 18 + Tailwind CSS 3 frontend, md-editor-rt for Markdown editing, react-force-graph-2d for graph visualization. Independent from the Rust workspace — has its own `Cargo.toml` under `src-tauri/`.
 
 ## Feature Flags
 

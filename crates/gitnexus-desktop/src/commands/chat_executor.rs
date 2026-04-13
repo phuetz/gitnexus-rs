@@ -425,12 +425,14 @@ fn execute_impact(
             rel_type,
             RelationshipType::Calls
                 | RelationshipType::CallsAction
+                | RelationshipType::CallsService
                 | RelationshipType::Imports
                 | RelationshipType::Inherits
                 | RelationshipType::Implements
                 | RelationshipType::Extends
                 | RelationshipType::Uses
                 | RelationshipType::Overrides
+                | RelationshipType::DependsOn
                 | RelationshipType::RendersView
                 | RelationshipType::HandlesRoute
                 | RelationshipType::Fetches

@@ -138,6 +138,13 @@ export function GraphExplorer() {
   });
   const activeData = gs.focusNodeId && subgraphData ? subgraphData : data;
 
+  const { data: hotspotsData } = useQuery({
+    queryKey: ["git-hotspots", activeRepo],
+    queryFn: () => commands.getHotspots(90),
+    enabled: activeLens === "hotspots" && !!activeRepo,
+    staleTime: 60_000,
+  });
+
   // ── Graph build effect ────────────────────────────────────────────
   const prevKeyRef = useRef("");
   useEffect(() => {
@@ -148,6 +155,54 @@ export function GraphExplorer() {
     setGraph(buildGraphologyGraph(activeData.nodes, activeData.edges, effectiveHiddenEdgeTypes));
     runLayout();
   }, [activeData, zoomLevel, effectiveHiddenEdgeTypes, gs.focusNodeId, setGraph, runLayout]);
+
+  // ── Hotspots Overlay Effect ───────────────────────────────────────
+  useEffect(() => {
+    const g = graphRef.current;
+    if (!g || g.order === 0) return;
+
+    if (activeLens === "hotspots" && hotspotsData && hotspotsData.length > 0) {
+      const scoreMap = new Map<string, number>();
+      let maxScore = 0;
+      for (const h of hotspotsData) {
+        scoreMap.set(h.path.replace(/\\/g, '/'), h.score);
+        if (h.score > maxScore) maxScore = h.score;
+      }
+
+      g.forEachNode((node, attrs) => {
+        if (!attrs.filePath) return;
+        
+        let nodeScore = 0;
+        const normalizedFilePath = attrs.filePath.replace(/\\/g, '/');
+        for (const [path, score] of scoreMap.entries()) {
+          if (normalizedFilePath.endsWith(path) || path.endsWith(normalizedFilePath)) {
+            nodeScore = score;
+            break;
+          }
+        }
+
+        if (nodeScore > 0) {
+          const intensity = maxScore > 0 ? Math.min(1, nodeScore / maxScore) : 0;
+          const r = Math.round(234 + intensity * (239 - 234));
+          const gCol = Math.round(179 + intensity * (68 - 179));
+          const b = Math.round(8 + intensity * (68 - 8));
+          
+          g.setNodeAttribute(node, "color", `rgb(${r}, ${gCol}, ${b})`);
+          g.setNodeAttribute(node, "size", (attrs.originalSize || attrs.size) * (1 + intensity * 0.5));
+        } else {
+          g.setNodeAttribute(node, "color", "var(--bg-3)");
+          g.setNodeAttribute(node, "size", attrs.originalSize || attrs.size);
+        }
+      });
+    } else {
+      g.forEachNode((node, attrs) => {
+        if (attrs.originalColor) g.setNodeAttribute(node, "color", attrs.originalColor);
+        if (attrs.originalSize) g.setNodeAttribute(node, "size", attrs.originalSize);
+      });
+    }
+    
+    refresh();
+  }, [activeLens, hotspotsData, graphRef, refresh, activeData]);
 
   // ── All other effects ─────────────────────────────────────────────
   // Pass the Set directly (NOT a fresh array spread) so the community-filter
@@ -183,8 +238,8 @@ export function GraphExplorer() {
 
   // ── Early returns ─────────────────────────────────────────────────
   if (isLoading) return <GraphLoading {...toolbarProps} />;
-  if (data && data.nodes.length === 0) return <GraphEmpty {...toolbarProps} />;
   if (error) return <GraphError {...toolbarProps} error={error} />;
+  if (data && data.nodes.length === 0) return <GraphEmpty {...toolbarProps} />;
 
   // ── Main render ──────────────────────────────────────────────────
   return (

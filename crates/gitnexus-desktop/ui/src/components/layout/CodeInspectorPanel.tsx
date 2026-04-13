@@ -3,13 +3,124 @@
  * its callers, and callees. Matches the competitor's 3-panel "Code Inspector" layout.
  */
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Code2, ChevronDown, ChevronRight, FileCode, Package } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 import { useSymbolContext, useFileContent } from "../../hooks/use-tauri-query";
 import { useShikiTokens } from "../../hooks/use-shiki";
 import type { RelatedNode } from "../../lib/tauri-commands";
+
+interface Token {
+  color?: string;
+  content: string;
+}
+
+/** 
+ * VirtualCodeBlock implements "Smart Chunking" for large code files.
+ * It only renders the visible lines within the scroll viewport, ensuring 
+ * the application stays at 60 FPS even when inspecting massive legacy files.
+ */
+function VirtualCodeBlock({ tokens, rawContent, baseLineNum }: { tokens?: Token[][] | null, rawContent: string, baseLineNum: number }) {
+  const containerRef = useRef<HTMLPreElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  
+  // A typical monospace code line at 11px font-size and 1.6 line-height is ~17.6px.
+  // We use Math.floor(11 * 1.6) to ensure consistent row heights (approx 17.6px, let's use 18px for math simplicity, or actually just read it from the DOM).
+  // For simplicity in a virtual list, we force a fixed height per item.
+  const ITEM_HEIGHT = 18; 
+  const VISIBLE_COUNT = Math.ceil(220 / ITEM_HEIGHT) + 5; // 220px is the maxHeight
+
+  const lines = useMemo(() => tokens || rawContent.split("\n"), [tokens, rawContent]);
+  const totalHeight = lines.length * ITEM_HEIGHT;
+
+  useEffect(() => {
+    const handleScroll = (e: Event) => {
+      const target = e.target as HTMLElement;
+      // Use requestAnimationFrame or just set state (React 18 batches this well)
+      setScrollTop(target.scrollTop);
+    };
+    
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener("scroll", handleScroll, { passive: true });
+      return () => container.removeEventListener("scroll", handleScroll);
+    }
+  }, []);
+
+  const startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - 2);
+  const endIndex = Math.min(lines.length, startIndex + VISIBLE_COUNT + 4);
+  const visibleLines = lines.slice(startIndex, endIndex);
+
+  return (
+    <pre
+      ref={containerRef}
+      style={{
+        margin: 0,
+        fontSize: 11,
+        lineHeight: "18px", // Fixed line-height for precise virtual math
+        fontFamily: "var(--font-mono)",
+        color: "var(--text-1)",
+        maxHeight: 220,
+        overflow: "auto",
+        position: "relative",
+      }}
+    >
+      <div style={{ height: totalHeight, position: "relative" }}>
+        <code style={{ 
+          position: "absolute", 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          transform: `translateY(${startIndex * ITEM_HEIGHT}px)` 
+        }}>
+          {visibleLines.map((lineOrTokens: unknown, idx: number) => {
+            const globalIndex = startIndex + idx;
+            const isTokens = Array.isArray(lineOrTokens);
+            return (
+              <div
+                key={globalIndex}
+                style={{
+                  display: "flex",
+                  height: ITEM_HEIGHT,
+                  alignItems: "center",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "var(--bg-2)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                }}
+              >
+                <span
+                  style={{
+                    paddingLeft: 8,
+                    paddingRight: 12,
+                    color: "var(--text-4)",
+                    width: "3.5em",
+                    textAlign: "right",
+                    userSelect: "none",
+                    flexShrink: 0,
+                    fontSize: 10,
+                  }}
+                >
+                  {baseLineNum + globalIndex}
+                </span>
+                <span style={{ flex: 1, whiteSpace: "pre", paddingRight: 8 }}>
+                  {isTokens ? (lineOrTokens as Token[]).map((token: Token, j: number) => (
+                    <span key={j} style={{ color: token.color }}>
+                      {token.content}
+                    </span>
+                  )) : String(lineOrTokens)}
+                </span>
+              </div>
+            );
+          })}
+        </code>
+      </div>
+    </pre>
+  );
+}
 
 /** A single collapsible code section with file path header + source code */
 function CodeSection({
@@ -127,87 +238,9 @@ function CodeSection({
             )}
           </div>
 
-          {/* Source with syntax highlighting */}
+          {/* Source with syntax highlighting (Virtualization for performance) */}
           {data ? (
-            <pre
-              style={{
-                margin: 0,
-                fontSize: 11,
-                lineHeight: 1.6,
-                fontFamily: "var(--font-mono)",
-                color: "var(--text-1)",
-                maxHeight: 220,
-                overflow: "auto",
-              }}
-            >
-              <code>
-                {tokens
-                  ? tokens.map((lineTokens, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          display: "flex",
-                          minHeight: "1.6em",
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = "var(--bg-2)";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = "transparent";
-                        }}
-                      >
-                        <span
-                          style={{
-                            paddingLeft: 8,
-                            paddingRight: 12,
-                            color: "var(--text-4)",
-                            width: "3.5em",
-                            textAlign: "right",
-                            userSelect: "none",
-                            flexShrink: 0,
-                            fontSize: 10,
-                          }}
-                        >
-                          {baseLineNum + i}
-                        </span>
-                        <span style={{ flex: 1, whiteSpace: "pre", paddingRight: 8 }}>
-                          {lineTokens.map((token, j) => (
-                            <span key={j} style={{ color: token.color }}>
-                              {token.content}
-                            </span>
-                          ))}
-                        </span>
-                      </div>
-                    ))
-                  : data.content.split("\n").map((line, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          display: "flex",
-                          minHeight: "1.6em",
-                        }}
-                      >
-                        <span
-                          style={{
-                            paddingLeft: 8,
-                            paddingRight: 12,
-                            color: "var(--text-4)",
-                            width: "3.5em",
-                            textAlign: "right",
-                            userSelect: "none",
-                            flexShrink: 0,
-                            fontSize: 10,
-                          }}
-                        >
-                          {baseLineNum + i}
-                        </span>
-                        <span style={{ flex: 1, whiteSpace: "pre", paddingRight: 8 }}>
-                          {line}
-                        </span>
-                      </div>
-                    ))}
-              </code>
-            </pre>
+            <VirtualCodeBlock tokens={tokens} rawContent={data.content} baseLineNum={baseLineNum} />
           ) : (
             <div
               style={{

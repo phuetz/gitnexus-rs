@@ -112,10 +112,10 @@ enum Commands {
         path: Option<String>,
     },
     /// Generate documentation from the knowledge graph
-    #[command(after_help = "Examples:\n  gitnexus generate html --path D:\\taf\\MyProject\n  gitnexus generate html --enrich --enrich-profile strict\n  gitnexus generate all --path D:\\taf\\MyProject")]
+    #[command(after_help = "Examples:\n  gitnexus generate html --path D:\\taf\\MyProject\n  gitnexus generate pdf --input D:\\taf\\docs\\V2\n  gitnexus generate html --enrich --enrich-profile strict\n  gitnexus generate all --path D:\\taf\\MyProject")]
     Generate {
-        /// Target: context, agents, wiki, skills, docs, docx, html, all
-        #[arg(help = "Target: context | agents | wiki | skills | docs | docx | html | all")]
+        /// Target: context, agents, wiki, skills, docs, docx, pdf, html, all
+        #[arg(help = "Target: context | agents | wiki | skills | docs | docx | pdf | html | all")]
         what: String,
         /// Path to the repository (defaults to current directory)
         #[arg(short, long)]
@@ -123,6 +123,9 @@ enum Commands {
         /// Output directory for generated documentation (defaults to .gitnexus/docs)
         #[arg(short, long)]
         output_dir: Option<String>,
+        /// Input Markdown file or directory (standalone mode for pdf, skips knowledge graph)
+        #[arg(long)]
+        input: Option<String>,
         /// Enrich documentation with LLM-generated prose (requires configured LLM)
         #[arg(long, default_value_t = false)]
         enrich: bool,
@@ -223,13 +226,16 @@ enum Commands {
         json: bool,
     },
     /// Generate Mermaid diagrams from the knowledge graph
-    #[command(after_help = "Examples:\n  gitnexus diagram CourrierController --type flowchart\n  gitnexus diagram BenefService --type sequence\n  gitnexus diagram CourrierController --type class --output diagram.md")]
+    #[command(after_help = "Examples:\n  gitnexus diagram CourrierController --type flowchart\n  gitnexus diagram BenefService --format slides\n  gitnexus diagram CourrierController --type class --output diagram.md")]
     Diagram {
         /// Symbol name to diagram
         target: String,
         /// Diagram type: flowchart, sequence, or class
         #[arg(long, default_value = "flowchart")]
         r#type: String,
+        /// Output format: mermaid, slides
+        #[arg(long, default_value = "mermaid")]
+        format: String,
         /// Path to the repository (defaults to current directory)
         #[arg(short, long)]
         path: Option<String>,
@@ -338,8 +344,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Setup => commands::setup::run(),
         Commands::Shell { path } => commands::shell::run(path.as_deref()).await,
-        Commands::Generate { what, path, output_dir, enrich, enrich_profile, enrich_lang, enrich_citations, traces_dir } => {
-            commands::generate::run(&what, path.as_deref(), output_dir.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations, traces_dir.as_deref())
+        Commands::Generate { what, path, output_dir, input, enrich, enrich_profile, enrich_lang, enrich_citations, traces_dir } => {
+            commands::generate::run(&what, path.as_deref(), output_dir.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations, traces_dir.as_deref(), input.as_deref())
         }
         Commands::Watch { path } => commands::watch::run(path.as_deref()).await,
         Commands::Dashboard { path } => commands::dashboard::run(path.as_deref()),
@@ -372,8 +378,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::TraceFiles { target, path, depth, json } => {
             commands::trace_files::run(&target, path.as_deref(), depth, json)
         }
-        Commands::Diagram { target, r#type, path, output } => {
-            commands::diagram::run(&target, &r#type, path.as_deref(), output.as_deref())
+        Commands::Diagram { target, r#type, format, path, output } => {
+            commands::diagram::run(&target, &r#type, &format, path.as_deref(), output.as_deref())
         }
         Commands::TraceImport { file, path } => {
             commands::trace_import::run(&file, path.as_deref())

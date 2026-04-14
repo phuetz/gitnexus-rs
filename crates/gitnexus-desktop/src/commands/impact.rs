@@ -109,6 +109,17 @@ pub async fn get_impact_analysis(
     })
 }
 
+/// Public version of bfs_impact for use by the agent tool loop.
+pub fn bfs_impact_pub(
+    graph: &gitnexus_core::graph::KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
+    start_id: &str,
+    max_depth: u32,
+    upstream: bool,
+) -> Vec<ImpactNode> {
+    bfs_impact(graph, indexes, start_id, max_depth, upstream)
+}
+
 fn bfs_impact(
     graph: &gitnexus_core::graph::KnowledgeGraph,
     indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,

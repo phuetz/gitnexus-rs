@@ -185,18 +185,19 @@ async fn execute_mcp_tool(
     args: &str,
     repo_path: &Path,
     graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     fts_index: &FtsIndex,
 ) -> String {
+    let parsed = serde_json::from_str::<serde_json::Value>(args).unwrap_or_default();
+
     match name {
+        // ── search_code ──────────────────────────────────────────
         "search_code" => {
-            let query = serde_json::from_str::<serde_json::Value>(args)
-                .ok()
-                .and_then(|v| v.get("query").and_then(|q| q.as_str()).map(String::from))
-                .unwrap_or_default();
+            let query = parsed.get("query").and_then(|q| q.as_str()).unwrap_or_default();
             if query.is_empty() {
                 return "Error: missing required parameter 'query'".to_string();
             }
-            let results = search_relevant_context(&query, graph, fts_index, 8);
+            let results = search_relevant_context(query, graph, fts_index, 8);
             let sources = build_sources(&results, graph, repo_path);
             if sources.is_empty() {
                 return format!("No results found for '{}'.", query);
@@ -225,11 +226,228 @@ async fn execute_mcp_tool(
             }
             out
         }
-        "save_memory" => {
-            let parsed = match serde_json::from_str::<serde_json::Value>(args) {
-                Ok(v) => v,
-                Err(_) => return "Error: invalid JSON arguments for save_memory".to_string(),
+
+        // ── read_file ────────────────────────────────────────────
+        "read_file" => {
+            let path = match parsed.get("path").and_then(|p| p.as_str()) {
+                Some(p) => p,
+                None => return "Error: missing required parameter 'path'".to_string(),
             };
+            let start = parsed.get("start_line").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let end = parsed.get("end_line").and_then(|v| v.as_u64()).map(|v| v as u32);
+            match read_code_snippet(repo_path, path, start, end) {
+                Some(content) => {
+                    let lang = detect_language(path);
+                    format!("File `{}` (lines {}-{}):\n```{}\n{}\n```", path,
+                        start.unwrap_or(1), end.unwrap_or(start.unwrap_or(1) + 30),
+                        lang, content)
+                }
+                None => format!("Error: could not read file '{}' (not found or outside repo)", path),
+            }
+        }
+
+        // ── get_impact ───────────────────────────────────────────
+        "get_impact" => {
+            let target = match parsed.get("target").and_then(|t| t.as_str()) {
+                Some(t) => t,
+                None => return "Error: missing required parameter 'target'".to_string(),
+            };
+            let direction = parsed.get("direction").and_then(|d| d.as_str()).unwrap_or("both");
+            let max_depth = parsed.get("max_depth").and_then(|d| d.as_u64()).unwrap_or(3) as u32;
+
+            // Resolve target: try exact node ID first, then name search
+            let target_id = if graph.get_node(target).is_some() {
+                target.to_string()
+            } else {
+                let target_lower = target.to_lowercase();
+                match graph.iter_nodes().find(|n| n.properties.name.to_lowercase() == target_lower) {
+                    Some(n) => n.id.clone(),
+                    None => return format!("Error: symbol '{}' not found", target),
+                }
+            };
+
+            let upstream = if direction == "upstream" || direction == "both" {
+                crate::commands::impact::bfs_impact_pub(graph, indexes, &target_id, max_depth, true)
+            } else {
+                Vec::new()
+            };
+            let downstream = if direction == "downstream" || direction == "both" {
+                crate::commands::impact::bfs_impact_pub(graph, indexes, &target_id, max_depth, false)
+            } else {
+                Vec::new()
+            };
+
+            let mut out = format!("Impact analysis for '{}' (depth={}, direction={}):\n\n", target, max_depth, direction);
+            if !upstream.is_empty() {
+                out.push_str(&format!("**Upstream ({} affected):**\n", upstream.len()));
+                for n in upstream.iter().take(20) {
+                    out.push_str(&format!("  - {} ({}) at depth {} — `{}`\n",
+                        n.node.name, n.node.label, n.depth, n.node.file_path));
+                }
+                if upstream.len() > 20 { out.push_str(&format!("  ... and {} more\n", upstream.len() - 20)); }
+                out.push('\n');
+            }
+            if !downstream.is_empty() {
+                out.push_str(&format!("**Downstream ({} affected):**\n", downstream.len()));
+                for n in downstream.iter().take(20) {
+                    out.push_str(&format!("  - {} ({}) at depth {} — `{}`\n",
+                        n.node.name, n.node.label, n.depth, n.node.file_path));
+                }
+                if downstream.len() > 20 { out.push_str(&format!("  ... and {} more\n", downstream.len() - 20)); }
+            }
+            if upstream.is_empty() && downstream.is_empty() {
+                out.push_str("No impact found — this symbol has no causal dependencies.\n");
+            }
+            out
+        }
+
+        // ── get_symbol_context ───────────────────────────────────
+        "get_symbol_context" => {
+            let symbol = match parsed.get("symbol").and_then(|s| s.as_str()) {
+                Some(s) => s,
+                None => return "Error: missing required parameter 'symbol'".to_string(),
+            };
+
+            // Resolve: exact ID or name search
+            let node_id = if graph.get_node(symbol).is_some() {
+                symbol.to_string()
+            } else {
+                let sym_lower = symbol.to_lowercase();
+                match graph.iter_nodes().find(|n| n.properties.name.to_lowercase() == sym_lower) {
+                    Some(n) => n.id.clone(),
+                    None => return format!("Error: symbol '{}' not found", symbol),
+                }
+            };
+
+            let node = graph.get_node(&node_id).unwrap();
+            let mut out = format!("**{}** ({}) — `{}`\n\n", node.properties.name, node.label.as_str(), node.properties.file_path);
+
+            // Callers/callees via indexes
+            let mut callers = Vec::new();
+            let mut callees = Vec::new();
+            let mut imports = Vec::new();
+            let mut inherited = Vec::new();
+
+            if let Some(outs) = indexes.outgoing.get(&node_id) {
+                for (tid, rtype) in outs {
+                    if let Some(t) = graph.get_node(tid) {
+                        match rtype {
+                            RelationshipType::Calls => callees.push(format!("{} ({})", t.properties.name, t.label.as_str())),
+                            RelationshipType::Imports => imports.push(t.properties.name.clone()),
+                            RelationshipType::Inherits | RelationshipType::Extends | RelationshipType::Implements =>
+                                inherited.push(format!("{} ({})", t.properties.name, t.label.as_str())),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            if let Some(ins) = indexes.incoming.get(&node_id) {
+                for (sid, rtype) in ins {
+                    if let Some(s) = graph.get_node(sid) {
+                        if *rtype == RelationshipType::Calls {
+                            callers.push(format!("{} ({})", s.properties.name, s.label.as_str()));
+                        }
+                    }
+                }
+            }
+
+            if !callers.is_empty() { out.push_str(&format!("**Called by:** {}\n", callers.join(", "))); }
+            if !callees.is_empty() { out.push_str(&format!("**Calls:** {}\n", callees.join(", "))); }
+            if !imports.is_empty() { out.push_str(&format!("**Imports:** {}\n", imports.join(", "))); }
+            if !inherited.is_empty() { out.push_str(&format!("**Inherits/Implements:** {}\n", inherited.join(", "))); }
+
+            // Community
+            if let Some(outs) = indexes.outgoing.get(&node_id) {
+                for (tid, rtype) in outs {
+                    if *rtype == RelationshipType::MemberOf {
+                        if let Some(c) = graph.get_node(tid) {
+                            out.push_str(&format!("**Module:** {}\n", c.properties.name));
+                            break;
+                        }
+                    }
+                }
+            }
+            out
+        }
+
+        // ── execute_cypher ───────────────────────────────────────
+        "execute_cypher" => {
+            let query = match parsed.get("query").and_then(|q| q.as_str()) {
+                Some(q) => q,
+                None => return "Error: missing required parameter 'query'".to_string(),
+            };
+            match gitnexus_db::inmemory::cypher::parse(query) {
+                Ok(stmt) => {
+                    match gitnexus_db::inmemory::cypher::execute(&stmt, graph, indexes, fts_index) {
+                        Ok(rows) => {
+                            if rows.is_empty() {
+                                "Query returned 0 results.".to_string()
+                            } else {
+                                let truncated: Vec<_> = rows.iter().take(25).collect();
+                                let json = serde_json::to_string_pretty(&truncated).unwrap_or_default();
+                                format!("Cypher returned {} results{}:\n```json\n{}\n```",
+                                    rows.len(),
+                                    if rows.len() > 25 { " (showing first 25)" } else { "" },
+                                    json)
+                            }
+                        }
+                        Err(e) => format!("Cypher execution error: {}", e),
+                    }
+                }
+                Err(e) => format!("Cypher parse error: {}", e),
+            }
+        }
+
+        // ── get_diagram ──────────────────────────────────────────
+        "get_diagram" => {
+            let target = match parsed.get("target").and_then(|t| t.as_str()) {
+                Some(t) => t,
+                None => return "Error: missing required parameter 'target'".to_string(),
+            };
+            let target_lower = target.to_lowercase();
+            let start_node = match graph.iter_nodes().find(|n| n.properties.name.to_lowercase() == target_lower) {
+                Some(n) => n,
+                None => return format!("Error: symbol '{}' not found", target),
+            };
+
+            let node_id = &start_node.id;
+            let mut lines = vec!["graph TD".to_string()];
+            lines.push(format!("    {}[\"{}\"]", diagram_sanitize(node_id), diagram_escape(&start_node.properties.name)));
+
+            let empty: Vec<(String, RelationshipType)> = Vec::new();
+            let outgoing = indexes.outgoing.get(node_id).unwrap_or(&empty);
+            let methods: Vec<String> = outgoing.iter()
+                .filter(|(_, rt)| matches!(rt, RelationshipType::HasMethod | RelationshipType::HasAction))
+                .map(|(tid, _)| tid.clone()).collect();
+
+            for mid in &methods {
+                if let Some(m) = graph.get_node(mid) {
+                    lines.push(format!("    {} --> {}[\"{}\"]", diagram_sanitize(node_id), diagram_sanitize(mid), diagram_escape(&m.properties.name)));
+                    if let Some(m_outs) = indexes.outgoing.get(mid) {
+                        for (cid, rt) in m_outs {
+                            if matches!(rt, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
+                                if let Some(callee) = graph.get_node(cid) {
+                                    lines.push(format!("    {} --> {}[\"{}\"]", diagram_sanitize(mid), diagram_sanitize(cid), diagram_escape(&callee.properties.name)));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if methods.is_empty() {
+                for (tid, rt) in outgoing {
+                    if matches!(rt, RelationshipType::Calls | RelationshipType::Imports | RelationshipType::DependsOn) {
+                        if let Some(t) = graph.get_node(tid) {
+                            lines.push(format!("    {} -->|{}| {}[\"{}\"]", diagram_sanitize(node_id), rt.as_str(), diagram_sanitize(tid), diagram_escape(&t.properties.name)));
+                        }
+                    }
+                }
+            }
+            format!("Mermaid diagram for '{}':\n```mermaid\n{}\n```", target, lines.join("\n"))
+        }
+
+        // ── save_memory ──────────────────────────────────────────
+        "save_memory" => {
             let fact = match parsed.get("fact").and_then(|f| f.as_str()) {
                 Some(f) => f,
                 None => return "Error: missing required parameter 'fact'".to_string(),
@@ -247,8 +465,17 @@ async fn execute_mcp_tool(
                 Err(e) => format!("Failed to save memory: {}", e),
             }
         }
+
         _ => format!("Error: unknown tool '{}'", name),
     }
+}
+
+fn diagram_sanitize(id: &str) -> String {
+    id.replace([':', '/', '.', ' ', '<', '>', '(', ')', '{', '}'], "_")
+}
+
+fn diagram_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// Ask a question about the codebase.
@@ -261,7 +488,7 @@ pub async fn chat_ask(
     let config = load_config(&state).await;
 
     // 1. Get the active repo's graph and FTS index
-    let (graph, _indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
+    let (graph, indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
     let repo_path = PathBuf::from(&repo_path_str);
 
     // 2. Search for relevant symbols
@@ -324,11 +551,11 @@ pub async fn chat_ask(
             type_: "function".to_string(),
             function: FunctionDefinition {
                 name: "search_code".to_string(),
-                description: "Search the codebase for specific patterns or symbols".to_string(),
+                description: "Search the codebase for symbols, functions, classes, or patterns. Returns matching symbols with code snippets.".to_string(),
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "query": { "type": "string" }
+                        "query": { "type": "string", "description": "Search query (symbol name, keyword, or pattern)" }
                     },
                     "required": ["query"]
                 }),
@@ -337,8 +564,82 @@ pub async fn chat_ask(
         ToolDefinition {
             type_: "function".to_string(),
             function: FunctionDefinition {
+                name: "read_file".to_string(),
+                description: "Read source code from a file in the repository. Use when you need to see the actual implementation of a symbol.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative file path (e.g. 'src/main.rs')" },
+                        "start_line": { "type": "number", "description": "Start line (1-based, optional)" },
+                        "end_line": { "type": "number", "description": "End line (optional, max 50 lines)" }
+                    },
+                    "required": ["path"]
+                }),
+            }
+        },
+        ToolDefinition {
+            type_: "function".to_string(),
+            function: FunctionDefinition {
+                name: "get_impact".to_string(),
+                description: "Blast radius analysis: find all symbols affected if a given symbol changes. Uses BFS on causal edges (Calls, Imports, Inherits, etc.).".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Symbol name or node ID to analyze" },
+                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "description": "Direction of impact (default: both)" },
+                        "max_depth": { "type": "number", "description": "Max BFS depth (default: 3)" }
+                    },
+                    "required": ["target"]
+                }),
+            }
+        },
+        ToolDefinition {
+            type_: "function".to_string(),
+            function: FunctionDefinition {
+                name: "get_symbol_context".to_string(),
+                description: "360-degree context for a symbol: callers, callees, imports, inheritance, and module membership.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "symbol": { "type": "string", "description": "Symbol name or node ID" }
+                    },
+                    "required": ["symbol"]
+                }),
+            }
+        },
+        ToolDefinition {
+            type_: "function".to_string(),
+            function: FunctionDefinition {
+                name: "execute_cypher".to_string(),
+                description: "Execute a read-only Cypher query against the knowledge graph. Only MATCH and CALL statements are allowed.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Cypher query (e.g. MATCH (n:Class) RETURN n.name LIMIT 10)" }
+                    },
+                    "required": ["query"]
+                }),
+            }
+        },
+        ToolDefinition {
+            type_: "function".to_string(),
+            function: FunctionDefinition {
+                name: "get_diagram".to_string(),
+                description: "Generate a Mermaid flowchart diagram showing the methods and call relationships of a class/controller.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Symbol name (class, controller, service)" }
+                    },
+                    "required": ["target"]
+                }),
+            }
+        },
+        ToolDefinition {
+            type_: "function".to_string(),
+            function: FunctionDefinition {
                 name: "save_memory".to_string(),
-                description: "Persists preferences or facts across ALL future sessions. Supports two scopes: 'global' for cross-project preferences, and 'project' for facts specific to the current workspace.".to_string(),
+                description: "Persist a fact or preference across ALL future sessions. Use 'global' for cross-project preferences, 'project' for workspace-specific facts.".to_string(),
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -348,7 +649,7 @@ pub async fn chat_ask(
                     "required": ["fact", "scope"]
                 }),
             }
-        }
+        },
     ];
 
     let mut final_answer = String::new();
@@ -410,7 +711,7 @@ pub async fn chat_ask(
 
         for tc in tool_calls_received {
             let _ = app.emit("tool_execution_start", tc.name.clone());
-            let result = execute_mcp_tool(&tc.name, &tc.arguments, &repo_path, &graph, &fts_index).await;
+            let result = execute_mcp_tool(&tc.name, &tc.arguments, &repo_path, &graph, &indexes, &fts_index).await;
             let _ = app.emit("tool_execution_end", tc.name.clone());
             
             messages.push(Message {

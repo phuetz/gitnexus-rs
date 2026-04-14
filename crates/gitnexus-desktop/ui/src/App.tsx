@@ -57,19 +57,17 @@ function App() {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  // Auto-restore the last active repo on startup
+  // Auto-restore the last active repo on startup (persisted via Zustand)
   useEffect(() => {
     let ignore = false;
-    const saved = localStorage.getItem("gitnexus-active-repo");
-    if (saved && !useAppStore.getState().activeRepo) {
+    const saved = useAppStore.getState().activeRepo;
+    if (saved) {
       // Must load registry first — openRepo reads from the in-memory registry
       commands.listRepos().then(() =>
         commands.openRepo(saved)
-      ).then(() => {
-        if (!ignore) useAppStore.getState().setActiveRepo(saved);
-      }).catch((err) => {
+      ).catch((err) => {
         console.warn("Failed to restore repo:", err);
-        if (!ignore) localStorage.removeItem("gitnexus-active-repo");
+        if (!ignore) useAppStore.getState().setActiveRepo(null);
       });
     }
     return () => { ignore = true; };

@@ -38,6 +38,7 @@ interface ChatSessionState {
   setMessages: (repo: string, messages: Message[]) => void;
   clearSessionMessages: (repo: string) => void;
   
+  renameSession: (id: string, title: string) => void;
   getSessionsForRepo: (repo: string) => ChatSession[];
 }
 
@@ -69,6 +70,13 @@ export const useChatSessionStore = create<ChatSessionState>()(
         })),
 
       setActiveSession: (id) => set({ activeSessionId: id }),
+
+      renameSession: (id, title) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, title, updatedAt: Date.now() } : s
+          ),
+        })),
 
       getActiveSession: (repo) => {
         const { sessions, activeSessionId } = get();

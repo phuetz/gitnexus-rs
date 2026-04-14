@@ -79,14 +79,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       activeRepo: null,
-      setActiveRepo: (name) => {
-        if (name) {
-          localStorage.setItem("gitnexus-active-repo", name);
-        } else {
-          localStorage.removeItem("gitnexus-active-repo");
-        }
-        set({ activeRepo: name });
-      },
+      setActiveRepo: (name) => set({ activeRepo: name }),
 
       selectedNodeId: null,
       selectedNodeName: null,
@@ -206,6 +199,7 @@ export const useAppStore = create<AppState>()(
     {
       name: "gitnexus-app-state",
       partialize: (state) => ({
+        activeRepo: state.activeRepo,
         theme: state.theme,
         mode: state.mode,
         analyzeView: state.analyzeView,

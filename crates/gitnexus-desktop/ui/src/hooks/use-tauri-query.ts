@@ -27,7 +27,14 @@ export function useOpenRepo() {
       // and burning a layout pass on stale nodes. `removeQueries()` drops the
       // cache entirely so the next render goes through `queryFn` against the
       // freshly opened repo.
-      queryClient.removeQueries();
+      // Only clear graph/analysis data — preserve chat config and other caches
+      queryClient.removeQueries({ predicate: (q) => {
+        const key = q.queryKey[0];
+        return key === "graph" || key === "subgraph" || key === "features"
+          || key === "hotspots" || key === "coupling" || key === "ownership"
+          || key === "health" || key === "coverage" || key === "fileTree"
+          || key === "processFlows" || key === "docIndex";
+      }});
     },
   });
 }

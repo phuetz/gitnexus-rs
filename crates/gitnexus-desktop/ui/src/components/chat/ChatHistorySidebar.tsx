@@ -1,4 +1,5 @@
-import { Plus, MessageSquare, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { Plus, MessageSquare, Trash2, Pencil } from "lucide-react";
 import { useChatSessionStore } from "../../stores/chat-session-store";
 import { useAppStore } from "../../stores/app-store";
 
@@ -9,8 +10,11 @@ export function ChatHistorySidebar() {
     createSession,
     deleteSession,
     setActiveSession,
+    renameSession,
     getSessionsForRepo,
   } = useChatSessionStore();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const repoSessions = getSessionsForRepo(activeRepo);
 
@@ -70,25 +74,62 @@ export function ChatHistorySidebar() {
                 onClick={() => setActiveSession(session.id)}
               >
                 <MessageSquare size={14} className="shrink-0 mr-3" />
-                <div
-                  className="flex-1 truncate text-[13px]"
-                  style={{ fontWeight: isActive ? 500 : 400 }}
-                  title={session.title}
-                >
-                  {session.title}
+                {editingId === session.id ? (
+                  <input
+                    autoFocus
+                    className="flex-1 text-[13px] bg-transparent outline-none border-b"
+                    style={{ color: "var(--text-0)", borderColor: "var(--accent)" }}
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={() => {
+                      if (editValue.trim()) renameSession(session.id, editValue.trim());
+                      setEditingId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.currentTarget.blur(); }
+                      if (e.key === "Escape") { setEditingId(null); }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <div
+                    className="flex-1 truncate text-[13px]"
+                    style={{ fontWeight: isActive ? 500 : 400 }}
+                    title={session.title}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(session.id);
+                      setEditValue(session.title);
+                    }}
+                  >
+                    {session.title}
+                  </div>
+                )}
+                <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    style={{ color: "var(--text-3)" }}
+                    className="p-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(session.id);
+                      setEditValue(session.title);
+                    }}
+                    title="Rename chat"
+                  >
+                    <Pencil size={11} />
+                  </button>
+                  <button
+                    style={{ color: "var(--red-400)" }}
+                    className="p-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteSession(session.id);
+                    }}
+                    title="Delete chat"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
-                
-                <button
-                  className="shrink-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                  style={{ color: "var(--red-400)" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteSession(session.id);
-                  }}
-                  title="Delete chat"
-                >
-                  <Trash2 size={12} />
-                </button>
               </div>
             );
           })

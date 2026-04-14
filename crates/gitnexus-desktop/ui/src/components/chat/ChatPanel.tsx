@@ -364,6 +364,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
           </button>
           <button
             onClick={() => {
+              if (!window.confirm(t("chat.confirmClear"))) return;
               clearSessionMessages(activeRepo);
               toast.success(t("chat.conversationCleared"));
             }}
@@ -470,7 +471,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
                 GitNexus
               </span>
               <span className="text-[11px]" style={{ color: "var(--text-3)" }}>
-                generating response...
+                {t("chat.generatingResponse")}
               </span>
             </div>
             <div className="py-2 px-4">
@@ -695,6 +696,7 @@ interface ChatInputProps {
 
 const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
   ({ value, onChange, onSend, onKeyDown, isPending, onOpenSettings, deepResearch, hasFilters }, ref) => {
+    const { t } = useI18n();
     const internalRef = useRef<HTMLTextAreaElement | null>(null);
     const placeholder = deepResearch
       ? "Ask a complex question (deep research mode)..."
@@ -793,8 +795,8 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         </div>
         <p className="mt-1.5 text-[11px] text-center" style={{ color: "var(--text-3)" }}>
           {deepResearch
-            ? "Deep Research: multi-step analysis with plan execution. Ctrl+P for files."
-            : "Powered by knowledge graph context. Enter to send, Shift+Enter for new line."}
+            ? t("chat.deepResearchHint")
+            : t("chat.inputHint")}
         </p>
       </div>
     );

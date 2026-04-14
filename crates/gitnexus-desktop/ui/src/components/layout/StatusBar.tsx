@@ -31,12 +31,12 @@ export const StatusBar = memo(function StatusBar() {
   const analyzeView = useAppStore((s) => s.analyzeView);
   const zoomLevel = useAppStore((s) => s.zoomLevel);
 
-  const MODE_LABELS: Record<string, string> = useMemo(() => ({
+  const MODE_LABELS: Record<string, string> = {
     explorer: t("sidebar.graphExplorer"),
     analyze: t("sidebar.analysis"),
     chat: t("sidebar.chat"),
     manage: t("manage.title"),
-  }), [t]);
+  };
 
   const { data: chatConfig } = useQuery({
     queryKey: ["chat-config"],

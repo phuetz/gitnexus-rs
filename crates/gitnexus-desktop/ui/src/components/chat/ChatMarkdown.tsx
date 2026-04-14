@@ -152,18 +152,6 @@ function MermaidDiagram({ chart }: { chart: string }) {
     return () => { cancelled = true; };
   }, [chart, mermaidId, isDark]);
 
-  if (error) {
-    return (
-      <div
-        className="my-3 p-3 rounded-lg text-[11px] overflow-x-auto"
-        style={{ background: "var(--rose-subtle)", color: "var(--rose)", border: "1px solid var(--rose)" }}
-      >
-        <p className="font-medium mb-1">Failed to render Mermaid diagram</p>
-        <pre className="whitespace-pre-wrap">{error}</pre>
-      </div>
-    );
-  }
-
   // Render via DOM ref instead of dangerouslySetInnerHTML.
   // Mermaid's securityLevel:"strict" already strips event handlers;
   // we add defence-in-depth by removing <script> elements.
@@ -179,6 +167,18 @@ function MermaidDiagram({ chart }: { chart: string }) {
     const svgEl = doc.documentElement;
     if (svgEl) el.appendChild(document.importNode(svgEl, true));
   }, [svg]);
+
+  if (error) {
+    return (
+      <div
+        className="my-3 p-3 rounded-lg text-[11px] overflow-x-auto"
+        style={{ background: "var(--rose-subtle)", color: "var(--rose)", border: "1px solid var(--rose)" }}
+      >
+        <p className="font-medium mb-1">Failed to render Mermaid diagram</p>
+        <pre className="whitespace-pre-wrap">{error}</pre>
+      </div>
+    );
+  }
 
   return (
     <div

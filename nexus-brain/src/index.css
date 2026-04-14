@@ -24,3 +24,18 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+/* MdEditor overrides to blend with dark mode and glass-morphism */
+.md-editor-dark {
+  --md-bk-color: transparent !important;
+  --md-color: #e4e4e7 !important; /* zinc-200 */
+  --md-border-color: #27272a !important; /* zinc-800 */
+  --md-border-hover-color: #3f3f46 !important; /* zinc-700 */
+}
+.md-editor-toolbar-wrapper {
+  background: rgba(24, 24, 27, 0.4) !important; /* zinc-900 with transparency */
+  backdrop-filter: blur(8px);
+}
+.md-editor-preview {
+  font-family: inherit !important;
+}

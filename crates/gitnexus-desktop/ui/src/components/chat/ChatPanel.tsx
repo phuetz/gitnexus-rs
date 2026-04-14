@@ -96,6 +96,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   const [input, setInput] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [activeTools, setActiveTools] = useState<string[]>([]);
   const streamingMsgIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -111,7 +112,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   // Scroll to bottom when messages change or streaming updates
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingText]);
+  }, [messages, streamingText, activeTools]);
 
   // ── Listen for SSE stream chunks from the backend ───────────
   useEffect(() => {
@@ -120,6 +121,8 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     let cancelled = false;
     let chunkUnlisten: (() => void) | null = null;
     let doneUnlisten: (() => void) | null = null;
+    let toolStartUnlisten: (() => void) | null = null;
+    let toolEndUnlisten: (() => void) | null = null;
 
     import("@tauri-apps/api/event").then((mod) => {
       mod.listen<string>("chat-stream-chunk", (event) => {
@@ -129,9 +132,24 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         if (cancelled) fn(); else chunkUnlisten = fn;
       });
 
+      mod.listen<string>("tool_execution_start", (event) => {
+        if (cancelled) return;
+        setActiveTools((prev) => [...prev, event.payload]);
+      }).then((fn) => {
+        if (cancelled) fn(); else toolStartUnlisten = fn;
+      });
+
+      mod.listen<string>("tool_execution_end", (event) => {
+        if (cancelled) return;
+        setActiveTools((prev) => prev.filter((t) => t !== event.payload));
+      }).then((fn) => {
+        if (cancelled) fn(); else toolEndUnlisten = fn;
+      });
+
       mod.listen<void>("chat-stream-done", () => {
-        // Stream done event fires before the command returns;
-        // cleanup is handled in the mutation's onSuccess/onSettled.
+        if (cancelled) return;
+        setActiveTools([]);
+        setIsStreaming(false);
       }).then((fn) => {
         if (cancelled) fn(); else doneUnlisten = fn;
       });
@@ -141,6 +159,8 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       cancelled = true;
       chunkUnlisten?.();
       doneUnlisten?.();
+      toolStartUnlisten?.();
+      toolEndUnlisten?.();
     };
   }, []);
 
@@ -366,6 +386,25 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
             onNavigateToNode={onNavigateToNode}
           />
         ))}
+
+        {/* Active tool badges — shown during tool execution */}
+        {activeTools.length > 0 && (
+          <div className="fade-in flex flex-wrap gap-1.5 px-1 py-1">
+            {activeTools.map((tool) => (
+              <span
+                key={tool}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
+                style={{
+                  background: "color-mix(in srgb, var(--orange) 15%, transparent)",
+                  color: "var(--orange)",
+                }}
+              >
+                <Loader2 size={9} className="animate-spin" />
+                {tool}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Streaming response — show tokens as they arrive */}
         {isStreaming && streamingText && (

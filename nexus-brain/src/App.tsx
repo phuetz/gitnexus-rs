@@ -140,7 +140,7 @@ function App() {
               className="h-full !bg-transparent"
               style={{ height: '100%' }}
               toolbars={[
-                'bold', 'italic', 'header', 'underline', 'strikeThrough', 'mark', 'quote', 'ol', 'ul', 'link', 'image', 'table', 'mermaid', 'katex', 'code', 'preview', 'save'
+                'bold', 'italic', 'title', 'underline', 'strikeThrough', 'quote', 'orderedList', 'unorderedList', 'link', 'image', 'table', 'mermaid', 'katex', 'code', 'preview', 'save'
               ]}
               onSave={handleSave}
             />

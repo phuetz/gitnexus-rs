@@ -17,7 +17,7 @@ use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_db::inmemory::fts::FtsIndex;
 
 use crate::state::AppState;
-use crate::types::{ChatConfig, ChatMessage, ChatRequest, ChatResponse, ChatSource};
+use crate::types::{ChatConfig, ChatRequest, ChatResponse, ChatSource};
 
 // ─── LLM Configuration ──────────────────────────────────────────────
 
@@ -175,6 +175,82 @@ async fn load_config(state: &AppState) -> ChatConfig {
 
 // ─── Tauri Commands ──────────────────────────────────────────────────
 
+use gitnexus_core::llm::{LlmProvider, LlmResponseChunk, Message, Role, ToolCall, ToolDefinition, FunctionDefinition};
+use gitnexus_core::llm::openai::OpenAILlmProvider;
+use futures_util::StreamExt;
+
+/// Execute an agent tool call against the knowledge graph or memory store.
+async fn execute_mcp_tool(
+    name: &str,
+    args: &str,
+    repo_path: &Path,
+    graph: &KnowledgeGraph,
+    fts_index: &FtsIndex,
+) -> String {
+    match name {
+        "search_code" => {
+            let query = serde_json::from_str::<serde_json::Value>(args)
+                .ok()
+                .and_then(|v| v.get("query").and_then(|q| q.as_str()).map(String::from))
+                .unwrap_or_default();
+            if query.is_empty() {
+                return "Error: missing required parameter 'query'".to_string();
+            }
+            let results = search_relevant_context(&query, graph, fts_index, 8);
+            let sources = build_sources(&results, graph, repo_path);
+            if sources.is_empty() {
+                return format!("No results found for '{}'.", query);
+            }
+            let mut out = format!("Found {} results for '{}':\n\n", sources.len(), query);
+            for (i, src) in sources.iter().enumerate() {
+                out.push_str(&format!(
+                    "{}. **{}** ({}) — `{}`",
+                    i + 1, src.symbol_name, src.symbol_type, src.file_path
+                ));
+                if let (Some(start), Some(end)) = (src.start_line, src.end_line) {
+                    out.push_str(&format!(" L{}-{}", start, end));
+                }
+                out.push('\n');
+                if let Some(callers) = &src.callers {
+                    out.push_str(&format!("   Called by: {}\n", callers.join(", ")));
+                }
+                if let Some(callees) = &src.callees {
+                    out.push_str(&format!("   Calls: {}\n", callees.join(", ")));
+                }
+                if let Some(snippet) = &src.snippet {
+                    let short: String = snippet.lines().take(15).collect::<Vec<_>>().join("\n");
+                    out.push_str(&format!("   ```\n{}\n   ```\n", short));
+                }
+                out.push('\n');
+            }
+            out
+        }
+        "save_memory" => {
+            let parsed = match serde_json::from_str::<serde_json::Value>(args) {
+                Ok(v) => v,
+                Err(_) => return "Error: invalid JSON arguments for save_memory".to_string(),
+            };
+            let fact = match parsed.get("fact").and_then(|f| f.as_str()) {
+                Some(f) => f,
+                None => return "Error: missing required parameter 'fact'".to_string(),
+            };
+            let scope = match parsed.get("scope").and_then(|s| s.as_str()) {
+                Some("global") => gitnexus_core::memory::MemoryScope::Global,
+                Some("project") => gitnexus_core::memory::MemoryScope::Project,
+                Some(other) => return format!("Error: invalid scope '{}', expected 'global' or 'project'", other),
+                None => return "Error: missing required parameter 'scope'".to_string(),
+            };
+            let mut store = gitnexus_core::memory::MemoryStore::load(scope, Some(repo_path));
+            store.add_fact(fact.to_string());
+            match store.save(scope, Some(repo_path)) {
+                Ok(()) => "Fact saved successfully.".to_string(),
+                Err(e) => format!("Failed to save memory: {}", e),
+            }
+        }
+        _ => format!("Error: unknown tool '{}'", name),
+    }
+}
+
 /// Ask a question about the codebase.
 #[tauri::command]
 pub async fn chat_ask(
@@ -195,34 +271,169 @@ pub async fn chat_ask(
     let sources = build_sources(&search_results, &graph, &repo_path);
 
     // 4. Assemble the prompt
-    let system_prompt = build_system_prompt(&graph, &sources);
-    let messages = build_llm_messages(&system_prompt, &request.history, &request.question);
+    let system_prompt = build_system_prompt(&graph, &sources, &repo_path);
+    
+    // Convert history to gitnexus_core::llm::Message format
+    let mut messages = vec![Message {
+        role: Role::System,
+        content: Some(system_prompt),
+        tool_calls: None,
+        tool_call_id: None,
+        name: None,
+    }];
 
-    // 5. Call LLM if configured.
-    // Skip LLM when no API key AND not targeting a local server (localhost).
-    // Local servers (e.g. Ollama, LM Studio) typically don't need an API key.
+    for msg in request.history.iter().rev().take(10).rev() {
+        let role = match msg.role.as_str() {
+            "assistant" => Role::Assistant,
+            "tool" => Role::Tool,
+            _ => Role::User,
+        };
+        messages.push(Message {
+            role,
+            content: Some(msg.content.clone()),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+        });
+    }
+
+    messages.push(Message {
+        role: Role::User,
+        content: Some(request.question.clone()),
+        tool_calls: None,
+        tool_call_id: None,
+        name: None,
+    });
+
     let is_local_llm = is_local_llm_url(&config.base_url);
     if config.api_key.is_empty() && !is_local_llm {
         return Ok(build_graph_only_response(&search_results, &sources, &graph));
     }
 
-    match call_llm_streaming(&config, &messages, &app).await {
-        Ok(answer) => Ok(ChatResponse {
-            answer,
-            sources,
-            model: Some(config.model.clone()),
-        }),
-        Err(llm_error) => {
-            // LLM failed — fall back to graph-only response
-            let _ = app.emit("chat-stream-done", ());
-            let mut fallback = build_graph_only_response(&search_results, &sources, &graph);
-            fallback.answer = format!(
-                "> **Note:** LLM unavailable ({}). Showing graph-based results.\n\n{}",
-                llm_error, fallback.answer
-            );
-            Ok(fallback)
+    let provider = OpenAILlmProvider::new(
+        config.base_url.clone(),
+        config.api_key.clone(),
+        config.model.clone(),
+        config.max_tokens,
+        config.reasoning_effort.clone(),
+    )?;
+
+    // Define mock tools for the agent
+    let tools = vec![
+        ToolDefinition {
+            type_: "function".to_string(),
+            function: FunctionDefinition {
+                name: "search_code".to_string(),
+                description: "Search the codebase for specific patterns or symbols".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" }
+                    },
+                    "required": ["query"]
+                }),
+            }
+        },
+        ToolDefinition {
+            type_: "function".to_string(),
+            function: FunctionDefinition {
+                name: "save_memory".to_string(),
+                description: "Persists preferences or facts across ALL future sessions. Supports two scopes: 'global' for cross-project preferences, and 'project' for facts specific to the current workspace.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "fact": { "type": "string", "description": "The fact to remember" },
+                        "scope": { "type": "string", "enum": ["global", "project"], "description": "Scope of the memory" }
+                    },
+                    "required": ["fact", "scope"]
+                }),
+            }
+        }
+    ];
+
+    let mut final_answer = String::new();
+    let mut iteration = 0;
+    const MAX_ITERATIONS: usize = 5;
+
+    while iteration < MAX_ITERATIONS {
+        iteration += 1;
+        let mut tool_calls_received: Vec<ToolCall> = Vec::new();
+        let mut text_received = String::new();
+
+        let mut stream = match provider.stream_completion(&messages, &tools).await {
+            Ok(s) => s,
+            Err(e) => {
+                if iteration == 1 {
+                    // Fall back on first iteration if error
+                    let _ = app.emit("chat-stream-done", ());
+                    let mut fallback = build_graph_only_response(&search_results, &sources, &graph);
+                    fallback.answer = format!(
+                        "> **Note:** LLM unavailable ({}). Showing graph-based results.\n\n{}",
+                        e, fallback.answer
+                    );
+                    return Ok(fallback);
+                } else {
+                    return Err(format!("LLM failed in loop: {}", e));
+                }
+            }
+        };
+
+        while let Some(chunk_result) = stream.next().await {
+            match chunk_result {
+                Ok(LlmResponseChunk::Text(text)) => {
+                    final_answer.push_str(&text);
+                    text_received.push_str(&text);
+                    let _ = app.emit("chat-stream-chunk", text);
+                }
+                Ok(LlmResponseChunk::ToolCall(tc)) => {
+                    tool_calls_received.push(tc);
+                }
+                Err(e) => {
+                    tracing::error!("Stream error: {}", e);
+                }
+            }
+        }
+
+        if !text_received.is_empty() || !tool_calls_received.is_empty() {
+            messages.push(Message {
+                role: Role::Assistant,
+                content: if text_received.is_empty() { None } else { Some(text_received) },
+                tool_calls: if tool_calls_received.is_empty() { None } else { Some(tool_calls_received.clone()) },
+                tool_call_id: None,
+                name: None,
+            });
+        }
+
+        if tool_calls_received.is_empty() {
+            break; // Done, no tools called
+        }
+
+        for tc in tool_calls_received {
+            let _ = app.emit("tool_execution_start", tc.name.clone());
+            let result = execute_mcp_tool(&tc.name, &tc.arguments, &repo_path, &graph, &fts_index).await;
+            let _ = app.emit("tool_execution_end", tc.name.clone());
+            
+            messages.push(Message {
+                role: Role::Tool,
+                content: Some(result),
+                tool_calls: None,
+                tool_call_id: Some(tc.id.clone()),
+                name: Some(tc.name.clone()),
+            });
         }
     }
+
+    if iteration >= MAX_ITERATIONS {
+        final_answer.push_str("\n\n> *Agent reached the maximum number of iterations. The response may be incomplete.*");
+    }
+
+    let _ = app.emit("chat-stream-done", ());
+
+    Ok(ChatResponse {
+        answer: final_answer,
+        sources,
+        model: Some(config.model.clone()),
+    })
 }
 
 /// Get the current chat configuration.
@@ -440,20 +651,24 @@ fn read_code_snippet(
 // ─── Prompt Construction ─────────────────────────────────────────────
 
 /// Build the system prompt with graph context.
-fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource]) -> String {
+fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path: &Path) -> String {
     let node_count = graph.iter_nodes().count();
     let edge_count = graph.iter_relationships().count();
+    
+    let memory_context = gitnexus_core::memory::build_memory_context(Some(repo_path));
 
     let mut prompt = format!(
         r#"You are an expert code analyst helping a developer understand a codebase.
 You have access to a knowledge graph of this repository ({} symbols, {} relationships).
+
+{}
 
 ## Relevant Code Context
 
 The following symbols and code snippets are the most relevant to the user's question:
 
 "#,
-        node_count, edge_count
+        node_count, edge_count, memory_context
     );
 
     for (i, source) in sources.iter().enumerate() {
@@ -499,33 +714,7 @@ The following symbols and code snippets are the most relevant to the user's ques
     prompt
 }
 
-/// Build the messages array for the LLM API call.
-fn build_llm_messages(
-    system_prompt: &str,
-    history: &[ChatMessage],
-    question: &str,
-) -> Vec<serde_json::Value> {
-    let mut messages = vec![serde_json::json!({
-        "role": "system",
-        "content": system_prompt
-    })];
 
-    // Add conversation history (last 10 messages)
-    for msg in history.iter().rev().take(10).rev() {
-        messages.push(serde_json::json!({
-            "role": msg.role,
-            "content": msg.content
-        }));
-    }
-
-    // Add the current question
-    messages.push(serde_json::json!({
-        "role": "user",
-        "content": question
-    }));
-
-    messages
-}
 
 /// Detect language from file extension.
 fn detect_language(file_path: &str) -> &str {
@@ -595,105 +784,7 @@ fn build_llm_request(
     Ok((client, request))
 }
 
-/// Call an OpenAI-compatible LLM API with SSE streaming.
-/// Emits `chat-stream-chunk` events to the frontend as each token arrives.
-async fn call_llm_streaming(
-    config: &ChatConfig,
-    messages: &[serde_json::Value],
-    app_handle: &AppHandle,
-) -> Result<String, String> {
-    let (_client, request) = build_llm_request(config, messages, true)?;
 
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("LLM API request failed: {}", e))?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let error_text = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "LLM API error ({}): {}",
-            status,
-            sanitize_llm_error_body(&error_text)
-        ));
-    }
-
-    let mut full_text = String::new();
-    let mut stream = response.bytes_stream();
-    // Buffer raw bytes (not String) so multi-byte UTF-8 sequences that span
-    // chunk boundaries are not corrupted by `from_utf8_lossy`. Lines are decoded
-    // only after a complete `\n` is in the buffer.
-    let mut byte_buffer: Vec<u8> = Vec::new();
-    const MAX_LINE_BUFFER: usize = 1_048_576; // 1MB safety cap for a single partial line
-
-    use futures_util::StreamExt;
-
-    let process_line = |line: &str, full_text: &mut String, app_handle: &AppHandle| {
-        if let Some(data) = line.strip_prefix("data: ") {
-            let data = data.trim();
-            if data == "[DONE]" {
-                return;
-            }
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
-                    if !delta.is_empty() {
-                        full_text.push_str(delta);
-                        let _ = app_handle.emit("chat-stream-chunk", delta);
-                    }
-                }
-            }
-        }
-    };
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Stream error: {}", e))?;
-        byte_buffer.extend_from_slice(&chunk);
-
-        // Drain complete lines (terminated by `\n`) from the buffer.
-        while let Some(newline_pos) = byte_buffer.iter().position(|&b| b == b'\n') {
-            let line_bytes: Vec<u8> = byte_buffer.drain(..=newline_pos).collect();
-            // Strip the trailing `\n` (and optional `\r`) before decoding.
-            let mut end = line_bytes.len() - 1;
-            if end > 0 && line_bytes[end - 1] == b'\r' {
-                end -= 1;
-            }
-            // Decode lossily — at this point we have a complete line so any
-            // remaining replacement characters represent genuine bad bytes,
-            // not chunk-boundary artifacts.
-            let line = String::from_utf8_lossy(&line_bytes[..end]);
-            process_line(&line, &mut full_text, app_handle);
-        }
-
-        // Cap the *residual* partial line length, not the total buffer.
-        // Checking total-buffer-size before draining (as the previous code did)
-        // falsely aborts a legitimate chunk that happens to contain many
-        // complete lines summing to >1MB, because the check fires before the
-        // drain gets a chance to shrink the buffer. Moving the check after the
-        // drain loop makes the cap measure what it's actually meant to limit:
-        // an unbounded single line from a misbehaving server that never emits
-        // a newline.
-        if byte_buffer.len() > MAX_LINE_BUFFER {
-            return Err("SSE stream partial line exceeded 1MB — aborting".to_string());
-        }
-    }
-
-    // Process any trailing line without a final newline.
-    if !byte_buffer.is_empty() {
-        let line = String::from_utf8_lossy(&byte_buffer);
-        let trimmed = line.trim();
-        process_line(trimmed, &mut full_text, app_handle);
-    }
-
-    // Signal stream completion
-    let _ = app_handle.emit("chat-stream-done", ());
-
-    if full_text.is_empty() {
-        return Err("No content received from LLM stream".to_string());
-    }
-
-    Ok(full_text)
-}
 
 /// Call an OpenAI-compatible LLM API (non-streaming, for the executor module).
 async fn call_llm(

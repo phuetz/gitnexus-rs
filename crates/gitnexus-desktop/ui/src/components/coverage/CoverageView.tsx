@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ShieldCheck, AlertTriangle, CheckCircle } from "lucide-react";
+import { ShieldCheck, AlertTriangle, CheckCircle, AlertCircle } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 import { useAppStore } from "../../stores/app-store";
@@ -14,11 +14,13 @@ export function CoverageView() {
   // Scope the query key to `activeRepo` so switching repos refetches instead
   // of serving cached coverage stats from the previously-opened repo for the
   // full `staleTime` window.
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, error } = useQuery({
     queryKey: ["coverage-stats", activeRepo],
     queryFn: () => commands.getCoverageStats(),
     staleTime: 60_000,
   });
+
+  if (error) return <ViewError error={error} />;
 
   if (isLoading) {
     return (
@@ -38,7 +40,7 @@ export function CoverageView() {
       </h2>
 
       {/* Stats grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 24 }}>
         <StatCard label={t("coverage.totalMethods")} value={stats.totalMethods} />
         <StatCard label={t("health.tracing")} value={stats.tracedMethods} color="#73daca" />
         <StatCard label={t("coverage.deadCode")} value={stats.deadCodeCandidates} color="#f7768e" />
@@ -116,6 +118,17 @@ export function CoverageView() {
           {t("coverage.noDead")}
         </div>
       )}
+    </div>
+  );
+}
+
+function ViewError({ error }: { error: unknown }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+      <AlertCircle size={40} style={{ color: "var(--rose)", marginBottom: 16 }} />
+      <p style={{ fontSize: 13, color: "var(--text-3)", maxWidth: 400, lineHeight: 1.5 }}>
+        {String(error)}
+      </p>
     </div>
   );
 }

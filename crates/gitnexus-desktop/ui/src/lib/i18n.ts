@@ -41,6 +41,31 @@ const en = {
   "chat.quickAnswer": "Quick answer",
   "chat.multiSource": "Multi-source",
   "chat.deepResearch": "Deep research",
+  "chat.welcomeTitle": "Ask about your code",
+  "chat.welcomeDesc": "Ask questions about architecture, dependencies, or code quality.",
+  "chat.suggestion.entryPoints": "What are the main entry points?",
+  "chat.suggestion.complex": "Which classes are the most complex?",
+  "chat.suggestion.architecture": "Explain the project architecture",
+  "chat.suggestion.deadCode": "Find dead code candidates",
+  "chat.repoSwitched": "Switched to {0}",
+  "chat.repoSwitchFailed": "Failed to switch repo: {0}",
+  "chat.loadingConfig": "Loading assistant configuration...",
+  "chat.newChat": "New Chat",
+  "chat.recentChats": "Recent Chats",
+  "chat.noRecentChats": "No recent chats",
+  "chat.renameChat": "Rename chat",
+  "chat.deleteChat": "Delete chat",
+  "chat.copyFailed": "Failed to copy",
+  "chat.copyCode": "Copy code",
+  "chat.exportedAsMarkdown": "Chat exported as Markdown",
+  "chat.exportChatMarkdown": "Export chat as Markdown",
+  "chat.exportResponseMarkdown": "Export response as Markdown",
+  "chat.exportFailed": "Failed to export: {0}",
+  "chat.responseExported": "Response exported successfully",
+  "chat.saveFailed": "Failed to save: {0}",
+  "chat.navigateToNode": "Navigate to node in graph",
+  "chat.apiKeyPlaceholder": "sk-... (leave empty for Ollama)",
+  "chat.selectRepo": "Select Repository",
   "sidebar.coverage": "Coverage",
   "sidebar.diagram": "Diagrams",
   "sidebar.report": "Health Report",
@@ -77,6 +102,8 @@ const en = {
   "repos.error": "Failed to load repositories",
   "repos.processing": "Processing...",
   "repos.opening": "Opening…",
+  "repos.repoOpened": "Opened {0}",
+  "repos.analysisFailed": "Analysis failed: {0}",
 
   // ── Coverage ──
   "coverage.loading": "Loading coverage data...",
@@ -96,6 +123,7 @@ const en = {
   "diagram.copied": "Copied!",
   "diagram.copyMermaid": "Copy Mermaid",
   "diagram.noDiagram": "No diagram generated. Symbol may not exist.",
+  "diagram.copyFailed": "Copy failed",
 
   // ── Report ──
   "report.temporalCoupling": "Temporal Coupling (Top 10)",
@@ -190,6 +218,7 @@ const en = {
   "detail.inherits": "Inherits",
   "detail.inheritedBy": "Inherited By",
   "analyze.openRepo": "Open a repository to view analytics",
+  "analyze.errorTitle": "Analysis Error",
   "analyze.codeHealth": "Code Health",
   "detail.cyclomaticComplexity": "Cyclomatic Complexity",
 
@@ -220,6 +249,12 @@ const en = {
   "search.startTyping": "Start typing to search...",
   "search.ariaLabel": "Open search for symbols",
 
+  // ── Symbol Autocomplete ──
+  "symbol.columnType": "Type",
+  "symbol.columnName": "Name",
+  "symbol.columnFile": "File",
+  "symbol.columnLines": "Lines",
+
   // ── Command Bar breadcrumb tabs ──
   "commandBar.tab.repos": "Repositories",
   "commandBar.tab.search": "Search",
@@ -244,6 +279,17 @@ const en = {
   "settings.theme": { label: "Theme", tip: "Switch between light and dark mode" },
   "settings.shortcuts": { label: "Keyboard Shortcuts", tip: "View all available keyboard shortcuts" },
   "settings.soon": "Soon",
+  "settings.quickSetup": "Quick Setup",
+  "settings.baseUrl": "Base URL",
+  "settings.model": "Model",
+  "settings.apiKey": "API Key",
+  "settings.maxTokens": "Max Tokens",
+  "settings.thinking": "Thinking / Reasoning",
+  "settings.thinkingHint": "For models with thinking support (Gemini, o1, etc.)",
+  "settings.save": "Save",
+  "settings.cancel": "Cancel",
+  "settings.chatAiTitle": "Chat AI Settings",
+  "settings.securityNote": "Your API key is stored locally and never shared.",
 
   // ── Status Bar ──
   "status.noRepo": "No repository selected",
@@ -304,6 +350,7 @@ const en = {
   "analyze.flowDiagram": "Interactive Diagram",
   "analyze.flowSteps": "Step Sequence",
   "analyze.viewCode": "View Code",
+  "analyze.noStepsMessage": "Diagram only — no individual steps available for this process.",
 
   // ── File Explorer ──
   "files.searchPlaceholder": "Search files...",
@@ -459,6 +506,10 @@ const en = {
   "a11y.skipToContent": "Skip to main content",
   "a11y.codeIntelligencePlatform": "GitNexus — Code Intelligence Platform",
 
+  // ── Errors ──
+  "error.somethingWentWrong": "Something went wrong",
+  "error.retry": "Retry",
+
   // ── Git Analytics ──
   "git.hotspots": "Hotspots",
   "git.coupling": "Coupling",
@@ -506,6 +557,14 @@ const en = {
   "export.ariaRefresh": "Refresh statistics",
   "export.ariaExport": "Export documentation as DOCX",
 
+  // ── Dashboard ──
+  "dashboard.nodeTypeDistribution": "Node Type Distribution",
+  "dashboard.topConnectedNodes": "Top Connected Nodes",
+  "dashboard.mostComplexFunctions": "Most Complex Functions",
+  "dashboard.healthy": "Healthy",
+  "dashboard.growing": "Growing",
+  "dashboard.small": "Small",
+
   // ── Tooltips for common actions ──
   "tooltip.clickToOpen": "Click to open",
   "tooltip.rightClickForMenu": "Right-click for context menu",
@@ -540,6 +599,31 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "chat.quickAnswer": "Réponse rapide",
   "chat.multiSource": "Multi-source",
   "chat.deepResearch": "Recherche approfondie",
+  "chat.welcomeTitle": "Interrogez votre code",
+  "chat.welcomeDesc": "Posez des questions sur l'architecture, les dépendances ou la qualité du code.",
+  "chat.suggestion.entryPoints": "Quels sont les points d'entrée principaux ?",
+  "chat.suggestion.complex": "Quelles classes sont les plus complexes ?",
+  "chat.suggestion.architecture": "Explique l'architecture du projet",
+  "chat.suggestion.deadCode": "Trouve les candidats au code mort",
+  "chat.repoSwitched": "Basculé vers {0}",
+  "chat.repoSwitchFailed": "Échec du changement de dépôt : {0}",
+  "chat.loadingConfig": "Chargement de la configuration de l'assistant...",
+  "chat.newChat": "Nouveau chat",
+  "chat.recentChats": "Chats récents",
+  "chat.noRecentChats": "Aucun chat récent",
+  "chat.renameChat": "Renommer le chat",
+  "chat.deleteChat": "Supprimer le chat",
+  "chat.copyFailed": "Échec de la copie",
+  "chat.copyCode": "Copier le code",
+  "chat.exportedAsMarkdown": "Chat exporté en Markdown",
+  "chat.exportChatMarkdown": "Exporter le chat en Markdown",
+  "chat.exportResponseMarkdown": "Exporter la réponse en Markdown",
+  "chat.exportFailed": "Échec de l'export : {0}",
+  "chat.responseExported": "Réponse exportée avec succès",
+  "chat.saveFailed": "Échec de la sauvegarde : {0}",
+  "chat.navigateToNode": "Naviguer vers le nœud dans le graphe",
+  "chat.apiKeyPlaceholder": "sk-... (laisser vide pour Ollama)",
+  "chat.selectRepo": "Sélectionner un dépôt",
   "sidebar.coverage": "Couverture",
   "sidebar.diagram": "Diagrammes",
   "sidebar.report": "Rapport santé",
@@ -576,6 +660,8 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "repos.error": "Impossible de charger les dépôts",
   "repos.processing": "Traitement en cours…",
   "repos.opening": "Ouverture…",
+  "repos.repoOpened": "Ouvert : {0}",
+  "repos.analysisFailed": "Échec de l'analyse : {0}",
 
   // ── Coverage ──
   "coverage.loading": "Chargement des données de couverture…",
@@ -595,6 +681,7 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "diagram.copied": "Copié !",
   "diagram.copyMermaid": "Copier Mermaid",
   "diagram.noDiagram": "Aucun diagramme généré. Le symbole n'existe peut-être pas.",
+  "diagram.copyFailed": "Échec de la copie",
 
   // ── Report ──
   "report.temporalCoupling": "Couplage temporel (Top 10)",
@@ -689,6 +776,7 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "detail.inherits": "Hérite de",
   "detail.inheritedBy": "Hérité par",
   "analyze.openRepo": "Ouvrez un dépôt pour voir les analytics",
+  "analyze.errorTitle": "Erreur d'analyse",
   "analyze.codeHealth": "Santé du code",
   "detail.cyclomaticComplexity": "Complexité cyclomatique",
 
@@ -719,6 +807,12 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "search.startTyping": "Commencez à taper pour rechercher…",
   "search.ariaLabel": "Ouvrir la recherche de symboles",
 
+  // ── Symbol Autocomplete ──
+  "symbol.columnType": "Type",
+  "symbol.columnName": "Nom",
+  "symbol.columnFile": "Fichier",
+  "symbol.columnLines": "Lignes",
+
   // ── Command Bar breadcrumb tabs ──
   "commandBar.tab.repos": "Dépôts",
   "commandBar.tab.search": "Recherche",
@@ -743,6 +837,17 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "settings.theme": { label: "Thème", tip: "Basculer entre le mode clair et sombre" },
   "settings.shortcuts": { label: "Raccourcis clavier", tip: "Voir tous les raccourcis clavier disponibles" },
   "settings.soon": "Bientôt",
+  "settings.quickSetup": "Configuration rapide",
+  "settings.baseUrl": "URL de base",
+  "settings.model": "Modèle",
+  "settings.apiKey": "Clé API",
+  "settings.maxTokens": "Tokens max",
+  "settings.thinking": "Réflexion / Raisonnement",
+  "settings.thinkingHint": "Pour les modèles avec support de réflexion (Gemini, o1, etc.)",
+  "settings.save": "Enregistrer",
+  "settings.cancel": "Annuler",
+  "settings.chatAiTitle": "Paramètres du Chat IA",
+  "settings.securityNote": "Votre clé API est stockée localement et jamais partagée.",
 
   // ── Status Bar ──
   "status.noRepo": "Aucun dépôt sélectionné",
@@ -803,6 +908,7 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "analyze.flowDiagram": "Diagramme Interactif",
   "analyze.flowSteps": "Séquence des Étapes",
   "analyze.viewCode": "Voir le Code",
+  "analyze.noStepsMessage": "Diagramme uniquement — aucune étape individuelle disponible pour ce processus.",
 
   // ── File Explorer ──
   "files.searchPlaceholder": "Rechercher des fichiers\u2026",
@@ -958,6 +1064,10 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "a11y.skipToContent": "Aller au contenu principal",
   "a11y.codeIntelligencePlatform": "GitNexus — Plateforme d'intelligence de code",
 
+  // ── Errors ──
+  "error.somethingWentWrong": "Une erreur est survenue",
+  "error.retry": "Réessayer",
+
   // ── Git Analytics ──
   "git.hotspots": "Points chauds",
   "git.coupling": "Couplage",
@@ -1004,6 +1114,14 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "export.toastError": "Échec de l'export : {0}",
   "export.ariaRefresh": "Rafraîchir les statistiques",
   "export.ariaExport": "Exporter la documentation en DOCX",
+
+  // ── Dashboard ──
+  "dashboard.nodeTypeDistribution": "Répartition par type de nœud",
+  "dashboard.topConnectedNodes": "Nœuds les plus connectés",
+  "dashboard.mostComplexFunctions": "Fonctions les plus complexes",
+  "dashboard.healthy": "Sain",
+  "dashboard.growing": "En croissance",
+  "dashboard.small": "Petit",
 
   // ── Tooltips for common actions ──
   "tooltip.clickToOpen": "Cliquer pour ouvrir",

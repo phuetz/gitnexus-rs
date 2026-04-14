@@ -9,7 +9,9 @@ description = "Ingestion pipeline (6 phases) for GitNexus"
 [dependencies]
 gitnexus-core.workspace = true
 gitnexus-db.workspace = true
+gitnexus-git.workspace = true
 gitnexus-lang.workspace = true
+futures-util.workspace = true
 rayon.workspace = true
 tokio.workspace = true
 tree-sitter.workspace = true

@@ -13,6 +13,9 @@ pub async fn run(
     verbose: bool,
     skip_git: bool,
     incremental: bool,
+    llm_enrich: bool,
+    llm_token_budget: Option<u64>,
+    llm_max_symbols: Option<usize>,
 ) -> anyhow::Result<()> {
     let repo_path = Path::new(path)
         .canonicalize()
@@ -50,6 +53,36 @@ pub async fn run(
         }
     });
 
+    // Build LLM enrichment config if requested
+    let llm_config = if llm_enrich {
+        match super::generate::load_llm_config() {
+            Some(cfg) => {
+                let mut enrich_cfg = gitnexus_ingest::phases::llm_enrichment::LlmEnrichmentConfig {
+                    base_url: cfg.base_url,
+                    api_key: cfg.api_key,
+                    model: cfg.model,
+                    max_tokens: cfg.max_tokens,
+                    reasoning_effort: cfg.reasoning_effort,
+                    ..Default::default()
+                };
+                if let Some(budget) = llm_token_budget {
+                    enrich_cfg.token_budget = budget;
+                }
+                if let Some(max) = llm_max_symbols {
+                    enrich_cfg.max_symbols = max;
+                }
+                Some(enrich_cfg)
+            }
+            None => {
+                println!("Warning: --llm-enrich requires ~/.gitnexus/chat-config.json");
+                println!("  Skipping LLM enrichment phase.");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Run pipeline
     let options = gitnexus_ingest::pipeline::PipelineOptions {
         force,
@@ -57,6 +90,7 @@ pub async fn run(
         verbose,
         skip_git,
         incremental,
+        llm_enrich: llm_config,
     };
 
     let result = gitnexus_ingest::pipeline::run_pipeline(&repo_path, Some(tx), options).await;

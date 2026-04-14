@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X, Check, Loader2 } from "lucide-react";
 import { commands, type ChatConfig } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
 
 interface ChatSettingsProps {
   onClose: () => void;
@@ -58,6 +59,7 @@ const PRESETS: { label: string; config: Partial<ChatConfig> }[] = [
 ];
 
 export function ChatSettings({ onClose }: ChatSettingsProps) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: config, isLoading } = useQuery({
     queryKey: ["chat-config"],
@@ -138,7 +140,7 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
             className="text-base font-semibold"
             style={{ fontFamily: "var(--font-display)", color: "var(--text-0)" }}
           >
-            Chat AI Settings
+            {t("settings.chatAiTitle")}
           </h2>
           <button onClick={onClose} className="p-1" style={{ color: "var(--text-3)" }} aria-label="Close settings">
             <X size={16} />
@@ -148,7 +150,7 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
         {/* Presets */}
         <div className="mb-4">
           <label className="text-[12px] font-medium mb-2 block" style={{ color: "var(--text-2)" }}>
-            Quick Setup
+            {t("settings.quickSetup")}
           </label>
           <div className="flex flex-wrap gap-2">
             {PRESETS.map((preset) => (
@@ -180,14 +182,14 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
 
         {/* Form fields */}
         <div className="space-y-3">
-          <Field label="Base URL" value={form.baseUrl} onChange={(v) => setForm((f) => ({ ...f, baseUrl: v }))} />
-          <Field label="Model" value={form.model} onChange={(v) => setForm((f) => ({ ...f, model: v }))} />
+          <Field label={t("settings.baseUrl")} value={form.baseUrl} onChange={(v) => setForm((f) => ({ ...f, baseUrl: v }))} />
+          <Field label={t("settings.model")} value={form.model} onChange={(v) => setForm((f) => ({ ...f, model: v }))} />
           <Field
-            label="API Key"
+            label={t("settings.apiKey")}
             value={form.apiKey}
             onChange={(v) => setForm((f) => ({ ...f, apiKey: v }))}
             type="password"
-            placeholder="sk-... (leave empty for Ollama)"
+            placeholder={t("chat.apiKeyPlaceholder")}
           />
           <p className="text-[10px] -mt-2" style={{ color: "var(--text-4)" }}>
             For security, the API key is kept in memory for this session and is
@@ -195,7 +197,7 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
             secrets.
           </p>
           <Field
-            label="Max Tokens"
+            label={t("settings.maxTokens")}
             value={String(form.maxTokens)}
             onChange={(v) => setForm((f) => ({ ...f, maxTokens: parseInt(v) || 4096 }))}
           />
@@ -203,7 +205,7 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
           {/* Reasoning Effort */}
           <div>
             <label className="text-[12px] font-medium mb-1 block" style={{ color: "var(--text-2)" }}>
-              Thinking / Reasoning
+              {t("settings.thinking")}
             </label>
             <div className="flex gap-1.5">
               {(["none", "low", "medium", "high"] as const).map((level) => (
@@ -235,7 +237,7 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
               ))}
             </div>
             <p className="text-[10px] mt-1" style={{ color: "var(--text-4)" }}>
-              For models with thinking support (Gemini, o1, etc.)
+              {t("settings.thinkingHint")}
             </p>
           </div>
         </div>
@@ -247,7 +249,7 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
             className="px-4 py-2 rounded-lg text-[13px]"
             style={{ color: "var(--text-2)" }}
           >
-            Cancel
+            {t("settings.cancel")}
           </button>
           <button
             onClick={() => saveMutation.mutate(form)}
@@ -260,7 +262,7 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
             ) : (
               <Check size={14} />
             )}
-            Save
+            {t("settings.save")}
           </button>
         </div>
       </div>

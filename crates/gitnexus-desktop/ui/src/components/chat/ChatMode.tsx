@@ -8,13 +8,14 @@
  * - No-repo guard: shows an empty state when no repo is loaded
  */
 
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MessageSquare, Settings2, ChevronDown, Database, Compass, BookOpen } from "lucide-react";
+import { MessageSquare, Settings2, ChevronDown, Compass, BookOpen } from "lucide-react";
 import { Group, Panel } from "react-resizable-panels";
 import { PanelSeparator } from "../layout/PanelSeparator";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { commands } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
 import { useAppStore } from "../../stores/app-store";
 import { useRepos, useOpenRepo } from "../../hooks/use-tauri-query";
 import { ChatPanel } from "./ChatPanel";
@@ -26,104 +27,11 @@ import { toast } from "sonner";
 const ChatSettings = lazy(() =>
   import("./ChatSettings").then((m) => ({ default: m.ChatSettings })),
 );
-const GraphExplorer = lazy(() =>
-  import("../graph/GraphExplorer").then((m) => ({ default: m.GraphExplorer })),
-);
-
-// ─── No-repo empty state ─────────────────────────────────────────────
-
-function NoRepoState() {
-  return (
-    <div
-      className="flex items-center justify-center h-full w-full"
-      style={{ color: "var(--text-2)", background: "var(--bg-0)" }}
-    >
-      <div className="text-center">
-        <Database
-          size={48}
-          style={{ color: "var(--text-4)", margin: "0 auto 16px" }}
-        />
-        <p
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: 20,
-            fontWeight: 600,
-            color: "var(--text-0)",
-          }}
-        >
-          No repository selected
-        </p>
-        <p
-          style={{
-            fontSize: 13,
-            marginTop: 8,
-            color: "var(--text-3)",
-          }}
-        >
-          Select a repository from the dropdown above to start chatting
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ─── No-LLM setup card ───────────────────────────────────────────────
-
-function NoLlmSetup() {
-  const setMode = useAppStore((s) => s.setMode);
-
-  return (
-    <div className="flex items-center justify-center h-full w-full" style={{ background: "var(--bg-0)" }}>
-      <div
-        className="text-center p-8 rounded-xl"
-        style={{
-          background: "var(--glass-bg)",
-          border: "1px solid var(--glass-border)",
-          maxWidth: 400,
-        }}
-      >
-        <MessageSquare
-          size={40}
-          style={{ color: "var(--accent)", margin: "0 auto 16px" }}
-        />
-        <h3
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: 18,
-            fontWeight: 600,
-            color: "var(--text-0)",
-            marginBottom: 8,
-          }}
-        >
-          Configure AI Assistant
-        </h3>
-        <p
-          style={{
-            fontSize: 13,
-            color: "var(--text-2)",
-            marginBottom: 20,
-            lineHeight: 1.5,
-          }}
-        >
-          Set up an LLM provider to chat about your code. You'll need an API
-          key from OpenAI, Anthropic, or another provider — or use Ollama for
-          local inference with no key required.
-        </p>
-        <button
-          onClick={() => setMode("manage")}
-          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          style={{ background: "var(--accent)", color: "white" }}
-        >
-          Go to Settings
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ─── Repo Selector ───────────────────────────────────────────────────
 
 function RepoSelector() {
+  const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const setActiveRepo = useAppStore((s) => s.setActiveRepo);
   const { data: repos } = useRepos();
@@ -135,10 +43,10 @@ function RepoSelector() {
     try {
       await openRepo.mutateAsync(name);
       setActiveRepo(name);
-      toast.success("Switched to " + name);
+      toast.success(t("chat.repoSwitched").replace("{0}", name));
     } catch (err) {
       console.error(err);
-      toast.error(`Failed to switch repo: ${String(err)}`);
+      toast.error(t("chat.repoSwitchFailed").replace("{0}", String(err)));
     }
   };
 
@@ -150,7 +58,7 @@ function RepoSelector() {
         className="appearance-none bg-transparent outline-none pl-2 pr-8 py-1 rounded cursor-pointer text-[14px] font-medium"
         style={{ color: "var(--text-1)", border: "1px solid var(--surface-border)" }}
       >
-        <option value="" disabled>Select Repository</option>
+        <option value="" disabled>{t("chat.selectRepo")}</option>
         {repos?.map((repo) => (
           <option key={repo.name} value={repo.name}>
             {repo.name}
@@ -165,14 +73,26 @@ function RepoSelector() {
 // ─── Main component ──────────────────────────────────────────────────
 
 export function ChatMode() {
+  const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
+  const setActiveRepo = useAppStore((s) => s.setActiveRepo);
   const setMode = useAppStore((s) => s.setMode);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { isCompact } = useResponsive();
+  const { data: repos } = useRepos();
+  const openRepo = useOpenRepo();
+
+  // Auto-select first repo on startup if none is active
+  useEffect(() => {
+    if (!activeRepo && repos && repos.length > 0) {
+      const first = repos[0].name;
+      openRepo.mutateAsync(first).then(() => setActiveRepo(first)).catch(() => {});
+    }
+  }, [repos, activeRepo]);
 
   // Fetch LLM config to detect unconfigured state
-  const { data: chatConfig, isLoading: configLoading } = useQuery({
+  const { isLoading: configLoading } = useQuery({
     queryKey: ["chat-config"],
     queryFn: () => commands.chatGetConfig(),
     // Don't retry aggressively — missing config is not an error
@@ -184,17 +104,12 @@ export function ChatMode() {
     setSelectedNodeId(nodeId, null);
   };
 
-  const isConfigured =
-    !chatConfig ||
-    chatConfig.provider === "ollama" ||
-    (chatConfig.apiKey != null && chatConfig.apiKey.trim().length > 0);
-
   return (
     <Group orientation="horizontal" className="h-full w-full">
-      {/* Sidebar Panel */}
+      {/* Sidebar: Chat history (like ChatGPT/Claude left panel) */}
       {!isCompact && (
         <>
-          <Panel defaultSize={15} minSize={10} maxSize={25} collapsible>
+          <Panel defaultSize={18} minSize={12} maxSize={28} collapsible>
             <ErrorBoundary>
               <ChatHistorySidebar />
             </ErrorBoundary>
@@ -203,30 +118,8 @@ export function ChatMode() {
         </>
       )}
 
-      {/* Graph Panel */}
-      <Panel minSize={30}>
-        <ErrorBoundary>
-          <Suspense
-            fallback={
-              <div className="h-full flex items-center justify-center">
-                <LoadingOrbs />
-              </div>
-            }
-          >
-            {activeRepo ? <GraphExplorer /> : <NoRepoState />}
-          </Suspense>
-        </ErrorBoundary>
-      </Panel>
-
-      <PanelSeparator />
-
-      {/* Chat Panel */}
-      <Panel
-        defaultSize={isCompact ? 50 : 35}
-        minSize={25}
-        maxSize={60}
-        collapsible
-      >
+      {/* Chat Panel — full width, clean layout like ChatGPT/Claude */}
+      <Panel defaultSize={82} minSize={50}>
         <div className="flex flex-col h-full w-full" style={{ background: "var(--bg-0)" }}>
           {/* Header: Repo selector + settings button */}
           <div
@@ -287,13 +180,9 @@ export function ChatMode() {
             {configLoading ? (
               <div className="flex items-center justify-center h-full">
                 <div className="pulse-subtle" style={{ color: "var(--text-3)", fontSize: 13 }}>
-                  Loading assistant configuration...
+                  {t("chat.loadingConfig")}
                 </div>
               </div>
-            ) : !isConfigured ? (
-              <NoLlmSetup />
-            ) : !activeRepo ? (
-              <NoRepoState />
             ) : (
               <ChatPanel
                 onOpenSettings={() => setSettingsOpen(true)}

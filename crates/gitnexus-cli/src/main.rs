@@ -18,7 +18,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Index a repository into a knowledge graph
-    #[command(after_help = "Examples:\n  gitnexus analyze\n  gitnexus analyze D:\\taf\\MyProject\n  gitnexus analyze --force --verbose")]
+    #[command(after_help = "Examples:\n  gitnexus analyze\n  gitnexus analyze D:\\taf\\MyProject\n  gitnexus analyze --force --verbose\n  gitnexus analyze --llm-enrich")]
     Analyze {
         /// Path to the repository (defaults to current directory)
         #[arg(default_value = ".")]
@@ -38,6 +38,15 @@ enum Commands {
         /// Use incremental indexing (only re-parse changed files)
         #[arg(long)]
         incremental: bool,
+        /// Run LLM enrichment (Phase 8) — annotate symbols with code smells, patterns, risk scores
+        #[arg(long)]
+        llm_enrich: bool,
+        /// Maximum total token budget for LLM enrichment (default: 100000)
+        #[arg(long)]
+        llm_token_budget: Option<u64>,
+        /// Maximum number of symbols to enrich (0 = unlimited, bounded by budget)
+        #[arg(long)]
+        llm_max_symbols: Option<usize>,
     },
     /// Start MCP server (stdio transport)
     Mcp,
@@ -106,6 +115,13 @@ enum Commands {
     },
     /// Configure MCP for supported editors (VS Code, Cursor, etc.)
     Setup,
+    /// Install GitNexus as an MCP server for Claude Code (writes .mcp.json)
+    #[command(name = "mcp-install")]
+    McpInstall {
+        /// Installation scope: "project" (default, writes .mcp.json in CWD) or "global" (writes ~/.mcp.json)
+        #[arg(long, default_value = "project")]
+        scope: String,
+    },
     /// Launch interactive REPL shell for exploring the knowledge graph
     Shell {
         /// Path to the repository (defaults to current directory)
@@ -320,8 +336,22 @@ async fn main() -> anyhow::Result<()> {
             verbose,
             skip_git,
             incremental,
+            llm_enrich,
+            llm_token_budget,
+            llm_max_symbols,
         } => {
-            commands::analyze::run(&path, force, embeddings, verbose, skip_git, incremental).await
+            commands::analyze::run(
+                &path,
+                force,
+                embeddings,
+                verbose,
+                skip_git,
+                incremental,
+                llm_enrich,
+                llm_token_budget,
+                llm_max_symbols,
+            )
+            .await
         }
         Commands::Mcp => commands::mcp::run().await,
         Commands::Serve { port, host } => commands::serve::run(port, &host).await,
@@ -343,6 +373,7 @@ async fn main() -> anyhow::Result<()> {
             commands::cypher_cmd::run(&query, repo.as_deref()).await
         }
         Commands::Setup => commands::setup::run(),
+        Commands::McpInstall { scope } => commands::mcp_install::run(&scope),
         Commands::Shell { path } => commands::shell::run(path.as_deref()).await,
         Commands::Generate { what, path, output_dir, input, enrich, enrich_profile, enrich_lang, enrich_citations, traces_dir } => {
             commands::generate::run(&what, path.as_deref(), output_dir.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations, traces_dir.as_deref(), input.as_deref())

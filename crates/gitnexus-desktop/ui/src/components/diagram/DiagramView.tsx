@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Workflow, Copy, Search } from "lucide-react";
-import { commands } from "../../lib/tauri-commands";
+import { Workflow, Copy } from "lucide-react";
+import { commands, type SearchResult } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 import { useAppStore } from "../../stores/app-store";
+import { SymbolAutocomplete } from "../shared/SymbolAutocomplete";
 
 export function DiagramView() {
   const { t } = useI18n();
@@ -17,11 +18,12 @@ export function DiagramView() {
 
   // Scope by `activeRepo` so switching repos doesn't resurrect a diagram from
   // the previous repo when the same `searchTarget` name happens to be used.
-  const { data: diagram, isLoading } = useQuery({
+  const { data: diagram, isLoading, error: queryError } = useQuery({
     queryKey: ["diagram", activeRepo, searchTarget],
     queryFn: () => commands.getDiagram(searchTarget),
     enabled: searchTarget.length > 0,
     staleTime: 60_000,
+    retry: 0,
   });
 
   // Render Mermaid diagram as SVG
@@ -78,7 +80,7 @@ export function DiagramView() {
         await navigator.clipboard.writeText("```mermaid\n" + diagram.mermaid + "\n```");
         toast.success(t("diagram.copied"));
       } catch {
-        toast.error("Copy failed");
+        toast.error(t("diagram.copyFailed"));
       }
     }
   };
@@ -90,29 +92,18 @@ export function DiagramView() {
         {t("sidebar.diagram")}
       </h2>
 
-      {/* Search bar */}
+      {/* Search bar with autocomplete */}
       <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-        <div style={{ position: "relative", flex: 1 }}>
-          <Search
-            size={14}
-            style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-3)" }}
-          />
-          <input
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            placeholder={t("diagram.placeholder")}
-            style={{
-              width: "100%",
-              padding: "8px 12px 8px 32px",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--surface-border)",
-              background: "var(--bg-2)",
-              color: "var(--text-0)",
-              fontSize: 13,
-            }}
-          />
-        </div>
+        <SymbolAutocomplete
+          value={target}
+          onChange={setTarget}
+          onSelect={(result: SearchResult) => {
+            setTarget(result.name);
+            setRenderError(false);
+            setSearchTarget(result.name);
+          }}
+          placeholder={t("diagram.placeholder")}
+        />
         <button
           onClick={handleSearch}
           style={{
@@ -124,6 +115,7 @@ export function DiagramView() {
             fontWeight: 600,
             border: "none",
             cursor: "pointer",
+            flexShrink: 0,
           }}
         >
           {t("diagram.generate")}
@@ -208,7 +200,13 @@ export function DiagramView() {
         </div>
       )}
 
-      {!diagram && !isLoading && searchTarget && (
+      {queryError && (
+        <div style={{ color: "var(--rose)", padding: 20, textAlign: "center", fontSize: 13 }}>
+          {String(queryError)}
+        </div>
+      )}
+
+      {!diagram && !isLoading && !queryError && searchTarget && (
         <div style={{ color: "var(--text-3)", padding: 20, textAlign: "center" }}>
           {t("diagram.noDiagram")}
         </div>

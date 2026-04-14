@@ -79,6 +79,23 @@ pub fn hint_for(tool_name: &str) -> &'static str {
              Use this information to write a comprehensive business process documentation, or use `context` \
              to explore specific methods discovered in the trace."
         }
+        "search_code" => {
+            "Review the code snippets and callers/callees. Use `context` to get \
+             a 360-degree view of a result, or `read_file` to see more of the source."
+        }
+        "read_file" => {
+            "Now you can see the source. Use `context` on symbols in this file \
+             for their dependency graph, or `search_code` to find related code."
+        }
+        "get_insights" => {
+            "Review the enrichment data. High complexity or dead code flags may \
+             indicate refactoring targets. Use `impact` to check blast radius \
+             before making changes."
+        }
+        "save_memory" => {
+            "Fact saved. This will be available in future sessions. Use `search_code` \
+             or `context` to continue exploring the codebase."
+        }
         _ => "Use `list_repos` to see indexed repositories, or `query` to search.",
     }
 }
@@ -105,6 +122,10 @@ mod tests {
             "report",
             "business",
             "analyze_execution_trace",
+            "search_code",
+            "read_file",
+            "get_insights",
+            "save_memory",
         ];
         for tool in &tools {
             let hint = hint_for(tool);

@@ -16,6 +16,11 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::types::ChatConfig;
 
+/// Strip Windows UNC prefix `\\?\` from paths so git and other tools work.
+fn normalize_path(path: &str) -> String {
+    path.strip_prefix(r"\\?\").unwrap_or(path).to_string()
+}
+
 /// A loaded repository with its graph, indexes, and FTS.
 pub struct LoadedRepo {
     pub entry: RegistryEntry,
@@ -99,8 +104,9 @@ impl AppState {
             .clone();
         drop(registry);
 
-        // Load snapshot
-        let storage_path = Path::new(&entry.storage_path);
+        // Load snapshot (normalize UNC path for Windows compatibility)
+        let normalized_storage = normalize_path(&entry.storage_path);
+        let storage_path = Path::new(&normalized_storage);
         let snap_path = snapshot::snapshot_path(storage_path);
 
         if !snapshot::snapshot_exists(&snap_path) {
@@ -166,7 +172,7 @@ impl AppState {
             Arc::clone(&loaded.graph),
             Arc::clone(&loaded.indexes),
             Arc::clone(&loaded.fts_index),
-            loaded.entry.path.clone(),
+            normalize_path(&loaded.entry.path),
         ))
     }
 

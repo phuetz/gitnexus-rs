@@ -3,6 +3,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { AlertCircle } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { AnimatedCard } from "../shared/motion";
 import { useI18n } from "../../hooks/use-i18n";
@@ -81,11 +82,22 @@ export function CodeHealthCard() {
   const activeRepo = useAppStore((s) => s.activeRepo);
   // Scope by `activeRepo` so switching repos refetches instead of showing
   // stale health metrics from the previously-active repo.
-  const { data: health, isLoading } = useQuery({
+  const { data: health, isLoading, error } = useQuery({
     queryKey: ["code-health", activeRepo],
     queryFn: () => commands.getCodeHealth(),
     staleTime: 60_000,
   });
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+        <AlertCircle size={40} style={{ color: "var(--rose)", marginBottom: 16 }} />
+        <p style={{ fontSize: 13, color: "var(--text-3)", maxWidth: 400, lineHeight: 1.5 }}>
+          {String(error)}
+        </p>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

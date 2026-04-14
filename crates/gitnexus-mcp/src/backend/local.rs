@@ -11,6 +11,8 @@ use tracing::info;
 use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::storage::repo_manager::{self, RegistryEntry};
+use gitnexus_db::inmemory::cypher::GraphIndexes;
+use gitnexus_db::inmemory::fts::FtsIndex;
 use gitnexus_db::pool::ConnectionPool;
 use gitnexus_db::query;
 
@@ -23,6 +25,10 @@ pub struct LocalBackend {
     registry: Vec<RegistryEntry>,
     /// Cached snapshots keyed by absolute snapshot path, shared across tool calls.
     snapshot_cache: HashMap<PathBuf, Arc<KnowledgeGraph>>,
+    /// Cached graph indexes (adjacency lists + label index), built lazily.
+    indexes_cache: HashMap<PathBuf, Arc<GraphIndexes>>,
+    /// Cached full-text search index, built lazily.
+    fts_cache: HashMap<PathBuf, Arc<FtsIndex>>,
 }
 
 const MAX_QUERY_LIMIT: usize = 100;
@@ -40,6 +46,8 @@ impl LocalBackend {
             pool: ConnectionPool::new(),
             registry: Vec::new(),
             snapshot_cache: HashMap::new(),
+            indexes_cache: HashMap::new(),
+            fts_cache: HashMap::new(),
         }
     }
 
@@ -54,6 +62,75 @@ impl LocalBackend {
         let arc = Arc::new(graph);
         self.snapshot_cache.insert(key, Arc::clone(&arc));
         Ok(arc)
+    }
+
+    /// Load snapshot + lazily build GraphIndexes and FtsIndex, returning cached copies.
+    fn load_cached_indexes(
+        &mut self,
+        snap_path: &std::path::Path,
+    ) -> Result<(Arc<KnowledgeGraph>, Arc<GraphIndexes>, Arc<FtsIndex>)> {
+        let graph = self.load_cached_snapshot(snap_path)?;
+        let key = snap_path.to_path_buf();
+
+        let indexes = if let Some(cached) = self.indexes_cache.get(&key) {
+            Arc::clone(cached)
+        } else {
+            let idx = Arc::new(GraphIndexes::build(&graph));
+            self.indexes_cache.insert(key.clone(), Arc::clone(&idx));
+            idx
+        };
+
+        let fts = if let Some(cached) = self.fts_cache.get(&key) {
+            Arc::clone(cached)
+        } else {
+            let fts_idx = Arc::new(FtsIndex::build(&graph));
+            self.fts_cache.insert(key, Arc::clone(&fts_idx));
+            fts_idx
+        };
+
+        Ok((graph, indexes, fts))
+    }
+
+    /// Collect enrichment metadata from a node's properties into a JSON value.
+    fn collect_enrichment_for_node(graph: &KnowledgeGraph, node_id: &str) -> Value {
+        let node = match graph.get_node(node_id) {
+            Some(n) => n,
+            None => return json!(null),
+        };
+        let p = &node.properties;
+        json!({
+            "description": p.description,
+            "enrichedBy": p.enriched_by,
+            "complexity": p.complexity,
+            "isDeadCandidate": p.is_dead_candidate,
+            "isTraced": p.is_traced,
+            "traceCallCount": p.trace_call_count,
+            "entryPointScore": p.entry_point_score,
+            "entryPointReason": p.entry_point_reason,
+            "frameworkHint": p.ast_framework_reason,
+            "layerType": p.layer_type,
+            "httpMethod": p.http_method,
+            "routeTemplate": p.route_template,
+            "llmSmells": p.llm_smells,
+            "llmPatterns": p.llm_patterns,
+            "llmRiskScore": p.llm_risk_score,
+            "llmRefactoring": p.llm_refactoring,
+        })
+    }
+
+    /// Read a source file with path-traversal protection.
+    fn read_code_snippet(repo_path: &std::path::Path, file_path: &str, start: Option<u32>, end: Option<u32>) -> Option<String> {
+        let full_path = repo_path.join(file_path);
+        let canonical_repo = repo_path.canonicalize().ok()?;
+        let canonical_file = full_path.canonicalize().ok()?;
+        if !canonical_file.starts_with(&canonical_repo) {
+            return None;
+        }
+        let content = std::fs::read_to_string(&canonical_file).ok()?;
+        let lines: Vec<&str> = content.lines().collect();
+        let s = start.unwrap_or(1).saturating_sub(1) as usize;
+        let e = end.unwrap_or(start.unwrap_or(1) + 100) as usize;
+        Some(lines[s..e.min(lines.len())].join("\n"))
     }
 
     /// Initialize the backend: load the global registry and discover repos.
@@ -132,6 +209,10 @@ impl LocalBackend {
             "report" => self.tool_report(args).await,
             "business" => self.tool_business(args).await,
             "analyze_execution_trace" => self.tool_analyze_execution_trace(args).await,
+            "search_code" => self.tool_search_code(args).await,
+            "read_file" => self.tool_read_file(args).await,
+            "get_insights" => self.tool_get_insights(args).await,
+            "save_memory" => self.tool_save_memory(args).await,
             _ => Err(McpError::UnknownTool(name.to_string())),
         }
     }
@@ -209,7 +290,7 @@ impl LocalBackend {
         }))
     }
 
-    async fn tool_context(&self, args: &Value) -> Result<Value> {
+    async fn tool_context(&mut self, args: &Value) -> Result<Value> {
         let name = args
             .get("name")
             .and_then(|v| v.as_str())
@@ -275,6 +356,29 @@ impl LocalBackend {
             results.truncate(1000);
         }
 
+        // Enrich with snapshot data if available
+        let enrichment = {
+            let snap_path = gitnexus_db::snapshot::snapshot_path(
+                &std::path::PathBuf::from(&entry.storage_path),
+            );
+            if let Ok(graph) = self.load_cached_snapshot(&snap_path) {
+                // Try to find the node by uid or name
+                if let Some(uid_val) = uid {
+                    Self::collect_enrichment_for_node(&graph, uid_val)
+                } else {
+                    // Search by name
+                    let name_lower = name.to_lowercase();
+                    graph
+                        .iter_nodes()
+                        .find(|n| n.properties.name.to_lowercase() == name_lower)
+                        .map(|n| Self::collect_enrichment_for_node(&graph, &n.id))
+                        .unwrap_or(json!(null))
+                }
+            } else {
+                json!(null)
+            }
+        };
+
         Ok(json!({
             "content": [{
                 "type": "text",
@@ -282,7 +386,8 @@ impl LocalBackend {
             }],
             "_meta": {
                 "hint": hints::hint_for("context"),
-                "durationMs": duration.as_millis() as u64
+                "durationMs": duration.as_millis() as u64,
+                "enrichment": enrichment
             }
         }))
     }
@@ -442,6 +547,13 @@ impl LocalBackend {
             }));
         }
 
+        // Collect enrichment for the target node(s)
+        let enrichment = target_ids
+            .iter()
+            .next()
+            .map(|nid| Self::collect_enrichment_for_node(&graph, nid))
+            .unwrap_or(json!(null));
+
         Ok(json!({
             "content": [{
                 "type": "text",
@@ -451,7 +563,8 @@ impl LocalBackend {
                 "hint": hints::hint_for("impact"),
                 "target": target,
                 "direction": direction,
-                "maxDepth": max_depth
+                "maxDepth": max_depth,
+                "enrichment": enrichment
             }
         }))
     }
@@ -1238,6 +1351,344 @@ impl LocalBackend {
                 "hint": hints::hint_for("business")
             }
         }))
+    }
+
+    // ─── New Tools ─────────────────────────────────────────────────
+
+    async fn tool_search_code(&mut self, args: &Value) -> Result<Value> {
+        let start = Instant::now();
+        let query_str = args["query"]
+            .as_str()
+            .ok_or_else(|| McpError::InvalidArguments { tool: "search_code".into(), reason: "Missing required 'query' parameter".into() })?;
+        let repo_name = args["repo"].as_str();
+        let limit = clamp_limit(args["limit"].as_u64(), 8, 20);
+
+        let entry = self.resolve_repo(repo_name)?;
+        let repo_path = std::path::PathBuf::from(&entry.path);
+        let snap_path = gitnexus_db::snapshot::snapshot_path(
+            &std::path::PathBuf::from(&entry.storage_path),
+        );
+        let (graph, indexes, fts) = self.load_cached_indexes(&snap_path)?;
+
+        // FTS search
+        let fts_results = fts.search(&graph, query_str, None, limit * 2);
+
+        // Also try name-contains fallback
+        let mut seen = std::collections::HashSet::new();
+        let mut results: Vec<Value> = Vec::new();
+        let query_lower = query_str.to_lowercase();
+
+        // FTS results first
+        for hit in &fts_results {
+            if results.len() >= limit {
+                break;
+            }
+            if !seen.insert(hit.node_id.clone()) {
+                continue;
+            }
+            if let Some(node) = graph.get_node(&hit.node_id) {
+                let snippet = Self::read_code_snippet(
+                    &repo_path,
+                    &node.properties.file_path,
+                    node.properties.start_line,
+                    node.properties.end_line.or(node.properties.start_line.map(|s| s + 50)),
+                );
+
+                let callers = Self::collect_neighbors(&graph, &indexes.incoming, &hit.node_id, 5);
+                let callees = Self::collect_neighbors(&graph, &indexes.outgoing, &hit.node_id, 5);
+
+                results.push(json!({
+                    "nodeId": hit.node_id,
+                    "name": node.properties.name,
+                    "label": format!("{:?}", node.label),
+                    "filePath": node.properties.file_path,
+                    "startLine": node.properties.start_line,
+                    "endLine": node.properties.end_line,
+                    "score": hit.score,
+                    "snippet": snippet,
+                    "callers": callers,
+                    "callees": callees,
+                    "enrichment": Self::collect_enrichment_for_node(&graph, &hit.node_id),
+                }));
+            }
+        }
+
+        // Name-contains fallback if FTS gave few results
+        if results.len() < limit {
+            for node in graph.iter_nodes() {
+                if results.len() >= limit {
+                    break;
+                }
+                if seen.contains(&node.id) {
+                    continue;
+                }
+                if node.properties.name.to_lowercase().contains(&query_lower) {
+                    seen.insert(node.id.clone());
+                    let snippet = Self::read_code_snippet(
+                        &repo_path,
+                        &node.properties.file_path,
+                        node.properties.start_line,
+                        node.properties.end_line.or(node.properties.start_line.map(|s| s + 50)),
+                    );
+                    results.push(json!({
+                        "nodeId": node.id,
+                        "name": node.properties.name,
+                        "label": format!("{:?}", node.label),
+                        "filePath": node.properties.file_path,
+                        "startLine": node.properties.start_line,
+                        "endLine": node.properties.end_line,
+                        "score": 0.0,
+                        "snippet": snippet,
+                        "enrichment": Self::collect_enrichment_for_node(&graph, &node.id),
+                    }));
+                }
+            }
+        }
+
+        let duration = start.elapsed();
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&results).unwrap_or_default()
+            }],
+            "_meta": {
+                "hint": hints::hint_for("search_code"),
+                "resultCount": results.len(),
+                "durationMs": duration.as_millis() as u64,
+            }
+        }))
+    }
+
+    async fn tool_read_file(&mut self, args: &Value) -> Result<Value> {
+        let start = Instant::now();
+        let file_path = args["path"]
+            .as_str()
+            .ok_or_else(|| McpError::InvalidArguments { tool: "read_file".into(), reason: "Missing required 'path' parameter".into() })?;
+        let repo_name = args["repo"].as_str();
+        let start_line = args["start_line"].as_u64().map(|v| v as u32);
+        let end_line = args["end_line"].as_u64().map(|v| v as u32);
+
+        let entry = self.resolve_repo(repo_name)?;
+        let repo_path = std::path::PathBuf::from(&entry.path);
+
+        // Read file content
+        let content = Self::read_code_snippet(&repo_path, file_path, start_line, end_line)
+            .ok_or_else(|| McpError::Internal(format!("Cannot read file: {file_path}")))?;
+
+        // Load graph for symbol annotations
+        let snap_path = gitnexus_db::snapshot::snapshot_path(
+            &std::path::PathBuf::from(&entry.storage_path),
+        );
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        // Find symbols defined in this file
+        let mut symbols: Vec<Value> = Vec::new();
+        // Normalize the path for comparison
+        let norm_path = file_path.replace('\\', "/");
+        if let Some(node_ids) = graph.nodes_by_file(&norm_path) {
+            for nid in node_ids {
+                if let Some(node) = graph.get_node(nid) {
+                    symbols.push(json!({
+                        "nodeId": node.id,
+                        "name": node.properties.name,
+                        "label": format!("{:?}", node.label),
+                        "startLine": node.properties.start_line,
+                        "endLine": node.properties.end_line,
+                        "enrichment": Self::collect_enrichment_for_node(&graph, nid),
+                    }));
+                }
+            }
+        }
+
+        // Also try with backslash path on Windows
+        if symbols.is_empty() {
+            let win_path = file_path.replace('/', "\\");
+            if let Some(node_ids) = graph.nodes_by_file(&win_path) {
+                for nid in node_ids {
+                    if let Some(node) = graph.get_node(nid) {
+                        symbols.push(json!({
+                            "nodeId": node.id,
+                            "name": node.properties.name,
+                            "label": format!("{:?}", node.label),
+                            "startLine": node.properties.start_line,
+                            "endLine": node.properties.end_line,
+                            "enrichment": Self::collect_enrichment_for_node(&graph, nid),
+                        }));
+                    }
+                }
+            }
+        }
+
+        let duration = start.elapsed();
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": content
+            }],
+            "_meta": {
+                "hint": hints::hint_for("read_file"),
+                "filePath": file_path,
+                "startLine": start_line.unwrap_or(1),
+                "symbols": symbols,
+                "durationMs": duration.as_millis() as u64,
+            }
+        }))
+    }
+
+    async fn tool_get_insights(&mut self, args: &Value) -> Result<Value> {
+        let start = Instant::now();
+        let symbol = args["symbol"]
+            .as_str()
+            .ok_or_else(|| McpError::InvalidArguments { tool: "get_insights".into(), reason: "Missing required 'symbol' parameter".into() })?;
+        let repo_name = args["repo"].as_str();
+
+        let entry = self.resolve_repo(repo_name)?;
+        let snap_path = gitnexus_db::snapshot::snapshot_path(
+            &std::path::PathBuf::from(&entry.storage_path),
+        );
+        let (graph, indexes, _fts) = self.load_cached_indexes(&snap_path)?;
+
+        // Try exact node ID first, then name match
+        let node_id = if graph.get_node(symbol).is_some() {
+            symbol.to_string()
+        } else {
+            // Search by name
+            let sym_lower = symbol.to_lowercase();
+            graph
+                .iter_nodes()
+                .find(|n| n.properties.name.to_lowercase() == sym_lower)
+                .or_else(|| {
+                    graph
+                        .iter_nodes()
+                        .find(|n| n.properties.name.to_lowercase().contains(&sym_lower))
+                })
+                .map(|n| n.id.clone())
+                .ok_or_else(|| McpError::Internal(format!("Symbol not found: {symbol}")))?
+        };
+
+        let node = graph
+            .get_node(&node_id)
+            .ok_or_else(|| McpError::Internal(format!("Node not found: {node_id}")))?;
+
+        let p = &node.properties;
+        let enrichment = Self::collect_enrichment_for_node(&graph, &node_id);
+
+        // Get callers/callees
+        let callers = Self::collect_neighbors(&graph, &indexes.incoming, &node_id, 10);
+        let callees = Self::collect_neighbors(&graph, &indexes.outgoing, &node_id, 10);
+
+        // Find community membership
+        let community_info = indexes
+            .outgoing
+            .get(&node_id)
+            .and_then(|edges| {
+                edges.iter().find(|(_, rt)| matches!(rt, RelationshipType::MemberOf))
+            })
+            .and_then(|(comm_id, _)| graph.get_node(comm_id))
+            .map(|comm| {
+                json!({
+                    "communityId": comm.id,
+                    "label": comm.properties.heuristic_label,
+                    "description": comm.properties.description,
+                    "keywords": comm.properties.keywords,
+                })
+            });
+
+        let duration = start.elapsed();
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&json!({
+                    "nodeId": node_id,
+                    "name": p.name,
+                    "label": format!("{:?}", node.label),
+                    "filePath": p.file_path,
+                    "startLine": p.start_line,
+                    "endLine": p.end_line,
+                    "enrichment": enrichment,
+                    "callers": callers,
+                    "callees": callees,
+                    "community": community_info,
+                })).unwrap_or_default()
+            }],
+            "_meta": {
+                "hint": hints::hint_for("get_insights"),
+                "durationMs": duration.as_millis() as u64,
+            }
+        }))
+    }
+
+    async fn tool_save_memory(&mut self, args: &Value) -> Result<Value> {
+        let fact = args["fact"]
+            .as_str()
+            .ok_or_else(|| McpError::InvalidArguments { tool: "save_memory".into(), reason: "Missing required 'fact' parameter".into() })?;
+        let scope = args["scope"].as_str().unwrap_or("project");
+        let repo_name = args["repo"].as_str();
+
+        // Determine storage path
+        let memory_dir = if scope == "global" {
+            // Global memory: ~/.gitnexus/memory/
+            let home = std::env::var("USERPROFILE")
+                .or_else(|_| std::env::var("HOME"))
+                .map_err(|_| McpError::Internal("Cannot determine home directory".into()))?;
+            std::path::PathBuf::from(home).join(".gitnexus").join("memory")
+        } else {
+            // Project memory: .gitnexus/memory/
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::PathBuf::from(&entry.storage_path).join("memory")
+        };
+
+        std::fs::create_dir_all(&memory_dir)
+            .map_err(|e| McpError::Internal(format!("Cannot create memory dir: {e}")))?;
+
+        // Generate filename from timestamp
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let memory_file = memory_dir.join(format!("fact_{ts}.md"));
+
+        std::fs::write(&memory_file, fact)
+            .map_err(|e| McpError::Internal(format!("Cannot write memory: {e}")))?;
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": format!("Fact saved to {} scope: {}", scope, memory_file.display())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("save_memory")
+            }
+        }))
+    }
+
+    /// Collect neighbor names from an adjacency list (incoming or outgoing).
+    fn collect_neighbors(
+        graph: &KnowledgeGraph,
+        adjacency: &HashMap<String, Vec<(String, RelationshipType)>>,
+        node_id: &str,
+        limit: usize,
+    ) -> Vec<Value> {
+        adjacency
+            .get(node_id)
+            .map(|edges| {
+                edges
+                    .iter()
+                    .filter(|(_, rt)| matches!(rt, RelationshipType::Calls | RelationshipType::Uses | RelationshipType::Imports | RelationshipType::DependsOn | RelationshipType::HasMethod | RelationshipType::HasAction | RelationshipType::CallsService))
+                    .take(limit)
+                    .filter_map(|(nid, rt)| {
+                        graph.get_node(nid).map(|n| {
+                            json!({
+                                "nodeId": nid,
+                                "name": n.properties.name,
+                                "label": format!("{:?}", n.label),
+                                "relType": format!("{:?}", rt),
+                            })
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 

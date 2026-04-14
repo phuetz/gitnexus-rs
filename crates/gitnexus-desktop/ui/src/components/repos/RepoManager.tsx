@@ -72,7 +72,7 @@ export function RepoManager() {
       await openRepo.mutateAsync(name);
       setActiveRepo(name);
       setMode("explorer");
-      toast.success("Opened " + name);
+      toast.success(t("repos.repoOpened").replace("{0}", name));
     } catch (e) {
       console.error("Failed to open repo:", e);
     }
@@ -103,7 +103,7 @@ export function RepoManager() {
         console.error("Analysis failed:", err);
         setIsAnalyzing(false);
         setAnalyzeError(String(err));
-        toast.error("Analysis failed: " + err);
+        toast.error(t("repos.analysisFailed").replace("{0}", String(err)));
       });
     } catch (e) {
       console.error("Folder selection failed:", e);

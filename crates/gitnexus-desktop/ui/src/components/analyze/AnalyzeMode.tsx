@@ -70,8 +70,9 @@ function HotspotsWrapper({ activeRepo }: { activeRepo: string | null }) {
     queryFn: () => commands.getHotspots(90),
     staleTime: 60_000,
   });
+  if (isLoading) return analyzeFallback;
   if (error) return <AnalyzeError error={error} />;
-  return <HotspotsView data={data ?? []} loading={isLoading} />;
+  return <HotspotsView data={data ?? []} loading={false} />;
 }
 
 function CouplingWrapper({ activeRepo }: { activeRepo: string | null }) {
@@ -80,8 +81,9 @@ function CouplingWrapper({ activeRepo }: { activeRepo: string | null }) {
     queryFn: () => commands.getCoupling(3),
     staleTime: 60_000,
   });
+  if (isLoading) return analyzeFallback;
   if (error) return <AnalyzeError error={error} />;
-  return <CouplingView data={data ?? []} loading={isLoading} />;
+  return <CouplingView data={data ?? []} loading={false} />;
 }
 
 function OwnershipWrapper({ activeRepo }: { activeRepo: string | null }) {
@@ -90,8 +92,9 @@ function OwnershipWrapper({ activeRepo }: { activeRepo: string | null }) {
     queryFn: () => commands.getOwnership(),
     staleTime: 60_000,
   });
+  if (isLoading) return analyzeFallback;
   if (error) return <AnalyzeError error={error} />;
-  return <OwnershipView data={data ?? []} loading={isLoading} />;
+  return <OwnershipView data={data ?? []} loading={false} />;
 }
 
 export function AnalyzeMode() {

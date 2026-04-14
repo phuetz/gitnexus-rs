@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { HeartPulse } from "lucide-react";
+import { HeartPulse, AlertCircle } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 import { useAppStore } from "../../stores/app-store";
@@ -13,25 +13,37 @@ export function ReportView() {
   // All report queries scope on `activeRepo` — without it, TanStack Query
   // would serve cached git analytics from the previously-opened repo for the
   // full `staleTime` window on repo switch.
-  const { data: hotspots, isLoading: loadingHotspots } = useQuery({
+  const { data: hotspots, isLoading: loadingHotspots, error: hotspotsError } = useQuery({
     queryKey: ["hotspots-report", activeRepo],
     queryFn: () => commands.getHotspots(90),
     staleTime: 60_000,
   });
 
-  const { data: couplings, isLoading: loadingCouplings } = useQuery({
+  const { data: couplings, isLoading: loadingCouplings, error: couplingError } = useQuery({
     queryKey: ["coupling-report", activeRepo],
     queryFn: () => commands.getCoupling(3),
     staleTime: 60_000,
   });
 
-  const { data: ownership, isLoading: loadingOwnership } = useQuery({
+  const { data: ownership, isLoading: loadingOwnership, error: ownershipError } = useQuery({
     queryKey: ["ownership-report", activeRepo],
     queryFn: () => commands.getOwnership(),
     staleTime: 60_000,
   });
 
   const isLoading = loadingHotspots || loadingCouplings || loadingOwnership;
+  const anyError = hotspotsError || couplingError || ownershipError;
+
+  if (anyError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+        <AlertCircle size={40} style={{ color: "var(--rose)", marginBottom: 16 }} />
+        <p style={{ fontSize: 13, color: "var(--text-3)", maxWidth: 400, lineHeight: 1.5 }}>
+          {String(anyError)}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-auto" style={{ padding: 24 }}>
@@ -92,8 +104,8 @@ export function ReportView() {
               </tr>
             </thead>
             <tbody>
-              {couplings.slice(0, 10).map((c, i) => (
-                <tr key={i} style={{ borderTop: "1px solid var(--surface-border)" }}>
+              {couplings.slice(0, 10).map((c) => (
+                <tr key={`${c.fileA}-${c.fileB}`} style={{ borderTop: "1px solid var(--surface-border)" }}>
                   <td style={{ ...td, fontFamily: "var(--font-mono)", fontSize: 11 }}>{c.fileA}</td>
                   <td style={{ ...td, fontFamily: "var(--font-mono)", fontSize: 11 }}>{c.fileB}</td>
                   <td style={{ ...td, textAlign: "center" }}>{c.sharedCommits}</td>

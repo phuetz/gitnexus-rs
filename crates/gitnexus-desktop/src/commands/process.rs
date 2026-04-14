@@ -111,6 +111,11 @@ pub async fn get_process_flows(
                 .replace('>', "&gt;")
                 .replace('[', "&#91;")
                 .replace(']', "&#93;")
+                .replace('(', "&#40;")
+                .replace(')', "&#41;")
+                .replace('`', "&#96;")
+                .replace('{', "&#123;")
+                .replace('}', "&#125;")
         };
 
         // Map real graph node_id → synthetic Mermaid id (`S0`, `S1`, ...).

@@ -7,4 +7,5 @@ pub mod community;
 pub mod process;
 pub mod aspnet_mvc;
 pub mod dead_code;
+pub mod llm_enrichment;
 pub mod architecture;

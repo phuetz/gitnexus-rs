@@ -67,3 +67,21 @@ pub trait LlmProvider: Send + Sync {
         tools: &[ToolDefinition],
     ) -> impl std::future::Future<Output = Result<Pin<Box<dyn Stream<Item = Result<LlmResponseChunk, String>> + Send>>, String>> + Send;
 }
+
+/// Collect a streaming completion into a single String.
+/// Used by pipeline enrichment which doesn't need token-by-token streaming.
+pub async fn collect_completion(
+    provider: &impl LlmProvider,
+    messages: &[Message],
+) -> Result<String, String> {
+    use futures_util::StreamExt;
+    let mut stream = provider.stream_completion(messages, &[]).await?;
+    let mut result = String::new();
+    while let Some(chunk) = stream.next().await {
+        match chunk? {
+            LlmResponseChunk::Text(text) => result.push_str(&text),
+            LlmResponseChunk::ToolCall(_) => {}
+        }
+    }
+    Ok(result)
+}

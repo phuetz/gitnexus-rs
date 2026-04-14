@@ -325,6 +325,102 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        // ── New tools (search_code, read_file, get_insights, save_memory) ──
+        ToolDefinition {
+            name: "search_code",
+            description: "Full-text search across the codebase. Returns matching code symbols with actual source code snippets, callers, and callees. More detailed than `query` which returns graph metadata only.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (symbol names, keywords, file paths)"
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum results (default: 8, max: 20)",
+                        "default": 8
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "read_file",
+            description: "Read source file contents with optional line range. Returns the code along with graph context: symbols defined in this file and any enrichment metadata.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path relative to the repository root"
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "start_line": {
+                        "type": "number",
+                        "description": "First line to read (1-based, default: 1)"
+                    },
+                    "end_line": {
+                        "type": "number",
+                        "description": "Last line to read (default: start_line + 100)"
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "get_insights",
+            description: "Get enrichment insights for a symbol: complexity, dead code status, tracing coverage, code smells, design patterns, risk score, refactoring suggestions, and community context.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": "Symbol name or node ID"
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    }
+                },
+                "required": ["symbol"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "save_memory",
+            description: "Persist a fact or insight to memory for retrieval across sessions. Useful for recording architectural decisions, discovered patterns, or project conventions.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "fact": {
+                        "type": "string",
+                        "description": "The fact or insight to remember"
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["global", "project"],
+                        "description": "Storage scope: global (across all repos) or project (repo-specific)",
+                        "default": "project"
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name (required for project scope)"
+                    }
+                },
+                "required": ["fact"],
+                "additionalProperties": false
+            }),
+        },
     ]
 }
 
@@ -350,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_tool_definitions_count() {
-        assert_eq!(tool_definitions().len(), 15);
+        assert_eq!(tool_definitions().len(), 19);
     }
 
     #[test]
@@ -372,13 +468,17 @@ mod tests {
         assert!(names.contains(&"report"));
         assert!(names.contains(&"business"));
         assert!(names.contains(&"analyze_execution_trace"));
+        assert!(names.contains(&"search_code"));
+        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"get_insights"));
+        assert!(names.contains(&"save_memory"));
     }
 
     #[test]
     fn test_tools_list_json() {
         let json = tools_list_json();
         let tools = json["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 15);
+        assert_eq!(tools.len(), 19);
         for tool in tools {
             assert!(tool.get("name").is_some());
             assert!(tool.get("description").is_some());

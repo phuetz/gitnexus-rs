@@ -308,18 +308,20 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
           <ChatSuggestions onSelect={(q) => { setInput(q); inputRef.current?.focus(); }} />
         </div>
 
-        {/* Input bar */}
-        <ChatInput
-          ref={inputRef}
-          value={input}
-          onChange={setInput}
-          onSend={handleSend}
-          onKeyDown={handleKeyDown}
-          isPending={askMutation.isPending}
-          onOpenSettings={onOpenSettings}
-          deepResearch={deepResearchEnabled}
-          hasFilters={hasActiveFilters()}
-        />
+        {/* Input bar — shrink-0 ensures it never gets squeezed off-screen */}
+        <div className="shrink-0">
+          <ChatInput
+            ref={inputRef}
+            value={input}
+            onChange={setInput}
+            onSend={handleSend}
+            onKeyDown={handleKeyDown}
+            isPending={askMutation.isPending}
+            onOpenSettings={onOpenSettings}
+            deepResearch={deepResearchEnabled}
+            hasFilters={hasActiveFilters()}
+          />
+        </div>
 
         {/* Filter modals */}
         {renderFilterModals(activeModal, closeModal)}
@@ -353,11 +355,11 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
               a.click();
               document.body.removeChild(a);
               URL.revokeObjectURL(url);
-              toast.success("Chat exported as Markdown");
+              toast.success(t("chat.exportedAsMarkdown"));
             }}
             className="text-[11px] hover-surface rounded px-2 py-1"
             style={{ color: "var(--text-3)" }}
-            title="Export chat as Markdown"
+            title={t("chat.exportChatMarkdown")}
             aria-label="Export chat"
           >
             <Download size={12} />
@@ -515,7 +517,7 @@ function MessageBubble({
   const handleCopyMessage = useCallback(() => {
     navigator.clipboard.writeText(message.content).then(
       () => toast.success(t("chat.copiedToClipboard")),
-      () => toast.error("Failed to copy"),
+      () => toast.error(t("chat.copyFailed")),
     );
   }, [message.content, t]);
 
@@ -532,11 +534,11 @@ function MessageBubble({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success("Response exported successfully");
+      toast.success(t("chat.responseExported"));
     } catch (e) {
-      toast.error(`Failed to export: ${String(e)}`);
+      toast.error(t("chat.exportFailed").replace("{0}", String(e)));
     }
-  }, [message.content]);
+  }, [message.content, t]);
 
   if (message.role === "user") {
     return (
@@ -600,7 +602,7 @@ function MessageBubble({
           onClick={handleExportMessage}
           className="p-1 rounded transition-colors"
           style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
-          title="Export response as Markdown"
+          title={t("chat.exportResponseMarkdown")}
           aria-label="Export response"
         >
           <Download size={12} />
@@ -704,12 +706,12 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
       ? "Ask about filtered context..."
       : "Ask about this codebase...";
 
-    // Auto-resize textarea on input change
+    // Auto-resize textarea on input change (min 56px to prevent shrink)
     useEffect(() => {
       const el = internalRef.current;
       if (!el) return;
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+      el.style.height = "56px";
+      el.style.height = `${Math.max(56, Math.min(el.scrollHeight, 200))}px`;
     }, [value]);
 
     // Merge forwarded ref with internal ref
@@ -731,18 +733,19 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         style={{ borderTop: "1px solid var(--surface-border)" }}
       >
         <div
-          className="chat-input-container flex items-end gap-2 rounded-xl px-3 py-2 transition-all"
+          className="chat-input-container flex items-end gap-2 rounded-2xl px-4 py-3 transition-all"
           style={{
-            background: "var(--surface)",
+            background: "var(--bg-2)",
             border: deepResearch
-              ? "1px solid var(--purple)"
+              ? "2px solid var(--purple)"
               : "1px solid var(--surface-border)",
+            boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
           }}
         >
           {/* Deep research indicator */}
           {deepResearch && (
             <Microscope
-              size={14}
+              size={16}
               className="mb-1 flex-shrink-0"
               style={{ color: "var(--purple)" }}
             />
@@ -755,8 +758,8 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             onKeyDown={onKeyDown}
             placeholder={placeholder}
             aria-label="Ask a question about the code"
-            rows={1}
-            className="flex-1 bg-transparent resize-none text-[13px] outline-none focus:ring-1 focus:ring-[var(--accent)] min-h-[24px] max-h-[200px]"
+            rows={3}
+            className="flex-1 bg-transparent resize-none text-[14px] outline-none min-h-[56px] max-h-[200px] leading-relaxed"
             style={{
               color: "var(--text-0)",
               fontFamily: "var(--font-body)",
@@ -777,18 +780,23 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
               onClick={onSend}
               disabled={!value.trim() || isPending}
               aria-label={isPending ? "Sending..." : "Send message"}
-              className="p-1.5 rounded-lg transition-all"
+              className="p-2 rounded-xl transition-all"
               style={{
                 background: value.trim() && !isPending
                   ? deepResearch ? "var(--purple)" : "var(--accent)"
-                  : "transparent",
+                  : "var(--bg-3)",
                 color: value.trim() && !isPending ? "#fff" : "var(--text-3)",
+                minWidth: 36,
+                minHeight: 36,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
               {isPending ? (
-                <Loader2 size={14} className="animate-spin" />
+                <Loader2 size={16} className="animate-spin" />
               ) : (
-                <Send size={14} />
+                <Send size={16} />
               )}
             </button>
           </div>

@@ -38,9 +38,22 @@ const MermaidDiagram = memo(function MermaidDiagram({ definition, id }: { defini
           containerRef.current.innerHTML = svg;
         }
       } catch (err) {
-        console.error("Mermaid render error:", err);
+        console.error("Mermaid render error:", err, "\nDefinition:", definition);
         if (!cancelled && containerRef.current) {
-          containerRef.current.innerHTML = `<pre style="color:var(--rose); font-size:11px;">Error rendering diagram</pre>`;
+          const errMsg = err instanceof Error ? err.message : String(err);
+          // Show error details + raw mermaid source for debugging
+          const container = containerRef.current;
+          container.textContent = "";
+          const details = document.createElement("details");
+          const summary = document.createElement("summary");
+          summary.textContent = "Error rendering diagram — click to see details";
+          summary.style.cssText = "cursor:pointer; color:var(--rose); font-size:11px;";
+          details.appendChild(summary);
+          const pre = document.createElement("pre");
+          pre.textContent = errMsg + "\n\n--- Mermaid source ---\n" + definition;
+          pre.style.cssText = "margin-top:8px; padding:8px; background:var(--bg-2); border-radius:4px; overflow:auto; max-height:200px; white-space:pre-wrap; font-size:10px; color:var(--text-2);";
+          details.appendChild(pre);
+          container.appendChild(details);
         }
       }
     })();
@@ -192,6 +205,11 @@ export function ProcessFlowsView() {
                     {t("analyze.flowSteps")}
                   </h5>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {flow.steps.length === 0 && (
+                      <div style={{ padding: "12px", fontSize: 13, color: "var(--text-3)", fontStyle: "italic" }}>
+                        {t("analyze.noStepsMessage")}
+                      </div>
+                    )}
                     {flow.steps.map((step, idx) => (
                       <div
                         key={`${flow.id}-step-${idx}`}

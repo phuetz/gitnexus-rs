@@ -36,6 +36,8 @@ pub struct PipelineOptions {
     pub skip_git: bool,
     /// If true and a manifest exists, use incremental indexing instead of full.
     pub incremental: bool,
+    /// If Some, run Phase 8 LLM enrichment with the given config.
+    pub llm_enrich: Option<phases::llm_enrichment::LlmEnrichmentConfig>,
 }
 
 /// Run the full ingestion pipeline on a repository.
@@ -365,6 +367,35 @@ pub async fn run_pipeline(
         duration_ms = duration.as_millis() as u64,
         "Phase complete"
     );
+
+    // Phase 8: LLM Enrichment (optional, requires API key)
+    if let Some(ref llm_config) = options.llm_enrich {
+        send_progress(PipelinePhase::Enriching, 0.0, "Enriching with LLM...");
+        let phase_start = Instant::now();
+        let llm_stats = phases::llm_enrichment::enrich_with_llm(
+            &mut graph,
+            repo_path,
+            llm_config,
+            progress_tx.as_ref(),
+        )
+        .await?;
+        let duration = phase_start.elapsed();
+        tracing::info!(
+            phase = "llm_enrichment",
+            duration_ms = duration.as_millis() as u64,
+            enriched = llm_stats.symbols_enriched,
+            cached = llm_stats.symbols_skipped_cached,
+            batches = llm_stats.batches_sent,
+            tokens = llm_stats.tokens_used_estimate,
+            errors = llm_stats.errors,
+            "Phase complete"
+        );
+        send_progress(
+            PipelinePhase::Enriching,
+            100.0,
+            &format!("Enriched {} symbols", llm_stats.symbols_enriched),
+        );
+    }
 
     send_progress(PipelinePhase::Complete, 100.0, "Pipeline complete");
 

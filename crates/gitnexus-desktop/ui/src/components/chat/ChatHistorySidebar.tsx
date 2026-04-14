@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Plus, MessageSquare, Trash2, Pencil } from "lucide-react";
 import { useChatSessionStore } from "../../stores/chat-session-store";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 
 export function ChatHistorySidebar() {
+  const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo) || "global";
   const {
     activeSessionId,
@@ -19,7 +21,7 @@ export function ChatHistorySidebar() {
   const repoSessions = getSessionsForRepo(activeRepo);
 
   const handleNewChat = () => {
-    createSession(activeRepo, "New Chat");
+    createSession(activeRepo, t("chat.newChat"));
   };
 
   return (
@@ -42,13 +44,13 @@ export function ChatHistorySidebar() {
             color: "var(--text-1)",
           }}
         >
-          Recent Chats
+          {t("chat.recentChats")}
         </h3>
         <button
           onClick={handleNewChat}
           className="p-1 rounded-lg transition-colors flex items-center justify-center"
           style={{ background: "var(--accent)", color: "white", width: 24, height: 24 }}
-          title="New Chat"
+          title={t("chat.newChat")}
           aria-label="Create new chat"
         >
           <Plus size={14} />
@@ -58,7 +60,7 @@ export function ChatHistorySidebar() {
       <div className="flex-1 overflow-y-auto py-2 px-2" style={{ gap: 4, display: "flex", flexDirection: "column" }}>
         {repoSessions.length === 0 ? (
           <div className="text-center px-4 py-8" style={{ color: "var(--text-3)", fontSize: 12 }}>
-            No recent chats
+            {t("chat.noRecentChats")}
           </div>
         ) : (
           repoSessions.map((session) => {
@@ -114,7 +116,7 @@ export function ChatHistorySidebar() {
                       setEditingId(session.id);
                       setEditValue(session.title);
                     }}
-                    title="Rename chat"
+                    title={t("chat.renameChat")}
                   >
                     <Pencil size={11} />
                   </button>
@@ -125,7 +127,7 @@ export function ChatHistorySidebar() {
                       e.stopPropagation();
                       deleteSession(session.id);
                     }}
-                    title="Delete chat"
+                    title={t("chat.deleteChat")}
                   >
                     <Trash2 size={12} />
                   </button>

@@ -1758,8 +1758,10 @@ dependencies = [
 name = "gitnexus-ingest"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "gitnexus-core",
  "gitnexus-db",
+ "gitnexus-git",
  "gitnexus-lang",
  "ignore",
  "lru",

@@ -26,4 +26,5 @@ pub mod diagram;
 pub mod trace_import;
 pub mod trace_doc;
 pub mod coverage;
+pub mod mcp_install;
 pub mod rag_import;

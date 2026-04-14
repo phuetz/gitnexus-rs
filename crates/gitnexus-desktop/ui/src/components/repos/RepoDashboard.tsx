@@ -17,6 +17,7 @@ import {
   Shield,
 } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 import { CodeHealthCard } from "../health/CodeHealthCard";
 import { commands } from "../../lib/tauri-commands";
 import type { CytoNode, CytoEdge, GraphPayload } from "../../lib/tauri-commands";
@@ -97,8 +98,8 @@ function topConnectedNodes(
   return Array.from(degreeMap.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map(([id, degree]) => ({ node: nodeMap.get(id)!, degree }))
-    .filter((x) => x.node != null);
+    .map(([id, degree]) => ({ node: nodeMap.get(id), degree }))
+    .filter((x): x is { node: CytoNode; degree: number } => x.node != null);
 }
 
 /** Unique language count from nodes. */
@@ -204,7 +205,7 @@ function qualityGradient(totalNodes: number): {
       border: "rgba(158,206,106,0.25)",
       badge: "rgba(158,206,106,0.18)",
       badgeText: "#9ece6a",
-      text: "Healthy",
+      text: "dashboard.healthy",
     };
   }
   if (totalNodes >= 100) {
@@ -213,7 +214,7 @@ function qualityGradient(totalNodes: number): {
       border: "rgba(224,175,104,0.25)",
       badge: "rgba(224,175,104,0.18)",
       badgeText: "#e0af68",
-      text: "Growing",
+      text: "dashboard.growing",
     };
   }
   return {
@@ -221,13 +222,14 @@ function qualityGradient(totalNodes: number): {
     border: "rgba(86,95,137,0.25)",
     badge: "rgba(86,95,137,0.18)",
     badgeText: "var(--text-2)",
-    text: "Small",
+    text: "dashboard.small",
   };
 }
 
 // ─── Component ──────────────────────────────────────────────────────
 
 export const RepoDashboard = memo(function RepoDashboard() {
+  const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
   const setMode = useAppStore((s) => s.setMode);
@@ -403,7 +405,7 @@ export const RepoDashboard = memo(function RepoDashboard() {
             textTransform: "uppercase",
           }}
         >
-          {quality.text}
+          {t(quality.text)}
         </div>
       </AnimatedCard>
 
@@ -494,7 +496,7 @@ export const RepoDashboard = memo(function RepoDashboard() {
               letterSpacing: "0.04em",
             }}
           >
-            Node Type Distribution
+            {t("dashboard.nodeTypeDistribution")}
           </div>
 
           <DonutChart
@@ -527,7 +529,7 @@ export const RepoDashboard = memo(function RepoDashboard() {
               letterSpacing: "0.04em",
             }}
           >
-            Top Connected Nodes
+            {t("dashboard.topConnectedNodes")}
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -645,7 +647,7 @@ export const RepoDashboard = memo(function RepoDashboard() {
           <AnimatedCard>
             <div style={{ padding: "16px 20px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border)", background: "var(--bg-1)" }}>
               <h3 className="text-sm font-semibold" style={{ color: "var(--text-0)", marginBottom: 12 }}>
-                Most Complex Functions
+                {t("dashboard.mostComplexFunctions")}
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {complexNodes.map(n => (

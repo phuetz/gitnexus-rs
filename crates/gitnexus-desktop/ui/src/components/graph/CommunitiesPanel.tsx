@@ -8,10 +8,15 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Layers, Eye, EyeOff } from "lucide-react";
-import { commands } from "../../lib/tauri-commands";
+import { commands, type FeatureInfo } from "../../lib/tauri-commands";
 import { getCommunityColor } from "../../lib/graph-adapter";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
+
+/** Feature with optional displayName for disambiguating duplicate labels. */
+interface DisplayFeature extends FeatureInfo {
+  displayName?: string;
+}
 
 export function CommunitiesPanel() {
   const { t } = useI18n();
@@ -30,7 +35,20 @@ export function CommunitiesPanel() {
 
   const sorted = useMemo(() => {
     if (!features) return [];
-    return [...features].sort((a, b) => b.memberCount - a.memberCount);
+    const bySize = [...features].sort((a, b) => b.memberCount - a.memberCount);
+    // Disambiguate duplicate names by appending a number
+    const nameCount = new Map<string, number>();
+    const nameSeen = new Map<string, number>();
+    for (const f of bySize) {
+      nameCount.set(f.name, (nameCount.get(f.name) ?? 0) + 1);
+    }
+    return bySize.map((f): DisplayFeature => {
+      const count = nameCount.get(f.name) ?? 1;
+      if (count <= 1) return f;
+      const idx = (nameSeen.get(f.name) ?? 0) + 1;
+      nameSeen.set(f.name, idx);
+      return { ...f, displayName: `${f.name} (${idx})` };
+    });
   }, [features]);
 
   const maxCount = sorted.length > 0 ? sorted[0].memberCount : 1;
@@ -57,7 +75,7 @@ export function CommunitiesPanel() {
     <div
       className="absolute top-4 right-4 z-20 flex flex-col shadow-lg transition-all"
       style={{
-        width: 260,
+        width: "min(260px, calc(100% - 16px))",
         maxHeight: "calc(100% - 32px)",
         background: "var(--glass-bg)",
         backdropFilter: "blur(var(--glass-blur))",
@@ -138,7 +156,7 @@ export function CommunitiesPanel() {
                       maxWidth: "var(--communities-name-max)",
                     }}
                   >
-                    {feat.name}
+                    {feat.displayName || feat.name}
                   </span>
                   <span
                     className="text-[9px] shrink-0"

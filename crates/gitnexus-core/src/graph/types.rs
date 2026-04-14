@@ -580,6 +580,27 @@ pub struct NodeProperties {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_type: Option<String>,
 
+    // ── LLM enrichment properties ────────────────────────────────
+    /// Detected code smells (e.g. "GodObject", "FeatureEnvy", "SrpViolation", "LongMethod")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_smells: Option<Vec<String>>,
+
+    /// Detected design patterns (e.g. "Repository", "Factory", "Observer")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_patterns: Option<Vec<String>>,
+
+    /// Risk score 0-100 assigned by LLM (composite of complexity + coupling + coverage)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_risk_score: Option<u32>,
+
+    /// One-line refactoring suggestion from LLM
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_refactoring: Option<String>,
+
+    /// SHA-256 hash of the source code at time of LLM enrichment (for incrementality)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_source_hash: Option<String>,
+
     // ── GraphRAG properties ──────────────────────────────────────
     /// Document chunk text content
     #[serde(default, skip_serializing_if = "Option::is_none")]

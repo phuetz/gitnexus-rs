@@ -27,11 +27,17 @@ const DEFAULT_CONFIG_FILENAME: &str = "chat-config.json";
 #[serde(rename_all = "camelCase")]
 struct PersistedChatConfig {
     provider: String,
+    #[serde(alias = "base_url")]
     base_url: String,
     model: String,
+    #[serde(alias = "max_tokens")]
     max_tokens: u32,
-    #[serde(default)]
+    #[serde(default, alias = "reasoning_effort")]
     reasoning_effort: String,
+    /// Optional API key persisted in the file (CLI compatibility).
+    /// If absent, will be loaded from environment variables.
+    #[serde(default, alias = "api_key", alias = "apiKey")]
+    api_key: String,
 }
 
 impl From<&ChatConfig> for PersistedChatConfig {
@@ -42,6 +48,7 @@ impl From<&ChatConfig> for PersistedChatConfig {
             model: config.model.clone(),
             max_tokens: config.max_tokens,
             reasoning_effort: config.reasoning_effort.clone(),
+            api_key: String::new(),
         }
     }
 }
@@ -50,7 +57,7 @@ impl From<PersistedChatConfig> for ChatConfig {
     fn from(config: PersistedChatConfig) -> Self {
         ChatConfig {
             provider: config.provider,
-            api_key: String::new(),
+            api_key: config.api_key,
             base_url: config.base_url,
             model: config.model,
             max_tokens: config.max_tokens,
@@ -319,7 +326,10 @@ async fn execute_mcp_tool(
                 }
             };
 
-            let node = graph.get_node(&node_id).unwrap();
+            let node = match graph.get_node(&node_id) {
+                Some(n) => n,
+                None => return format!("Error: node '{}' not found in graph", node_id),
+            };
             let mut out = format!("**{}** ({}) — `{}`\n\n", node.properties.name, node.label.as_str(), node.properties.file_path);
 
             // Callers/callees via indexes
@@ -952,64 +962,273 @@ fn read_code_snippet(
 // ─── Prompt Construction ─────────────────────────────────────────────
 
 /// Build the system prompt with graph context.
+/// Project-level metadata gathered from the graph for system prompt context.
+struct ProjectMeta {
+    node_count: usize,
+    edge_count: usize,
+    community_count: usize,
+    process_count: usize,
+    top_languages: Vec<(String, usize)>,
+    frameworks: Vec<&'static str>,
+    repo_name: String,
+}
+
+/// Functional community summary for the system prompt.
+struct CommunitySummary {
+    label: String,
+    member_count: u32,
+    description: Option<String>,
+    keywords: Option<Vec<String>>,
+}
+
+/// Business process summary for the system prompt.
+struct ProcessSummary {
+    name: String,
+    step_count: u32,
+}
+
+/// Compute project metadata: counts per label, frameworks, top languages.
+fn gather_project_meta(graph: &KnowledgeGraph, repo_path: &Path) -> ProjectMeta {
+    use gitnexus_core::graph::types::NodeLabel;
+    use std::collections::HashMap;
+
+    let mut by_label: HashMap<NodeLabel, usize> = HashMap::new();
+    let mut by_lang: HashMap<String, usize> = HashMap::new();
+
+    for node in graph.iter_nodes() {
+        *by_label.entry(node.label).or_insert(0) += 1;
+        if let Some(lang) = &node.properties.language {
+            *by_lang.entry(format!("{:?}", lang)).or_insert(0) += 1;
+        }
+    }
+
+    // Detect frameworks based on presence of specific node types
+    let mut frameworks: Vec<&'static str> = Vec::new();
+    if by_label.get(&NodeLabel::Controller).copied().unwrap_or(0) > 0 {
+        frameworks.push("ASP.NET MVC");
+    }
+    if by_label.get(&NodeLabel::DbContext).copied().unwrap_or(0) > 0 {
+        frameworks.push("Entity Framework");
+    }
+    if by_label.get(&NodeLabel::View).copied().unwrap_or(0) > 0
+        && !frameworks.contains(&"ASP.NET MVC")
+    {
+        frameworks.push("MVC Views");
+    }
+
+    // Top 3 languages
+    let mut langs: Vec<(String, usize)> = by_lang.into_iter().collect();
+    langs.sort_by(|a, b| b.1.cmp(&a.1));
+    langs.truncate(3);
+
+    let repo_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    ProjectMeta {
+        node_count: graph.iter_nodes().count(),
+        edge_count: graph.iter_relationships().count(),
+        community_count: by_label.get(&NodeLabel::Community).copied().unwrap_or(0),
+        process_count: by_label.get(&NodeLabel::Process).copied().unwrap_or(0),
+        top_languages: langs,
+        frameworks,
+        repo_name,
+    }
+}
+
+/// Top N functional communities sorted by member count.
+fn top_communities(graph: &KnowledgeGraph, limit: usize) -> Vec<CommunitySummary> {
+    use gitnexus_core::graph::types::NodeLabel;
+
+    let mut communities: Vec<CommunitySummary> = graph
+        .iter_nodes()
+        .filter(|n| n.label == NodeLabel::Community)
+        .map(|n| {
+            let label = n
+                .properties
+                .heuristic_label
+                .clone()
+                .unwrap_or_else(|| n.properties.name.clone());
+            CommunitySummary {
+                label,
+                member_count: n.properties.symbol_count.unwrap_or(0),
+                description: n.properties.description.clone(),
+                keywords: n.properties.keywords.clone(),
+            }
+        })
+        .collect();
+
+    communities.sort_by(|a, b| b.member_count.cmp(&a.member_count));
+    communities.truncate(limit);
+    communities
+}
+
+/// Top N business processes sorted by step count.
+fn top_processes(graph: &KnowledgeGraph, limit: usize) -> Vec<ProcessSummary> {
+    use gitnexus_core::graph::types::NodeLabel;
+
+    let mut processes: Vec<ProcessSummary> = graph
+        .iter_nodes()
+        .filter(|n| n.label == NodeLabel::Process)
+        .map(|n| ProcessSummary {
+            name: n.properties.name.clone(),
+            step_count: n.properties.step_count.unwrap_or(0),
+        })
+        .collect();
+
+    processes.sort_by(|a, b| b.step_count.cmp(&a.step_count));
+    processes.truncate(limit);
+    processes
+}
+
 fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path: &Path) -> String {
-    let node_count = graph.iter_nodes().count();
-    let edge_count = graph.iter_relationships().count();
-    
+    let meta = gather_project_meta(graph, repo_path);
+    let communities = top_communities(graph, 10);
+    let processes = top_processes(graph, 5);
     let memory_context = gitnexus_core::memory::build_memory_context(Some(repo_path));
 
-    let mut prompt = format!(
-        r#"You are an expert code analyst helping a developer understand a codebase.
-You have access to a knowledge graph of this repository ({} symbols, {} relationships).
+    let mut prompt = String::with_capacity(8192);
 
-{}
+    // ── Identity ────────────────────────────────────────────────
+    prompt.push_str(&format!(
+        "# Identity\n\n\
+         You are GitNexus, an AI code intelligence assistant specialized in analyzing \
+         the **{}** codebase using a structured knowledge graph.\n\n",
+        meta.repo_name
+    ));
 
-## Relevant Code Context
+    // ── Project context ─────────────────────────────────────────
+    prompt.push_str("# Project context\n\n");
+    prompt.push_str(&format!("- **Repository**: `{}`\n", meta.repo_name));
+    if !meta.top_languages.is_empty() {
+        let langs = meta
+            .top_languages
+            .iter()
+            .map(|(l, c)| format!("{} ({})", l, c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        prompt.push_str(&format!("- **Languages**: {}\n", langs));
+    }
+    if !meta.frameworks.is_empty() {
+        prompt.push_str(&format!("- **Frameworks detected**: {}\n", meta.frameworks.join(", ")));
+    }
+    prompt.push_str(&format!(
+        "- **Graph statistics**: {} symbols, {} relationships, {} functional modules, {} business processes\n\n",
+        meta.node_count, meta.edge_count, meta.community_count, meta.process_count
+    ));
 
-The following symbols and code snippets are the most relevant to the user's question:
-
-"#,
-        node_count, edge_count, memory_context
+    // ── Knowledge graph schema ──────────────────────────────────
+    prompt.push_str(
+        "# Knowledge graph schema\n\n\
+         Node types you can reason about:\n\
+         - **Code**: `Class`, `Method`, `Function`, `Interface`, `Enum`, `Struct`, `Constructor`\n\
+         - **ASP.NET**: `Controller`, `ControllerAction`, `View`, `ViewModel`, `DbContext`, `DbEntity`, `Service`, `Repository`\n\
+         - **Architecture**: `Module`, `Community` (functional groups), `Process` (business workflows)\n\n\
+         Relationships you can traverse:\n\
+         - **Calls** (method→method), **HasMethod** (class→method), **Inherits**, **Implements**\n\
+         - **RendersView** (controller→view), **MapsToEntity** (view→entity), **CallsService**\n\
+         - **HandlesRoute** (action→route), **MemberOf** (symbol→community), **StepInProcess** (method→process)\n\n",
     );
 
-    for (i, source) in sources.iter().enumerate() {
-        prompt.push_str(&format!(
-            "### {} — `{}` ({}) in `{}`\n",
-            i + 1,
-            source.symbol_name,
-            source.symbol_type,
-            source.file_path
-        ));
-
-        if let Some(community) = &source.community {
-            prompt.push_str(&format!("**Module**: {}\n", community));
-        }
-
-        if let Some(callers) = &source.callers {
-            prompt.push_str(&format!("**Called by**: {}\n", callers.join(", ")));
-        }
-        if let Some(callees) = &source.callees {
-            prompt.push_str(&format!("**Calls**: {}\n", callees.join(", ")));
-        }
-
-        if let Some(snippet) = &source.snippet {
-            let lang = detect_language(&source.file_path);
-            prompt.push_str(&format!("\n```{}\n{}\n```\n\n", lang, snippet));
+    // ── Functional modules ──────────────────────────────────────
+    if !communities.is_empty() {
+        prompt.push_str("# Functional modules (top by size)\n\n");
+        for c in &communities {
+            prompt.push_str(&format!("- **{}** ({} symbols)", c.label, c.member_count));
+            if let Some(desc) = &c.description {
+                let short = desc.chars().take(120).collect::<String>();
+                prompt.push_str(&format!(" — {}", short));
+            } else if let Some(kw) = &c.keywords {
+                if !kw.is_empty() {
+                    prompt.push_str(&format!(" — keywords: {}", kw.join(", ")));
+                }
+            }
+            prompt.push('\n');
         }
         prompt.push('\n');
     }
 
-    prompt.push_str(
-        r#"## Instructions
+    // ── Business processes ──────────────────────────────────────
+    if !processes.is_empty() {
+        prompt.push_str("# Business processes detected\n\n");
+        for p in &processes {
+            prompt.push_str(&format!("- **{}** — {} steps\n", p.name, p.step_count));
+        }
+        prompt.push('\n');
+    }
 
-- Answer the developer's question based on the code context above.
-- Reference specific symbols, files, and line numbers when relevant.
-- If you include code examples, use markdown code blocks with the correct language.
-- If you're unsure about something, say so rather than guessing.
-- Be concise but thorough. Use bullet points for lists.
-- If applicable, mention related modules or functions the developer should look at.
-- Respond in the same language as the user's question.
-"#,
+    // ── Persistent memory ───────────────────────────────────────
+    if !memory_context.trim().is_empty() {
+        prompt.push_str("# Persistent memory\n\n");
+        prompt.push_str(&memory_context);
+        prompt.push_str("\n\n");
+    }
+
+    // ── Relevant code context ───────────────────────────────────
+    if !sources.is_empty() {
+        prompt.push_str("# Relevant code context\n\n");
+        prompt.push_str("These symbols are the most relevant to the user's question (ranked by FTS score):\n\n");
+
+        for (i, source) in sources.iter().enumerate() {
+            prompt.push_str(&format!(
+                "## {} — `{}` ({}) in `{}`\n",
+                i + 1,
+                source.symbol_name,
+                source.symbol_type,
+                source.file_path
+            ));
+
+            if let Some(community) = &source.community {
+                prompt.push_str(&format!("- **Module**: {}\n", community));
+            }
+            if let Some(callers) = &source.callers {
+                if !callers.is_empty() {
+                    prompt.push_str(&format!("- **Called by**: {}\n", callers.join(", ")));
+                }
+            }
+            if let Some(callees) = &source.callees {
+                if !callees.is_empty() {
+                    prompt.push_str(&format!("- **Calls**: {}\n", callees.join(", ")));
+                }
+            }
+
+            if let Some(snippet) = &source.snippet {
+                let lang = detect_language(&source.file_path);
+                prompt.push_str(&format!("\n```{}\n{}\n```\n\n", lang, snippet));
+            }
+        }
+    }
+
+    // ── Tools strategy ──────────────────────────────────────────
+    prompt.push_str(
+        "# Available tools — when to use them\n\n\
+         You have 7 tools. Use them ONLY when the context above is insufficient. \
+         Limit to 2-3 tool calls per response unless the question genuinely requires deeper exploration.\n\n\
+         1. **search_code** — Search by keyword when the question mentions a feature/concept not in the context.\n\
+         2. **read_file** — Read more of a file when the snippet (~50 lines) is truncated.\n\
+         3. **get_symbol_context** — 360° view of a symbol (callers, callees, imports, inheritance). Use for \"how does X work?\".\n\
+         4. **get_impact** — Blast radius via BFS. Use for \"what breaks if I change X?\" or \"what depends on X?\".\n\
+         5. **execute_cypher** — Read-only graph queries for complex traversals. Examples:\n\
+            - `MATCH (c:Controller)-[:CALLS_SERVICE]->(s:Service) RETURN c.name, s.name LIMIT 20`\n\
+            - `MATCH (p:Process) WHERE p.name CONTAINS 'Courrier' RETURN p`\n\
+         6. **get_diagram** — Generate a Mermaid flowchart for a class/controller (visual call graph).\n\
+         7. **save_memory** — Persist a fact when the user states a project convention or preference \
+         (\"we always use repository pattern\", \"tests live in /Tests\").\n\n",
+    );
+
+    // ── Response format ─────────────────────────────────────────
+    prompt.push_str(
+        "# Response format\n\n\
+         - **Language**: respond in the SAME language as the user's question (French, English, etc.).\n\
+         - **Structure**: use markdown sections with `##` headers.\n\
+         - **Citations**: cite symbols and files with backticks, e.g. `RegleCourriers.GenerateCourrier()` in `Courrier/RegleCourriers.cs:123`.\n\
+         - **Code**: use fenced code blocks with the correct language tag (```csharp, ```typescript, etc.).\n\
+         - **Diagrams**: use ```mermaid blocks for call graphs or flows when they aid understanding.\n\
+         - **Length**: be concise but complete. Bullet points for lists, prose for explanations.\n\
+         - **Honesty**: if you don't know, say so. Do NOT invent symbols, files, or behaviors.\n\
+         - **End** with a `## Voir aussi` (or `## See also`) section listing 3-5 related symbols to explore.\n",
     );
 
     prompt

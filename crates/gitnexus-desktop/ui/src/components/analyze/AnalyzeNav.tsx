@@ -1,15 +1,16 @@
-import { memo, useState, useEffect } from "react";
+import { memo, useState, useEffect, useMemo } from "react";
 import { LayoutDashboard, Flame, Link2, Users, Shield, GitBranch, FileText, Heart, Workflow } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import type { AnalyzeView } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
+import { useRepos } from "../../hooks/use-tauri-query";
 
-const NAV_ITEMS: { view: AnalyzeView; icon: typeof LayoutDashboard; i18nKey: string }[] = [
+const NAV_ITEMS: { view: AnalyzeView; icon: typeof LayoutDashboard; i18nKey: string; requiresGit?: boolean }[] = [
   { view: "overview", icon: LayoutDashboard, i18nKey: "analyze.nav.overview" },
   { view: "processes", icon: Workflow, i18nKey: "analyze.nav.processes" },
-  { view: "hotspots", icon: Flame, i18nKey: "analyze.nav.hotspots" },
-  { view: "coupling", icon: Link2, i18nKey: "analyze.nav.coupling" },
-  { view: "ownership", icon: Users, i18nKey: "analyze.nav.ownership" },
+  { view: "hotspots", icon: Flame, i18nKey: "analyze.nav.hotspots", requiresGit: true },
+  { view: "coupling", icon: Link2, i18nKey: "analyze.nav.coupling", requiresGit: true },
+  { view: "ownership", icon: Users, i18nKey: "analyze.nav.ownership", requiresGit: true },
   { view: "coverage", icon: Shield, i18nKey: "analyze.nav.coverage" },
   { view: "diagram", icon: GitBranch, i18nKey: "analyze.nav.diagrams" },
   { view: "report", icon: FileText, i18nKey: "analyze.nav.report" },
@@ -20,6 +21,20 @@ export const AnalyzeNav = memo(function AnalyzeNav() {
   const { t } = useI18n();
   const analyzeView = useAppStore((s) => s.analyzeView);
   const setAnalyzeView = useAppStore((s) => s.setAnalyzeView);
+  const activeRepo = useAppStore((s) => s.activeRepo);
+  const { data: repos } = useRepos();
+
+  // Detect if the active repo is a git repository (lastCommit !== "unknown")
+  const isGitRepo = useMemo(() => {
+    if (!activeRepo || !repos) return true; // assume git by default
+    const repo = repos.find((r) => r.name === activeRepo);
+    return repo ? repo.lastCommit !== "unknown" : true;
+  }, [activeRepo, repos]);
+
+  const visibleItems = useMemo(
+    () => NAV_ITEMS.filter((item) => !item.requiresGit || isGitRepo),
+    [isGitRepo],
+  );
 
   const [isCompact, setIsCompact] = useState(window.innerWidth < 900);
 
@@ -52,7 +67,7 @@ export const AnalyzeNav = memo(function AnalyzeNav() {
         </div>
       )}
       <nav className="flex flex-col gap-0.5 px-2" aria-label={t("analyze.nav.title")}>
-        {NAV_ITEMS.map(({ view, icon: Icon, i18nKey }) => {
+        {visibleItems.map(({ view, icon: Icon, i18nKey }) => {
           const label = t(i18nKey);
           return (
           <button

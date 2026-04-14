@@ -143,4 +143,9 @@ fn escape_label(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('[', "&#91;")
         .replace(']', "&#93;")
+        .replace('(', "&#40;")
+        .replace(')', "&#41;")
+        .replace('`', "&#96;")
+        .replace('{', "&#123;")
+        .replace('}', "&#125;")
 }

@@ -77,11 +77,13 @@ export function ExplorerMode() {
       </Panel>
       <PanelSeparator />
       <Panel minSize={30}>
-        <ErrorBoundary>
-          <Suspense fallback={explorerFallback}>
-            <GraphExplorer />
-          </Suspense>
-        </ErrorBoundary>
+        <div className="h-full w-full overflow-hidden">
+          <ErrorBoundary>
+            <Suspense fallback={explorerFallback}>
+              <GraphExplorer />
+            </Suspense>
+          </ErrorBoundary>
+        </div>
       </Panel>
       <PanelSeparator />
       <Panel
@@ -91,11 +93,13 @@ export function ExplorerMode() {
         maxSize={35}
         collapsible
       >
-        <ErrorBoundary>
-          <Suspense fallback={explorerFallback}>
-            <ExplorerRightPanel />
-          </Suspense>
-        </ErrorBoundary>
+        <div className="h-full w-full overflow-hidden">
+          <ErrorBoundary>
+            <Suspense fallback={explorerFallback}>
+              <ExplorerRightPanel />
+            </Suspense>
+          </ErrorBoundary>
+        </div>
       </Panel>
     </Group>
   );

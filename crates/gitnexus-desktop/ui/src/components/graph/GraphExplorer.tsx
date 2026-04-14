@@ -243,7 +243,7 @@ export function GraphExplorer() {
 
   // ── Main render ──────────────────────────────────────────────────
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col overflow-hidden">
       <GraphToolbarRow {...toolbarProps} onFlows={() => gs.setFlowsOpen(true)} viewMode={gs.viewMode} onViewModeChange={gs.setViewMode} />
 
       {gs.viewMode === "treemap" ? (
@@ -253,7 +253,7 @@ export function GraphExplorer() {
           </Suspense>
         </div>
       ) : (
-        <div className="flex flex-1 min-h-0 relative">
+        <div className="flex flex-1 min-h-0 relative overflow-hidden">
           <div className="flex-1 relative" style={{ backgroundColor: "var(--bg-0)" }}>
             <div ref={containerRef} className="absolute inset-0" style={{ cursor: "grab" }} role="application" aria-label="Interactive code dependency graph" tabIndex={0} />
 

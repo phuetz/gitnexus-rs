@@ -19,7 +19,7 @@ pub async fn list_repos(state: State<'_, AppState>) -> Result<Vec<RepoInfo>, Str
         .into_iter()
         .map(|e| RepoInfo {
             name: e.name,
-            path: e.path,
+            path: e.path.strip_prefix(r"\\?\").unwrap_or(&e.path).to_string(),
             indexed_at: e.indexed_at,
             last_commit: e.last_commit,
             files: e.stats.as_ref().and_then(|s| s.files),

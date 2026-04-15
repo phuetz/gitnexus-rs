@@ -6,7 +6,8 @@
  */
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { ChevronDown, ChevronRight, Copy, Check, FileCode } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Check, FileCode, ExternalLink } from "lucide-react";
+import { useAppStore } from "../../stores/app-store";
 
 const LANG_COLORS: Record<string, string> = {
   typescript: "#3178c6",
@@ -101,10 +102,21 @@ export function CodeSnippetRenderer({
         )}
 
         {filePath && (
-          <span className="text-[11px] truncate" style={{ color: "var(--text-3)" }}>
-            {filePath}
-            {startLine > 1 && `:${startLine}`}
-          </span>
+          <button 
+            className="flex items-center gap-1.5 px-1.5 py-0.5 rounded transition-all hover:bg-[var(--bg-3)] group cursor-pointer"
+            onClick={() => {
+              const setSelectedNodeId = useAppStore.getState().setSelectedNodeId;
+              const setMode = useAppStore.getState().setMode;
+              setMode("explorer");
+              setSelectedNodeId("File:" + filePath, filePath.split("/").pop() || filePath);
+            }}
+          >
+            <span className="text-[11px] truncate text-[var(--text-3)] group-hover:text-[var(--text-1)]">
+              {filePath}
+              {startLine > 1 && `:${startLine}`}
+            </span>
+            <ExternalLink size={10} className="text-[var(--text-4)] group-hover:text-[var(--accent)]" />
+          </button>
         )}
 
         {language && (

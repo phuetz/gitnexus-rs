@@ -7,6 +7,9 @@ import { LoadingOrbs } from "../shared/LoadingOrbs";
 const RepoManager = lazy(() =>
   import("../repos/RepoManager").then((m) => ({ default: m.RepoManager })),
 );
+const MultiRepoOverview = lazy(() =>
+  import("./MultiRepoOverview").then((m) => ({ default: m.MultiRepoOverview })),
+);
 const ExportPanel = lazy(() =>
   import("../export/ExportPanel").then((m) => ({ default: m.ExportPanel })),
 );
@@ -217,6 +220,11 @@ export function ManageMode() {
         <div className="flex-1 overflow-auto p-6" style={{ maxWidth: 900, margin: "0 auto", width: "100%" }}>
           {tab === "repos" && (
             <>
+              <Section icon={Database} title="Multi-repo overview">
+                <Suspense fallback={manageFallback}>
+                  <MultiRepoOverview />
+                </Suspense>
+              </Section>
               <Section icon={Database} title={t("manage.repositories")}>
                 <Suspense fallback={manageFallback}>
                   <RepoManager />

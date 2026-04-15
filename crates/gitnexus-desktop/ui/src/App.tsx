@@ -5,6 +5,7 @@ import { ModeRouter } from "./components/layout/ModeRouter";
 import { StatusBar } from "./components/layout/StatusBar";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useScreenCapture } from "./hooks/use-screen-capture";
+import { useShareLink } from "./hooks/use-share-link";
 import { useI18n } from "./hooks/use-i18n";
 import { useAppStore } from "./stores/app-store";
 import { commands } from "./lib/tauri-commands";
@@ -18,6 +19,21 @@ const SettingsModal = lazy(() =>
 );
 const CommandPalette = lazy(() =>
   import("./components/layout/CommandPalette").then((m) => ({ default: m.CommandPalette })),
+);
+const RenameModal = lazy(() =>
+  import("./components/layout/RenameModal").then((m) => ({ default: m.RenameModal })),
+);
+const NotebookPanel = lazy(() =>
+  import("./components/notebooks/NotebookPanel").then((m) => ({ default: m.NotebookPanel })),
+);
+const DashboardPanel = lazy(() =>
+  import("./components/dashboards/DashboardPanel").then((m) => ({ default: m.DashboardPanel })),
+);
+const WorkflowPanel = lazy(() =>
+  import("./components/workflows/WorkflowPanel").then((m) => ({ default: m.WorkflowPanel })),
+);
+const UserCommandsPanel = lazy(() =>
+  import("./components/plugins/UserCommandsPanel").then((m) => ({ default: m.UserCommandsPanel })),
 );
 
 const modalFallback = (
@@ -39,6 +55,8 @@ function App() {
   });
   useKeyboardShortcuts();
   useScreenCapture();
+  // Sync app state ↔ URL hash for shareable view links (Axe D).
+  useShareLink();
 
   // Set HTML lang attribute based on locale
   useEffect(() => {
@@ -122,9 +140,65 @@ function App() {
           <CommandPalette />
         </Suspense>
       )}
+      <Suspense fallback={null}>
+        <RenameModalHost />
+      </Suspense>
+      <Suspense fallback={null}>
+        <NotebookPanelHost />
+      </Suspense>
+      <Suspense fallback={null}>
+        <DashboardPanelHost />
+      </Suspense>
+      <Suspense fallback={null}>
+        <WorkflowPanelHost />
+      </Suspense>
+      <Suspense fallback={null}>
+        <UserCommandsPanelHost />
+      </Suspense>
     </div>
     </MotionConfig>
   );
+}
+
+function UserCommandsPanelHost() {
+  const open = useAppStore((s) => s.userCommandsOpen);
+  const setOpen = useAppStore((s) => s.setUserCommandsOpen);
+  if (!open) return null;
+  return <UserCommandsPanel open={open} onClose={() => setOpen(false)} />;
+}
+
+function WorkflowPanelHost() {
+  const open = useAppStore((s) => s.workflowsOpen);
+  const setOpen = useAppStore((s) => s.setWorkflowsOpen);
+  if (!open) return null;
+  return <WorkflowPanel open={open} onClose={() => setOpen(false)} />;
+}
+
+function DashboardPanelHost() {
+  const open = useAppStore((s) => s.dashboardsOpen);
+  const setOpen = useAppStore((s) => s.setDashboardsOpen);
+  if (!open) return null;
+  return <DashboardPanel open={open} onClose={() => setOpen(false)} />;
+}
+
+function RenameModalHost() {
+  const renameModal = useAppStore((s) => s.renameModal);
+  const closeRenameModal = useAppStore((s) => s.closeRenameModal);
+  if (!renameModal.open) return null;
+  return (
+    <RenameModal
+      open={renameModal.open}
+      initialTarget={renameModal.initialTarget}
+      onClose={closeRenameModal}
+    />
+  );
+}
+
+function NotebookPanelHost() {
+  const open = useAppStore((s) => s.notebooksOpen);
+  const setOpen = useAppStore((s) => s.setNotebooksOpen);
+  if (!open) return null;
+  return <NotebookPanel open={open} onClose={() => setOpen(false)} />;
 }
 
 export default App;

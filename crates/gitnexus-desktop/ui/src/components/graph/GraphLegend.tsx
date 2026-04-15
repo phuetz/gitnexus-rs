@@ -11,9 +11,18 @@ interface GraphLegendProps {
   expanded: boolean;
   onExpand: () => void;
   onCollapse: () => void;
+  highlightedNodeType: string | null;
+  onTypeClick: (type: string | null) => void;
 }
 
-export function GraphLegend({ nodes, expanded, onExpand, onCollapse }: GraphLegendProps) {
+export function GraphLegend({ 
+  nodes, 
+  expanded, 
+  onExpand, 
+  onCollapse, 
+  highlightedNodeType, 
+  onTypeClick 
+}: GraphLegendProps) {
   const { t } = useI18n();
 
   const sortedEntries = useMemo(() => {
@@ -76,8 +85,13 @@ export function GraphLegend({ nodes, expanded, onExpand, onCollapse }: GraphLege
             {sortedEntries.map(([type, count]) => (
               <div
                 key={type}
-                className="flex items-center gap-2"
-                style={{ padding: "4px 0" }}
+                className="flex items-center gap-2 cursor-pointer hover:bg-white/5 px-1 py-0.5 rounded transition-colors"
+                style={{ 
+                  padding: "4px 4px",
+                  opacity: highlightedNodeType && highlightedNodeType !== type ? 0.4 : 1,
+                  backgroundColor: highlightedNodeType === type ? "var(--bg-3)" : "transparent"
+                }}
+                onClick={() => onTypeClick(highlightedNodeType === type ? null : type)}
               >
                 <span
                   className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -87,7 +101,7 @@ export function GraphLegend({ nodes, expanded, onExpand, onCollapse }: GraphLege
                 />
                 <span
                   className="text-[11px] truncate"
-                  style={{ color: "var(--text-1)" }}
+                  style={{ color: "var(--text-1)", fontWeight: highlightedNodeType === type ? 600 : 400 }}
                 >
                   {type}
                 </span>
@@ -99,6 +113,25 @@ export function GraphLegend({ nodes, expanded, onExpand, onCollapse }: GraphLege
                 </span>
               </div>
             ))}
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-[var(--surface-border)]">
+            <span
+              className="uppercase text-[9px] font-bold block mb-2"
+              style={{ color: "var(--text-4)" }}
+            >
+              {t("graph.states") || "States"}
+            </span>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-sm bg-[#f7768e] shrink-0" />
+                <span className="text-[10px]" style={{ color: "var(--text-2)" }}>{t("graph.deadCode") || "Dead Code"}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-sm bg-[#ff9e64] shrink-0" />
+                <span className="text-[10px]" style={{ color: "var(--text-2)" }}>{t("graph.hotspot") || "Hotspot"}</span>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -66,6 +66,7 @@ export interface UseSigmaOptions {
   onNodeRightClick?: (nodeId: string, x: number, y: number) => void;
   onNodeDoubleClick?: (nodeId: string) => void;
   selectedNodeId?: string | null;
+  hoveredNodeId?: string | null;
   highlightedNodeIds?: Set<string>;
   impactNodeIds?: Map<string, number>; // nodeId -> depth
   egoNodeIds?: Set<string>;
@@ -89,6 +90,7 @@ export function useSigma(options: UseSigmaOptions) {
   // Keep options in refs so the reducers (which are set once) can read
   // the latest values without requiring Sigma re-init.
   const selectedRef = useRef(options.selectedNodeId);
+  const hoveredRef = useRef(options.hoveredNodeId);
   const highlightedRef = useRef(options.highlightedNodeIds);
   const impactRef = useRef(options.impactNodeIds);
   const egoNodeIdsRef = useRef<Set<string> | undefined>(undefined);
@@ -98,6 +100,10 @@ export function useSigma(options: UseSigmaOptions) {
     selectedRef.current = options.selectedNodeId;
     sigmaRef.current?.refresh();
   }, [options.selectedNodeId]);
+  useEffect(() => {
+    hoveredRef.current = options.hoveredNodeId;
+    sigmaRef.current?.refresh();
+  }, [options.hoveredNodeId]);
   useEffect(() => {
     highlightedRef.current = options.highlightedNodeIds;
     sigmaRef.current?.refresh();
@@ -218,8 +224,15 @@ export function useSigma(options: UseSigmaOptions) {
         nodeReducer: (node, data) => {
           const res = { ...data };
           const selected = selectedRef.current;
+          const hovered = hoveredRef.current;
           const highlighted = highlightedRef.current;
           const impact = impactRef.current;
+
+          // Always show labels for structural nodes to aid navigation
+          const isStructural = ["Project", "Package", "Module", "Folder", "File", "Class", "Interface", "Struct"].includes(data.nodeType);
+          if (isStructural) {
+            res.label = data.label; 
+          }
 
           const egoNodes = egoNodeIdsRef.current;
           const egoDepths = egoDepthMapRef.current;
@@ -276,6 +289,7 @@ export function useSigma(options: UseSigmaOptions) {
               res.color = "#06b6d4";
               res.size = (data.size || 6) * 1.5;
               res.zIndex = 5;
+              res.label = data.label; // Force label
             } else {
               res.color = dimColor(data.color || "#64748b", 0.2);
               res.size = (data.size || 6) * 0.6;
@@ -288,12 +302,28 @@ export function useSigma(options: UseSigmaOptions) {
             if (node === selected) {
               res.size = (data.size || 6) * 1.8;
               res.zIndex = 10;
+              res.label = data.label; // Force label
             } else if (g && g.hasNode(selected) && g.areNeighbors(node, selected)) {
               res.size = (data.size || 6) * 1.3;
               res.zIndex = 5;
+              res.label = data.label; // Force label
             } else {
-              res.color = dimColor(data.color || "#64748b", 0.15);
+              res.color = dimColor(data.color || "#64748b", 0.4);
               res.size = (data.size || 6) * 0.5;
+            }
+          } else if (hovered) {
+            const g = graphRef.current;
+            if (node === hovered) {
+              res.size = (data.size || 6) * 1.5;
+              res.zIndex = 10;
+              res.label = data.label;
+            } else if (g && g.hasNode(hovered) && g.areNeighbors(node, hovered)) {
+              res.size = (data.size || 6) * 1.2;
+              res.zIndex = 5;
+              res.label = data.label;
+            } else {
+              res.color = dimColor(data.color || "#64748b", 0.5);
+              res.size = (data.size || 6) * 0.8;
             }
           }
 
@@ -303,6 +333,7 @@ export function useSigma(options: UseSigmaOptions) {
         edgeReducer: (edge, data) => {
           const res = { ...data };
           const selected = selectedRef.current;
+          const hovered = hoveredRef.current;
           const g = graphRef.current;
 
           const egoNodes2 = egoNodeIdsRef.current;
@@ -314,10 +345,10 @@ export function useSigma(options: UseSigmaOptions) {
               res.size = Math.max(1, (data.size || 0.5) * 2);
               res.zIndex = 5;
             } else if (srcIn || tgtIn) {
-              res.color = dimColor(data.color || "#2a2a3a", 0.3);
+              res.color = dimColor(data.color || "#2a2a3a", 0.5);
               res.size = (data.size || 0.5) * 0.8;
             } else {
-              res.color = dimColor(data.color || "#2a2a3a", 0.05);
+              res.color = dimColor(data.color || "#2a2a3a", 0.2);
               res.size = 0.1;
             }
             return res;
@@ -333,10 +364,19 @@ export function useSigma(options: UseSigmaOptions) {
               (g.areNeighbors(source, selected) || g.areNeighbors(target, selected))
             ) {
               res.size = (data.size || 0.5) * 1.5;
-              res.color = dimColor(data.color || "#2a2a3a", 0.4);
+              res.color = dimColor(data.color || "#2a2a3a", 0.6);
             } else {
-              res.color = dimColor(data.color || "#2a2a3a", 0.08);
+              res.color = dimColor(data.color || "#2a2a3a", 0.2);
               res.size = 0.2;
+            }
+          } else if (hovered && g) {
+            const [source, target] = g.extremities(edge);
+            if (source === hovered || target === hovered) {
+              res.size = Math.max(1, (data.size || 0.5) * 2);
+              res.zIndex = 5;
+            } else {
+              res.color = dimColor(data.color || "#2a2a3a", 0.4);
+              res.size = (data.size || 0.5) * 0.5;
             }
           }
 

@@ -1,10 +1,11 @@
-import { Maximize2, ChevronDown, GitBranch, Download } from "lucide-react";
+import { Maximize2, ChevronDown, GitBranch, Download, HelpCircle, Skull } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 import { Tooltip } from "../shared/Tooltip";
 import { AnimatedCounter } from "../shared/motion";
 import type { GraphStats, ZoomLevel } from "../../lib/tauri-commands";
 import { useState } from "react";
+import { toast } from "sonner";
 
 const ZOOM_LEVELS: { id: ZoomLevel; i18nKey: string }[] = [
   { id: "package", i18nKey: "graph.packages" },
@@ -28,6 +29,12 @@ export function GraphToolbar({
   onExport,
   hiddenEdgeTypes,
   onToggleEdgeType,
+  complexityThreshold,
+  onComplexityChange,
+  hotspotDays,
+  onHotspotDaysChange,
+  showDeadCode,
+  onToggleDeadCode,
 }: {
   stats?: GraphStats;
   layout: string;
@@ -37,6 +44,12 @@ export function GraphToolbar({
   onExport?: () => void;
   hiddenEdgeTypes?: Set<string>;
   onToggleEdgeType?: (type: string) => void;
+  complexityThreshold?: number;
+  onComplexityChange?: (v: number) => void;
+  hotspotDays?: number;
+  onHotspotDaysChange?: (v: number) => void;
+  showDeadCode?: boolean;
+  onToggleDeadCode?: () => void;
 }) {
   const { t, tt } = useI18n();
   const zoomLevel = useAppStore((s) => s.zoomLevel);
@@ -197,6 +210,82 @@ export function GraphToolbar({
             <GitBranch size={16} />
           </button>
         </Tooltip>
+      )}
+
+      {/* Help Button */}
+      <Tooltip content={t("graph.help") || "Aide"}>
+        <button
+          onClick={() => {
+            toast.info(t("graph.helpTitle") || "Comment lire ce graphe ?", {
+              description: t("graph.helpDescription") || "Les gros nœuds sont des fichiers/classes. Les petits sont des méthodes. Cliquez sur un nœud pour voir ses voisins, ou sur la légende pour filtrer par type.",
+              duration: 10000,
+            });
+          }}
+          aria-label={t("graph.help") || "Aide"}
+          className="p-2 rounded-md transition-all hover:bg-[var(--bg-3)] hover:text-[var(--text-0)]"
+          style={{
+            color: "var(--text-3)",
+            cursor: "pointer",
+          }}
+        >
+          <HelpCircle size={16} />
+        </button>
+      </Tooltip>
+
+      {/* Dead Code Toggle */}
+      {onToggleDeadCode !== undefined && (
+        <Tooltip content={t("graph.deadCode") || "Code Mort"}>
+          <button
+            onClick={onToggleDeadCode}
+            aria-label={t("graph.deadCode") || "Code Mort"}
+            className="p-2 rounded-md transition-all hover:bg-[var(--bg-3)]"
+            style={{
+              background: showDeadCode ? "rgba(247, 118, 142, 0.2)" : "transparent",
+              color: showDeadCode ? "#f7768e" : "var(--text-3)",
+              cursor: "pointer",
+              border: showDeadCode ? "1px solid #f7768e" : "1px solid transparent",
+            }}
+          >
+            <Skull size={16} />
+          </button>
+        </Tooltip>
+      )}
+
+      {/* Complexity Filter */}
+      {onComplexityChange !== undefined && (
+        <div className="flex items-center gap-2 px-3 py-1 rounded-md border border-[var(--surface-border)] bg-[var(--surface)]">
+          <span className="text-[10px] font-medium text-[var(--text-3)]">Cplx &gt; {complexityThreshold}</span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={complexityThreshold}
+            onChange={(e) => onComplexityChange(parseInt(e.target.value))}
+            className="w-20 h-1 bg-[var(--bg-3)] rounded-lg appearance-none cursor-pointer accent-[var(--accent)]"
+          />
+        </div>
+      )}
+
+      {/* Hotspot Time Range Filter */}
+      {onHotspotDaysChange !== undefined && (
+        <div className="flex items-center gap-1 px-2 py-1 rounded-md border border-[var(--surface-border)] bg-[var(--surface)]">
+          <span className="text-[10px] font-medium text-[var(--text-3)] mr-1">Git:</span>
+          {[30, 90, 365].map(d => (
+            <button
+              key={d}
+              onClick={() => onHotspotDaysChange(d)}
+              className="px-1.5 py-0.5 rounded text-[9px] font-bold transition-all"
+              style={{
+                background: hotspotDays === d ? "var(--accent)" : "transparent",
+                color: hotspotDays === d ? "white" : "var(--text-3)",
+                border: hotspotDays === d ? "none" : "1px solid var(--surface-border)",
+                cursor: "pointer"
+              }}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
       )}
 
       {/* Stats Badges */}

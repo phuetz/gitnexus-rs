@@ -176,6 +176,22 @@ impl AppState {
         ))
     }
 
+    /// Resolve the storage path (`.gitnexus/`) of the active repo.
+    /// Used by per-repo persistent stores (bookmarks, saved queries, …).
+    pub async fn active_storage_path(&self) -> Result<String, String> {
+        let active = self
+            .active_repo
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| "No active repository.".to_string())?;
+        let repos = self.repos.read().await;
+        repos
+            .get(&active)
+            .map(|l| l.entry.storage_path.clone())
+            .ok_or_else(|| format!("Repository '{active}' not loaded"))
+    }
+
     /// Get the current session's full chat config, if one has been set.
     pub async fn chat_config(&self) -> Option<ChatConfig> {
         self.chat_config.read().await.clone()

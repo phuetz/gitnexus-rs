@@ -5,8 +5,8 @@ import type { ZoomLevel } from "../lib/tauri-commands";
 export type DetailTab = "context" | "code" | "properties" | "layers" | "health";
 export type ThemeMode = "dark" | "light" | "system";
 export type AppMode = 'explorer' | 'analyze' | 'chat' | 'manage';
-export type AnalyzeView = 'overview' | 'hotspots' | 'coupling' | 'ownership' | 'coverage' | 'diagram' | 'report' | 'health' | 'processes';
-export type LensType = 'all' | 'calls' | 'structure' | 'heritage' | 'impact' | 'dead-code' | 'tracing' | 'hotspots';
+export type AnalyzeView = 'overview' | 'hotspots' | 'coupling' | 'ownership' | 'coverage' | 'diagram' | 'report' | 'health' | 'processes' | 'snapshots';
+export type LensType = 'all' | 'calls' | 'structure' | 'heritage' | 'impact' | 'dead-code' | 'tracing' | 'hotspots' | 'risk';
 
 interface HistoryEntry {
   nodeId: string;
@@ -71,6 +71,24 @@ interface AppState {
   selectedFeatures: Set<string>;
   toggleFeature: (id: string) => void;
   resetFeatures: () => void;
+
+  // Rename modal (open + initial target)
+  renameModal: { open: boolean; initialTarget?: string };
+  openRenameModal: (initialTarget?: string) => void;
+  closeRenameModal: () => void;
+
+  // Notebooks panel
+  notebooksOpen: boolean;
+  setNotebooksOpen: (open: boolean) => void;
+
+  dashboardsOpen: boolean;
+  setDashboardsOpen: (open: boolean) => void;
+
+  workflowsOpen: boolean;
+  setWorkflowsOpen: (open: boolean) => void;
+
+  userCommandsOpen: boolean;
+  setUserCommandsOpen: (open: boolean) => void;
 }
 
 const MAX_HISTORY = 50;
@@ -195,6 +213,22 @@ export const useAppStore = create<AppState>()(
         return { selectedFeatures: next };
       }),
       resetFeatures: () => set({ selectedFeatures: new Set<string>() }),
+
+      renameModal: { open: false },
+      openRenameModal: (initialTarget) => set({ renameModal: { open: true, initialTarget } }),
+      closeRenameModal: () => set({ renameModal: { open: false } }),
+
+      notebooksOpen: false,
+      setNotebooksOpen: (open) => set({ notebooksOpen: open }),
+
+      dashboardsOpen: false,
+      setDashboardsOpen: (open) => set({ dashboardsOpen: open }),
+
+      workflowsOpen: false,
+      setWorkflowsOpen: (open) => set({ workflowsOpen: open }),
+
+      userCommandsOpen: false,
+      setUserCommandsOpen: (open) => set({ userCommandsOpen: open }),
     }),
     {
       name: "gitnexus-app-state",

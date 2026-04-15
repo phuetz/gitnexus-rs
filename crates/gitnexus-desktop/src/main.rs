@@ -47,6 +47,66 @@ fn main() {
             commands::chat_planner::chat_pick_modules,
             commands::chat_executor::chat_execute_step,
             commands::chat_executor::chat_execute_plan,
+            // Feature-Dev (3-phase artifact pipeline, absorbs Claude's feature-dev skill)
+            commands::feature_dev::feature_dev_run,
+            // Code-Review (absorbs Claude's code-review skill — pre-commit review)
+            commands::code_review::code_review_run,
+            // Simplify (absorbs Claude's simplify skill — refactor proposals)
+            commands::simplify::simplify_run,
+            // Rename refactor (multi-file, graph-confirmed)
+            commands::rename::rename_run,
+            // Bookmarks (per-repo persistent node bookmarks)
+            commands::bookmarks::bookmarks_list,
+            commands::bookmarks::bookmarks_add,
+            commands::bookmarks::bookmarks_remove,
+            commands::bookmarks::bookmarks_clear,
+            // Comments (per-node threads)
+            commands::comments::comments_for_node,
+            commands::comments::comments_add,
+            commands::comments::comments_remove,
+            // Saved Cypher queries
+            commands::saved_queries::saved_queries_list,
+            commands::saved_queries::saved_queries_save,
+            commands::saved_queries::saved_queries_delete,
+            // Interactive HTML export (self-contained shareable graph)
+            commands::html_export::export_interactive_html,
+            // Wiki generation (Markdown pages per community)
+            commands::wiki::wiki_generate,
+            // Cypher notebooks
+            commands::notebooks::notebook_list,
+            commands::notebooks::notebook_load,
+            commands::notebooks::notebook_save,
+            commands::notebooks::notebook_delete,
+            // Multi-repo overview dashboard
+            commands::repos_overview::repos_overview,
+            // Repo activity history (timeline of analyze runs)
+            commands::activity::activity_record,
+            commands::activity::activity_list,
+            commands::activity::activity_clear,
+            // Snapshot history + diff (B3 full + B4)
+            commands::snapshots::snapshot_create,
+            commands::snapshots::snapshot_list,
+            commands::snapshots::snapshot_delete,
+            commands::snapshots::snapshot_diff,
+            // Custom dashboards (E)
+            commands::dashboards::dashboard_list,
+            commands::dashboards::dashboard_load,
+            commands::dashboards::dashboard_save,
+            commands::dashboards::dashboard_delete,
+            // Workflow editor (E)
+            commands::workflows::workflow_list,
+            commands::workflows::workflow_load,
+            commands::workflows::workflow_save,
+            commands::workflows::workflow_delete,
+            commands::workflows::workflow_run,
+            // User-defined slash commands (E light)
+            commands::user_commands::user_commands_list,
+            commands::user_commands::user_commands_save,
+            commands::user_commands::user_commands_delete,
+            commands::user_commands::user_command_resolve,
+            // User data bundle export/import
+            commands::user_bundle::user_bundle_export,
+            commands::user_bundle::user_bundle_import,
             // Cypher
             commands::cypher::execute_cypher,
             // Export

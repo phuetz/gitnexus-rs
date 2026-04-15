@@ -22,6 +22,14 @@ import type {
 
 export type FilterModalType = "files" | "symbols" | "modules" | null;
 
+/** Chat interaction mode. Only one is active at a time. */
+export type ChatMode =
+  | "qa"
+  | "deep_research"
+  | "feature_dev"
+  | "code_review"
+  | "simplify";
+
 interface ChatStoreState {
   // ── Context Filters ──────────────────────────────────────────
   filters: ChatContextFilter;
@@ -51,7 +59,17 @@ interface ChatStoreState {
   lastAnalysis: QueryAnalysis | null;
   setLastAnalysis: (analysis: QueryAnalysis | null) => void;
 
-  // ── Deep Research Mode ───────────────────────────────────────
+  // ── Chat Mode (exclusive) ────────────────────────────────────
+  chatMode: ChatMode;
+  setChatMode: (mode: ChatMode) => void;
+
+  // ── Pending question (dispatched from elsewhere — e.g. context menu) ──
+  // ChatPanel consumes & clears on mount and on subsequent changes.
+  pendingQuestion: { mode: ChatMode; text: string; autoSend?: boolean } | null;
+  dispatchQuestion: (mode: ChatMode, text: string, autoSend?: boolean) => void;
+  clearPendingQuestion: () => void;
+
+  // ── Deep Research Mode (derived from chatMode for back-compat) ──
   deepResearchEnabled: boolean;
   toggleDeepResearch: () => void;
   setDeepResearch: (enabled: boolean) => void;
@@ -198,11 +216,40 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   lastAnalysis: null,
   setLastAnalysis: (analysis) => set({ lastAnalysis: analysis }),
 
-  // ── Deep Research Mode ───────────────────────────────────────
+  // ── Chat Mode ────────────────────────────────────────────────
+  chatMode: "qa" as ChatMode,
+  setChatMode: (mode) =>
+    set({
+      chatMode: mode,
+      // Keep the legacy flag in sync so existing readers still work.
+      deepResearchEnabled: mode === "deep_research",
+    }),
+
+  // ── Pending question dispatch ────────────────────────────────
+  pendingQuestion: null,
+  dispatchQuestion: (mode, text, autoSend) =>
+    set({
+      chatMode: mode,
+      deepResearchEnabled: mode === "deep_research",
+      pendingQuestion: { mode, text, autoSend },
+    }),
+  clearPendingQuestion: () => set({ pendingQuestion: null }),
+
+  // ── Deep Research Mode (back-compat shims) ───────────────────
   deepResearchEnabled: false,
   toggleDeepResearch: () =>
-    set((s) => ({ deepResearchEnabled: !s.deepResearchEnabled })),
-  setDeepResearch: (enabled) => set({ deepResearchEnabled: enabled }),
+    set((s) => {
+      const next = s.chatMode === "deep_research" ? "qa" : "deep_research";
+      return {
+        chatMode: next as ChatMode,
+        deepResearchEnabled: next === "deep_research",
+      };
+    }),
+  setDeepResearch: (enabled) =>
+    set({
+      chatMode: enabled ? "deep_research" : "qa",
+      deepResearchEnabled: enabled,
+    }),
 
   // ── Plan Panel Visibility ────────────────────────────────────
   planPanelOpen: false,

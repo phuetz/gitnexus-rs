@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Copy } from "lucide-react";
+import { Copy, Sparkles, Hammer, ShieldCheck, Skull, Replace } from "lucide-react";
 import { Tooltip } from "../shared/Tooltip";
 import { useI18n } from "../../hooks/use-i18n";
+import { useAppStore } from "../../stores/app-store";
 
 export interface ContextMenuData {
   x: number;
@@ -10,6 +11,13 @@ export interface ContextMenuData {
   name: string;
   filePath: string;
 }
+
+/**
+ * Identifier of the AI action invoked from the context menu. The graph host
+ * routes these to the chat panel: most switch the chat to a specific mode
+ * and seed the input with a node-scoped question.
+ */
+export type AiAction = "explain" | "feature_dev" | "code_review" | "dead_check";
 
 interface GraphContextMenuProps {
   contextMenu: ContextMenuData | null;
@@ -21,6 +29,8 @@ interface GraphContextMenuProps {
   onHideNode: (nodeId: string) => void;
   onCopyName: (name: string) => void;
   onCopyFilePath: (filePath: string) => void;
+  /** Triggered when the user picks an AI action — the host dispatches it. */
+  onAiAction?: (action: AiAction, ctx: ContextMenuData) => void;
 }
 
 export function GraphContextMenu({
@@ -33,6 +43,7 @@ export function GraphContextMenu({
   onHideNode,
   onCopyName,
   onCopyFilePath,
+  onAiAction,
 }: GraphContextMenuProps) {
   const { t, tt } = useI18n();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -154,6 +165,73 @@ export function GraphContextMenu({
           {tt("graph.contextMenu.hideNode").label}
         </ContextMenuButton>
       </Tooltip>
+      {onAiAction && (
+        <>
+          <div
+            style={{
+              borderTop: "1px solid var(--surface-border)",
+              margin: "4px 0",
+            }}
+          />
+          <div
+            style={{
+              padding: "4px 16px 2px",
+              fontSize: 9,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              color: "var(--text-3)",
+              letterSpacing: 0.5,
+            }}
+          >
+            AI Inspector
+          </div>
+          <ContextMenuButton
+            onClick={() => {
+              onAiAction("explain", contextMenu);
+              onClose();
+            }}
+          >
+            <Sparkles size={14} style={{ marginRight: 8, color: "var(--accent)" }} />
+            Explain this symbol
+          </ContextMenuButton>
+          <ContextMenuButton
+            onClick={() => {
+              onAiAction("feature_dev", contextMenu);
+              onClose();
+            }}
+          >
+            <Hammer size={14} style={{ marginRight: 8, color: "#e0af68" }} />
+            Design changes around this
+          </ContextMenuButton>
+          <ContextMenuButton
+            onClick={() => {
+              onAiAction("code_review", contextMenu);
+              onClose();
+            }}
+          >
+            <ShieldCheck size={14} style={{ marginRight: 8, color: "#9ece6a" }} />
+            Review impact of changes
+          </ContextMenuButton>
+          <ContextMenuButton
+            onClick={() => {
+              onAiAction("dead_check", contextMenu);
+              onClose();
+            }}
+          >
+            <Skull size={14} style={{ marginRight: 8, color: "#f7768e" }} />
+            Dead-code check
+          </ContextMenuButton>
+          <ContextMenuButton
+            onClick={() => {
+              useAppStore.getState().openRenameModal(contextMenu.name);
+              onClose();
+            }}
+          >
+            <Replace size={14} style={{ marginRight: 8, color: "var(--accent)" }} />
+            Rename refactor…
+          </ContextMenuButton>
+        </>
+      )}
       <div
         style={{ borderTop: "1px solid var(--surface-border)", margin: "4px 0" }}
       />

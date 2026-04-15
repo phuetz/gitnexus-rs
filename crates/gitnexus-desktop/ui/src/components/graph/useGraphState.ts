@@ -27,6 +27,14 @@ export interface GraphState {
   // Focus/filter
   focusNodeId: string | null;
   setFocusNodeId: (v: string | null) => void;
+  highlightedNodeType: string | null;
+  setHighlightedNodeType: (v: string | null) => void;
+  complexityThreshold: number;
+  setComplexityThreshold: (v: number) => void;
+  hotspotDays: number;
+  setHotspotDays: (v: number) => void;
+  showDeadCode: boolean;
+  setShowDeadCode: (v: boolean) => void;
   hiddenEdgeTypes: Set<string>;
   setHiddenEdgeTypes: (updater: (prev: Set<string>) => Set<string>) => void;
   depthFilter: number | null;
@@ -89,6 +97,10 @@ export function useGraphState(): GraphState {
 
   // Focus/filter
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const [highlightedNodeType, setHighlightedNodeType] = useState<string | null>(null);
+  const [complexityThreshold, setComplexityThreshold] = useState<number>(0);
+  const [hotspotDays, setHotspotDays] = useState<number>(90);
+  const [showDeadCode, setShowDeadCode] = useState<boolean>(false);
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(
     new Set(["IMPORTS", "HAS_METHOD", "HAS_PROPERTY", "CONTAINS"]),
   );
@@ -135,6 +147,14 @@ export function useGraphState(): GraphState {
     setImpactNodeIds,
     focusNodeId,
     setFocusNodeId,
+    highlightedNodeType,
+    setHighlightedNodeType,
+    complexityThreshold,
+    setComplexityThreshold,
+    hotspotDays,
+    setHotspotDays,
+    showDeadCode,
+    setShowDeadCode,
     hiddenEdgeTypes,
     setHiddenEdgeTypes,
     depthFilter,

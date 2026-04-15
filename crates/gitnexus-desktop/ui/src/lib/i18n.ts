@@ -316,6 +316,7 @@ const en = {
   "analyze.nav.coverage": "Coverage",
   "analyze.nav.diagrams": "Diagrams",
   "analyze.nav.report": "Report",
+  "analyze.nav.snapshots": "Snapshots",
   "analyze.nav.health": "Health",
   "analyze.nav.processes": "Process Flows",
 
@@ -466,6 +467,8 @@ const en = {
   "lens.tracing.desc": "Highlight traced methods",
   "lens.hotspots": "Hotspots",
   "lens.hotspots.desc": "Highlight frequently changed files",
+  "lens.risk": "Risk",
+  "lens.risk.desc": "Composite risk: churn + dead code + missing tracing",
   "lens.ariaLabel": "Graph lens filter",
 
   // ── Cypher Presets ──
@@ -501,6 +504,18 @@ const en = {
   "cmd.group.analyzeViews": "Analyze Views",
   "cmd.group.lenses": "Lenses",
   "cmd.group.actions": "Actions",
+  "cmd.group.userCommands": "User Commands",
+  // New entries shipped recently — actions group
+  "cmd.renameRefactor": "Rename refactor…",
+  "cmd.exportHtml": "Export interactive HTML",
+  "cmd.generateWiki": "Generate wiki (Markdown per module)",
+  "cmd.generateWikiLlm": "Generate wiki with LLM overviews (slower)",
+  "cmd.openNotebooks": "Cypher notebooks",
+  "cmd.openDashboards": "Custom dashboards",
+  "cmd.openWorkflows": "Workflow editor",
+  "cmd.openUserCommands": "User slash commands",
+  "cmd.bundleExport": "Export user data bundle…",
+  "cmd.bundleImport": "Import user data bundle…",
 
   // ── Accessibility ──
   "a11y.skipToContent": "Skip to main content",
@@ -875,6 +890,7 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "analyze.nav.coverage": "Couverture",
   "analyze.nav.diagrams": "Diagrammes",
   "analyze.nav.report": "Rapport",
+  "analyze.nav.snapshots": "Instantanés",
   "analyze.nav.health": "Santé",
   "analyze.nav.processes": "Flux Métier",
 
@@ -1024,6 +1040,8 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "lens.tracing.desc": "Mettre en surbrillance les méthodes tracées",
   "lens.hotspots": "Points chauds",
   "lens.hotspots.desc": "Mettre en surbrillance les fichiers fréquemment modifiés",
+  "lens.risk": "Risque",
+  "lens.risk.desc": "Score composite : churn + code mort + traçage manquant",
   "lens.ariaLabel": "Filtre de lentille du graphe",
 
   // ── Cypher Presets ──
@@ -1059,6 +1077,18 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "cmd.group.analyzeViews": "Vues d'analyse",
   "cmd.group.lenses": "Lentilles",
   "cmd.group.actions": "Actions",
+  "cmd.group.userCommands": "Commandes utilisateur",
+  // Nouvelles entrées récentes — groupe actions
+  "cmd.renameRefactor": "Renommer (refactor)…",
+  "cmd.exportHtml": "Exporter en HTML interactif",
+  "cmd.generateWiki": "Générer le wiki (Markdown par module)",
+  "cmd.generateWikiLlm": "Générer le wiki avec aperçus LLM (plus lent)",
+  "cmd.openNotebooks": "Notebooks Cypher",
+  "cmd.openDashboards": "Tableaux de bord personnalisés",
+  "cmd.openWorkflows": "Éditeur de workflow",
+  "cmd.openUserCommands": "Commandes slash personnalisées",
+  "cmd.bundleExport": "Exporter le bundle de données utilisateur…",
+  "cmd.bundleImport": "Importer un bundle de données utilisateur…",
 
   // ── Accessibility ──
   "a11y.skipToContent": "Aller au contenu principal",

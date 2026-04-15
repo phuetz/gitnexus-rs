@@ -1,6 +1,9 @@
-import { MessageSquare, Code2, Network, Skull, Zap } from "lucide-react";
+import { MessageSquare, Code2, Network, Skull, Zap, Flame, Share2 } from "lucide-react";
 import { useI18n } from "../../hooks/use-i18n";
 import { StaggerContainer, StaggerItem } from "../shared/motion";
+import { useQuery } from "@tanstack/react-query";
+import { commands } from "../../lib/tauri-commands";
+import { useAppStore } from "../../stores/app-store";
 
 const SUGGESTIONS = [
   {
@@ -35,6 +38,29 @@ interface Props {
 
 export function ChatSuggestions({ onSelect }: Props) {
   const { t } = useI18n();
+  const activeRepo = useAppStore((s) => s.activeRepo);
+
+  const { data: hotspots } = useQuery({
+    queryKey: ["git-hotspots", activeRepo],
+    queryFn: () => commands.getHotspots(90),
+    enabled: !!activeRepo,
+  });
+
+  const dynamicSuggestions = [
+    ...SUGGESTIONS,
+    {
+      icon: Share2,
+      textKey: "chat.suggestion.diagram",
+      fallback: "Generate a Mermaid diagram of the architecture",
+      color: "#bb9af7",
+    },
+    ...(hotspots && hotspots.length > 5 ? [{
+      icon: Flame,
+      textKey: "chat.suggestion.hotspots",
+      fallback: "What are the main hotspots (most changed files) in the code?",
+      color: "#ff9e64",
+    }] : [])
+  ].slice(0, 4); // Keep at most 4 suggestions to fit grid
 
   return (
     <div
@@ -91,7 +117,7 @@ export function ChatSuggestions({ onSelect }: Props) {
           width: "100%",
         }}
       >
-        {SUGGESTIONS.map((s) => {
+        {dynamicSuggestions.map((s) => {
           const text = t(s.textKey) || s.fallback;
           return (
             <StaggerItem key={s.textKey}>

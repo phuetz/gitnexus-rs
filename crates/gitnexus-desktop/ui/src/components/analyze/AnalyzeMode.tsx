@@ -37,6 +37,9 @@ const ReportView = lazy(() =>
 const CodeHealthCard = lazy(() =>
   import("../health/CodeHealthCard").then((m) => ({ default: m.CodeHealthCard })),
 );
+const SnapshotsPanel = lazy(() =>
+  import("./SnapshotsPanel").then((m) => ({ default: m.SnapshotsPanel })),
+);
 
 const analyzeFallback = (
   <div className="flex items-center justify-center h-full">
@@ -120,6 +123,7 @@ export function AnalyzeMode() {
       case "coverage":   return <CoverageView />;
       case "diagram":    return <DiagramView />;
       case "report":     return <ReportView />;
+      case "snapshots":  return <SnapshotsPanel />;
       case "health":
         return (
           <div className="p-6" style={{ maxWidth: 800, margin: "0 auto" }}>

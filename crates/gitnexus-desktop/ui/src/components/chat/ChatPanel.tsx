@@ -21,6 +21,7 @@ import {
   Settings2,
   Sparkles,
   Microscope,
+  Hammer,
   Zap,
   Copy,
   Trash2,
@@ -32,11 +33,21 @@ import { isTauri } from "../../lib/tauri-env";
 import type {
   ChatSmartResponse,
   QueryComplexity,
+  FeatureDevArtifact,
+  FeatureDevPhase,
+  FeatureDevPhaseEvent,
+  FeatureDevSectionEvent,
+  CodeReviewArtifact,
+  SimplifyArtifact,
 } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
 import { useChatStore } from "../../stores/chat-store";
 import { useChatSessionStore, type Message } from "../../stores/chat-session-store";
 import { ChatContextBar } from "./ChatContextBar";
+import { ArtifactPanel } from "./ArtifactPanel";
+import { CodeReviewPanel } from "./CodeReviewPanel";
+import { SimplifyPanel } from "./SimplifyPanel";
+import { ShieldCheck } from "lucide-react";
 
 const FileFilterModal = lazy(() =>
   import("./FileFilterModal").then((m) => ({ default: m.FileFilterModal })),
@@ -102,12 +113,21 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const {
+    chatMode,
+    setChatMode,
     deepResearchEnabled,
     activeModal,
     closeModal,
     hasActiveFilters,
     setActivePlan,
+    pendingQuestion,
+    clearPendingQuestion,
   } = useChatStore();
+
+  // ── Feature-Dev live state ───────────────────────────────────
+  // Artifact id → partial artifact being assembled as sections stream in.
+  const [liveArtifact, setLiveArtifact] = useState<FeatureDevArtifact | null>(null);
+  const [activePhase, setActivePhase] = useState<FeatureDevPhase | null>(null);
 
   // Scroll to bottom when messages change or streaming updates
   useEffect(() => {
@@ -164,6 +184,55 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     };
   }, []);
 
+  // ── Listen for feature-dev phase / section events ────────────
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let cancelled = false;
+    let phaseUnlisten: (() => void) | null = null;
+    let sectionUnlisten: (() => void) | null = null;
+
+    import("@tauri-apps/api/event").then((mod) => {
+      mod
+        .listen<FeatureDevPhaseEvent>("feature-dev-phase", (event) => {
+          if (cancelled) return;
+          const { phase, status } = event.payload;
+          if (status === "running") setActivePhase(phase);
+          else if (status === "completed" || status === "failed") setActivePhase(null);
+        })
+        .then((fn) => {
+          if (cancelled) fn();
+          else phaseUnlisten = fn;
+        });
+
+      mod
+        .listen<FeatureDevSectionEvent>("feature-dev-section", (event) => {
+          if (cancelled) return;
+          setLiveArtifact((prev) => {
+            if (!prev || prev.id !== event.payload.artifactId) return prev;
+            // Replace-or-append by phase so re-runs of a phase don't duplicate.
+            const others = prev.sections.filter(
+              (s) => s.phase !== event.payload.section.phase,
+            );
+            return {
+              ...prev,
+              sections: [...others, event.payload.section],
+            };
+          });
+        })
+        .then((fn) => {
+          if (cancelled) fn();
+          else sectionUnlisten = fn;
+        });
+    });
+
+    return () => {
+      cancelled = true;
+      phaseUnlisten?.();
+      sectionUnlisten?.();
+    };
+  }, []);
+
   // ── Keyboard shortcuts for filter modals ─────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -193,7 +262,12 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   const askMutation = useMutation({
-    mutationFn: async (question: string) => {
+    mutationFn: async (question: string): Promise<
+      | ChatSmartResponse
+      | { __kind: "feature_dev"; artifact: FeatureDevArtifact }
+      | { __kind: "code_review"; artifact: CodeReviewArtifact }
+      | { __kind: "simplify"; artifact: SimplifyArtifact }
+    > => {
       // Build history from ref + the user message just added (ref may not be synced yet)
       const history = [
         ...messagesRef.current,
@@ -203,9 +277,60 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         content: m.content,
       }));
 
+      const mode = useChatStore.getState().chatMode;
       const currentFilters = useChatStore.getState().filters;
-      const isDeep = useChatStore.getState().deepResearchEnabled;
+      const isDeep = mode === "deep_research";
       const hasFilters = useChatStore.getState().hasActiveFilters();
+
+      // Simplify mode: target may be `simplify: <file/module/symbol>`, or empty.
+      if (mode === "simplify") {
+        const match = question.match(/^\s*simplify:\s*(.+)$/i);
+        const target = match ? match[1].trim() : question.trim() || undefined;
+        const artifact = await commands.simplifyRun({ target });
+        return { __kind: "simplify", artifact };
+      }
+
+      // Code-Review mode: run the pre-commit review and return an artifact.
+      if (mode === "code_review") {
+        // The question can be either an explicit symbol list ("review: foo, bar")
+        // or empty/arbitrary → use git diff scope. Parse a leading "review:" prefix.
+        const match = question.match(/^\s*review:\s*(.+)$/i);
+        const targetSymbols = match
+          ? match[1].split(/[,\s]+/).map((s) => s.trim()).filter(Boolean)
+          : [];
+        const artifact = await commands.codeReviewRun({
+          targetSymbols,
+          minConfidence: 0.8,
+          includeAllSeverities: false,
+        });
+        return { __kind: "code_review", artifact };
+      }
+
+      // Feature-Dev mode: run the 3-phase artifact pipeline instead of the
+      // standard chat pipeline. Sections stream in via feature-dev-section
+      // events; the final artifact is returned here when all phases finish.
+      if (mode === "feature_dev") {
+        // Seed a placeholder artifact so the live UI has something to render
+        // the moment the first event arrives.
+        const placeholderId = `fd_pending_${Date.now()}`;
+        setLiveArtifact({
+          id: placeholderId,
+          featureDescription: question,
+          sections: [],
+          status: "running",
+        });
+        setActivePhase("explorer");
+
+        const artifact = await commands.featureDevRun({
+          featureDescription: question,
+          filters: hasFilters ? currentFilters : undefined,
+        });
+        // Swap placeholder id with the real one; keep any sections already streamed.
+        setLiveArtifact((prev) =>
+          prev && prev.id === placeholderId ? { ...prev, id: artifact.id } : prev,
+        );
+        return { __kind: "feature_dev", artifact };
+      }
 
       // Use the smart planner/executor for deep research or filtered queries
       if (isDeep || hasFilters) {
@@ -231,6 +356,53 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       } as ChatSmartResponse;
     },
     onSuccess: (response) => {
+      // Simplify path: surface the simplify artifact.
+      if ("__kind" in response && response.__kind === "simplify") {
+        setIsStreaming(false);
+        const proposalCount = response.artifact.proposals.length;
+        const assistantMessage: Message = {
+          id: `msg-${Date.now()}`,
+          role: "assistant",
+          content: `**Simplify done.** ${proposalCount} proposal${proposalCount === 1 ? "" : "s"}.`,
+          simplifyArtifact: response.artifact,
+          timestamp: Date.now(),
+        };
+        addMessage(activeRepo, assistantMessage);
+        return;
+      }
+
+      // Code-Review path: surface the review artifact as an assistant message.
+      if ("__kind" in response && response.__kind === "code_review") {
+        setIsStreaming(false);
+        const issueCount = response.artifact.review.issues.length;
+        const verdict = response.artifact.review.verdict;
+        const assistantMessage: Message = {
+          id: `msg-${Date.now()}`,
+          role: "assistant",
+          content: `**Code review complete.** Verdict: ${verdict} · ${issueCount} issue(s).`,
+          reviewArtifact: response.artifact,
+          timestamp: Date.now(),
+        };
+        addMessage(activeRepo, assistantMessage);
+        return;
+      }
+
+      // Feature-Dev path: surface the artifact as an assistant message.
+      if ("__kind" in response && response.__kind === "feature_dev") {
+        setIsStreaming(false);
+        setActivePhase(null);
+        setLiveArtifact(null);
+        const assistantMessage: Message = {
+          id: `msg-${Date.now()}`,
+          role: "assistant",
+          content: `**Feature-Dev artifact generated.** ${response.artifact.sections.length} sections.`,
+          artifact: response.artifact,
+          timestamp: Date.now(),
+        };
+        addMessage(activeRepo, assistantMessage);
+        return;
+      }
+
       // Finalize: stop streaming, add the complete message
       setIsStreaming(false);
       setStreamingText("");
@@ -261,6 +433,8 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       setIsStreaming(false);
       setStreamingText("");
       streamingMsgIdRef.current = null;
+      setActivePhase(null);
+      setLiveArtifact(null);
 
       const errorMessage: Message = {
         id: `msg-${Date.now()}`,
@@ -272,9 +446,34 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     },
   });
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const question = input.trim();
     if (!question || askMutation.isPending) return;
+
+    // User slash-command interception: `/<name> <args>` → resolve via the
+    // per-repo user_commands store. If matched, dispatch through the chat
+    // store (mode + autoSend) so the rest of the pipeline behaves as if
+    // the resolved text was typed directly.
+    const slashMatch = question.match(/^\/(\w[\w-]*)\b\s*(.*)$/);
+    if (slashMatch) {
+      try {
+        const resolved = await commands.userCommandResolve(slashMatch[1], slashMatch[2]);
+        if (resolved) {
+          setInput("");
+          useChatStore
+            .getState()
+            .dispatchQuestion(
+              (resolved.mode as "qa" | "deep_research" | "feature_dev" | "code_review" | "simplify") ||
+                "qa",
+              resolved.text,
+              true,
+            );
+          return;
+        }
+      } catch {
+        // Fall through and send the literal text if resolution fails.
+      }
+    }
 
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
@@ -288,6 +487,30 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     askMutation.mutate(question);
   }, [input, askMutation, addMessage, activeRepo]);
 
+  // ── Consume pendingQuestion (dispatched from context menu, etc.) ──
+  // The store's dispatchQuestion already switched the mode; here we just
+  // seed the input and optionally auto-send.
+  useEffect(() => {
+    if (!pendingQuestion) return;
+    setInput(pendingQuestion.text);
+    if (pendingQuestion.autoSend && !askMutation.isPending) {
+      const text = pendingQuestion.text;
+      const userMessage: Message = {
+        id: `msg-${Date.now()}`,
+        role: "user",
+        content: text,
+        timestamp: Date.now(),
+      };
+      addMessage(activeRepo, userMessage);
+      setInput("");
+      askMutation.mutate(text);
+    } else {
+      inputRef.current?.focus();
+    }
+    clearPendingQuestion();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingQuestion]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -300,8 +523,15 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   if (messages.length === 0) {
     return (
       <div className="h-full flex flex-col">
-        {/* Context filter bar */}
-        <ChatContextBar />
+        {/* Context filter bar + mode switcher */}
+        <div className="flex items-center">
+          <div className="flex-1">
+            <ChatContextBar />
+          </div>
+          <div className="mr-2">
+            <ModeSwitcher mode={chatMode} onChange={setChatMode} />
+          </div>
+        </div>
 
         {/* Suggestions */}
         <div className="flex-1 min-h-0 overflow-auto">
@@ -337,6 +567,10 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       <div className="flex items-center">
         <div className="flex-1">
           <ChatContextBar />
+        </div>
+        <div className="flex items-center gap-1 mr-2">
+          {/* Mode switcher — exclusive buttons for Deep Research / Feature-Dev */}
+          <ModeSwitcher mode={chatMode} onChange={setChatMode} />
         </div>
         <div className="flex items-center gap-1 mr-2">
           <button
@@ -458,6 +692,19 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
               <div className="shimmer rounded" style={{ height: 14, width: "65%", background: "var(--bg-3)" }} />
               <div className="shimmer rounded" style={{ height: 14, width: "45%", background: "var(--bg-3)" }} />
             </div>
+          </div>
+        )}
+
+        {/* Live feature-dev artifact (streams in as phases complete) */}
+        {liveArtifact && (
+          <div className="fade-in">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Hammer size={12} style={{ color: "var(--accent)" }} />
+              <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
+                Feature-Dev in progress…
+              </span>
+            </div>
+            <ArtifactPanel artifact={liveArtifact} activePhase={activePhase} />
           </div>
         )}
 
@@ -626,15 +873,24 @@ function MessageBubble({
         </div>
       )}
 
-      {/* Response content */}
-      <div
-        className="prose-sm text-[13px] leading-relaxed"
-        style={{ color: "var(--text-1)" }}
-      >
-        <Suspense fallback={<MarkdownFallback content={message.content} />}>
-          <ChatMarkdown content={message.content} onNavigateToNode={onNavigateToNode} />
-        </Suspense>
-      </div>
+      {/* Artifact panels (mutually exclusive with plain content) */}
+      {message.artifact ? (
+        <ArtifactPanel artifact={message.artifact} />
+      ) : message.reviewArtifact ? (
+        <CodeReviewPanel artifact={message.reviewArtifact} />
+      ) : message.simplifyArtifact ? (
+        <SimplifyPanel artifact={message.simplifyArtifact} />
+      ) : (
+        /* Response content */
+        <div
+          className="prose-sm text-[13px] leading-relaxed"
+          style={{ color: "var(--text-1)" }}
+        >
+          <Suspense fallback={<MarkdownFallback content={message.content} />}>
+            <ChatMarkdown content={message.content} onNavigateToNode={onNavigateToNode} />
+          </Suspense>
+        </div>
+      )}
 
       {/* Enhanced source references */}
       {message.sources && message.sources.length > 0 && (
@@ -812,4 +1068,97 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
 );
 
 ChatInput.displayName = "ChatInput";
+
+// ─── ModeSwitcher ──────────────────────────────────────────────────
+
+function ModeSwitcher({
+  mode,
+  onChange,
+}: {
+  mode: "qa" | "deep_research" | "feature_dev" | "code_review" | "simplify";
+  onChange: (
+    m: "qa" | "deep_research" | "feature_dev" | "code_review" | "simplify",
+  ) => void;
+}) {
+  const modes: Array<{
+    key: "qa" | "deep_research" | "feature_dev" | "code_review" | "simplify";
+    icon: typeof Microscope;
+    label: string;
+    tooltip: string;
+    color: string;
+  }> = [
+    {
+      key: "qa",
+      icon: Sparkles,
+      label: "Q&A",
+      tooltip: "Standard Q&A mode",
+      color: "var(--accent)",
+    },
+    {
+      key: "deep_research",
+      icon: Microscope,
+      label: "Research",
+      tooltip: "Deep research — multi-step plan",
+      color: "var(--purple)",
+    },
+    {
+      key: "feature_dev",
+      icon: Hammer,
+      label: "Feature-Dev",
+      tooltip: "3-phase feature design: Explore → Architect → Review",
+      color: "var(--orange, #e0af68)",
+    },
+    {
+      key: "code_review",
+      icon: ShieldCheck,
+      label: "Review",
+      tooltip: "Pre-commit code review using graph signals",
+      color: "var(--green, #9ece6a)",
+    },
+    {
+      key: "simplify",
+      icon: Sparkles,
+      label: "Simplify",
+      tooltip: "Refactor proposals: dead code, complexity, duplicates",
+      color: "var(--purple, #bb9af7)",
+    },
+  ];
+
+  return (
+    <div
+      className="flex items-center gap-0.5 rounded-md p-0.5"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--surface-border)",
+      }}
+    >
+      {modes.map((m) => {
+        const active = m.key === mode;
+        const Icon = m.icon;
+        return (
+          <button
+            key={m.key}
+            onClick={() => onChange(m.key)}
+            title={m.tooltip}
+            aria-pressed={active}
+            className="inline-flex items-center gap-1 rounded-sm transition-colors"
+            style={{
+              padding: "3px 6px",
+              fontSize: 10,
+              fontWeight: 500,
+              background: active ? m.color : "transparent",
+              color: active ? "#fff" : "var(--text-3)",
+              cursor: "pointer",
+              border: "none",
+              fontFamily: "inherit",
+            }}
+          >
+            <Icon size={10} />
+            <span>{m.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 

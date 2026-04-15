@@ -1,9 +1,13 @@
 import { memo, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link as LinkIcon } from "lucide-react";
+import { toast } from "sonner";
 import { useAppStore } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
 import { useGraphData } from "../../hooks/use-tauri-query";
 import { commands } from "../../lib/tauri-commands";
+import { buildShareUrl } from "../../hooks/use-share-link";
+import { BookmarksDropdown } from "./BookmarksDropdown";
 
 /** Separator — extracted outside StatusBar to satisfy react-hooks/static-components. */
 function Sep() {
@@ -145,8 +149,44 @@ export const StatusBar = memo(function StatusBar() {
         <span style={{ color: "var(--text-3)" }}>{t("status.noRepo")}</span>
       )}
 
-      {/* Right: LLM status + version */}
+      {/* Right: bookmarks + share + LLM status + version */}
       <div className="flex items-center gap-3" style={{ marginLeft: "auto" }}>
+        {activeRepo && <BookmarksDropdown />}
+
+        {activeRepo && (
+          <button
+            onClick={async () => {
+              const url = buildShareUrl();
+              try {
+                await navigator.clipboard.writeText(url);
+                toast.success("Share link copied");
+              } catch {
+                toast.error("Copy failed");
+              }
+            }}
+            title="Copy a shareable link to the current view"
+            aria-label="Copy share link"
+            style={{
+              padding: "2px 6px",
+              background: "transparent",
+              border: "1px solid var(--surface-border)",
+              borderRadius: 6,
+              color: "var(--text-3)",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              fontFamily: "inherit",
+            }}
+          >
+            <LinkIcon size={11} />
+            <span>Share</span>
+          </button>
+        )}
+
+        <Sep />
+
         {/* LLM status indicator */}
         <div className="flex items-center gap-1.5">
           <span

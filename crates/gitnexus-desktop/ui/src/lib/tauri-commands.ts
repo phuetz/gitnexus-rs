@@ -278,6 +278,487 @@ export interface ChatSmartResponse {
   complexity: QueryComplexity;
 }
 
+// ─── Feature-Dev ─────────────────────────────────────────────────
+
+export type FeatureDevPhase = "explorer" | "architect" | "reviewer";
+export type PhaseStatus = "pending" | "running" | "completed" | "failed";
+
+export interface SurfaceAnalysis {
+  modules: string[];
+  entryPoints: string[];
+  layers: string[];
+  keyFiles: string[];
+}
+
+export interface FilePlan {
+  path: string;
+  purpose: string;
+}
+
+export interface Blueprint {
+  filesToCreate: FilePlan[];
+  filesToModify: FilePlan[];
+  buildSequence: string[];
+  dataFlow?: string;
+}
+
+export interface ReviewIssue {
+  severity: string;
+  confidence: number;
+  title: string;
+  detail: string;
+  file?: string;
+}
+
+export interface Review {
+  issues: ReviewIssue[];
+  predictedImpact?: string;
+  verdict: string;
+}
+
+export interface FeatureDevSection {
+  phase: FeatureDevPhase;
+  title: string;
+  markdown: string;
+  surface?: SurfaceAnalysis;
+  blueprint?: Blueprint;
+  review?: Review;
+  durationMs: number;
+}
+
+export interface FeatureDevArtifact {
+  id: string;
+  featureDescription: string;
+  sections: FeatureDevSection[];
+  status: PlanStatus;
+  summary?: string;
+}
+
+export interface FeatureDevRequest {
+  featureDescription: string;
+  filters?: ChatContextFilter;
+  explorerOnly?: boolean;
+}
+
+export interface FeatureDevPhaseEvent {
+  artifactId: string;
+  phase: FeatureDevPhase;
+  status: PhaseStatus;
+  message?: string;
+}
+
+export interface FeatureDevSectionEvent {
+  artifactId: string;
+  section: FeatureDevSection;
+}
+
+// ─── Code-Review ─────────────────────────────────────────────────
+
+export interface CodeReviewSignals {
+  changedFiles: string[];
+  changedSymbols: string[];
+  affectedCount: number;
+  affectedProcesses: string[];
+  hotspotFiles: string[];
+  untracedSymbols: string[];
+  deadCandidates: string[];
+  riskLevel: string;
+}
+
+export interface CodeReviewArtifact {
+  id: string;
+  scopeSummary: string;
+  status: PlanStatus;
+  signals: CodeReviewSignals;
+  review: Review;
+  markdown: string;
+  durationMs: number;
+}
+
+export interface CodeReviewRequest {
+  targetSymbols?: string[];
+  minConfidence?: number;
+  includeAllSeverities?: boolean;
+}
+
+// ─── Simplify ────────────────────────────────────────────────────
+
+export interface ComplexSymbol {
+  name: string;
+  filePath: string;
+  complexity: number;
+  label: string;
+}
+
+export interface DuplicateGroup {
+  name: string;
+  occurrences: number;
+  files: string[];
+}
+
+export interface SimplifySignals {
+  scope: string;
+  complexSymbols: ComplexSymbol[];
+  deadCandidates: string[];
+  untracedSymbols: string[];
+  llmSmells: string[];
+  duplicateGroups: DuplicateGroup[];
+  totalFiles: number;
+  totalSymbols: number;
+}
+
+export interface SimplifyProposal {
+  kind: string; // extract | delete | merge | inline | rename
+  target: string;
+  rationale: string;
+  confidence: number;
+}
+
+export interface SimplifyArtifact {
+  id: string;
+  status: PlanStatus;
+  signals: SimplifySignals;
+  proposals: SimplifyProposal[];
+  markdown: string;
+  durationMs: number;
+}
+
+export interface SimplifyRequest {
+  target?: string;
+  minComplexity?: number;
+}
+
+// ─── Rename Refactor ─────────────────────────────────────────────
+
+export interface RenameRequest {
+  target: string;
+  newName: string;
+  dryRun?: boolean;
+}
+
+export interface RenameEdit {
+  file: string;
+  line: number;
+  col: number;
+  oldText: string;
+  newText: string;
+  snippet: string;
+  confidence: number;
+  reason: string;
+}
+
+export interface RenameResult {
+  target: string;
+  newName: string;
+  dryRun: boolean;
+  filesAffected: number;
+  graphEdits: RenameEdit[];
+  textSearchEdits: RenameEdit[];
+  applied?: unknown;
+}
+
+// ─── Bookmarks ───────────────────────────────────────────────────
+
+export interface Bookmark {
+  nodeId: string;
+  name: string;
+  label: string;
+  filePath?: string;
+  note?: string;
+  createdAt: number;
+}
+
+// ─── Comments (per-node threads) ─────────────────────────────────
+
+export interface Comment {
+  id: string;
+  nodeId: string;
+  author: string;
+  body: string;
+  createdAt: number;
+}
+
+// ─── Wiki generation ─────────────────────────────────────────────
+
+export interface WikiGenerateRequest {
+  outDir?: string;
+  withIndex?: boolean;
+  enrichWithLlm?: boolean;
+}
+
+export interface WikiPage {
+  module: string;
+  filename: string;
+  path: string;
+  memberCount: number;
+  sizeBytes: number;
+}
+
+export interface WikiGenerateResult {
+  outDir: string;
+  pages: WikiPage[];
+  totalFiles: number;
+}
+
+export interface WikiProgressEvent {
+  current: number;
+  total: number;
+  module: string;
+}
+
+// ─── User data bundle ────────────────────────────────────────────
+
+export interface BundleExportRequest {
+  outPath?: string;
+}
+
+export interface BundleExportResult {
+  path: string;
+  sizeBytes: number;
+  fileCount: number;
+}
+
+export interface BundleImportRequest {
+  bundlePath: string;
+  overwrite?: boolean;
+}
+
+export interface BundleImportResult {
+  restored: number;
+  skipped: number;
+  entries: string[];
+}
+
+// ─── User slash commands (light plugin system) ───────────────────
+
+export interface UserCommand {
+  id: string;
+  name: string;
+  template: string;
+  mode?: string;
+  description?: string;
+  updatedAt: number;
+}
+
+export interface ResolvedCommand {
+  text: string;
+  mode: string;
+}
+
+// ─── Workflow editor ─────────────────────────────────────────────
+
+export interface WorkflowStep {
+  id: string;
+  kind: "search" | "cypher" | "impact" | "read_file" | "llm" | string;
+  label: string;
+  params: Record<string, unknown>;
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  description?: string;
+  steps: WorkflowStep[];
+  updatedAt: number;
+}
+
+export interface WorkflowSummary {
+  id: string;
+  name: string;
+  stepCount: number;
+  updatedAt: number;
+}
+
+export interface StepRun {
+  stepId: string;
+  label: string;
+  kind: string;
+  status: "ok" | "error" | "skipped" | string;
+  durationMs: number;
+  text: string;
+  json?: unknown;
+  error?: string;
+}
+
+export interface WorkflowRunResult {
+  workflowId: string;
+  steps: StepRun[];
+  totalMs: number;
+}
+
+// ─── Custom dashboards ───────────────────────────────────────────
+
+export interface DashboardWidget {
+  id: string;
+  title: string;
+  kind: "metric" | "table" | "bar" | string;
+  cypher: string;
+  valueColumn?: string;
+  labelColumn?: string;
+  description?: string;
+}
+
+export interface Dashboard {
+  id: string;
+  name: string;
+  description?: string;
+  widgets: DashboardWidget[];
+  updatedAt: number;
+}
+
+export interface DashboardSummary {
+  id: string;
+  name: string;
+  widgetCount: number;
+  updatedAt: number;
+}
+
+// ─── Snapshot history + diff ─────────────────────────────────────
+
+export interface SnapshotMeta {
+  id: string;
+  label: string;
+  createdAt: number;
+  nodeCount: number;
+  edgeCount: number;
+  sizeBytes: number;
+}
+
+export interface DiffNode {
+  id: string;
+  name: string;
+  label: string;
+  filePath: string;
+}
+
+export interface ModifiedNode {
+  id: string;
+  name: string;
+  label: string;
+  filePath: string;
+  changes: string[];
+}
+
+export interface LabelDelta {
+  label: string;
+  fromCount: number;
+  toCount: number;
+  added: number;
+  removed: number;
+}
+
+export interface SnapshotDiff {
+  fromId: string;
+  toId: string;
+  fromNodeCount: number;
+  toNodeCount: number;
+  fromEdgeCount: number;
+  toEdgeCount: number;
+  byLabel: LabelDelta[];
+  addedSample: DiffNode[];
+  removedSample: DiffNode[];
+  modifiedSample: ModifiedNode[];
+  totalAdded: number;
+  totalRemoved: number;
+  totalModified: number;
+}
+
+export interface SnapshotDiffRequest {
+  from: string; // snapshot id, or "live"
+  to: string;
+}
+
+// ─── Activity history ────────────────────────────────────────────
+
+export interface ActivityEntry {
+  timestamp: number;
+  commit?: string | null;
+  nodeCount: number;
+  edgeCount: number;
+  functionCount: number;
+  fileCount: number;
+  deadCount: number;
+  tracedCount: number;
+  communityCount: number;
+  note?: string | null;
+}
+
+// ─── Multi-repo overview ─────────────────────────────────────────
+
+export interface LanguageStat {
+  language: string;
+  fileCount: number;
+}
+
+export interface RepoOverview {
+  name: string;
+  path: string;
+  indexedAt: string;
+  lastCommit: string;
+  nodeCount: number;
+  edgeCount: number;
+  fileCount: number;
+  functionCount: number;
+  classCount: number;
+  communityCount: number;
+  deadCount: number;
+  tracedCount: number;
+  tracingCoverage: number;
+  languageBreakdown: LanguageStat[];
+  error?: string | null;
+}
+
+// ─── Cypher notebooks ────────────────────────────────────────────
+
+export interface NotebookCell {
+  id: string;
+  kind: "markdown" | "cypher" | string;
+  source: string;
+  cachedOutput?: unknown;
+  lastRunMs?: number;
+}
+
+export interface Notebook {
+  id: string;
+  name: string;
+  description?: string;
+  tags: string[];
+  cells: NotebookCell[];
+  updatedAt: number;
+}
+
+export interface NotebookSummary {
+  id: string;
+  name: string;
+  cellCount: number;
+  updatedAt: number;
+}
+
+// ─── HTML interactive export ─────────────────────────────────────
+
+export interface HtmlExportRequest {
+  outPath?: string;
+  maxNodes?: number;
+}
+
+export interface HtmlExportResult {
+  path: string;
+  nodeCount: number;
+  edgeCount: number;
+  size: number;
+}
+
+// ─── Saved Cypher Queries ────────────────────────────────────────
+
+export interface SavedQuery {
+  id: string;
+  name: string;
+  query: string;
+  description?: string;
+  tags: string[];
+  updatedAt: number;
+}
+
 export interface ProcessStep {
   nodeId: string;
   name: string;
@@ -497,6 +978,110 @@ export const commands = {
     invoke<StepResult>("chat_execute_step", { planId, stepId }),
   chatExecutePlan: (request: ChatSmartRequest) =>
     invoke<ChatSmartResponse>("chat_execute_plan", { request }),
+
+  // Feature-Dev (3-phase artifact pipeline)
+  featureDevRun: (request: FeatureDevRequest) =>
+    invoke<FeatureDevArtifact>("feature_dev_run", { request }),
+
+  // Code-Review (pre-commit review)
+  codeReviewRun: (request: CodeReviewRequest) =>
+    invoke<CodeReviewArtifact>("code_review_run", { request }),
+
+  // Simplify (refactor proposals from graph signals)
+  simplifyRun: (request: SimplifyRequest) =>
+    invoke<SimplifyArtifact>("simplify_run", { request }),
+
+  // Rename refactor (multi-file)
+  renameRun: (request: RenameRequest) =>
+    invoke<RenameResult>("rename_run", { request }),
+
+  // Bookmarks (per-repo)
+  bookmarksList: () => invoke<Bookmark[]>("bookmarks_list"),
+  bookmarksAdd: (bookmark: Bookmark) =>
+    invoke<Bookmark[]>("bookmarks_add", { bookmark }),
+  bookmarksRemove: (nodeId: string) =>
+    invoke<Bookmark[]>("bookmarks_remove", { nodeId }),
+  bookmarksClear: () => invoke<void>("bookmarks_clear"),
+
+  // Comments (per-node threads)
+  commentsForNode: (nodeId: string) =>
+    invoke<Comment[]>("comments_for_node", { nodeId }),
+  commentsAdd: (nodeId: string, author: string, body: string) =>
+    invoke<Comment[]>("comments_add", { nodeId, author, body }),
+  commentsRemove: (nodeId: string, commentId: string) =>
+    invoke<Comment[]>("comments_remove", { nodeId, commentId }),
+
+  // Saved Cypher queries (per-repo)
+  savedQueriesList: () => invoke<SavedQuery[]>("saved_queries_list"),
+  savedQueriesSave: (query: SavedQuery) =>
+    invoke<SavedQuery[]>("saved_queries_save", { query }),
+  savedQueriesDelete: (id: string) =>
+    invoke<SavedQuery[]>("saved_queries_delete", { id }),
+
+  // Interactive HTML export (self-contained graph viewer)
+  exportInteractiveHtml: (request: HtmlExportRequest) =>
+    invoke<HtmlExportResult>("export_interactive_html", { request }),
+
+  // Wiki generation (one .md per community)
+  wikiGenerate: (request: WikiGenerateRequest) =>
+    invoke<WikiGenerateResult>("wiki_generate", { request }),
+
+  // Cypher notebooks
+  notebookList: () => invoke<NotebookSummary[]>("notebook_list"),
+  notebookLoad: (id: string) => invoke<Notebook>("notebook_load", { id }),
+  notebookSave: (notebook: Notebook) =>
+    invoke<NotebookSummary>("notebook_save", { notebook }),
+  notebookDelete: (id: string) => invoke<void>("notebook_delete", { id }),
+
+  // Multi-repo overview
+  reposOverview: () => invoke<RepoOverview[]>("repos_overview"),
+
+  // Activity history (timeline)
+  activityRecord: (note?: string) =>
+    invoke<ActivityEntry>("activity_record", { note: note ?? null }),
+  activityList: () => invoke<ActivityEntry[]>("activity_list"),
+  activityClear: () => invoke<void>("activity_clear"),
+
+  // Snapshot history + diff
+  snapshotCreate: (label?: string) =>
+    invoke<SnapshotMeta>("snapshot_create", { label: label ?? null }),
+  snapshotList: () => invoke<SnapshotMeta[]>("snapshot_list"),
+  snapshotDelete: (id: string) =>
+    invoke<SnapshotMeta[]>("snapshot_delete", { id }),
+  snapshotDiff: (request: SnapshotDiffRequest) =>
+    invoke<SnapshotDiff>("snapshot_diff", { request }),
+
+  // Custom dashboards
+  dashboardList: () => invoke<DashboardSummary[]>("dashboard_list"),
+  dashboardLoad: (id: string) => invoke<Dashboard>("dashboard_load", { id }),
+  dashboardSave: (dashboard: Dashboard) =>
+    invoke<DashboardSummary>("dashboard_save", { dashboard }),
+  dashboardDelete: (id: string) =>
+    invoke<void>("dashboard_delete", { id }),
+
+  // Workflow editor
+  workflowList: () => invoke<WorkflowSummary[]>("workflow_list"),
+  workflowLoad: (id: string) => invoke<Workflow>("workflow_load", { id }),
+  workflowSave: (workflow: Workflow) =>
+    invoke<WorkflowSummary>("workflow_save", { workflow }),
+  workflowDelete: (id: string) => invoke<void>("workflow_delete", { id }),
+  workflowRun: (workflow: Workflow) =>
+    invoke<WorkflowRunResult>("workflow_run", { workflow }),
+
+  // User-defined slash commands (light plugin system)
+  userCommandsList: () => invoke<UserCommand[]>("user_commands_list"),
+  userCommandsSave: (command: UserCommand) =>
+    invoke<UserCommand[]>("user_commands_save", { command }),
+  userCommandsDelete: (id: string) =>
+    invoke<UserCommand[]>("user_commands_delete", { id }),
+  userCommandResolve: (name: string, args: string) =>
+    invoke<ResolvedCommand | null>("user_command_resolve", { name, args }),
+
+  // User data bundle export/import
+  userBundleExport: (request: BundleExportRequest) =>
+    invoke<BundleExportResult>("user_bundle_export", { request }),
+  userBundleImport: (request: BundleImportRequest) =>
+    invoke<BundleImportResult>("user_bundle_import", { request }),
 
   // Quick Picks (IDE-style search)
   chatPickFiles: (query: string, limit?: number) =>

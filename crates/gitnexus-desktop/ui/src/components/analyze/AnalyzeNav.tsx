@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useMemo } from "react";
-import { LayoutDashboard, Flame, Link2, Users, Shield, GitBranch, FileText, Heart, Workflow } from "lucide-react";
+import { LayoutDashboard, Flame, Link2, Users, Shield, GitBranch, FileText, Heart, Workflow, Camera } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import type { AnalyzeView } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
@@ -14,6 +14,7 @@ const NAV_ITEMS: { view: AnalyzeView; icon: typeof LayoutDashboard; i18nKey: str
   { view: "coverage", icon: Shield, i18nKey: "analyze.nav.coverage" },
   { view: "diagram", icon: GitBranch, i18nKey: "analyze.nav.diagrams" },
   { view: "report", icon: FileText, i18nKey: "analyze.nav.report" },
+  { view: "snapshots", icon: Camera, i18nKey: "analyze.nav.snapshots" },
   { view: "health", icon: Heart, i18nKey: "analyze.nav.health" },
 ];
 

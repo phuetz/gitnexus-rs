@@ -134,15 +134,25 @@ export function buildGraphologyGraph(
   nodes: CytoNode[],
   edges: CytoEdge[],
   hiddenEdgeTypes: Set<string>,
+  complexityThreshold: number = 0,
 ): Graph<SigmaNodeAttributes, SigmaEdgeAttributes> {
   const graph = new Graph<SigmaNodeAttributes, SigmaEdgeAttributes>();
-  const nodeCount = nodes.length;
+  
+  // Filter nodes by complexity if applicable
+  const filteredNodes = nodes.filter(node => {
+    if (complexityThreshold > 0 && node.complexity !== undefined) {
+      return node.complexity >= complexityThreshold;
+    }
+    return true;
+  });
+  
+  const nodeCount = filteredNodes.length;
 
   // Golden angle distribution for initial positioning
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
   const spread = Math.sqrt(nodeCount) * 40;
 
-  nodes.forEach((node, i) => {
+  filteredNodes.forEach((node, i) => {
     const baseSize = NODE_BASE_SIZES[node.label] || 4;
     const size = getScaledNodeSize(baseSize, nodeCount);
     const mass = NODE_MASS[node.label] || 2;

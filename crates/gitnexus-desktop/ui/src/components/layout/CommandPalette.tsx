@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import {
   Compass,
@@ -20,11 +21,16 @@ import {
   Layers,
   Sparkles,
   Workflow,
+  Globe,
+  Replace,
 } from "lucide-react";
+import { toast } from "sonner";
+import { commands } from "../../lib/tauri-commands";
 import { AnimatedModal } from "../shared/motion";
 import { useAppStore } from "../../stores/app-store";
 import { useChatStore } from "../../stores/chat-store";
 import { useI18n } from "../../hooks/use-i18n";
+import type { UserCommand } from "../../lib/tauri-commands";
 
 type CommandItem = {
   id: string;
@@ -213,6 +219,143 @@ function buildCommands(t: (key: string) => string): CommandItem[] {
       shortcut: "Ctrl+Shift+D",
       action: () => chatStore.toggleDeepResearch(),
     },
+    {
+      id: "rename-refactor",
+      label: t("cmd.renameRefactor"),
+      group: t("cmd.group.actions"),
+      icon: Replace,
+      action: () => store.openRenameModal(store.selectedNodeName ?? ""),
+    },
+    {
+      id: "export-html",
+      label: t("cmd.exportHtml"),
+      group: t("cmd.group.actions"),
+      icon: Globe,
+      action: async () => {
+        toast.info("Exporting graph to HTML…");
+        try {
+          const r = await commands.exportInteractiveHtml({});
+          toast.success(`Exported ${r.nodeCount} nodes → ${r.path}`);
+        } catch (e) {
+          toast.error(`Export failed: ${(e as Error).message}`);
+        }
+      },
+    },
+    {
+      id: "generate-wiki",
+      label: t("cmd.generateWiki"),
+      group: t("cmd.group.actions"),
+      icon: FileText,
+      action: async () => {
+        const tid = toast.loading("Generating wiki…");
+        try {
+          const r = await commands.wikiGenerate({ withIndex: true });
+          toast.success(`Generated ${r.totalFiles} pages → ${r.outDir}`, { id: tid });
+        } catch (e) {
+          toast.error(`Wiki failed: ${(e as Error).message}`, { id: tid });
+        }
+      },
+    },
+    {
+      id: "generate-wiki-llm",
+      label: t("cmd.generateWikiLlm"),
+      group: t("cmd.group.actions"),
+      icon: Sparkles,
+      action: async () => {
+        const tid = toast.loading("Generating LLM-enriched wiki…");
+        try {
+          const r = await commands.wikiGenerate({ withIndex: true, enrichWithLlm: true });
+          toast.success(`Generated ${r.totalFiles} pages → ${r.outDir}`, { id: tid });
+        } catch (e) {
+          toast.error(`Wiki failed: ${(e as Error).message}`, { id: tid });
+        }
+      },
+    },
+    {
+      id: "open-notebooks",
+      label: t("cmd.openNotebooks"),
+      group: t("cmd.group.actions"),
+      icon: Code2,
+      shortcut: "Ctrl+Shift+N",
+      action: () => store.setNotebooksOpen(true),
+    },
+    {
+      id: "open-dashboards",
+      label: t("cmd.openDashboards"),
+      group: t("cmd.group.actions"),
+      icon: LayoutDashboard,
+      shortcut: "Ctrl+Shift+B",
+      action: () => store.setDashboardsOpen(true),
+    },
+    {
+      id: "open-workflows",
+      label: t("cmd.openWorkflows"),
+      group: t("cmd.group.actions"),
+      icon: Workflow,
+      shortcut: "Ctrl+Shift+W",
+      action: () => store.setWorkflowsOpen(true),
+    },
+    {
+      id: "open-user-commands",
+      label: t("cmd.openUserCommands"),
+      group: t("cmd.group.actions"),
+      icon: Replace,
+      action: () => store.setUserCommandsOpen(true),
+    },
+    {
+      id: "bundle-export",
+      label: t("cmd.bundleExport"),
+      group: t("cmd.group.actions"),
+      icon: FileText,
+      action: async () => {
+        const tid = toast.loading("Exporting bundle…");
+        try {
+          // Let the user pick a destination file.
+          const { save } = await import("@tauri-apps/plugin-dialog");
+          const outPath = await save({
+            title: "Export user data bundle",
+            defaultPath: `gitnexus-bundle-${Date.now()}.zip`,
+            filters: [{ name: "Zip", extensions: ["zip"] }],
+          });
+          if (!outPath) {
+            toast.dismiss(tid);
+            return;
+          }
+          const r = await commands.userBundleExport({ outPath });
+          toast.success(
+            `Exported ${r.fileCount} file(s), ${Math.round(r.sizeBytes / 1024)} KB → ${r.path}`,
+            { id: tid },
+          );
+        } catch (e) {
+          toast.error(`Export failed: ${(e as Error).message}`, { id: tid });
+        }
+      },
+    },
+    {
+      id: "bundle-import",
+      label: t("cmd.bundleImport"),
+      group: t("cmd.group.actions"),
+      icon: FileText,
+      action: async () => {
+        try {
+          const { open } = await import("@tauri-apps/plugin-dialog");
+          const bundlePath = await open({
+            title: "Import user data bundle",
+            multiple: false,
+            filters: [{ name: "Zip", extensions: ["zip"] }],
+          });
+          if (typeof bundlePath !== "string") return;
+          const overwrite = window.confirm(
+            "Overwrite existing files when names collide? (Cancel = skip collisions)",
+          );
+          const tid = toast.loading("Importing bundle…");
+          const r = await commands.userBundleImport({ bundlePath, overwrite });
+          toast.success(`Restored ${r.restored}, skipped ${r.skipped}`, { id: tid });
+        } catch (e) {
+          toast.error(`Import failed: ${(e as Error).message}`);
+        }
+      },
+    },
   ];
 }
 
@@ -261,15 +404,56 @@ export function CommandPalette() {
   const { t } = useI18n();
   const commandPaletteOpen = useAppStore((s) => s.commandPaletteOpen);
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
+  const activeRepo = useAppStore((s) => s.activeRepo);
 
   const close = () => setCommandPaletteOpen(false);
 
+  // Load user-defined slash commands so they appear as first-class
+  // palette entries. Lazy-enabled on palette open to avoid cost at idle.
+  const { data: userCmds = [] } = useQuery({
+    queryKey: ["user-commands-palette", activeRepo],
+    queryFn: () => commands.userCommandsList(),
+    enabled: !!activeRepo && commandPaletteOpen,
+    staleTime: 30_000,
+  });
+
   // commandPaletteOpen is an intentional cache-bust dep — rebuild commands each time the palette opens
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const cmds = useMemo(() => buildCommands(t), [commandPaletteOpen, t]);
+  const staticCmds = useMemo(() => buildCommands(t), [commandPaletteOpen, t]);
+
+  const userGroup = t("cmd.group.userCommands");
+  const dynamicCmds: CommandItem[] = useMemo(
+    () =>
+      userCmds.map((uc: UserCommand) => ({
+        id: `uc-${uc.id}`,
+        label: `/${uc.name}${uc.description ? ` — ${uc.description}` : ""}`,
+        group: userGroup,
+        icon: Replace,
+        action: () => {
+          // Dispatch via chat store: expands template directly (no args since
+          // the palette doesn't collect them) and switches mode.
+          useChatStore.getState().dispatchQuestion(
+            (uc.mode as "qa" | "deep_research" | "feature_dev" | "code_review" | "simplify") ||
+              "qa",
+            uc.template.replace("{{args}}", ""),
+            true,
+          );
+          useAppStore.getState().setMode("chat");
+        },
+      })),
+    [userCmds, userGroup],
+  );
+
+  const cmds = useMemo(() => [...staticCmds, ...dynamicCmds], [staticCmds, dynamicCmds]);
 
   // Group items — use translated group labels
-  const groups = [t("cmd.group.modes"), t("cmd.group.analyzeViews"), t("cmd.group.lenses"), t("cmd.group.actions")];
+  const groups = [
+    t("cmd.group.modes"),
+    t("cmd.group.analyzeViews"),
+    t("cmd.group.lenses"),
+    t("cmd.group.actions"),
+    userGroup,
+  ];
 
   return (
     <AnimatedModal isOpen={commandPaletteOpen} onClose={close}>

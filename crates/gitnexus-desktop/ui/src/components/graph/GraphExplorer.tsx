@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Zap } from "lucide-react";
 import { useGraphData } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
+import { useChatStore } from "../../stores/chat-store";
 import { useSigma } from "../../hooks/use-sigma";
 import { commands } from "../../lib/tauri-commands";
 import { buildGraphologyGraph } from "../../lib/graph-adapter";
@@ -63,11 +64,20 @@ export function GraphExplorer() {
   const {
     setContextMenu, setHoveredNode, setHoverPos, setHoverDegrees,
     setFocusNodeId, setImpactNodeIds, setImpactOverlay,
-    setLayout, setHiddenEdgeTypes,
+    setLayout, setHiddenEdgeTypes, highlightedNodeType, setHighlightedNodeType
   } = gs;
 
   // ── Derived ──────────────────────────────────────────────────────
-  const highlightedNodeIds = useMemo(() => new Set(searchMatchIds), [searchMatchIds]);
+  const highlightedNodeIdsFromType = useMemo(() => {
+    if (!highlightedNodeType || !activeData) return new Set<string>();
+    return new Set(activeData.nodes.filter(n => n.label === highlightedNodeType).map(n => n.id));
+  }, [highlightedNodeType, activeData]);
+
+  const combinedHighlightedNodeIds = useMemo(() => {
+    const set = new Set(searchMatchIds);
+    highlightedNodeIdsFromType.forEach(id => set.add(id));
+    return set;
+  }, [searchMatchIds, highlightedNodeIdsFromType]);
 
   const effectiveHiddenEdgeTypes = useMemo(() => {
     const lensEdgeTypes = LENS_EDGE_TYPES[activeLens];
@@ -91,7 +101,8 @@ export function GraphExplorer() {
     zoomIn, zoomOut, exportPNG, refresh, sigmaRef,
   } = useSigma({
     selectedNodeId,
-    highlightedNodeIds,
+    hoveredNodeId: gs.hoveredNode?.id,
+    highlightedNodeIds: combinedHighlightedNodeIds,
     impactNodeIds: gs.impactOverlay ? gs.impactNodeIds : undefined,
     egoNodeIds: gs.egoNodeIds,
     egoDepthMap: gs.egoDepthMap,
@@ -139,9 +150,10 @@ export function GraphExplorer() {
   const activeData = gs.focusNodeId && subgraphData ? subgraphData : data;
 
   const { data: hotspotsData } = useQuery({
-    queryKey: ["git-hotspots", activeRepo],
-    queryFn: () => commands.getHotspots(90),
-    enabled: activeLens === "hotspots" && !!activeRepo,
+    queryKey: ["git-hotspots", activeRepo, gs.hotspotDays],
+    queryFn: () => commands.getHotspots(gs.hotspotDays),
+    // Risk lens reuses hotspot scores as one of its inputs.
+    enabled: (activeLens === "hotspots" || activeLens === "risk") && !!activeRepo,
     staleTime: 60_000,
   });
 
@@ -149,12 +161,12 @@ export function GraphExplorer() {
   const prevKeyRef = useRef("");
   useEffect(() => {
     if (!activeData || activeData.nodes.length === 0) return;
-    const key = `${activeData.stats.nodeCount}-${activeData.stats.edgeCount}-${zoomLevel}-${gs.focusNodeId ?? ""}-${[...effectiveHiddenEdgeTypes].sort().join(",")}`;
+    const key = `${activeData.stats.nodeCount}-${activeData.stats.edgeCount}-${zoomLevel}-${gs.focusNodeId ?? ""}-${complexityThreshold}-${[...effectiveHiddenEdgeTypes].sort().join(",")}`;
     if (key === prevKeyRef.current) return;
     prevKeyRef.current = key;
-    setGraph(buildGraphologyGraph(activeData.nodes, activeData.edges, effectiveHiddenEdgeTypes));
+    setGraph(buildGraphologyGraph(activeData.nodes, activeData.edges, effectiveHiddenEdgeTypes, complexityThreshold));
     runLayout();
-  }, [activeData, zoomLevel, effectiveHiddenEdgeTypes, gs.focusNodeId, setGraph, runLayout]);
+  }, [activeData, zoomLevel, effectiveHiddenEdgeTypes, gs.focusNodeId, complexityThreshold, setGraph, runLayout]);
 
   // ── Hotspots Overlay Effect ───────────────────────────────────────
   useEffect(() => {
@@ -194,13 +206,75 @@ export function GraphExplorer() {
           g.setNodeAttribute(node, "size", attrs.originalSize || attrs.size);
         }
       });
-    } else {
+    } else if (activeLens !== "risk") {
+      // Risk lens has its own renderer below — don't reset its colors here.
       g.forEachNode((node, attrs) => {
         if (attrs.originalColor) g.setNodeAttribute(node, "color", attrs.originalColor);
         if (attrs.originalSize) g.setNodeAttribute(node, "size", attrs.originalSize);
       });
     }
-    
+
+    refresh();
+  }, [activeLens, hotspotsData, graphRef, refresh, activeData]);
+
+  // ── Risk Composite Lens ───────────────────────────────────────────
+  // Combines four signals into a single risk score per node:
+  //   - churn from git hotspots (file-level)
+  //   - is_dead_candidate flag (node-level)
+  //   - !is_traced flag (node-level, inverted)
+  //   - llm_risk_score if present (node-level)
+  // Renders nodes from green (safe) to red (dangerous).
+  useEffect(() => {
+    const g = graphRef.current;
+    if (!g || g.order === 0) return;
+    if (activeLens !== "risk") return;
+
+    // Build file → hotspot score lookup (normalized 0..1).
+    const hotspotScores = new Map<string, number>();
+    let maxHotspot = 0;
+    if (hotspotsData) {
+      for (const h of hotspotsData) {
+        const norm = h.path.replace(/\\/g, "/");
+        hotspotScores.set(norm, h.score);
+        if (h.score > maxHotspot) maxHotspot = h.score;
+      }
+    }
+
+    g.forEachNode((node, attrs) => {
+      // Aggregate signal weights — tuned so any single red flag shows up.
+      let churn = 0;
+      if (attrs.filePath && maxHotspot > 0) {
+        const fp = attrs.filePath.replace(/\\/g, "/");
+        for (const [path, score] of hotspotScores.entries()) {
+          if (fp.endsWith(path) || path.endsWith(fp)) {
+            churn = Math.min(1, score / maxHotspot);
+            break;
+          }
+        }
+      }
+      const dead = attrs.isDeadCandidate ? 1 : 0;
+      const untraced = attrs.isTraced === false ? 0.4 : 0; // softer signal
+      const llmRisk = typeof attrs.llmRiskScore === "number" ? attrs.llmRiskScore : 0;
+
+      // Composite ∈ [0, 1] — weighted sum capped at 1.
+      const risk = Math.min(
+        1,
+        churn * 0.4 + dead * 0.5 + untraced * 0.2 + llmRisk * 0.4,
+      );
+
+      if (risk > 0) {
+        // Green (158,206,106) → Yellow (224,175,104) → Red (247,118,142)
+        const r = Math.round(158 + risk * (247 - 158));
+        const gCol = Math.round(206 + risk * (118 - 206));
+        const b = Math.round(106 + risk * (142 - 106));
+        g.setNodeAttribute(node, "color", `rgb(${r}, ${gCol}, ${b})`);
+        const baseSize = attrs.originalSize || attrs.size;
+        g.setNodeAttribute(node, "size", baseSize * (1 + risk * 0.6));
+      } else {
+        g.setNodeAttribute(node, "color", "rgba(120, 130, 145, 0.4)");
+        if (attrs.originalSize) g.setNodeAttribute(node, "size", attrs.originalSize);
+      }
+    });
     refresh();
   }, [activeLens, hotspotsData, graphRef, refresh, activeData]);
 
@@ -234,7 +308,49 @@ export function GraphExplorer() {
     setHiddenEdgeTypes((prev) => { const next = new Set(prev); if (next.has(type)) next.delete(type); else next.add(type); return next; });
   }, [setHiddenEdgeTypes]);
 
-  const toolbarProps = { stats: data?.stats, layout: gs.layout, onLayoutChange: handleLayoutChange, onFit: handleFit, onExport: handleExport, hiddenEdgeTypes: gs.hiddenEdgeTypes, onToggleEdgeType: handleToggleEdgeType, depthFilter: gs.depthFilter, onDepthFilterChange: gs.setDepthFilter };
+  const toolbarProps = { 
+    stats: data?.stats, 
+    layout: gs.layout, 
+    onLayoutChange: handleLayoutChange, 
+    onFit: handleFit, 
+    onExport: handleExport, 
+    hiddenEdgeTypes: gs.hiddenEdgeTypes, 
+    onToggleEdgeType: handleToggleEdgeType, 
+    depthFilter: gs.depthFilter, 
+    onDepthFilterChange: gs.setDepthFilter,
+    complexityThreshold,
+    onComplexityChange: setComplexityThreshold,
+    hotspotDays: gs.hotspotDays,
+    onHotspotDaysChange: gs.setHotspotDays,
+    showDeadCode: gs.showDeadCode,
+    onToggleDeadCode: () => gs.setShowDeadCode(!gs.showDeadCode)
+  };
+
+  // ── Dead Code Effect ──────────────────────────────────────────────
+  useEffect(() => {
+    const g = graphRef.current;
+    if (!g || g.order === 0) return;
+
+    if (gs.showDeadCode) {
+      g.forEachNode((node, attrs) => {
+        if (attrs.isDeadCandidate) {
+          g.setNodeAttribute(node, "color", "#f7768e"); // Rose vif pour le code mort
+          g.setNodeAttribute(node, "size", (attrs.originalSize || attrs.size) * 1.5);
+        } else {
+          g.setNodeAttribute(node, "color", "rgba(100, 116, 139, 0.2)"); // Très estompé pour le reste
+        }
+      });
+    } else {
+      // Revert if not showing dead code (and not in hotspots lens)
+      if (activeLens !== "hotspots") {
+        g.forEachNode((node, attrs) => {
+          if (attrs.originalColor) g.setNodeAttribute(node, "color", attrs.originalColor);
+          if (attrs.originalSize) g.setNodeAttribute(node, "size", attrs.originalSize);
+        });
+      }
+    }
+    refresh();
+  }, [gs.showDeadCode, activeLens, graphRef, refresh]);
 
   // ── Early returns ─────────────────────────────────────────────────
   if (isLoading) return <GraphLoading {...toolbarProps} />;
@@ -258,8 +374,9 @@ export function GraphExplorer() {
             <div ref={containerRef} className="absolute inset-0" style={{ cursor: "grab" }} role="application" aria-label="Interactive code dependency graph" tabIndex={0} />
 
             {isLayoutRunning && (
-              <div className="absolute inset-0 z-30 flex items-center justify-center" style={{ backgroundColor: "var(--glass-bg)", backdropFilter: "blur(2px)" }}>
-                <div style={{ color: "var(--text-2)", fontSize: 13 }}>{t("graph.computingLayout")}</div>
+              <div className="absolute bottom-4 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full border border-[var(--surface-border)] bg-[var(--bg-2)] shadow-lg animate-pulse">
+                <div className="w-2 h-2 rounded-full bg-[var(--accent)]" />
+                <div style={{ color: "var(--text-2)", fontSize: 11, fontWeight: 500 }}>{t("graph.computingLayout")}</div>
               </div>
             )}
 
@@ -288,6 +405,26 @@ export function GraphExplorer() {
               onHideNode={(nodeId) => { const g = graphRef.current; if (g?.hasNode(nodeId)) { g.dropNode(nodeId); refresh(); } }}
               onCopyName={(name) => { navigator.clipboard.writeText(name).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error(t("graph.copyFailed"))); }}
               onCopyFilePath={(fp) => { navigator.clipboard.writeText(fp).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error(t("graph.copyFailed"))); }}
+              onAiAction={(action, ctx) => {
+                // Pre-canned per-action prompt + chat mode. The chat panel
+                // picks the dispatched question up via pendingQuestion.
+                const dispatch = useChatStore.getState().dispatchQuestion;
+                switch (action) {
+                  case "explain":
+                    dispatch("qa", `Explain the symbol \`${ctx.name}\` in \`${ctx.filePath}\`. What is its role, who calls it, and what does it depend on?`, true);
+                    break;
+                  case "feature_dev":
+                    dispatch("feature_dev", `I want to extend or refactor \`${ctx.name}\` (in \`${ctx.filePath}\`). Design the changes.`, true);
+                    break;
+                  case "code_review":
+                    dispatch("code_review", `review: ${ctx.name}`, true);
+                    break;
+                  case "dead_check":
+                    dispatch("qa", `Is \`${ctx.name}\` (in \`${ctx.filePath}\`) actually used? Find all callers and assess whether this is dead code.`, true);
+                    break;
+                }
+                setMode("chat");
+              }}
             />
 
             {(gs.minimapVisible || gs.minimapOpacity !== 0.3) && (
@@ -312,7 +449,14 @@ export function GraphExplorer() {
             )}
             <GraphZoomControls onZoomIn={zoomIn} onZoomOut={zoomOut} onFitView={fitView} legendExpanded={gs.legendExpanded} />
             <Suspense fallback={null}>
-              <GraphLegend nodes={data?.nodes ?? []} expanded={gs.legendExpanded} onExpand={() => gs.setLegendExpanded(true)} onCollapse={() => gs.setLegendExpanded(false)} />
+              <GraphLegend 
+                nodes={data?.nodes ?? []} 
+                expanded={gs.legendExpanded} 
+                onExpand={() => gs.setLegendExpanded(true)} 
+                onCollapse={() => gs.setLegendExpanded(false)} 
+                highlightedNodeType={highlightedNodeType}
+                onTypeClick={setHighlightedNodeType}
+              />
             </Suspense>
             <Suspense fallback={null}>
               <CommunitiesPanel />

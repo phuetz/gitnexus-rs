@@ -4,9 +4,13 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Terminal, Play, X, ChevronRight } from "lucide-react";
+import { Terminal, Play, X, ChevronRight, Save, FolderOpen, Trash2 } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
+import { useAppStore } from "../../stores/app-store";
+import type { SavedQuery } from "../../lib/tauri-commands";
 
 const EXAMPLES = [
   {
@@ -42,13 +46,54 @@ const EXAMPLES = [
 
 export function CypherQueryFAB() {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const activeRepo = useAppStore((s) => s.activeRepo);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<unknown[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mountedRef = useRef(true);
+
+  const { data: savedQueries = [] } = useQuery({
+    queryKey: ["saved-queries", activeRepo],
+    queryFn: () => commands.savedQueriesList(),
+    enabled: !!activeRepo && open,
+    staleTime: 30_000,
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (q: SavedQuery) => commands.savedQueriesSave(q),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["saved-queries", activeRepo], next);
+      toast.success("Query saved");
+    },
+    onError: (e) => toast.error(`Save failed: ${(e as Error).message}`),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => commands.savedQueriesDelete(id),
+    onSuccess: (next) =>
+      queryClient.setQueryData(["saved-queries", activeRepo], next),
+  });
+
+  const handleSaveCurrent = () => {
+    if (!query.trim()) {
+      toast.error("Nothing to save — write a query first");
+      return;
+    }
+    const name = window.prompt("Name for this saved query:");
+    if (!name) return;
+    saveMut.mutate({
+      id: `q_${Date.now()}`,
+      name: name.trim(),
+      query: query.trim(),
+      tags: [],
+      updatedAt: Date.now(),
+    });
+  };
 
   useEffect(() => {
     mountedRef.current = true;
@@ -156,16 +201,136 @@ export function CypherQueryFAB() {
             >
               <Terminal size={14} />
               {t("cypher.title")}
-              <span
+              <div
                 style={{
                   marginLeft: "auto",
-                  fontSize: 10,
-                  color: "var(--text-3)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
-                {t("cypher.hint")}
-              </span>
+                <button
+                  onClick={handleSaveCurrent}
+                  title="Save the current query"
+                  aria-label="Save query"
+                  style={{
+                    padding: 3,
+                    background: "transparent",
+                    border: "1px solid var(--border)",
+                    borderRadius: 4,
+                    color: "var(--text-2)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Save size={11} />
+                </button>
+                <button
+                  onClick={() => setShowLibrary((v) => !v)}
+                  title={`Saved queries (${savedQueries.length})`}
+                  aria-label="Open saved queries library"
+                  style={{
+                    padding: 3,
+                    background: showLibrary ? "var(--accent)" : "transparent",
+                    border: "1px solid var(--border)",
+                    borderRadius: 4,
+                    color: showLibrary ? "#fff" : "var(--text-2)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 3,
+                    fontSize: 10,
+                  }}
+                >
+                  <FolderOpen size={11} />
+                  {savedQueries.length}
+                </button>
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-3)",
+                  }}
+                >
+                  {t("cypher.hint")}
+                </span>
+              </div>
             </div>
+
+            {/* Saved queries library (toggleable) */}
+            {showLibrary && (
+              <div
+                style={{
+                  maxHeight: 180,
+                  overflow: "auto",
+                  borderBottom: "1px solid var(--border)",
+                  background: "var(--bg-1)",
+                }}
+              >
+                {savedQueries.length === 0 ? (
+                  <div style={{ padding: 12, fontSize: 11, color: "var(--text-3)" }}>
+                    No saved queries. Click the save icon to keep one for later.
+                  </div>
+                ) : (
+                  savedQueries.map((q) => (
+                    <div
+                      key={q.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        padding: "6px 12px",
+                        borderBottom: "1px solid var(--surface-border)",
+                      }}
+                    >
+                      <button
+                        onClick={() => {
+                          setQuery(q.query);
+                          setShowLibrary(false);
+                          inputRef.current?.focus();
+                        }}
+                        style={{
+                          flex: 1,
+                          background: "transparent",
+                          border: "none",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          color: "var(--text-1)",
+                          fontFamily: "inherit",
+                          padding: 0,
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 600 }}>{q.name}</div>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            color: "var(--text-3)",
+                            fontFamily: "var(--font-mono)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            maxWidth: 320,
+                          }}
+                        >
+                          {q.query}
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => deleteMut.mutate(q.id)}
+                        title="Delete saved query"
+                        aria-label="Delete saved query"
+                        style={{
+                          padding: 4,
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--text-3)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
 
             {/* Query input */}
             <textarea

@@ -25,7 +25,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "query",
-            description: "Natural language search across the knowledge graph. Returns matching code symbols with file paths, scores, and context.",
+            description: "Natural language search across the knowledge graph. By default, groups results by Process (execution flow) with step indexes; symbols not part of any process go into `definitions`. Pass group_by_process=false for the flat list.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -45,6 +45,11 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                     "goal": {
                         "type": "string",
                         "description": "Additional context about what you're trying to accomplish"
+                    },
+                    "group_by_process": {
+                        "type": "boolean",
+                        "description": "Group results by Process with step_index. Default: true. Set to false for the legacy flat result list.",
+                        "default": true
                     }
                 },
                 "required": ["query"],
@@ -110,13 +115,18 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "detect_changes",
-            description: "Detect uncommitted changes in the repository and analyze their impact on the knowledge graph.",
+            description: "Analyze uncommitted changes: parse git diff hunks, map to affected symbols, BFS upstream to impacted processes, and classify risk (none/low/medium/high).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "repo": {
                         "type": "string",
                         "description": "Repository name or path"
+                    },
+                    "max_upstream_depth": {
+                        "type": "number",
+                        "description": "BFS depth when walking upstream from changed symbols (default: 3, max: 10)",
+                        "default": 3
                     }
                 },
                 "additionalProperties": false
@@ -124,7 +134,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "rename",
-            description: "Analyze the impact of renaming a symbol: find all references that would need updating.",
+            description: "Multi-file rename: returns graph-confirmed edits (high confidence) + text-search fallback edits (for review). Defaults to dry_run=true; pass dry_run=false to actually patch files on disk.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -139,6 +149,11 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                     "repo": {
                         "type": "string",
                         "description": "Repository name or path"
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "If true (default), return edits without modifying files. If false, apply graph_edits to disk (text_search_edits are never auto-applied).",
+                        "default": true
                     }
                 },
                 "required": ["target", "new_name"],

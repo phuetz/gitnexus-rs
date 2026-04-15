@@ -248,7 +248,7 @@ impl LocalBackend {
         }))
     }
 
-    async fn tool_query(&self, args: &Value) -> Result<Value> {
+    async fn tool_query(&mut self, args: &Value) -> Result<Value> {
         let query_text = args
             .get("query")
             .and_then(|v| v.as_str())
@@ -263,29 +263,130 @@ impl LocalBackend {
             10,
             MAX_QUERY_LIMIT,
         );
+        // Clients pinned to the old flat-list shape can opt out of grouping.
+        let group_by_process = args
+            .get("group_by_process")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
 
-        let entry = self.resolve_repo(repo_name)?;
-        let db_path = std::path::Path::new(&entry.storage_path).join("db");
+        let (db_path, snap_path) = {
+            let entry = self.resolve_repo(repo_name)?;
+            (
+                std::path::Path::new(&entry.storage_path).join("db"),
+                std::path::Path::new(&entry.storage_path).join("graph.bin"),
+            )
+        };
 
-        let adapter = self.pool.get_or_open(&db_path).map_err(McpError::Db)?;
+        let results = {
+            let adapter = self.pool.get_or_open(&db_path).map_err(McpError::Db)?;
+            gitnexus_search::search(&adapter, query_text, limit)
+                .map_err(McpError::Db)?
+        };
 
-        // Use best available search strategy (BM25, or hybrid RRF when embeddings are available)
-        let results = gitnexus_search::search(&adapter, query_text, limit)
-            .map_err(McpError::Db)?;
+        // Opt-out path: flat results, matches pre-grouped behavior byte-for-byte.
+        if !group_by_process {
+            let results_json: Vec<Value> = results
+                .iter()
+                .map(|r| serde_json::to_value(r).unwrap_or_default())
+                .collect();
+            return Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string_pretty(&results_json).unwrap_or_else(|_| "[]".to_string())
+                }],
+                "_meta": {
+                    "hint": hints::hint_for("query"),
+                    "resultCount": results.len()
+                }
+            }));
+        }
 
-        let results_json: Vec<Value> = results
-            .iter()
-            .map(|r| serde_json::to_value(r).unwrap_or_default())
-            .collect();
+        // Group by Process using the snapshot's STEP_IN_PROCESS edges.
+        // Symbols with no process parent go to `definitions` (fallback bucket).
+        let graph_opt = self.load_cached_snapshot(&snap_path).ok();
+        let mut processes_map: HashMap<String, Value> = HashMap::new();
+        let mut process_symbols: Vec<Value> = Vec::new();
+        let mut definitions: Vec<Value> = Vec::new();
+
+        if let Some(graph) = graph_opt.as_ref() {
+            // Pre-index: node_id → Vec<(process_id, step_index)>
+            let mut symbol_to_processes: HashMap<String, Vec<(String, Option<u32>)>> =
+                HashMap::new();
+            let mut process_step_counts: HashMap<String, u32> = HashMap::new();
+            for rel in graph.iter_relationships() {
+                if rel.rel_type == RelationshipType::StepInProcess {
+                    symbol_to_processes
+                        .entry(rel.source_id.clone())
+                        .or_default()
+                        .push((rel.target_id.clone(), rel.step));
+                    *process_step_counts
+                        .entry(rel.target_id.clone())
+                        .or_insert(0) += 1;
+                }
+            }
+
+            for r in &results {
+                let base = serde_json::to_value(r).unwrap_or_default();
+                if let Some(parents) = symbol_to_processes.get(&r.node_id) {
+                    for (proc_id, step_idx) in parents {
+                        let mut enriched = base.clone();
+                        enriched["process_id"] = json!(proc_id);
+                        enriched["step_index"] = json!(step_idx);
+                        process_symbols.push(enriched);
+
+                        processes_map.entry(proc_id.clone()).or_insert_with(|| {
+                            if let Some(pn) = graph.get_node(proc_id) {
+                                let proc_type = pn
+                                    .properties
+                                    .process_type
+                                    .as_ref()
+                                    .map(|t| format!("{t:?}"))
+                                    .unwrap_or_else(|| "unknown".into());
+                                json!({
+                                    "process_id": proc_id,
+                                    "name": pn.properties.name,
+                                    "description": pn.properties.description,
+                                    "process_type": proc_type,
+                                    "step_count": process_step_counts.get(proc_id).copied().unwrap_or(0),
+                                })
+                            } else {
+                                json!({"process_id": proc_id})
+                            }
+                        });
+                    }
+                } else {
+                    definitions.push(base);
+                }
+            }
+        } else {
+            // No snapshot — surface everything as flat definitions.
+            for r in &results {
+                definitions.push(serde_json::to_value(r).unwrap_or_default());
+            }
+        }
+
+        // Sort processes by descending step_count so the most substantial
+        // flows show first in the agent's view.
+        let mut processes_vec: Vec<Value> = processes_map.into_values().collect();
+        processes_vec.sort_by(|a, b| {
+            let sa = a.get("step_count").and_then(|v| v.as_u64()).unwrap_or(0);
+            let sb = b.get("step_count").and_then(|v| v.as_u64()).unwrap_or(0);
+            sb.cmp(&sa)
+        });
 
         Ok(json!({
             "content": [{
                 "type": "text",
-                "text": serde_json::to_string_pretty(&results_json).unwrap_or_else(|_| "[]".to_string())
+                "text": serde_json::to_string_pretty(&json!({
+                    "processes": processes_vec,
+                    "process_symbols": process_symbols,
+                    "definitions": definitions,
+                })).unwrap_or_else(|_| "{}".to_string())
             }],
             "_meta": {
                 "hint": hints::hint_for("query"),
-                "resultCount": results.len()
+                "resultCount": results.len(),
+                "processCount": processes_vec.len(),
             }
         }))
     }
@@ -569,61 +670,213 @@ impl LocalBackend {
         }))
     }
 
-    async fn tool_detect_changes(&self, args: &Value) -> Result<Value> {
+    async fn tool_detect_changes(&mut self, args: &Value) -> Result<Value> {
         let repo_name = args.get("repo").and_then(|v| v.as_str());
-        let entry = self.resolve_repo(repo_name)?;
-        let repo_path = std::path::Path::new(&entry.path);
+        let max_upstream_depth = args
+            .get("max_upstream_depth")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3)
+            .clamp(1, MAX_IMPACT_DEPTH as u64) as usize;
 
-        // Use git to detect uncommitted changes
-        let output = std::process::Command::new("git")
-            .args(["diff", "--name-only", "HEAD"])
-            .current_dir(repo_path)
-            .output();
-
-        let changed_files: Vec<String> = match output {
-            Ok(out) if out.status.success() => {
-                String::from_utf8_lossy(&out.stdout)
-                    .lines()
-                    .map(|l| l.to_string())
-                    .filter(|l| !l.is_empty())
-                    .collect()
-            }
-            _ => Vec::new(),
+        let (repo_path, snap_path) = {
+            let entry = self.resolve_repo(repo_name)?;
+            (
+                std::path::PathBuf::from(&entry.path),
+                std::path::Path::new(&entry.storage_path).join("graph.bin"),
+            )
         };
 
-        // Also get untracked files
-        let untracked_output = std::process::Command::new("git")
-            .args(["ls-files", "--others", "--exclude-standard"])
-            .current_dir(repo_path)
-            .output();
+        // Parse `git diff --unified=0 HEAD` to get file + line-range hunks.
+        let diff_hunks = collect_git_diff_hunks(&repo_path);
+        let untracked_files = collect_git_untracked(&repo_path);
+        let changed_files: Vec<String> =
+            diff_hunks.iter().map(|(p, _)| p.clone()).collect();
 
-        let untracked_files: Vec<String> = match untracked_output {
-            Ok(out) if out.status.success() => {
-                String::from_utf8_lossy(&out.stdout)
-                    .lines()
-                    .map(|l| l.to_string())
-                    .filter(|l| !l.is_empty())
-                    .collect()
+        // Load graph; if absent, degrade gracefully to a file-list response.
+        let graph = match self.load_cached_snapshot(&snap_path) {
+            Ok(g) => g,
+            Err(_) => {
+                return Ok(json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string_pretty(&json!({
+                            "summary": {
+                                "changed_files": changed_files.len(),
+                                "changed_count": 0,
+                                "affected_count": 0,
+                                "risk_level": classify_risk(0, 0, changed_files.len()),
+                            },
+                            "changed_files": changed_files,
+                            "untracked_files": untracked_files,
+                            "note": "No graph snapshot available — run `gitnexus analyze` to enable symbol/process mapping.",
+                            "modified": changed_files,
+                            "untracked": untracked_files,
+                            "totalChanges": changed_files.len() + untracked_files.len(),
+                        })).unwrap_or_default()
+                    }],
+                    "_meta": {"hint": hints::hint_for("detect_changes")}
+                }));
             }
-            _ => Vec::new(),
         };
+
+        // Identify directly-changed symbols: nodes whose line range overlaps a diff hunk.
+        let mut changed_symbols: Vec<Value> = Vec::new();
+        let mut changed_node_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+
+        for (file_path, ranges) in &diff_hunks {
+            let Some(node_ids) = graph.nodes_by_file(file_path) else { continue };
+            for nid in node_ids {
+                let Some(node) = graph.get_node(nid) else { continue };
+                let ns = node.properties.start_line.unwrap_or(0);
+                let ne = node.properties.end_line.unwrap_or(u32::MAX);
+                if ranges
+                    .iter()
+                    .any(|(rs, re)| ranges_overlap(ns, ne, *rs, *re))
+                {
+                    changed_symbols.push(json!({
+                        "id": nid,
+                        "name": node.properties.name,
+                        "label": node.label.as_str(),
+                        "filePath": file_path,
+                        "startLine": ns,
+                        "endLine": ne,
+                    }));
+                    changed_node_ids.insert(nid.clone());
+                }
+            }
+        }
+
+        // Build reverse causal adjacency (same filter as tool_impact).
+        let want_rel = |rt: RelationshipType| {
+            matches!(
+                rt,
+                RelationshipType::Calls
+                    | RelationshipType::CallsAction
+                    | RelationshipType::CallsService
+                    | RelationshipType::Imports
+                    | RelationshipType::Uses
+                    | RelationshipType::DependsOn
+                    | RelationshipType::Inherits
+                    | RelationshipType::Implements
+                    | RelationshipType::Extends
+                    | RelationshipType::Overrides
+                    | RelationshipType::RendersView
+                    | RelationshipType::HandlesRoute
+                    | RelationshipType::Fetches
+                    | RelationshipType::MapsToEntity
+            )
+        };
+        let mut reverse: HashMap<String, Vec<String>> = HashMap::new();
+        let mut step_in_process: HashMap<String, Vec<(String, Option<u32>)>> =
+            HashMap::new();
+        for rel in graph.iter_relationships() {
+            if want_rel(rel.rel_type) {
+                reverse
+                    .entry(rel.target_id.clone())
+                    .or_default()
+                    .push(rel.source_id.clone());
+            }
+            if rel.rel_type == RelationshipType::StepInProcess {
+                step_in_process
+                    .entry(rel.source_id.clone())
+                    .or_default()
+                    .push((rel.target_id.clone(), rel.step));
+            }
+        }
+
+        // BFS upstream from changed nodes to collect transitively-affected nodes.
+        let mut affected: std::collections::HashSet<String> = changed_node_ids.clone();
+        let mut queue: std::collections::VecDeque<(String, usize)> = changed_node_ids
+            .iter()
+            .map(|id| (id.clone(), 0usize))
+            .collect();
+        while let Some((node, depth)) = queue.pop_front() {
+            if depth >= max_upstream_depth {
+                continue;
+            }
+            if let Some(neighbors) = reverse.get(&node) {
+                for n in neighbors {
+                    if affected.insert(n.clone()) {
+                        queue.push_back((n.clone(), depth + 1));
+                    }
+                }
+            }
+        }
+
+        // Collect affected processes: any Process that has a step node in `affected`.
+        let mut affected_process_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for nid in &affected {
+            if let Some(procs) = step_in_process.get(nid) {
+                for (pid, _) in procs {
+                    affected_process_ids.insert(pid.clone());
+                }
+            }
+        }
+        let affected_processes: Vec<Value> = affected_process_ids
+            .iter()
+            .filter_map(|pid| {
+                let pn = graph.get_node(pid)?;
+                Some(json!({
+                    "id": pid,
+                    "name": pn.properties.name,
+                    "description": pn.properties.description,
+                    "stepCount": pn.properties.step_count,
+                }))
+            })
+            .collect();
+
+        // Sample the top-N non-direct affected nodes so agents see concrete
+        // examples of the blast radius without exploding response size.
+        let mut affected_sample: Vec<Value> = Vec::new();
+        for nid in affected.iter().filter(|id| !changed_node_ids.contains(*id)).take(25) {
+            if let Some(n) = graph.get_node(nid) {
+                affected_sample.push(json!({
+                    "id": nid,
+                    "name": n.properties.name,
+                    "label": n.label.as_str(),
+                    "filePath": n.properties.file_path,
+                }));
+            }
+        }
+
+        let risk_level = classify_risk(
+            changed_symbols.len(),
+            affected.len().saturating_sub(changed_symbols.len()),
+            affected_processes.len(),
+        );
 
         Ok(json!({
             "content": [{
                 "type": "text",
                 "text": serde_json::to_string_pretty(&json!({
+                    "summary": {
+                        "changed_files": changed_files.len(),
+                        "changed_count": changed_symbols.len(),
+                        "affected_count": affected.len().saturating_sub(changed_symbols.len()),
+                        "affected_processes": affected_processes.len(),
+                        "risk_level": risk_level,
+                    },
+                    "changed_files": changed_files,
+                    "untracked_files": untracked_files,
+                    "changed_symbols": changed_symbols,
+                    "affected_sample": affected_sample,
+                    "affected_processes": affected_processes,
+                    // Backward-compat fields for older MCP clients:
                     "modified": changed_files,
                     "untracked": untracked_files,
-                    "totalChanges": changed_files.len() + untracked_files.len()
+                    "totalChanges": changed_files.len() + untracked_files.len(),
                 })).unwrap_or_default()
             }],
             "_meta": {
-                "hint": hints::hint_for("detect_changes")
+                "hint": hints::hint_for("detect_changes"),
+                "riskLevel": risk_level,
             }
         }))
     }
 
-    async fn tool_rename(&self, args: &Value) -> Result<Value> {
+    async fn tool_rename(&mut self, args: &Value) -> Result<Value> {
         let target = args
             .get("target")
             .and_then(|v| v.as_str())
@@ -640,50 +893,174 @@ impl LocalBackend {
                 reason: "Missing required 'new_name' parameter".into(),
             })?;
 
+        // dry_run defaults to true — the tool never mutates files unless the
+        // caller explicitly opts in. Apply path is intentionally deferred;
+        // agents should feed the returned patches to their editor.
+        let dry_run = args
+            .get("dry_run")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
         let repo_name = args.get("repo").and_then(|v| v.as_str());
-        let entry = self.resolve_repo(repo_name)?;
-        let db_path = std::path::Path::new(&entry.storage_path).join("db");
-        let adapter = self.pool.get_or_open(&db_path).map_err(McpError::Db)?;
+        let (repo_path, snap_path) = {
+            let entry = self.resolve_repo(repo_name)?;
+            (
+                std::path::PathBuf::from(&entry.path),
+                std::path::Path::new(&entry.storage_path).join("graph.bin"),
+            )
+        };
 
-        let escaped = query::escape_cypher_string(target);
+        let graph = self.load_cached_snapshot(&snap_path)?;
 
-        // Find all references to the target symbol
-        let refs_query = format!(
-            "MATCH (n)-[r]->(target) \
-             WHERE target.name = '{escaped}' OR target.id = '{escaped}' \
-             RETURN n.name AS referenceName, n.id AS referenceId, \
-                    n.filePath AS filePath, n.startLine AS startLine, \
-                    type(r) AS relationType"
-        );
+        // Resolve target nodes by id, then by exact name (case-insensitive).
+        let target_lower = target.to_lowercase();
+        let target_ids: std::collections::HashSet<String> = graph
+            .iter_nodes()
+            .filter(|n| {
+                n.id == target || n.properties.name.to_lowercase() == target_lower
+            })
+            .map(|n| n.id.clone())
+            .collect();
 
-        let references = adapter.execute_query(&refs_query).map_err(McpError::Db)?;
+        if target_ids.is_empty() {
+            return Err(McpError::Internal(format!(
+                "Symbol '{target}' not found in graph"
+            )));
+        }
 
-        // Also find the target node itself
-        let target_query = format!(
-            "MATCH (n) WHERE n.name = '{escaped}' OR n.id = '{escaped}' \
-             RETURN n.name AS name, n.id AS id, n.filePath AS filePath, \
-                    n.startLine AS startLine, n.endLine AS endLine"
-        );
+        // Collect source node ids of every edge pointing AT the target.
+        // We restrict to edges that semantically imply a textual name use.
+        let ref_edges: Vec<(String, RelationshipType)> = graph
+            .iter_relationships()
+            .filter(|r| target_ids.contains(&r.target_id))
+            .filter(|r| {
+                matches!(
+                    r.rel_type,
+                    RelationshipType::Calls
+                        | RelationshipType::Uses
+                        | RelationshipType::Imports
+                        | RelationshipType::Inherits
+                        | RelationshipType::Implements
+                        | RelationshipType::Extends
+                        | RelationshipType::Overrides
+                        | RelationshipType::CallsAction
+                        | RelationshipType::CallsService
+                )
+            })
+            .map(|r| (r.source_id.clone(), r.rel_type))
+            .collect();
 
-        let target_nodes = adapter.execute_query(&target_query).map_err(McpError::Db)?;
+        // `graph_edits` = token occurrences inside a node whose relationship
+        // to the target is graph-confirmed. Confidence 0.9–1.0.
+        let mut graph_edits: Vec<Value> = Vec::new();
+        let mut covered: std::collections::HashSet<(String, u32)> =
+            std::collections::HashSet::new();
+
+        let word_re =
+            regex::Regex::new(&format!(r"\b{}\b", regex::escape(target))).ok();
+
+        // 1) Definition sites.
+        for tid in &target_ids {
+            if let Some(tn) = graph.get_node(tid) {
+                if let Some(re) = word_re.as_ref() {
+                    for edit in scan_node_occurrences(&repo_path, tn, re, new_name) {
+                        let key = (
+                            edit.get("file").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            edit.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        );
+                        if covered.insert(key) {
+                            let mut ed = edit;
+                            ed["confidence"] = json!(1.0);
+                            ed["reason"] = json!("definition");
+                            graph_edits.push(ed);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2) Reference sites (scoped by source node's line range).
+        let mut seen_sources = std::collections::HashSet::new();
+        for (src_id, rel_type) in &ref_edges {
+            if !seen_sources.insert(src_id.clone()) {
+                continue;
+            }
+            let Some(src) = graph.get_node(src_id) else { continue };
+            if let Some(re) = word_re.as_ref() {
+                for edit in scan_node_occurrences(&repo_path, src, re, new_name) {
+                    let key = (
+                        edit.get("file").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        edit.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                    );
+                    if covered.insert(key) {
+                        let mut ed = edit;
+                        ed["confidence"] = json!(0.9);
+                        ed["reason"] = json!(format!("reference via {}", rel_type.as_str()));
+                        graph_edits.push(ed);
+                    }
+                }
+            }
+        }
+
+        // `text_search_edits` = everything else ripgrep finds for \btarget\b
+        // that isn't already in graph_edits. Lower confidence — the agent
+        // should review. Respects .gitignore via the `ignore` crate.
+        let text_search_edits: Vec<Value> = if let Some(re) = word_re.as_ref() {
+            scan_repo_for_identifier(&repo_path, re, new_name, &covered)
+        } else {
+            Vec::new()
+        };
+
+        let files_affected: std::collections::HashSet<String> = graph_edits
+            .iter()
+            .chain(text_search_edits.iter())
+            .filter_map(|e| e.get("file").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+
+        // Apply phase: only when dry_run=false AND every edit is high-confidence.
+        // Never auto-apply text_search_edits — they require human review.
+        let applied = if !dry_run && !graph_edits.is_empty() {
+            apply_edits_to_disk(&repo_path, &graph_edits).ok()
+        } else {
+            None
+        };
+
+        let target_nodes_json: Vec<Value> = target_ids
+            .iter()
+            .filter_map(|id| graph.get_node(id))
+            .map(|n| {
+                json!({
+                    "id": n.id,
+                    "name": n.properties.name,
+                    "label": n.label.as_str(),
+                    "filePath": n.properties.file_path,
+                    "startLine": n.properties.start_line,
+                    "endLine": n.properties.end_line,
+                })
+            })
+            .collect();
 
         Ok(json!({
             "content": [{
                 "type": "text",
                 "text": serde_json::to_string_pretty(&json!({
+                    "status": "success",
                     "target": target,
-                    "newName": new_name,
-                    "targetNodes": target_nodes,
-                    "references": references,
-                    "totalReferences": references.len(),
-                    "filesAffected": references.iter()
-                        .filter_map(|r| r.get("filePath").and_then(|v| v.as_str()))
-                        .collect::<std::collections::HashSet<_>>()
-                        .len()
+                    "new_name": new_name,
+                    "dry_run": dry_run,
+                    "files_affected": files_affected.len(),
+                    "total_edits": graph_edits.len() + text_search_edits.len(),
+                    "graph_edits_count": graph_edits.len(),
+                    "text_search_edits_count": text_search_edits.len(),
+                    "target_nodes": target_nodes_json,
+                    "graph_edits": graph_edits,
+                    "text_search_edits": text_search_edits,
+                    "applied": applied,
                 })).unwrap_or_default()
             }],
             "_meta": {
-                "hint": hints::hint_for("rename")
+                "hint": hints::hint_for("rename"),
+                "dryRun": dry_run,
             }
         }))
     }
@@ -1723,6 +2100,266 @@ impl Default for LocalBackend {
     }
 }
 
+// ─── Helpers: git diff / range overlap / risk ───────────────────────────
+
+/// Parse `git diff --unified=0 HEAD` into `Vec<(file, Vec<(start_line, end_line)>)>`.
+/// Each range is inclusive and uses the NEW line numbering.
+fn collect_git_diff_hunks(repo_path: &std::path::Path) -> Vec<(String, Vec<(u32, u32)>)> {
+    let output = std::process::Command::new("git")
+        .args(["diff", "--unified=0", "HEAD"])
+        .current_dir(repo_path)
+        .output();
+    let stdout = match output {
+        Ok(out) if out.status.success() => out.stdout,
+        _ => return Vec::new(),
+    };
+    let text = String::from_utf8_lossy(&stdout);
+    parse_diff_hunks(&text)
+}
+
+/// Pure parser over a unified-diff text (exposed for unit tests).
+fn parse_diff_hunks(text: &str) -> Vec<(String, Vec<(u32, u32)>)> {
+    let mut out: Vec<(String, Vec<(u32, u32)>)> = Vec::new();
+    let mut current_file: Option<String> = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("+++ ") {
+            // Strip "b/" prefix git uses. "/dev/null" means a delete.
+            let path = rest.trim();
+            if path == "/dev/null" {
+                current_file = None;
+            } else {
+                let p = path.strip_prefix("b/").unwrap_or(path);
+                current_file = Some(p.to_string());
+                out.push((p.to_string(), Vec::new()));
+            }
+        } else if let Some(rest) = line.strip_prefix("@@ ") {
+            // "@@ -20,3 +25,4 @@ …"  →  parse the +25,4 part.
+            let Some(file) = current_file.as_ref() else { continue };
+            if let Some(plus) = rest.split_whitespace().find(|t| t.starts_with('+')) {
+                let spec = &plus[1..]; // strip leading '+'
+                let (start_str, count_str) = spec
+                    .split_once(',')
+                    .map(|(a, b)| (a, b))
+                    .unwrap_or((spec, "1"));
+                let start: u32 = start_str.parse().unwrap_or(0);
+                let count: u32 = count_str.parse().unwrap_or(1);
+                if count == 0 {
+                    continue; // pure-deletion hunk, nothing to attribute on the new side
+                }
+                let end = start + count - 1;
+                if let Some((_, ranges)) = out.iter_mut().find(|(f, _)| f == file) {
+                    ranges.push((start, end));
+                }
+            }
+        }
+    }
+    // Drop entries with no ranges (e.g. renames with no content diff).
+    out.retain(|(_, ranges)| !ranges.is_empty());
+    out
+}
+
+fn collect_git_untracked(repo_path: &std::path::Path) -> Vec<String> {
+    let out = std::process::Command::new("git")
+        .args(["ls-files", "--others", "--exclude-standard"])
+        .current_dir(repo_path)
+        .output();
+    match out {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(|l| l.to_string())
+            .filter(|l| !l.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn ranges_overlap(a_start: u32, a_end: u32, b_start: u32, b_end: u32) -> bool {
+    a_start <= b_end && b_start <= a_end
+}
+
+/// Scan a node's file within `[start_line..end_line]` for occurrences of a
+/// regex and return one edit descriptor per match. Returns an empty vec when
+/// the file cannot be read or the node has no file path.
+fn scan_node_occurrences(
+    repo_path: &std::path::Path,
+    node: &gitnexus_core::graph::types::GraphNode,
+    re: &regex::Regex,
+    new_name: &str,
+) -> Vec<Value> {
+    let file_path = &node.properties.file_path;
+    if file_path.is_empty() {
+        return Vec::new();
+    }
+    let full = repo_path.join(file_path);
+    let Ok(canonical_repo) = repo_path.canonicalize() else { return Vec::new() };
+    let Ok(canonical_file) = full.canonicalize() else { return Vec::new() };
+    if !canonical_file.starts_with(&canonical_repo) {
+        return Vec::new();
+    }
+    let Ok(content) = std::fs::read_to_string(&canonical_file) else { return Vec::new() };
+
+    let start = node.properties.start_line.unwrap_or(1).saturating_sub(1) as usize;
+    let end = node.properties.end_line.unwrap_or(u32::MAX) as usize;
+
+    let mut edits: Vec<Value> = Vec::new();
+    for (idx, line) in content.lines().enumerate() {
+        if idx < start || idx > end.saturating_sub(1) {
+            continue;
+        }
+        for m in re.find_iter(line) {
+            edits.push(json!({
+                "file": file_path,
+                "line": (idx + 1) as u32,
+                "col": (m.start() + 1) as u32,
+                "old_text": m.as_str(),
+                "new_text": new_name,
+                "snippet": truncate_snippet(line, 160),
+            }));
+        }
+    }
+    edits
+}
+
+/// Walk the repo (respecting .gitignore) and collect every `\btarget\b`
+/// match NOT already present in `covered`.
+fn scan_repo_for_identifier(
+    repo_path: &std::path::Path,
+    re: &regex::Regex,
+    new_name: &str,
+    covered: &std::collections::HashSet<(String, u32)>,
+) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    let walker = ignore::WalkBuilder::new(repo_path)
+        .hidden(false)
+        .git_ignore(true)
+        .build();
+    for entry in walker.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        // Skip binary-ish extensions cheaply.
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            if matches!(
+                ext,
+                "png" | "jpg" | "jpeg" | "gif" | "ico" | "pdf" | "zip"
+                    | "tar" | "gz" | "bin" | "exe" | "dll" | "so" | "dylib"
+                    | "jar" | "class" | "o" | "a" | "lib" | "wasm" | "mp4"
+                    | "mp3" | "woff" | "woff2" | "ttf" | "eot"
+            ) {
+                continue;
+            }
+        }
+        let Ok(content) = std::fs::read_to_string(path) else { continue };
+        let rel = match path.strip_prefix(repo_path) {
+            Ok(p) => p.to_string_lossy().replace('\\', "/"),
+            Err(_) => continue,
+        };
+        for (idx, line) in content.lines().enumerate() {
+            let line_no = (idx + 1) as u32;
+            if covered.contains(&(rel.clone(), line_no)) {
+                continue;
+            }
+            for m in re.find_iter(line) {
+                out.push(json!({
+                    "file": rel,
+                    "line": line_no,
+                    "col": (m.start() + 1) as u32,
+                    "old_text": m.as_str(),
+                    "new_text": new_name,
+                    "snippet": truncate_snippet(line, 160),
+                }));
+                // One hit per line is enough for review.
+                break;
+            }
+        }
+        if out.len() > 500 {
+            break; // cap response size for huge repos
+        }
+    }
+    out
+}
+
+fn truncate_snippet(s: &str, max: usize) -> String {
+    let t = s.trim();
+    if t.len() <= max {
+        t.to_string()
+    } else {
+        format!("{}…", &t[..max])
+    }
+}
+
+/// Apply graph_edits (high-confidence) to disk. Reads each file once,
+/// patches all edits for it, then writes back. Returns per-file counts.
+fn apply_edits_to_disk(
+    repo_path: &std::path::Path,
+    edits: &[Value],
+) -> std::io::Result<Value> {
+    use std::collections::BTreeMap;
+    // Group by file; sort edits bottom-up so offsets stay valid as we patch.
+    let mut by_file: BTreeMap<String, Vec<(u32, u32, String, String)>> = BTreeMap::new();
+    for e in edits {
+        let Some(file) = e.get("file").and_then(|v| v.as_str()) else { continue };
+        let Some(line) = e.get("line").and_then(|v| v.as_u64()) else { continue };
+        let Some(col) = e.get("col").and_then(|v| v.as_u64()) else { continue };
+        let Some(old) = e.get("old_text").and_then(|v| v.as_str()) else { continue };
+        let Some(new) = e.get("new_text").and_then(|v| v.as_str()) else { continue };
+        by_file
+            .entry(file.to_string())
+            .or_default()
+            .push((line as u32, col as u32, old.to_string(), new.to_string()));
+    }
+
+    let mut applied_per_file: Vec<Value> = Vec::new();
+    for (file, mut edits) in by_file {
+        edits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+        let full = repo_path.join(&file);
+        let content = std::fs::read_to_string(&full)?;
+        let mut lines: Vec<String> = content.lines().map(String::from).collect();
+        let mut applied = 0u32;
+        for (line_no, col, old, new) in &edits {
+            let idx = (*line_no as usize).saturating_sub(1);
+            if idx >= lines.len() {
+                continue;
+            }
+            let col_idx = (*col as usize).saturating_sub(1);
+            let line = &lines[idx];
+            let end = col_idx + old.len();
+            if end <= line.len() && &line[col_idx..end] == old {
+                let mut patched = String::with_capacity(line.len() + new.len());
+                patched.push_str(&line[..col_idx]);
+                patched.push_str(new);
+                patched.push_str(&line[end..]);
+                lines[idx] = patched;
+                applied += 1;
+            }
+        }
+        // Preserve trailing newline if it was present.
+        let mut new_content = lines.join("\n");
+        if content.ends_with('\n') {
+            new_content.push('\n');
+        }
+        std::fs::write(&full, new_content)?;
+        applied_per_file.push(json!({"file": file, "applied": applied}));
+    }
+    Ok(json!({"files": applied_per_file}))
+}
+
+fn classify_risk(direct: usize, transitive: usize, processes: usize) -> &'static str {
+    // Heuristic: a change is "high" if it hits a process or >10 transitive
+    // dependents; "medium" if it touches 3+ direct symbols or any dependents;
+    // "low" otherwise. Mirrors the upstream GitNexus risk buckets.
+    if processes >= 2 || transitive >= 20 {
+        "high"
+    } else if processes >= 1 || transitive >= 5 || direct >= 3 {
+        "medium"
+    } else if direct > 0 {
+        "low"
+    } else {
+        "none"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1771,5 +2408,77 @@ mod tests {
             .call_tool("cypher", &json!({"query": "CREATE (n:File {id: '1'})"}))
             .await;
         assert!(matches!(result, Err(McpError::WriteQueryRejected)));
+    }
+
+    #[test]
+    fn test_parse_diff_hunks_single_file() {
+        let diff = "\
+diff --git a/src/foo.ts b/src/foo.ts
+index 1111111..2222222 100644
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -10,3 +10,5 @@
+@@ -40,0 +42,1 @@
+";
+        let parsed = parse_diff_hunks(diff);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].0, "src/foo.ts");
+        assert_eq!(parsed[0].1, vec![(10, 14), (42, 42)]);
+    }
+
+    #[test]
+    fn test_parse_diff_hunks_pure_deletion_skipped() {
+        // A hunk with +count=0 is a pure deletion and has no new-side lines
+        // to attribute. Parser must skip it instead of emitting (line, line-1).
+        let diff = "\
++++ b/a.rs
+@@ -5,3 +5,0 @@
+";
+        let parsed = parse_diff_hunks(diff);
+        assert!(parsed.is_empty(), "pure-deletion hunk should not produce a range");
+    }
+
+    #[test]
+    fn test_parse_diff_hunks_multiple_files() {
+        let diff = "\
++++ b/a.ts
+@@ -1 +1,2 @@
++++ b/b.ts
+@@ -5,2 +5,3 @@
+@@ -20 +21 @@
+";
+        let parsed = parse_diff_hunks(diff);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].0, "a.ts");
+        assert_eq!(parsed[0].1, vec![(1, 2)]);
+        assert_eq!(parsed[1].0, "b.ts");
+        assert_eq!(parsed[1].1, vec![(5, 7), (21, 21)]);
+    }
+
+    #[test]
+    fn test_classify_risk_levels() {
+        assert_eq!(classify_risk(0, 0, 0), "none");
+        assert_eq!(classify_risk(1, 0, 0), "low");
+        assert_eq!(classify_risk(3, 0, 0), "medium");
+        assert_eq!(classify_risk(1, 6, 0), "medium");
+        assert_eq!(classify_risk(0, 0, 1), "medium");
+        assert_eq!(classify_risk(0, 0, 2), "high");
+        assert_eq!(classify_risk(0, 20, 0), "high");
+    }
+
+    #[test]
+    fn test_ranges_overlap() {
+        assert!(ranges_overlap(10, 20, 15, 25));
+        assert!(ranges_overlap(10, 20, 5, 15));
+        assert!(ranges_overlap(10, 20, 10, 10));
+        assert!(ranges_overlap(10, 20, 20, 20));
+        assert!(!ranges_overlap(10, 20, 21, 30));
+        assert!(!ranges_overlap(10, 20, 0, 9));
+    }
+
+    #[test]
+    fn test_truncate_snippet() {
+        assert_eq!(truncate_snippet("  hello  ", 10), "hello");
+        assert_eq!(truncate_snippet("abcdef", 3), "abc…");
     }
 }

@@ -567,3 +567,325 @@ pub struct ModuleQuickPick {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
+
+// ─── Feature-Dev Artifact ────────────────────────────────────────────────
+//
+// Mirrors the Claude `feature-dev` skill: a three-phase pipeline
+// (explorer → architect → reviewer) that produces a structured artifact
+// instead of a conversational answer. Each phase streams its section as
+// soon as it's done so the UI can render incrementally.
+
+/// One of the three phases of feature-dev.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FeatureDevPhase {
+    Explorer,
+    Architect,
+    Reviewer,
+}
+
+/// Status of a phase (emitted to the frontend).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PhaseStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+/// A single section of the feature-dev artifact, produced by one phase.
+///
+/// `kind` discriminates the shape: "surface_analysis" (explorer output),
+/// "blueprint" (architect output), "review" (reviewer output). The
+/// `markdown` field holds the pre-rendered Markdown the phase produced;
+/// the structured fields are optional hints the UI can render in a
+/// richer way (tables, chips, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeatureDevSection {
+    pub phase: FeatureDevPhase,
+    pub title: String,
+    /// Pre-rendered Markdown content for the section body.
+    pub markdown: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surface: Option<SurfaceAnalysis>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blueprint: Option<Blueprint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review: Option<Review>,
+    /// Milliseconds spent on this phase (wall clock).
+    pub duration_ms: u64,
+}
+
+/// Explorer-phase output: what this part of the codebase currently looks like.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SurfaceAnalysis {
+    /// Modules / communities likely affected by the feature.
+    pub modules: Vec<String>,
+    /// Entry points that already handle similar concerns.
+    pub entry_points: Vec<String>,
+    /// Architecture layers detected in the affected area
+    /// (e.g. `["Controller", "Service", "Repository"]`).
+    pub layers: Vec<String>,
+    /// File paths that are load-bearing for the affected area.
+    pub key_files: Vec<String>,
+}
+
+/// Architect-phase output: the implementation blueprint.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Blueprint {
+    pub files_to_create: Vec<FilePlan>,
+    pub files_to_modify: Vec<FilePlan>,
+    /// Ordered list of build steps (high-level plan).
+    pub build_sequence: Vec<String>,
+    /// Data-flow description (free text).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_flow: Option<String>,
+}
+
+/// A planned change to a file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilePlan {
+    pub path: String,
+    pub purpose: String,
+}
+
+/// Reviewer-phase output: high-confidence issues surfaced before any code is written.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Review {
+    pub issues: Vec<ReviewIssue>,
+    /// Predicted blast radius of the blueprint against the current graph.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predicted_impact: Option<String>,
+    /// Overall readiness: "ready", "needs_revisions", "blocked".
+    pub verdict: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewIssue {
+    pub severity: String, // "high" | "medium" | "low"
+    pub confidence: f64,
+    pub title: String,
+    pub detail: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+}
+
+/// The complete artifact produced by a feature-dev run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeatureDevArtifact {
+    pub id: String,
+    pub feature_description: String,
+    pub sections: Vec<FeatureDevSection>,
+    pub status: PlanStatus,
+    /// Optional final summary generated after the 3 phases complete.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+/// Request body for the feature_dev Tauri command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeatureDevRequest {
+    pub feature_description: String,
+    #[serde(default)]
+    pub filters: Option<ChatContextFilter>,
+    /// If true, returns a dry artifact with only the explorer phase
+    /// (faster, good for previewing the surface before committing to a
+    /// full architect+reviewer pass).
+    #[serde(default)]
+    pub explorer_only: bool,
+}
+
+/// Event payload for `feature-dev-phase` frontend events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeatureDevPhaseEvent {
+    pub artifact_id: String,
+    pub phase: FeatureDevPhase,
+    pub status: PhaseStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Event payload for `feature-dev-section` frontend events: one section
+/// (produced by a completed phase) streamed to the UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeatureDevSectionEvent {
+    pub artifact_id: String,
+    pub section: FeatureDevSection,
+}
+
+// ─── Code-Review Artifact ────────────────────────────────────────────────
+//
+// Absorbs Claude's `code-review` skill. Takes the current git diff (or an
+// explicit symbol list), pre-computes objective signals from the graph
+// (impact blast radius, hotspots intersect, coverage gaps, ownership
+// fragmentation), then asks the LLM to produce a focused review with
+// confidence-filtered issues.
+
+/// Request body for the `code_review_run` Tauri command.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeReviewRequest {
+    /// Explicit list of changed symbol names/ids to review. If omitted,
+    /// the command derives the scope from `git diff HEAD`.
+    #[serde(default)]
+    pub target_symbols: Vec<String>,
+    /// Confidence floor for issue inclusion (default 0.8).
+    #[serde(default)]
+    pub min_confidence: Option<f64>,
+    /// Whether to include low/medium severity issues (default: false).
+    #[serde(default)]
+    pub include_all_severities: bool,
+}
+
+/// The complete artifact produced by a code_review run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeReviewArtifact {
+    pub id: String,
+    pub scope_summary: String,
+    pub status: PlanStatus,
+    pub signals: CodeReviewSignals,
+    pub review: Review,
+    /// Combined Markdown document suitable for export.
+    pub markdown: String,
+    pub duration_ms: u64,
+}
+
+/// Objective graph-derived signals fed to the reviewer LLM.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeReviewSignals {
+    pub changed_files: Vec<String>,
+    pub changed_symbols: Vec<String>,
+    pub affected_count: u32,
+    pub affected_processes: Vec<String>,
+    /// Files in the change set that are also in the hotspots top-N.
+    pub hotspot_files: Vec<String>,
+    /// Symbols in the change set with no tracing coverage.
+    pub untraced_symbols: Vec<String>,
+    /// Symbols in the change set already flagged as dead candidates.
+    pub dead_candidates: Vec<String>,
+    pub risk_level: String,
+}
+
+// ─── Simplify Artifact ───────────────────────────────────────────────────
+//
+// Absorbs Claude's `simplify` skill: examine a target (file or module),
+// surface dead code, code smells, complexity hotspots, and duplication
+// candidates, then propose concrete refactor moves with rationale.
+
+/// Request body for `simplify_run`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimplifyRequest {
+    /// File path, module/community name, or symbol to focus on.
+    /// If omitted, picks the most-complex file in the active repo.
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Minimum complexity to consider a symbol simplifiable (default: 8).
+    #[serde(default)]
+    pub min_complexity: Option<u32>,
+}
+
+/// Aggregated simplify signals (deterministic, graph-derived).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimplifySignals {
+    pub scope: String,
+    pub complex_symbols: Vec<ComplexSymbol>,
+    pub dead_candidates: Vec<String>,
+    pub untraced_symbols: Vec<String>,
+    pub llm_smells: Vec<String>,
+    /// Symbol-name groups with the same name (potential duplication).
+    pub duplicate_groups: Vec<DuplicateGroup>,
+    pub total_files: u32,
+    pub total_symbols: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComplexSymbol {
+    pub name: String,
+    pub file_path: String,
+    pub complexity: u32,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateGroup {
+    pub name: String,
+    pub occurrences: u32,
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimplifyArtifact {
+    pub id: String,
+    pub status: PlanStatus,
+    pub signals: SimplifySignals,
+    /// LLM- (or graph-) generated refactoring proposals.
+    pub proposals: Vec<SimplifyProposal>,
+    pub markdown: String,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimplifyProposal {
+    pub kind: String, // "extract" | "delete" | "merge" | "inline" | "rename"
+    pub target: String,
+    pub rationale: String,
+    pub confidence: f64,
+}
+
+// ─── Rename Refactor ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameRequest {
+    pub target: String,
+    pub new_name: String,
+    /// When true (default), no files are touched — only the patch list is returned.
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameEdit {
+    pub file: String,
+    pub line: u32,
+    pub col: u32,
+    pub old_text: String,
+    pub new_text: String,
+    pub snippet: String,
+    pub confidence: f64,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameResult {
+    pub target: String,
+    pub new_name: String,
+    pub dry_run: bool,
+    pub files_affected: u32,
+    pub graph_edits: Vec<RenameEdit>,
+    pub text_search_edits: Vec<RenameEdit>,
+    /// Only populated when dry_run = false — per-file applied edit counts.
+    #[serde(default)]
+    pub applied: Option<serde_json::Value>,
+}

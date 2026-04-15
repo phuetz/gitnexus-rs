@@ -7,6 +7,8 @@ import { CodePanel } from "../code/CodePanel";
 import { LayersTab } from "../detail/LayersTab";
 import { CodeHealthCard } from "../health/CodeHealthCard";
 import { SymbolBreadcrumb } from "../shared/Breadcrumb";
+import { BookmarkStar } from "./BookmarkStar";
+import { CommentsThread } from "./CommentsThread";
 import { SkeletonLine } from "../shared/motion";
 import { commands } from "../../lib/tauri-commands";
 import { ChevronDown, Code2 } from "lucide-react";
@@ -78,9 +80,15 @@ export function DetailPanel() {
       className="h-full flex flex-col"
       style={{ backgroundColor: "var(--glass-bg)", backdropFilter: "blur(12px)", borderLeft: "1px solid var(--surface-border)" }}
     >
-      {/* Breadcrumb */}
-      <div className="px-4 pt-2 pb-0" style={{ background: "var(--bg-1)" }}>
-        <SymbolBreadcrumb />
+      {/* Breadcrumb + bookmark star */}
+      <div
+        className="px-4 pt-2 pb-0 flex items-center gap-2"
+        style={{ background: "var(--bg-1)" }}
+      >
+        <div className="flex-1 min-w-0">
+          <SymbolBreadcrumb />
+        </div>
+        <BookmarkStar />
       </div>
 
       {/* Tab bar */}
@@ -114,7 +122,7 @@ export function DetailPanel() {
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 min-h-0 overflow-hidden" role="tabpanel" id="detail-tabpanel" aria-labelledby={`detail-tab-${detailTab}`}>
+      <div className="flex-1 min-h-0 overflow-auto" role="tabpanel" id="detail-tabpanel" aria-labelledby={`detail-tab-${detailTab}`}>
         {detailTab === "context" && <ContextTab />}
         {detailTab === "code" && <CodePanel />}
         {detailTab === "properties" && <PropertiesTab />}
@@ -124,6 +132,8 @@ export function DetailPanel() {
             <CodeHealthCard />
           </div>
         )}
+        {/* Persistent notes / annotations for this node */}
+        <CommentsThread />
       </div>
     </div>
   );

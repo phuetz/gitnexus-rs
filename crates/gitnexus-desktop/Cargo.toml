@@ -30,3 +30,6 @@ futures-util.workspace = true
 chrono.workspace = true
 once_cell.workspace = true
 zip.workspace = true
+uuid.workspace = true
+regex.workspace = true
+ignore.workspace = true

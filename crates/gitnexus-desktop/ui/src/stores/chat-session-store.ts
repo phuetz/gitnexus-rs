@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ChatSource as ChatSourceType, ResearchPlan, QueryComplexity } from "../lib/tauri-commands";
+import type {
+  ChatSource as ChatSourceType,
+  ResearchPlan,
+  QueryComplexity,
+  FeatureDevArtifact,
+  CodeReviewArtifact,
+  SimplifyArtifact,
+} from "../lib/tauri-commands";
 
 export interface Message {
   id: string;
@@ -9,6 +16,12 @@ export interface Message {
   sources?: ChatSourceType[];
   model?: string | null;
   plan?: ResearchPlan;
+  /** When present, the message was produced by a feature-dev run. */
+  artifact?: FeatureDevArtifact;
+  /** When present, the message was produced by a code_review run. */
+  reviewArtifact?: CodeReviewArtifact;
+  /** When present, the message was produced by a simplify run. */
+  simplifyArtifact?: SimplifyArtifact;
   complexity?: QueryComplexity;
   timestamp: number;
 }

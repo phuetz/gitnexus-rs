@@ -172,7 +172,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function ScoreBadge({ value }: { value: number }) {
   const pct = Math.round(value * 100);
-  const color = pct >= 70 ? "#f7768e" : pct >= 40 ? "#e0af68" : "#9ece6a";
+  const color = pct >= 70 ? "var(--rose)" : pct >= 40 ? "var(--amber)" : "var(--green)";
   return (
     <span
       style={{

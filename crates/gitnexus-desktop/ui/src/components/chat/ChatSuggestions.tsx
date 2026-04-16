@@ -10,25 +10,25 @@ const SUGGESTIONS = [
     icon: Zap,
     textKey: "chat.suggestion.entryPoints",
     fallback: "What are the main entry points of the application?",
-    color: "#e0af68",
+    color: "var(--amber)",
   },
   {
     icon: Code2,
     textKey: "chat.suggestion.complex",
     fallback: "Show me the most complex methods",
-    color: "#7aa2f7",
+    color: "var(--accent)",
   },
   {
     icon: Network,
     textKey: "chat.suggestion.architecture",
     fallback: "Explain the overall architecture",
-    color: "#9ece6a",
+    color: "var(--green)",
   },
   {
     icon: Skull,
     textKey: "chat.suggestion.deadCode",
     fallback: "Is there any dead code?",
-    color: "#f7768e",
+    color: "var(--rose)",
   },
 ];
 
@@ -111,7 +111,7 @@ export function ChatSuggestions({ onSelect }: Props) {
       <StaggerContainer
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
           gap: 10,
           maxWidth: 500,
           width: "100%",

@@ -74,8 +74,17 @@ impl DatabaseBackend for InMemoryBackend {
             db_path.display()
         );
 
-        // The db_path should be the directory containing graph.bin
+        // The db_path may be storage_path/db (the KuzuDB convention) while
+        // the JSON snapshot lives at storage_path/graph.bin.  Try db_path
+        // first, then its parent, so both layouts work.
         let snapshot_path = crate::snapshot::snapshot_path(db_path);
+        let snapshot_path = if crate::snapshot::snapshot_exists(&snapshot_path) {
+            snapshot_path
+        } else if let Some(parent) = db_path.parent() {
+            crate::snapshot::snapshot_path(parent)
+        } else {
+            snapshot_path
+        };
 
         if !crate::snapshot::snapshot_exists(&snapshot_path) {
             // No snapshot yet — open with empty graph. Build the indexes

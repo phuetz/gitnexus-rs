@@ -29,6 +29,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { ResearchPlan, ResearchStep, StepStatus, QueryComplexity } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
 
 interface ResearchPlanViewerProps {
   plan: ResearchPlan;
@@ -36,6 +37,7 @@ interface ResearchPlanViewerProps {
 }
 
 export function ResearchPlanViewer({ plan, compact = false }: ResearchPlanViewerProps) {
+  const { t } = useI18n();
   const completedSteps = plan.steps.filter((s) => s.status === "completed").length;
   const totalSteps = plan.steps.length;
   const progressPercent = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0;
@@ -58,7 +60,7 @@ export function ResearchPlanViewer({ plan, compact = false }: ResearchPlanViewer
       <div className="px-3 py-2 flex items-center gap-2">
         <Microscope size={14} style={{ color: "var(--purple)" }} />
         <span className="text-[12px] font-medium" style={{ color: "var(--text-0)" }}>
-          Research Plan
+          {t("research.planTitle")}
         </span>
         <ComplexityBadge complexity={plan.analysis.complexity} />
         <span className="text-[11px]" style={{ color: "var(--text-3)" }}>
@@ -271,6 +273,8 @@ const TOOL_ICONS: Record<string, typeof Search> = {
   execute_cypher: Database,
 };
 
+// Tool labels are resolved via i18n at render time (see TOOL_LABELS usage in the component).
+// Fallbacks used here are the English defaults when i18n key is missing.
 const TOOL_LABELS: Record<string, string> = {
   search_symbols: "Symbol Search",
   get_symbol_context: "Context Analysis",

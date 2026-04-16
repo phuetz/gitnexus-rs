@@ -217,7 +217,7 @@ export function UserCommandsPanel({ open, onClose }: Props) {
                       onClick={() => {
                         if (window.confirm(`Delete "/${cmd.name}"?`)) deleteMut.mutate(cmd.id);
                       }}
-                      style={pillBtn("#f7768e")}
+                      style={pillBtn("var(--rose)")}
                     >
                       <Trash2 size={10} />
                     </button>

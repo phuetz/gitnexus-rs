@@ -115,7 +115,8 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
             return false;
         }
         lower.contains(".cshtml") || lower.contains(".razor")
-            || lower.ends_with(".js") || lower.ends_with(".jsx")
+            || lower.contains("#script-") // virtual embedded JS from Razor
+            || lower.ends_with(".jsx")
             || lower.ends_with(".vue")
     };
 

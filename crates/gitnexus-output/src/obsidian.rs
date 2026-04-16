@@ -90,8 +90,10 @@ pub fn generate_obsidian_vault(
     create_dir_all_traced(&files_dir)?;
 
     let mut edge_map: HashMap<String, Vec<(String, RelationshipType)>> = HashMap::new();
+    let mut incoming_map: HashMap<String, Vec<(String, RelationshipType)>> = HashMap::new();
     for rel in graph.iter_relationships() {
         edge_map.entry(rel.source_id.clone()).or_default().push((rel.target_id.clone(), rel.rel_type));
+        incoming_map.entry(rel.target_id.clone()).or_default().push((rel.source_id.clone(), rel.rel_type));
     }
 
     // 1. Generate Index.md
@@ -115,7 +117,7 @@ pub fn generate_obsidian_vault(
 
     // 4. Generate Node pages
     for node in graph.iter_nodes().filter(|n| n.label != NodeLabel::File && n.label != NodeLabel::Community && n.label != NodeLabel::Process && n.label != NodeLabel::Document && n.label != NodeLabel::DocChunk) {
-        generate_node_page(&nodes_dir, node, graph, &edge_map)?;
+        generate_node_page(&nodes_dir, node, graph, &edge_map, &incoming_map)?;
     }
 
     // 5. Generate Process pages
@@ -254,7 +256,7 @@ fn generate_claudecode_instructions(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn generate_node_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge_map: &HashMap<String, Vec<(String, RelationshipType)>>) -> Result<()> {
+fn generate_node_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge_map: &HashMap<String, Vec<(String, RelationshipType)>>, incoming_map: &HashMap<String, Vec<(String, RelationshipType)>>) -> Result<()> {
     // Use a sanitized label string for the subdir so labels like
     // DocChunk / Document — if the upstream filter ever misses them —
     // still yield a valid path component.
@@ -306,25 +308,23 @@ fn generate_node_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge
         writeln!(f)?;
     }
 
-    // Incoming (simple scan)
+    // Incoming edges (O(1) lookup via pre-built reverse map)
     writeln!(f, "## 📥 Utilisé par (Entrant)")?;
-    for (src_id, edges) in edge_map {
-        for (target_id, rel) in edges {
-            if target_id == &node.id {
-                if let Some(src) = graph.get_node(src_id) {
-                    let folder = if src.label == NodeLabel::File { "Fichiers" } 
-                                else if src.label == NodeLabel::Community { "Modules" }
-                                else { "Symboles" };
-                    let subfolder = if folder == "Symboles" { format!("{}/", src.label.as_str()) } else { "".to_string() };
+    if let Some(incoming) = incoming_map.get(&node.id) {
+        for (src_id, rel) in incoming {
+            if let Some(src) = graph.get_node(src_id) {
+                let folder = if src.label == NodeLabel::File { "Fichiers" }
+                            else if src.label == NodeLabel::Community { "Modules" }
+                            else { "Symboles" };
+                let subfolder = if folder == "Symboles" { format!("{}/", src.label.as_str()) } else { "".to_string() };
 
-                    writeln!(f, "- [[{}/{}{}|{}]] ({:?})", 
-                        folder, 
-                        subfolder,
-                        sanitize_obsidian_filename(&src.properties.name), 
-                        src.properties.name,
-                        rel
-                    )?;
-                }
+                writeln!(f, "- [[{}/{}{}|{}]] ({:?})",
+                    folder,
+                    subfolder,
+                    sanitize_obsidian_filename(&src.properties.name),
+                    src.properties.name,
+                    rel
+                )?;
             }
         }
     }

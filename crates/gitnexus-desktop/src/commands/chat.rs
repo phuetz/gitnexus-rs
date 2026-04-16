@@ -36,7 +36,7 @@ struct PersistedChatConfig {
     reasoning_effort: String,
     /// Optional API key persisted in the file (CLI compatibility).
     /// If absent, will be loaded from environment variables.
-    #[serde(default, alias = "api_key", alias = "apiKey")]
+    #[serde(default, skip_serializing_if = "String::is_empty", alias = "api_key", alias = "apiKey")]
     api_key: String,
 }
 

@@ -30,7 +30,7 @@ export function GraphZoomControls({
       <Tooltip content={t("zoom.in")}>
         <button
           onClick={onZoomIn}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
+          className="w-11 h-11 rounded-lg flex items-center justify-center text-sm font-bold transition-colors hover:brightness-125 focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
           style={btnStyle}
           aria-label={t("zoom.inLabel")}
         >
@@ -40,7 +40,7 @@ export function GraphZoomControls({
       <Tooltip content={t("zoom.out")}>
         <button
           onClick={onZoomOut}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
+          className="w-11 h-11 rounded-lg flex items-center justify-center text-sm font-bold transition-colors hover:brightness-125 focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
           style={btnStyle}
           aria-label={t("zoom.outLabel")}
         >
@@ -50,7 +50,7 @@ export function GraphZoomControls({
       <Tooltip content={t("zoom.fit")}>
         <button
           onClick={onFitView}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold"
+          className="w-11 h-11 rounded-lg flex items-center justify-center text-xs font-bold transition-colors hover:brightness-125 focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
           style={btnStyle}
           aria-label={t("zoom.fitLabel")}
         >

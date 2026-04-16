@@ -9,7 +9,7 @@
  * snapshot copies in <.gitnexus>/snapshots/.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useQuery,
   useMutation,
@@ -45,9 +45,11 @@ export function SnapshotsPanel() {
   });
 
   // Auto-select the most-recent snapshot as "from" when the list loads.
-  if (snapshots.length > 0 && from === "") {
-    setFrom(snapshots[0].id);
-  }
+  useEffect(() => {
+    if (snapshots.length > 0 && from === "") {
+      setFrom(snapshots[0].id);
+    }
+  }, [snapshots, from]);
 
   const createMut = useMutation({
     mutationFn: (label?: string) => commands.snapshotCreate(label),
@@ -193,7 +195,7 @@ export function SnapshotsPanel() {
             Pick a "from" and "to" snapshot in the left column.
           </div>
         ) : from === to ? (
-          <div style={{ marginTop: 16, color: "#e0af68", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ marginTop: 16, color: "var(--amber)", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
             <AlertCircle size={12} /> Pick two different snapshots.
           </div>
         ) : diffQ.isLoading ? (
@@ -201,7 +203,7 @@ export function SnapshotsPanel() {
             <Loader2 size={12} className="animate-spin" /> Computing diff…
           </div>
         ) : diffQ.error ? (
-          <div style={{ marginTop: 16, color: "#f7768e", fontSize: 12 }}>
+          <div style={{ marginTop: 16, color: "var(--rose)", fontSize: 12 }}>
             {(diffQ.error as Error).message}
           </div>
         ) : diffQ.data ? (
@@ -261,7 +263,7 @@ function SnapshotRow({
               padding: "1px 4px",
               borderRadius: 3,
               background: "rgba(158,206,106,0.15)",
-              color: "#9ece6a",
+              color: "var(--green)",
             }}
           >
             live
@@ -295,13 +297,13 @@ function SnapshotRow({
       <div style={{ marginTop: 6, display: "flex", gap: 4 }}>
         <button
           onClick={onPickFrom}
-          style={pickBtnStyle(isFrom, "#7aa2f7")}
+          style={pickBtnStyle(isFrom, "var(--accent)")}
         >
           From
         </button>
         <button
           onClick={onPickTo}
-          style={pickBtnStyle(isTo, "#9ece6a")}
+          style={pickBtnStyle(isTo, "var(--green)")}
         >
           To
         </button>
@@ -373,9 +375,9 @@ function DiffView({ diff }: { diff: SnapshotDiff }) {
           marginBottom: 16,
         }}
       >
-        <CountCard label="Added" value={diff.totalAdded} color="#9ece6a" />
-        <CountCard label="Removed" value={diff.totalRemoved} color="#f7768e" />
-        <CountCard label="Modified" value={diff.totalModified} color="#e0af68" />
+        <CountCard label="Added" value={diff.totalAdded} color="var(--green)" />
+        <CountCard label="Removed" value={diff.totalRemoved} color="var(--rose)" />
+        <CountCard label="Modified" value={diff.totalModified} color="var(--amber)" />
         <CountCard
           label="Net nodes"
           value={diff.toNodeCount - diff.fromNodeCount}
@@ -409,10 +411,10 @@ function DiffView({ diff }: { diff: SnapshotDiff }) {
                 <td style={td()}>{d.label}</td>
                 <td style={td("right")}>{d.fromCount}</td>
                 <td style={td("right")}>{d.toCount}</td>
-                <td style={{ ...td("right"), color: d.added > 0 ? "#9ece6a" : "var(--text-3)" }}>
+                <td style={{ ...td("right"), color: d.added > 0 ? "var(--green)" : "var(--text-3)" }}>
                   {d.added > 0 ? `+${d.added}` : "—"}
                 </td>
-                <td style={{ ...td("right"), color: d.removed > 0 ? "#f7768e" : "var(--text-3)" }}>
+                <td style={{ ...td("right"), color: d.removed > 0 ? "var(--rose)" : "var(--text-3)" }}>
                   {d.removed > 0 ? `−${d.removed}` : "—"}
                 </td>
               </tr>
@@ -423,10 +425,10 @@ function DiffView({ diff }: { diff: SnapshotDiff }) {
 
       {/* Sample lists */}
       {diff.addedSample.length > 0 && (
-        <NodeSampleList title={`Added (${diff.totalAdded})`} color="#9ece6a" nodes={diff.addedSample} />
+        <NodeSampleList title={`Added (${diff.totalAdded})`} color="var(--green)" nodes={diff.addedSample} />
       )}
       {diff.removedSample.length > 0 && (
-        <NodeSampleList title={`Removed (${diff.totalRemoved})`} color="#f7768e" nodes={diff.removedSample} />
+        <NodeSampleList title={`Removed (${diff.totalRemoved})`} color="var(--rose)" nodes={diff.removedSample} />
       )}
       {diff.modifiedSample.length > 0 && <ModifiedList nodes={diff.modifiedSample} total={diff.totalModified} />}
 
@@ -511,7 +513,7 @@ function ModifiedList({
 }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <SectionTitle accent="#e0af68">Modified ({total})</SectionTitle>
+      <SectionTitle accent="var(--amber)">Modified ({total})</SectionTitle>
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {nodes.map((n) => (
           <div

@@ -26,11 +26,11 @@ interface Props {
 }
 
 const KIND_COLORS: Record<string, string> = {
-  delete: "#f7768e",
-  extract: "#7aa2f7",
+  delete: "var(--rose)",
+  extract: "var(--accent)",
   merge: "#bb9af7",
-  inline: "#9ece6a",
-  rename: "#e0af68",
+  inline: "var(--green)",
+  rename: "var(--amber)",
 };
 
 export function SimplifyPanel({ artifact }: Props) {

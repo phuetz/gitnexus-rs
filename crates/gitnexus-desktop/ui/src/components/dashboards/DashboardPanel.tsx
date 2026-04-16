@@ -400,7 +400,7 @@ function DashboardEditor({
           <span
             style={{
               fontSize: 9,
-              color: "#e0af68",
+              color: "var(--amber)",
               padding: "1px 6px",
               border: "1px solid #e0af68",
               borderRadius: 999,
@@ -420,7 +420,7 @@ function DashboardEditor({
           <button
             onClick={onToggleEdit}
             title={editing ? "Done editing" : "Edit"}
-            style={pillBtn(editing ? "#9ece6a" : undefined)}
+            style={pillBtn(editing ? "var(--green)" : undefined)}
           >
             {editing ? <CheckIcon size={11} /> : <Pencil size={11} />}
             {editing ? "done" : "edit"}
@@ -536,7 +536,7 @@ function WidgetCard({
             <button onClick={onMoveDown} title="Move down" aria-label="Move down" style={iconBtn()}>
               <ArrowDown size={10} />
             </button>
-            <button onClick={onRemove} title="Delete widget" aria-label="Delete widget" style={iconBtn("#f7768e")}>
+            <button onClick={onRemove} title="Delete widget" aria-label="Delete widget" style={iconBtn("var(--rose)")}>
               <Trash2 size={10} />
             </button>
           </>
@@ -607,7 +607,7 @@ function WidgetCard({
       <div style={{ minHeight: 80 }}>
         {isLoading && <div style={{ fontSize: 11, color: "var(--text-3)" }}>Loading…</div>}
         {error && (
-          <div style={{ fontSize: 11, color: "#f7768e", fontFamily: "var(--font-mono)" }}>
+          <div style={{ fontSize: 11, color: "var(--rose)", fontFamily: "var(--font-mono)" }}>
             {(error as Error).message}
           </div>
         )}

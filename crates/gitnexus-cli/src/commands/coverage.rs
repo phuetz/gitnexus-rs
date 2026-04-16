@@ -14,7 +14,8 @@ pub fn run(target: Option<&str>, path: Option<&str>, json: bool, trace: bool) ->
         std::env::current_dir()?
     };
 
-    let snap_path = repo_path.join(".gitnexus").join("graph.bin");
+    let storage = gitnexus_core::storage::repo_manager::get_storage_paths(&repo_path);
+    let snap_path = gitnexus_db::snapshot::snapshot_path(std::path::Path::new(&storage.storage_path));
     if !snap_path.exists() {
         println!("{} No index found. Run 'gitnexus analyze' first.", "ERROR".red());
         return Ok(());
@@ -484,33 +485,38 @@ fn run_flow_trace(
         }
     }
 
+    // Pre-build outgoing adjacency map for O(1) lookups instead of O(E) per BFS step
+    let mut outgoing_calls: HashMap<String, Vec<(String, RelationshipType)>> = HashMap::new();
+    for rel in graph.iter_relationships() {
+        if matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
+            outgoing_calls.entry(rel.source_id.clone()).or_default().push((rel.target_id.clone(), rel.rel_type));
+        }
+    }
+
     while let Some((node_id, depth)) = queue.pop_front() {
         if depth >= max_depth {
             continue;
         }
-        for rel in graph.iter_relationships() {
-            if rel.source_id == node_id
-                && matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService)
-                && visited.insert(rel.target_id.clone()) {
-                    if let Some(target) = graph.get_node(&rel.target_id) {
-                        if matches!(target.label, NodeLabel::Method | NodeLabel::Constructor | NodeLabel::ControllerAction) {
-                            // Skip StackLogger methods for cleaner output
-                            if target.properties.file_path.contains("StackLogger") {
-                                continue;
-                            }
-                            let parent_class = method_class
-                                .get(&rel.target_id)
-                                .and_then(|cid| graph.get_node(cid))
-                                .map(|n| n.properties.name.clone())
-                                .unwrap_or_else(|| {
-                                    target.properties.file_path.rsplit('/').next().unwrap_or("?")
-                                        .trim_end_matches(".cs").to_string()
-                                });
-                            flow_methods.push((rel.target_id.clone(), parent_class));
-                            queue.push_back((rel.target_id.clone(), depth + 1));
+        for (target_id, _rel_type) in outgoing_calls.get(&node_id).unwrap_or(&Vec::new()) {
+            if visited.insert(target_id.clone()) {
+                if let Some(target) = graph.get_node(target_id) {
+                    if matches!(target.label, NodeLabel::Method | NodeLabel::Constructor | NodeLabel::ControllerAction) {
+                        if target.properties.file_path.contains("StackLogger") {
+                            continue;
                         }
+                        let parent_class = method_class
+                            .get(target_id)
+                            .and_then(|cid| graph.get_node(cid))
+                            .map(|n| n.properties.name.clone())
+                            .unwrap_or_else(|| {
+                                target.properties.file_path.rsplit('/').next().unwrap_or("?")
+                                    .trim_end_matches(".cs").to_string()
+                            });
+                        flow_methods.push((target_id.clone(), parent_class));
+                        queue.push_back((target_id.clone(), depth + 1));
                     }
                 }
+            }
         }
     }
 

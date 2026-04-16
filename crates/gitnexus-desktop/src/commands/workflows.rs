@@ -89,12 +89,15 @@ fn workflows_dir(storage: &str) -> PathBuf {
     PathBuf::from(storage).join("workflows")
 }
 
-fn workflow_path(storage: &str, id: &str) -> PathBuf {
+fn workflow_path(storage: &str, id: &str) -> Result<PathBuf, String> {
     let safe: String = id
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
         .collect();
-    workflows_dir(storage).join(format!("{safe}.json"))
+    if safe.is_empty() {
+        return Err("Invalid id: must contain at least one alphanumeric character".into());
+    }
+    Ok(workflows_dir(storage).join(format!("{safe}.json")))
 }
 
 #[tauri::command]
@@ -138,7 +141,7 @@ pub async fn workflow_load(
     id: String,
 ) -> Result<Workflow, String> {
     let storage = state.active_storage_path().await?;
-    let path = workflow_path(&storage, &id);
+    let path = workflow_path(&storage, &id)?;
     let s = std::fs::read_to_string(&path)
         .map_err(|e| format!("Workflow '{id}' not found: {e}"))?;
     serde_json::from_str(&s).map_err(|e| e.to_string())
@@ -156,7 +159,7 @@ pub async fn workflow_save(
         wf.id = format!("wf_{}", Uuid::new_v4().simple());
     }
     wf.updated_at = chrono::Utc::now().timestamp_millis();
-    let path = workflow_path(&storage, &wf.id);
+    let path = workflow_path(&storage, &wf.id)?;
     let s = serde_json::to_string_pretty(&wf).map_err(|e| e.to_string())?;
     std::fs::write(&path, s).map_err(|e| e.to_string())?;
     Ok(WorkflowSummary {
@@ -173,7 +176,7 @@ pub async fn workflow_delete(
     id: String,
 ) -> Result<(), String> {
     let storage = state.active_storage_path().await?;
-    let path = workflow_path(&storage, &id);
+    let path = workflow_path(&storage, &id)?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
@@ -398,7 +401,12 @@ fn run_read_file(
                 .and_then(|v| v.as_u64())
                 .unwrap_or(8000) as usize;
             let text = if content.len() > limit {
-                format!("{}…\n[truncated to {limit} bytes]", &content[..limit])
+                let boundary = content.char_indices()
+                    .take_while(|(i, _)| *i < limit)
+                    .last()
+                    .map(|(i, c)| i + c.len_utf8())
+                    .unwrap_or(0);
+                format!("{}…\n[truncated to {limit} bytes]", &content[..boundary])
             } else {
                 content
             };
@@ -452,19 +460,23 @@ async fn run_llm(
 fn interpolate_params(params: &serde_json::Value, runs: &[StepRun]) -> serde_json::Value {
     fn replace_str(s: &str, runs: &[StepRun]) -> String {
         let mut out = String::with_capacity(s.len());
-        let bytes = s.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
-            if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
-                if let Some(end) = s[i + 2..].find("}}") {
-                    let token = &s[i + 2..i + 2 + end];
+        let mut rest = s;
+        while !rest.is_empty() {
+            if let Some(pos) = rest.find("{{") {
+                out.push_str(&rest[..pos]);
+                let after_open = &rest[pos + 2..];
+                if let Some(end) = after_open.find("}}") {
+                    let token = &after_open[..end];
                     out.push_str(&resolve_token(token.trim(), runs));
-                    i += 2 + end + 2;
-                    continue;
+                    rest = &after_open[end + 2..];
+                } else {
+                    out.push_str("{{");
+                    rest = after_open;
                 }
+            } else {
+                out.push_str(rest);
+                break;
             }
-            out.push(bytes[i] as char);
-            i += 1;
         }
         out
     }
@@ -544,8 +556,13 @@ mod tests {
 
     #[test]
     fn test_workflow_path_strips_unsafe_chars() {
-        let p = workflow_path("/tmp/x", "../../etc/passwd");
+        let p = workflow_path("/tmp/x", "../../etc/passwd").unwrap();
         assert!(p.to_string_lossy().ends_with("etcpasswd.json"));
+    }
+
+    #[test]
+    fn test_workflow_path_rejects_all_unsafe() {
+        assert!(workflow_path("/tmp/x", "@@@@").is_err());
     }
 
     #[test]

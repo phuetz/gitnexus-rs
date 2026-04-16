@@ -8,11 +8,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquare, Send, Trash2 } from "lucide-react";
+import { useI18n } from "../../hooks/use-i18n";
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
 
 export function CommentsThread() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
@@ -70,7 +72,7 @@ export function CommentsThread() {
 
       {comments.length === 0 && (
         <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8 }}>
-          No notes yet. Add one to record context for your team.
+          {t("comments.emptyHint")}
         </div>
       )}
 

@@ -240,7 +240,12 @@ fn truncate(s: &str, max: usize) -> String {
     if t.len() <= max {
         t.to_string()
     } else {
-        format!("{}…", &t[..max])
+        let end = t.char_indices()
+            .take_while(|(i, _)| *i < max)
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(0);
+        format!("{}…", &t[..end])
     }
 }
 
@@ -268,7 +273,7 @@ fn apply(
             let col = (e.col as usize).saturating_sub(1);
             let line = &lines[idx];
             let end = col + e.old_text.len();
-            if end <= line.len() && &line[col..end] == e.old_text {
+            if end <= line.len() && line[col..end] == *e.old_text {
                 let mut patched = String::with_capacity(line.len() + e.new_text.len());
                 patched.push_str(&line[..col]);
                 patched.push_str(&e.new_text);

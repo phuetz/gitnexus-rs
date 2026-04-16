@@ -18,11 +18,11 @@ const LAYER_ORDER = [
 ];
 
 const LAYER_COLORS: Record<string, string> = {
-  Controller: "#7aa2f7",
-  Service: "#9ece6a",
+  Controller: "var(--accent)",
+  Service: "var(--green)",
   Repository: "#bb9af7",
-  Database: "#e0af68",
-  External: "#f7768e",
+  Database: "var(--amber)",
+  External: "var(--rose)",
 };
 
 const LAYER_DESCRIPTIONS: Record<string, string> = {

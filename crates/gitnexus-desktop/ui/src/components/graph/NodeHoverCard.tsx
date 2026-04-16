@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowDownLeft, ArrowUpRight, Code2, Zap, ShieldCheck, Skull } from "lucide-react";
+import { useI18n } from "../../hooks/use-i18n";
 
 const LABEL_COLORS: Record<string, string> = {
   Function: "#10b981",    // Emerald
@@ -56,6 +57,8 @@ export function NodeHoverCard({
   onViewSource,
   onImpact,
 }: NodeHoverCardProps) {
+  const { t } = useI18n();
+
   return (
     <AnimatePresence>
       {node && position && (
@@ -126,13 +129,13 @@ export function NodeHoverCard({
             )}
             {node.isTraced && (
               <span className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
-                style={{ background: "#9ece6a20", color: "#9ece6a", border: "1px solid #9ece6a30" }}>
+                style={{ background: "#9ece6a20", color: "var(--green)", border: "1px solid #9ece6a30" }}>
                 <ShieldCheck size={8} /> traced
               </span>
             )}
             {node.isDeadCandidate && (
               <span className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
-                style={{ background: "#f7768e20", color: "#f7768e", border: "1px solid #f7768e30" }}>
+                style={{ background: "#f7768e20", color: "var(--rose)", border: "1px solid #f7768e30" }}>
                 <Skull size={8} /> dead
               </span>
             )}
@@ -140,7 +143,7 @@ export function NodeHoverCard({
               <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full"
                 style={{
                   background: node.complexity > 20 ? "#f7768e20" : node.complexity > 10 ? "#e0af6820" : "#9ece6a20",
-                  color: node.complexity > 20 ? "#f7768e" : node.complexity > 10 ? "#e0af68" : "#9ece6a",
+                  color: node.complexity > 20 ? "var(--rose)" : node.complexity > 10 ? "var(--amber)" : "var(--green)",
                   border: `1px solid ${node.complexity > 20 ? "#f7768e30" : node.complexity > 10 ? "#e0af6830" : "#9ece6a30"}`,
                 }}>
                 CC:{node.complexity}
@@ -180,7 +183,7 @@ export function NodeHoverCard({
             {inDegree + outDegree > 8 && (
               <span
                 className="text-[9px] font-bold px-1.5 py-0.5 rounded-full ml-auto"
-                style={{ background: "#e0af6820", color: "#e0af68", border: "1px solid #e0af6830" }}
+                style={{ background: "#e0af6820", color: "var(--amber)", border: "1px solid #e0af6830" }}
               >
                 High Impact
               </span>
@@ -202,7 +205,7 @@ export function NodeHoverCard({
               onClick={onViewSource}
             >
               <Code2 size={10} />
-              Source
+              {t("hover.source")}
             </button>
             <button
               className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md pointer-events-auto"
@@ -214,7 +217,7 @@ export function NodeHoverCard({
               onClick={onImpact}
             >
               <Zap size={10} />
-              Impact
+              {t("hover.impact")}
             </button>
           </div>
         </motion.div>

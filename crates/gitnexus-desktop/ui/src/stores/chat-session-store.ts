@@ -97,13 +97,9 @@ export const useChatSessionStore = create<ChatSessionState>()(
           const session = sessions.find((s) => s.id === activeSessionId && s.repo === repo);
           if (session) return session;
         }
-        // If no active session matches the repo, find the most recent one for this repo
+        // Fallback: find the most recent session for this repo (pure getter, no side-effect)
         const repoSessions = sessions.filter((s) => s.repo === repo).sort((a, b) => b.updatedAt - a.updatedAt);
-        if (repoSessions.length > 0) {
-          set({ activeSessionId: repoSessions[0].id });
-          return repoSessions[0];
-        }
-        return null;
+        return repoSessions[0] ?? null;
       },
 
       getSessionsForRepo: (repo) => {

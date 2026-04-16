@@ -56,13 +56,16 @@ fn notebooks_dir(storage: &str) -> PathBuf {
     PathBuf::from(storage).join("notebooks")
 }
 
-fn notebook_path(storage: &str, id: &str) -> PathBuf {
+fn notebook_path(storage: &str, id: &str) -> Result<PathBuf, String> {
     // Defense against path traversal — only allow id matching [A-Za-z0-9_-]+
     let safe: String = id
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
         .collect();
-    notebooks_dir(storage).join(format!("{safe}.json"))
+    if safe.is_empty() {
+        return Err("Invalid id: must contain at least one alphanumeric character".into());
+    }
+    Ok(notebooks_dir(storage).join(format!("{safe}.json")))
 }
 
 #[tauri::command]
@@ -106,7 +109,7 @@ pub async fn notebook_load(
     id: String,
 ) -> Result<Notebook, String> {
     let storage = state.active_storage_path().await?;
-    let path = notebook_path(&storage, &id);
+    let path = notebook_path(&storage, &id)?;
     let s = std::fs::read_to_string(&path)
         .map_err(|e| format!("Notebook '{id}' not found: {e}"))?;
     serde_json::from_str(&s).map_err(|e| e.to_string())
@@ -124,7 +127,7 @@ pub async fn notebook_save(
         nb.id = format!("nb_{}", Uuid::new_v4().simple());
     }
     nb.updated_at = chrono::Utc::now().timestamp_millis();
-    let path = notebook_path(&storage, &nb.id);
+    let path = notebook_path(&storage, &nb.id)?;
     let s = serde_json::to_string_pretty(&nb).map_err(|e| e.to_string())?;
     std::fs::write(&path, s).map_err(|e| e.to_string())?;
     Ok(NotebookSummary {
@@ -141,7 +144,7 @@ pub async fn notebook_delete(
     id: String,
 ) -> Result<(), String> {
     let storage = state.active_storage_path().await?;
-    let path = notebook_path(&storage, &id);
+    let path = notebook_path(&storage, &id)?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
@@ -154,17 +157,19 @@ mod tests {
 
     #[test]
     fn test_notebook_path_filters_unsafe_chars() {
-        let p = notebook_path("/tmp/store", "../../etc/passwd");
-        // The last component is the only one that ends up under notebooks/.
-        // The traversal characters are stripped so the resulting filename
-        // only contains the safe tail.
+        let p = notebook_path("/tmp/store", "../../etc/passwd").unwrap();
         let last = p.file_name().unwrap().to_string_lossy().to_string();
         assert_eq!(last, "etcpasswd.json");
     }
 
     #[test]
+    fn test_notebook_path_rejects_all_unsafe() {
+        assert!(notebook_path("/tmp/store", "@@@@").is_err());
+    }
+
+    #[test]
     fn test_notebook_path_keeps_dashes_underscores() {
-        let p = notebook_path("/tmp/store", "auth-flow_v2");
+        let p = notebook_path("/tmp/store", "auth-flow_v2").unwrap();
         assert!(p.to_string_lossy().ends_with("auth-flow_v2.json"));
     }
 }

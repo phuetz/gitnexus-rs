@@ -70,7 +70,7 @@ export function MultiRepoOverview() {
       <div
         style={{
           padding: 16,
-          color: "#f7768e",
+          color: "var(--rose)",
           fontSize: 12,
           display: "flex",
           alignItems: "center",
@@ -107,7 +107,7 @@ export function MultiRepoOverview() {
           <Stat label="Edges" value={totals.edges} />
           <Stat label="Files" value={totals.files} />
           <Stat label="Functions" value={totals.functions} />
-          <Stat label="Dead candidates" value={totals.dead} accent="#f7768e" />
+          <Stat label="Dead candidates" value={totals.dead} accent="var(--rose)" />
         </div>
       )}
 
@@ -270,7 +270,7 @@ function RepoRow({ repo, onPick }: { repo: RepoOverview; onPick: () => void }) {
               {repo.path}
             </div>
             {repo.error && (
-              <div style={{ fontSize: 10, color: "#f7768e" }}>
+              <div style={{ fontSize: 10, color: "var(--rose)" }}>
                 <AlertCircle size={9} style={{ marginRight: 4, verticalAlign: -1 }} />
                 {repo.error}
               </div>
@@ -281,7 +281,7 @@ function RepoRow({ repo, onPick }: { repo: RepoOverview; onPick: () => void }) {
       <td style={tdStyle("right")}>{repo.nodeCount.toLocaleString()}</td>
       <td style={tdStyle("right")}>{repo.fileCount.toLocaleString()}</td>
       <td style={tdStyle("right")}>
-        <span style={{ color: repo.deadCount > 0 ? "#f7768e" : "var(--text-3)" }}>
+        <span style={{ color: repo.deadCount > 0 ? "var(--rose)" : "var(--text-3)" }}>
           {repo.deadCount}
         </span>
       </td>
@@ -289,7 +289,7 @@ function RepoRow({ repo, onPick }: { repo: RepoOverview; onPick: () => void }) {
         <span
           style={{
             color:
-              tracingPct >= 70 ? "#9ece6a" : tracingPct >= 40 ? "#e0af68" : "#f7768e",
+              tracingPct >= 70 ? "var(--green)" : tracingPct >= 40 ? "var(--amber)" : "var(--rose)",
           }}
         >
           {tracingPct}%

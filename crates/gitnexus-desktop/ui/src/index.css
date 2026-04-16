@@ -271,6 +271,7 @@ body {
   color: var(--text-1);
   font-size: 13px;
   line-height: 1.55;
+  transition: background-color var(--transition-slow), color var(--transition-slow);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -460,6 +461,22 @@ pre.shiki code > .line::before {
 }
 .hover-line:hover {
   background: var(--surface-hover);
+}
+
+/* ── Code panel line numbers ── */
+.code-with-line-numbers pre code {
+  counter-reset: line;
+}
+.code-with-line-numbers pre code .line::before {
+  counter-increment: line;
+  content: counter(line);
+  display: inline-block;
+  width: 3ch;
+  margin-right: 1.5ch;
+  text-align: right;
+  color: var(--text-4);
+  user-select: none;
+  font-size: 10px;
 }
 
 /* ── Progress glow ── */

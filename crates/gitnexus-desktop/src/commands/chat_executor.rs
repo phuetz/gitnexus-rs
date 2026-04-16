@@ -540,16 +540,15 @@ fn execute_read_file(
     for fp in &file_paths {
         let full_path = repo_path.join(fp);
         // Path traversal guard: ensure resolved path stays within repo
-        if let Ok(canonical) = full_path.canonicalize() {
-            if !canonical.starts_with(&canonical_repo) {
-                tracing::warn!("Path traversal blocked: {}", fp);
-                continue;
-            }
-        } else {
-            // Cannot canonicalize (file doesn't exist or permission denied) — skip
+        let canonical = match full_path.canonicalize() {
+            Ok(c) => c,
+            Err(_) => continue, // Cannot canonicalize — skip
+        };
+        if !canonical.starts_with(&canonical_repo) {
+            tracing::warn!("Path traversal blocked: {}", fp);
             continue;
         }
-        if let Ok(content) = std::fs::read_to_string(&full_path) {
+        if let Ok(content) = std::fs::read_to_string(&canonical) {
             let lines: Vec<&str> = content.lines().collect();
             let total_lines = lines.len();
 

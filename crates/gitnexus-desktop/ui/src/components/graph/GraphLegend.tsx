@@ -83,14 +83,16 @@ export function GraphLegend({
             style={{ maxWidth: "180px" }}
           >
             {sortedEntries.map(([type, count]) => (
-              <div
+              <button
                 key={type}
-                className="flex items-center gap-2 cursor-pointer hover:bg-white/5 px-1 py-0.5 rounded transition-colors"
-                style={{ 
+                className="w-full flex items-center gap-2 cursor-pointer hover:bg-white/5 px-1 py-0.5 rounded transition-colors focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
+                style={{
                   padding: "4px 4px",
                   opacity: highlightedNodeType && highlightedNodeType !== type ? 0.4 : 1,
-                  backgroundColor: highlightedNodeType === type ? "var(--bg-3)" : "transparent"
+                  backgroundColor: highlightedNodeType === type ? "var(--bg-3)" : "transparent",
+                  border: "none",
                 }}
+                aria-pressed={highlightedNodeType === type}
                 onClick={() => onTypeClick(highlightedNodeType === type ? null : type)}
               >
                 <span
@@ -111,7 +113,7 @@ export function GraphLegend({
                 >
                   {count}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
 

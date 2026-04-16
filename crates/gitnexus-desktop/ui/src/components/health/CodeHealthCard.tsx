@@ -12,15 +12,15 @@ import { useAppStore } from "../../stores/app-store";
 function gradeColor(grade: string): string {
   switch (grade) {
     case "A":
-      return "#9ece6a";
+      return "var(--green)";
     case "B":
-      return "#7aa2f7";
+      return "var(--accent)";
     case "C":
-      return "#e0af68";
+      return "var(--amber)";
     case "D":
       return "#ff9e64";
     default:
-      return "#f7768e";
+      return "var(--rose)";
   }
 }
 
@@ -195,8 +195,8 @@ export function CodeHealthCard() {
           >
             {t("health.title")}
           </div>
-          <ScoreBar label={t("health.hotspots")} value={health.hotspotScore} color="#9ece6a" />
-          <ScoreBar label={t("health.cohesion")} value={health.cohesionScore} color="#7aa2f7" />
+          <ScoreBar label={t("health.hotspots")} value={health.hotspotScore} color="var(--green)" />
+          <ScoreBar label={t("health.cohesion")} value={health.cohesionScore} color="var(--accent)" />
           <ScoreBar label={t("health.tracing")} value={health.tracingCoverage} color="#73daca" />
           <ScoreBar label={t("health.ownership")} value={health.ownershipScore} color="#bb9af7" />
           <ScoreBar label={t("health.complexity")} value={Math.max(0, Math.min(1 - (health.avgComplexity / 30), 1))} color="#f59e0b" />

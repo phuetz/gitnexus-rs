@@ -6,6 +6,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use gitnexus_core::storage::{git, repo_manager};
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     path: &str,
     force: bool,

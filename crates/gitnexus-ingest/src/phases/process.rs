@@ -232,6 +232,16 @@ fn build_function_call_graph(
         }
     }
 
+    // Deduplicate to avoid inflated scores from File→Function edge expansion
+    for callees in func_callees.values_mut() {
+        callees.sort_unstable();
+        callees.dedup();
+    }
+    for callers in func_callers.values_mut() {
+        callers.sort_unstable();
+        callers.dedup();
+    }
+
     (func_callees, func_callers)
 }
 
@@ -320,11 +330,13 @@ fn bfs_trace(
     const MAX_QUEUE: usize = 16384;
 
     let mut traces: Vec<ProcessTrace> = Vec::new();
-    let mut queue: VecDeque<(Vec<String>, usize)> = VecDeque::new();
+    let mut queue: VecDeque<(Vec<String>, HashSet<String>, usize)> = VecDeque::new();
 
-    queue.push_back((vec![start_id.to_string()], 0));
+    let mut initial_visited = HashSet::new();
+    initial_visited.insert(start_id.to_string());
+    queue.push_back((vec![start_id.to_string()], initial_visited, 0));
 
-    while let Some((path, depth)) = queue.pop_front() {
+    while let Some((path, visited, depth)) = queue.pop_front() {
         if traces.len() >= MAX_TRACES {
             break;
         }
@@ -362,8 +374,8 @@ fn bfs_trace(
         let mut extended = false;
 
         for callee in callees.iter().take(branch_limit) {
-            // Avoid cycles in the path
-            if path.contains(callee) {
+            // Avoid cycles in the path (O(1) lookup)
+            if visited.contains(callee) {
                 continue;
             }
 
@@ -373,7 +385,9 @@ fn bfs_trace(
 
             let mut new_path = path.clone();
             new_path.push(callee.clone());
-            queue.push_back((new_path, depth + 1));
+            let mut new_visited = visited.clone();
+            new_visited.insert(callee.clone());
+            queue.push_back((new_path, new_visited, depth + 1));
             extended = true;
         }
 

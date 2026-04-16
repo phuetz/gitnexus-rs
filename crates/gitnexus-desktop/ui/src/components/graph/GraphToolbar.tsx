@@ -241,7 +241,7 @@ export function GraphToolbar({
             className="p-2 rounded-md transition-all hover:bg-[var(--bg-3)]"
             style={{
               background: showDeadCode ? "rgba(247, 118, 142, 0.2)" : "transparent",
-              color: showDeadCode ? "#f7768e" : "var(--text-3)",
+              color: showDeadCode ? "var(--rose)" : "var(--text-3)",
               cursor: "pointer",
               border: showDeadCode ? "1px solid #f7768e" : "1px solid transparent",
             }}
@@ -254,7 +254,7 @@ export function GraphToolbar({
       {/* Complexity Filter */}
       {onComplexityChange !== undefined && (
         <div className="flex items-center gap-2 px-3 py-1 rounded-md border border-[var(--surface-border)] bg-[var(--surface)]">
-          <span className="text-[10px] font-medium text-[var(--text-3)]">Cplx &gt; {complexityThreshold}</span>
+          <span className="text-[10px] font-medium text-[var(--text-3)]">{t("toolbar.complexity")} &gt; {complexityThreshold}</span>
           <input
             type="range"
             min="0"
@@ -269,7 +269,7 @@ export function GraphToolbar({
       {/* Hotspot Time Range Filter */}
       {onHotspotDaysChange !== undefined && (
         <div className="flex items-center gap-1 px-2 py-1 rounded-md border border-[var(--surface-border)] bg-[var(--surface)]">
-          <span className="text-[10px] font-medium text-[var(--text-3)] mr-1">Git:</span>
+          <span className="text-[10px] font-medium text-[var(--text-3)] mr-1">{t("toolbar.gitRange")}:</span>
           {[30, 90, 365].map(d => (
             <button
               key={d}

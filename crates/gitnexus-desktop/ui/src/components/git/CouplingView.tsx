@@ -14,9 +14,9 @@ interface Props {
 }
 
 function strengthColor(s: number): string {
-  if (s >= 0.7) return "#f7768e";
-  if (s >= 0.4) return "#e0af68";
-  return "#9ece6a";
+  if (s >= 0.7) return "var(--rose)";
+  if (s >= 0.4) return "var(--amber)";
+  return "var(--green)";
 }
 
 export function CouplingView({ data, loading }: Props) {
@@ -49,7 +49,7 @@ export function CouplingView({ data, loading }: Props) {
       >
         <span>{t("coupling.pairsDetected").replace("{0}", String(data.length))}</span>
         {strong > 0 && (
-          <span style={{ color: "#f7768e" }}>
+          <span style={{ color: "var(--rose)" }}>
             {t("coupling.stronglyCoupled").replace("{0}", String(strong))}
           </span>
         )}

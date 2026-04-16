@@ -55,12 +55,15 @@ fn dashboards_dir(storage: &str) -> PathBuf {
     PathBuf::from(storage).join("dashboards")
 }
 
-fn dashboard_path(storage: &str, id: &str) -> PathBuf {
+fn dashboard_path(storage: &str, id: &str) -> Result<PathBuf, String> {
     let safe: String = id
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
         .collect();
-    dashboards_dir(storage).join(format!("{safe}.json"))
+    if safe.is_empty() {
+        return Err("Invalid id: must contain at least one alphanumeric character".into());
+    }
+    Ok(dashboards_dir(storage).join(format!("{safe}.json")))
 }
 
 #[tauri::command]
@@ -104,7 +107,7 @@ pub async fn dashboard_load(
     id: String,
 ) -> Result<Dashboard, String> {
     let storage = state.active_storage_path().await?;
-    let path = dashboard_path(&storage, &id);
+    let path = dashboard_path(&storage, &id)?;
     let s = std::fs::read_to_string(&path)
         .map_err(|e| format!("Dashboard '{id}' not found: {e}"))?;
     serde_json::from_str(&s).map_err(|e| e.to_string())
@@ -122,7 +125,7 @@ pub async fn dashboard_save(
         d.id = format!("dash_{}", Uuid::new_v4().simple());
     }
     d.updated_at = chrono::Utc::now().timestamp_millis();
-    let path = dashboard_path(&storage, &d.id);
+    let path = dashboard_path(&storage, &d.id)?;
     let s = serde_json::to_string_pretty(&d).map_err(|e| e.to_string())?;
     std::fs::write(&path, s).map_err(|e| e.to_string())?;
     Ok(DashboardSummary {
@@ -139,7 +142,7 @@ pub async fn dashboard_delete(
     id: String,
 ) -> Result<(), String> {
     let storage = state.active_storage_path().await?;
-    let path = dashboard_path(&storage, &id);
+    let path = dashboard_path(&storage, &id)?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
@@ -152,7 +155,12 @@ mod tests {
 
     #[test]
     fn test_dashboard_path_strips_unsafe_chars() {
-        let p = dashboard_path("/tmp/x", "../../etc/passwd");
+        let p = dashboard_path("/tmp/x", "../../etc/passwd").unwrap();
         assert!(p.to_string_lossy().ends_with("etcpasswd.json"));
+    }
+
+    #[test]
+    fn test_dashboard_path_rejects_all_unsafe() {
+        assert!(dashboard_path("/tmp/x", "@@@@").is_err());
     }
 }

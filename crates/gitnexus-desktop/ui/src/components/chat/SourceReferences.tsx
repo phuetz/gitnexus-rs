@@ -9,6 +9,7 @@
  */
 
 import { useState } from "react";
+import { useI18n } from "../../hooks/use-i18n";
 import {
   FileCode,
   ChevronDown,
@@ -31,6 +32,7 @@ export function SourceReferences({
   maxInitial = 4,
   onNavigateToNode,
 }: SourceReferencesProps) {
+  const { t } = useI18n();
   const [showAll, setShowAll] = useState(false);
   const safeSources = sources ?? [];
   const displaySources = showAll ? safeSources : safeSources.slice(0, maxInitial);
@@ -42,7 +44,7 @@ export function SourceReferences({
       <div className="flex items-center gap-1.5 mb-2">
         <FileCode size={12} style={{ color: "var(--text-2)" }} />
         <span className="text-[12px] font-medium" style={{ color: "var(--text-2)" }}>
-          {safeSources.length} source{safeSources.length > 1 ? "s" : ""} referenced
+          {safeSources.length} {t("sources.title").toLowerCase()}
         </span>
       </div>
 
@@ -65,12 +67,12 @@ export function SourceReferences({
           {showAll ? (
             <>
               <ChevronDown size={11} />
-              Show fewer sources
+              {t("sources.showFewer")}
             </>
           ) : (
             <>
               <ChevronRight size={11} />
-              Show {safeSources.length - maxInitial} more source{safeSources.length - maxInitial > 1 ? "s" : ""}
+              {t("sources.showMore").replace("{0}", String(safeSources.length - maxInitial))}
             </>
           )}
         </button>

@@ -23,7 +23,7 @@ const MermaidDiagram = memo(function MermaidDiagram({ definition, id }: { defini
             theme: "dark",
             securityLevel: "loose",
             themeVariables: {
-              primaryColor: "#7aa2f7",
+              primaryColor: "var(--accent)",
               primaryTextColor: "#c0caf5",
               lineColor: "#565f89",
               secondaryColor: "#bb9af7",
@@ -104,7 +104,7 @@ export function ProcessFlowsView() {
   if (!flows || flows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-        <Activity size={48} style={{ color: "var(--text-3)", marginBottom: 16, opacity: 0.5 }} />
+        <Activity size={48} style={{ color: "var(--text-2)", marginBottom: 16, opacity: 0.6 }} />
         <h3 style={{ fontSize: 18, fontWeight: 600, color: "var(--text-1)", marginBottom: 8 }}>
           {t("analyze.noFlowsTitle")}
         </h3>

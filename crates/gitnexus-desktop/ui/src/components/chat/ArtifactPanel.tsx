@@ -41,9 +41,9 @@ const PHASE_META: Record<
   FeatureDevPhase,
   { label: string; icon: typeof Compass; color: string }
 > = {
-  explorer: { label: "Explorer", icon: Compass, color: "#7aa2f7" },
-  architect: { label: "Architect", icon: Hammer, color: "#e0af68" },
-  reviewer: { label: "Reviewer", icon: ShieldCheck, color: "#9ece6a" },
+  explorer: { label: "Explorer", icon: Compass, color: "var(--accent)" },
+  architect: { label: "Architect", icon: Hammer, color: "var(--amber)" },
+  reviewer: { label: "Reviewer", icon: ShieldCheck, color: "var(--green)" },
 };
 
 export function ArtifactPanel({ artifact, activePhase }: Props) {
@@ -66,7 +66,7 @@ export function ArtifactPanel({ artifact, activePhase }: Props) {
     a.href = url;
     a.download = `feature-dev-${artifact.id}.md`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   // Render placeholder cards for phases not yet run.
@@ -240,20 +240,20 @@ function ReviewBadge({ verdict }: { verdict: string }) {
       ? {
           icon: CheckCircle2,
           label: "Ready to implement",
-          color: "#9ece6a",
+          color: "var(--green)",
           bg: "rgba(158,206,106,0.12)",
         }
       : v === "blocked"
         ? {
             icon: AlertTriangle,
             label: "Blocked",
-            color: "#f7768e",
+            color: "var(--rose)",
             bg: "rgba(247,118,142,0.12)",
           }
         : {
             icon: AlertTriangle,
             label: "Needs revisions",
-            color: "#e0af68",
+            color: "var(--amber)",
             bg: "rgba(224,175,104,0.12)",
           };
   const Icon = config.icon;
@@ -285,10 +285,10 @@ function IssuesList({ issues }: { issues: ReviewIssue[] }) {
       {issues.map((issue, i) => {
         const sevColor =
           issue.severity === "high"
-            ? "#f7768e"
+            ? "var(--rose)"
             : issue.severity === "medium"
-              ? "#e0af68"
-              : "#7aa2f7";
+              ? "var(--amber)"
+              : "var(--accent)";
         return (
           <div
             key={i}

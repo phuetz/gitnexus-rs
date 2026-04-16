@@ -585,6 +585,64 @@ const en = {
   "tooltip.rightClickForMenu": "Right-click for context menu",
   "tooltip.dragToMove": "Drag to reposition",
   "tooltip.scrollToZoom": "Scroll to zoom in/out",
+
+  // ── Filter modals ──
+  "filters.searchFiles": "Search files... (type to filter)",
+  "filters.noFilesFound": "No files found",
+  "filters.typeToSearchFiles": "Type to search files...",
+  "filters.searchSymbols": "Search symbols... (@function, #class)",
+  "filters.noSymbolsFound": "No symbols found",
+  "filters.typeToSearchSymbols": "Type to search symbols...",
+  "filters.searchModules": "Search modules/communities...",
+  "filters.noModulesFound": "No modules found",
+  "filters.loadingModules": "Loading modules...",
+
+  // ── Detail panel ──
+  "detail.emptyHint": "Click a node in the graph to see its details",
+  "detail.loadingContext": "Loading context...",
+  "detail.exported": "exported",
+  "detail.entryPoint": "Entry Point",
+  "detail.traced": "Traced",
+  "detail.architectureLayer": "Architecture Layer",
+
+  // ── Node hover card ──
+  "hover.source": "Source",
+  "hover.impact": "Impact",
+
+  // ── Graph toolbar ──
+  "toolbar.complexity": "Cplx",
+  "toolbar.gitRange": "Git",
+
+  // ── Source references ──
+  "sources.title": "Sources",
+  "sources.showMore": "Show {0} more sources",
+  "sources.showFewer": "Show fewer sources",
+
+  // ── Research plan viewer ──
+  "research.planTitle": "Research Plan",
+  "research.toolSearch": "Symbol Search",
+  "research.toolContext": "Context Analysis",
+  "research.toolRead": "Read File",
+  "research.toolCypher": "Graph Query",
+  "research.toolImpact": "Impact Analysis",
+
+  // ── Manage ──
+  "manage.multiRepoOverview": "Multi-repo overview",
+
+  // ── Comments ──
+  "comments.emptyHint": "No notes yet. Add one to record context for your team.",
+
+  // ── Cypher ──
+  "cypher.emptyQuery": "Nothing to save — write a query first",
+
+  // ── Rename ──
+  "rename.searching": "Searching…",
+  "rename.preview": "Preview",
+
+  // ── Common ──
+  "common.loading": "Loading",
+  "common.noRows": "No data to display",
+  "common.retry": "Retry",
 } as const;
 
 const fr: Record<keyof typeof en, TranslationValue> = {
@@ -1158,6 +1216,64 @@ const fr: Record<keyof typeof en, TranslationValue> = {
   "tooltip.rightClickForMenu": "Clic droit pour le menu contextuel",
   "tooltip.dragToMove": "Glisser pour repositionner",
   "tooltip.scrollToZoom": "Molette pour zoomer",
+
+  // ── Filter modals ──
+  "filters.searchFiles": "Rechercher des fichiers...",
+  "filters.noFilesFound": "Aucun fichier trouvé",
+  "filters.typeToSearchFiles": "Tapez pour rechercher...",
+  "filters.searchSymbols": "Rechercher des symboles... (@fonction, #classe)",
+  "filters.noSymbolsFound": "Aucun symbole trouvé",
+  "filters.typeToSearchSymbols": "Tapez pour rechercher des symboles...",
+  "filters.searchModules": "Rechercher des modules...",
+  "filters.noModulesFound": "Aucun module trouvé",
+  "filters.loadingModules": "Chargement des modules...",
+
+  // ── Detail panel ──
+  "detail.emptyHint": "Cliquez sur un nœud du graphe pour voir ses détails",
+  "detail.loadingContext": "Chargement du contexte...",
+  "detail.exported": "exporté",
+  "detail.entryPoint": "Point d'entrée",
+  "detail.traced": "Tracé",
+  "detail.architectureLayer": "Couche architecturale",
+
+  // ── Node hover card ──
+  "hover.source": "Source",
+  "hover.impact": "Impact",
+
+  // ── Graph toolbar ──
+  "toolbar.complexity": "Cplx",
+  "toolbar.gitRange": "Git",
+
+  // ── Source references ──
+  "sources.title": "Sources",
+  "sources.showMore": "Afficher {0} sources de plus",
+  "sources.showFewer": "Afficher moins de sources",
+
+  // ── Research plan viewer ──
+  "research.planTitle": "Plan de recherche",
+  "research.toolSearch": "Recherche de symboles",
+  "research.toolContext": "Analyse du contexte",
+  "research.toolRead": "Lecture de fichier",
+  "research.toolCypher": "Requête graphe",
+  "research.toolImpact": "Analyse d'impact",
+
+  // ── Manage ──
+  "manage.multiRepoOverview": "Vue multi-dépôts",
+
+  // ── Comments ──
+  "comments.emptyHint": "Aucune note. Ajoutez-en une pour garder du contexte pour votre équipe.",
+
+  // ── Cypher ──
+  "cypher.emptyQuery": "Rien à sauvegarder — écrivez une requête d'abord",
+
+  // ── Rename ──
+  "rename.searching": "Recherche…",
+  "rename.preview": "Aperçu",
+
+  // ── Common ──
+  "common.loading": "Chargement",
+  "common.noRows": "Aucune donnée à afficher",
+  "common.retry": "Réessayer",
 };
 
 const dictionaries: Record<Locale, Record<string, TranslationValue>> = { en, fr };

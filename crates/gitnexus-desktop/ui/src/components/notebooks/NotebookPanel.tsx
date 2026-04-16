@@ -444,7 +444,7 @@ function NotebookEditor({
           <span
             style={{
               fontSize: 9,
-              color: "#e0af68",
+              color: "var(--amber)",
               padding: "1px 6px",
               border: "1px solid #e0af68",
               borderRadius: 999,
@@ -472,7 +472,7 @@ function NotebookEditor({
             <FileCode2 size={11} />
             cypher
           </button>
-          <button onClick={runAll} title="Run all Cypher cells" style={iconBtnStyle("#9ece6a")}>
+          <button onClick={runAll} title="Run all Cypher cells" style={iconBtnStyle("var(--green)")}>
             <PlayCircle size={11} />
             run all
           </button>
@@ -545,7 +545,7 @@ function CellView({
           fontSize: 9,
           fontWeight: 700,
           textTransform: "uppercase",
-          color: isCypher ? "#7aa2f7" : "#bb9af7",
+          color: isCypher ? "var(--accent)" : "#bb9af7",
           display: "flex",
           alignItems: "center",
           gap: 6,
@@ -559,7 +559,7 @@ function CellView({
         )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
           {isCypher && (
-            <button onClick={onRun} title="Run cell" aria-label="Run cell" style={cellBtnStyle("#9ece6a")}>
+            <button onClick={onRun} title="Run cell" aria-label="Run cell" style={cellBtnStyle("var(--green)")}>
               <Play size={10} />
             </button>
           )}
@@ -569,7 +569,7 @@ function CellView({
           <button onClick={onMoveDown} title="Move down" aria-label="Move cell down" style={cellBtnStyle()}>
             <ArrowDown size={10} />
           </button>
-          <button onClick={onRemove} title="Delete cell" aria-label="Delete cell" style={cellBtnStyle("#f7768e")}>
+          <button onClick={onRemove} title="Delete cell" aria-label="Delete cell" style={cellBtnStyle("var(--rose)")}>
             <Trash2 size={10} />
           </button>
         </div>
@@ -614,7 +614,7 @@ function CellOutput({ value }: { value: unknown }) {
           padding: "6px 10px",
           borderTop: "1px solid var(--surface-border)",
           background: "rgba(247,118,142,0.08)",
-          color: "#f7768e",
+          color: "var(--rose)",
           fontSize: 11,
           fontFamily: "var(--font-mono)",
         }}

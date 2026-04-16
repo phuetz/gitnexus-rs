@@ -93,8 +93,19 @@ pub async fn user_bundle_export(
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+    // Containment: out_path must resolve under storage
+    let canonical_storage = storage_path.canonicalize().map_err(|e| e.to_string())?;
+    let canonical_out = out_path.canonicalize()
+        .or_else(|_| out_path.parent()
+            .and_then(|p| p.canonicalize().ok())
+            .map(|p| p.join(out_path.file_name().unwrap_or_default()))
+            .ok_or_else(|| std::io::Error::other("invalid path")))
+        .map_err(|e| format!("Invalid out_path: {e}"))?;
+    if !canonical_out.starts_with(&canonical_storage) {
+        return Err("out_path must be inside the storage directory".to_string());
+    }
 
-    let file = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
+    let file = std::fs::File::create(&canonical_out).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipWriter::new(file);
     let options: SimpleFileOptions =
         SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -219,8 +230,16 @@ pub async fn user_bundle_import(
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let mut contents: Vec<u8> = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut contents).map_err(|e| e.to_string())?;
+        const MAX_ENTRY_BYTES: u64 = 32 * 1024 * 1024; // 32 MB
+        // Cap actual decompressed read — entry.size() is self-reported and untrusted
+        let mut contents = Vec::new();
+        std::io::Read::take(&mut entry, MAX_ENTRY_BYTES + 1)
+            .read_to_end(&mut contents)
+            .map_err(|e| e.to_string())?;
+        if contents.len() as u64 > MAX_ENTRY_BYTES {
+            skipped += 1;
+            continue;
+        }
         std::fs::write(&dest, &contents).map_err(|e| e.to_string())?;
         entries.push(name);
         restored += 1;

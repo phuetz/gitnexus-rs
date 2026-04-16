@@ -163,7 +163,7 @@ fn flush_paragraph(out: &mut String, para_text: &mut String, heading_level: &mut
 /// style name matches a known heading convention.
 fn heading_level_from_attrs(e: &quick_xml::events::BytesStart) -> Option<u8> {
     for attr_res in e.attributes() {
-        let attr = attr_res.ok()?;
+        let Ok(attr) = attr_res else { continue };
         if attr.key.as_ref() == b"w:val" {
             let val = std::str::from_utf8(attr.value.as_ref()).ok()?;
             return detect_heading_level(val);

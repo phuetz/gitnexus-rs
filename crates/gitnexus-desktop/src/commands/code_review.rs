@@ -87,9 +87,11 @@ pub async fn code_review_run(
     changed_symbol_names.dedup();
 
     // ── Pre-compute graph signals ──────────────────────────────────
-    let mut signals = CodeReviewSignals::default();
-    signals.changed_files = changed_files.clone();
-    signals.changed_symbols = changed_symbol_names.clone();
+    let mut signals = CodeReviewSignals {
+        changed_files: changed_files.clone(),
+        changed_symbols: changed_symbol_names.clone(),
+        ..Default::default()
+    };
 
     // Untraced + dead-code flags from node properties.
     for id in &changed_symbol_ids {

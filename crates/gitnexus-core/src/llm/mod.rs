@@ -60,12 +60,14 @@ pub struct FunctionDefinition {
     pub parameters: serde_json::Value,
 }
 
+pub type LlmStream = Pin<Box<dyn Stream<Item = Result<LlmResponseChunk, String>> + Send>>;
+
 pub trait LlmProvider: Send + Sync {
     fn stream_completion(
         &self,
         messages: &[Message],
         tools: &[ToolDefinition],
-    ) -> impl std::future::Future<Output = Result<Pin<Box<dyn Stream<Item = Result<LlmResponseChunk, String>> + Send>>, String>> + Send;
+    ) -> impl std::future::Future<Output = Result<LlmStream, String>> + Send;
 }
 
 /// Collect a streaming completion into a single String.

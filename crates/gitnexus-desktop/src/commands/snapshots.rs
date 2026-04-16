@@ -79,7 +79,8 @@ pub async fn snapshot_create(
         return Err("No graph.bin in storage — analyze the repo first".into());
     }
 
-    let id = format!("snap_{}", chrono::Utc::now().timestamp_millis());
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let id = format!("snap_{}", now_ms);
     let dest = snapshot_file_path(&storage, &id);
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -100,7 +101,7 @@ pub async fn snapshot_create(
     let meta = SnapshotMeta {
         id: id.clone(),
         label: label.unwrap_or_else(|| "Manual snapshot".into()),
-        created_at: chrono::Utc::now().timestamp_millis(),
+        created_at: now_ms,
         node_count,
         edge_count,
         size_bytes: size,

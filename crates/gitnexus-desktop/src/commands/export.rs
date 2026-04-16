@@ -150,7 +150,10 @@ fn generate_docx_from_docs(
     };
 
     // Read all markdown files in order (with path traversal protection)
-    let docs_canonical = docs_dir.canonicalize().unwrap_or_else(|_| docs_dir.to_path_buf());
+    let docs_canonical = docs_dir.canonicalize()
+        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(
+            format!("Cannot resolve docs directory: {e}")
+        ))?;
     let mut md_files: Vec<(String, String, String)> = Vec::new();
     for (id, title, filename) in &ordered_files {
         let path = docs_dir.join(filename);
@@ -230,8 +233,9 @@ fn generate_docx_from_docs(
     body.push_str(PAGE_BREAK);
 
     // Each markdown file
+    let mut rid_counter: usize = 10; // rId1–9 reserved for core rels
     for (i, (_id, _title, content)) in md_files.iter().enumerate() {
-        let (ooxml, doc_links) = md_to_ooxml(content);
+        let (ooxml, doc_links) = md_to_ooxml(content, &mut rid_counter);
         body.push_str(&ooxml);
         links.extend(doc_links);
         if i < md_files.len() - 1 {
@@ -331,7 +335,7 @@ fn fallback_file_order() -> Vec<(String, String, String)> {
 
 // ─── Markdown to OOXML ──────────────────────────────────────────────────
 
-fn md_to_ooxml(md: &str) -> (String, Vec<(String, String)>) {
+fn md_to_ooxml(md: &str, rid_counter: &mut usize) -> (String, Vec<(String, String)>) {
     let mut out = String::new();
     let mut links = Vec::new();
     let lines: Vec<&str> = md.lines().collect();
@@ -343,27 +347,27 @@ fn md_to_ooxml(md: &str) -> (String, Vec<(String, String)>) {
 
         // Headings (check H6 first to avoid prefix conflicts)
         if let Some(rest) = t.strip_prefix("###### ") {
-            let (ooxml, hdr_links) = heading(rest, 6);
+            let (ooxml, hdr_links) = heading(rest, 6, rid_counter);
             out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
         }
         if let Some(rest) = t.strip_prefix("##### ") {
-            let (ooxml, hdr_links) = heading(rest, 5);
+            let (ooxml, hdr_links) = heading(rest, 5, rid_counter);
             out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
         }
         if let Some(rest) = t.strip_prefix("#### ") {
-            let (ooxml, hdr_links) = heading(rest, 4);
+            let (ooxml, hdr_links) = heading(rest, 4, rid_counter);
             out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
         }
         if let Some(rest) = t.strip_prefix("### ") {
-            let (ooxml, hdr_links) = heading(rest, 3);
+            let (ooxml, hdr_links) = heading(rest, 3, rid_counter);
             out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
         }
         if let Some(rest) = t.strip_prefix("## ") {
-            let (ooxml, hdr_links) = heading(rest, 2);
+            let (ooxml, hdr_links) = heading(rest, 2, rid_counter);
             out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
         }
         if let Some(rest) = t.strip_prefix("# ") {
-            let (ooxml, hdr_links) = heading(rest, 1);
+            let (ooxml, hdr_links) = heading(rest, 1, rid_counter);
             out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
         }
 
@@ -392,7 +396,7 @@ fn md_to_ooxml(md: &str) -> (String, Vec<(String, String)>) {
                 rows.push(lines[i].trim());
                 i += 1;
             }
-            let (ooxml, tbl_links) = table_ooxml(&rows);
+            let (ooxml, tbl_links) = table_ooxml(&rows, rid_counter);
             out.push_str(&ooxml); links.extend(tbl_links);
             continue;
         }
@@ -402,7 +406,7 @@ fn md_to_ooxml(md: &str) -> (String, Vec<(String, String)>) {
             && (lines[i].starts_with("  ") || lines[i].starts_with('\t'))
         {
             let content = &t[2..];
-            let (runs, item_links) = inline_runs(content);
+            let (runs, item_links) = inline_runs(content, rid_counter);
             links.extend(item_links);
             out.push_str(&format!(
                 r#"<w:p><w:pPr><w:pStyle w:val="ListBullet"/><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr><w:ind w:left="1080" w:hanging="360"/><w:spacing w:after="80"/></w:pPr>{}</w:p>"#,
@@ -413,7 +417,7 @@ fn md_to_ooxml(md: &str) -> (String, Vec<(String, String)>) {
 
         // Bullets (level 0)
         if t.starts_with("- ") || t.starts_with("* ") {
-            let (runs, item_links) = inline_runs(&t[2..]);
+            let (runs, item_links) = inline_runs(&t[2..], rid_counter);
             links.extend(item_links);
             out.push_str(&format!(
                 r#"<w:p><w:pPr><w:pStyle w:val="ListBullet"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr><w:spacing w:after="80"/></w:pPr>{}</w:p>"#,
@@ -425,7 +429,7 @@ fn md_to_ooxml(md: &str) -> (String, Vec<(String, String)>) {
         // Numbered list
         if t.len() > 2 && t.chars().next().is_some_and(|c| c.is_ascii_digit()) && t.contains(". ") {
             let dot_pos = t.find(". ").unwrap_or(0);
-            let (runs, item_links) = inline_runs(&t[dot_pos + 2..]);
+            let (runs, item_links) = inline_runs(&t[dot_pos + 2..], rid_counter);
             links.extend(item_links);
             out.push_str(&format!(
                 r#"<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr><w:spacing w:after="80"/></w:pPr>{}</w:p>"#,
@@ -436,7 +440,7 @@ fn md_to_ooxml(md: &str) -> (String, Vec<(String, String)>) {
 
         // Blockquote
         if let Some(rest) = t.strip_prefix("> ") {
-            let (runs, quote_links) = inline_runs(rest);
+            let (runs, quote_links) = inline_runs(rest, rid_counter);
             links.extend(quote_links);
             out.push_str(&format!(
                 r#"<w:p><w:pPr><w:pBdr><w:left w:val="single" w:sz="18" w:space="8" w:color="4472C4"/></w:pBdr><w:ind w:left="360"/><w:shd w:val="clear" w:color="auto" w:fill="F0F4FA"/></w:pPr>{}</w:p>"#,
@@ -452,7 +456,7 @@ fn md_to_ooxml(md: &str) -> (String, Vec<(String, String)>) {
         }
 
         // Regular paragraph with inline formatting
-        let (runs, para_links) = inline_runs(t);
+        let (runs, para_links) = inline_runs(t, rid_counter);
         links.extend(para_links);
         out.push_str(&format!(
             r#"<w:p><w:pPr><w:spacing w:after="120"/></w:pPr>{}</w:p>"#,
@@ -464,8 +468,8 @@ fn md_to_ooxml(md: &str) -> (String, Vec<(String, String)>) {
     (out, links)
 }
 
-fn heading(text: &str, level: u32) -> (String, Vec<(String, String)>) {
-    let (runs, links) = inline_runs(text);
+fn heading(text: &str, level: u32, rid_counter: &mut usize) -> (String, Vec<(String, String)>) {
+    let (runs, links) = inline_runs(text, rid_counter);
     (
         format!(
             r#"<w:p><w:pPr><w:pStyle w:val="Heading{level}"/></w:pPr>{}</w:p>"#,
@@ -516,7 +520,7 @@ fn mermaid_placeholder(code: &str) -> String {
     r
 }
 
-fn table_ooxml(rows: &[&str]) -> (String, Vec<(String, String)>) {
+fn table_ooxml(rows: &[&str], rid_counter: &mut usize) -> (String, Vec<(String, String)>) {
     if rows.is_empty() { return (String::new(), Vec::new()); }
     let mut out = String::new();
     let mut links = Vec::new();
@@ -549,7 +553,7 @@ fn table_ooxml(rows: &[&str]) -> (String, Vec<(String, String)>) {
         out.push_str("<w:tr>");
         for (j, cell) in cells.iter().enumerate() {
             if j < col_count {
-                let (runs, cell_links) = inline_runs(cell);
+                let (runs, cell_links) = inline_runs(cell, rid_counter);
                 links.extend(cell_links);
                 out.push_str(&format!(
                     r#"<w:tc><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="{bg}"/><w:tcMar><w:top w:w="30" w:type="dxa"/><w:bottom w:w="30" w:type="dxa"/><w:left w:w="80" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:pPr><w:spacing w:after="0"/></w:pPr>{}</w:p></w:tc>"#,
@@ -590,10 +594,9 @@ fn parse_table_row(line: &str) -> Vec<String> {
 
 /// Handle inline markdown: **bold**, *italic*, `code`, [text](url)
 /// Returns (ooxml_string, vec_of_links) where links are (rId, url) pairs.
-fn inline_runs(text: &str) -> (String, Vec<(String, String)>) {
+fn inline_runs(text: &str, rid_counter: &mut usize) -> (String, Vec<(String, String)>) {
     let mut result = String::new();
     let mut links = Vec::new();
-    let mut rid_counter = 10; // Start from rId10 (rId1-2 reserved for styles/numbering)
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
     let mut i = 0;
@@ -624,8 +627,8 @@ fn inline_runs(text: &str) -> (String, Vec<(String, String)>) {
         // Link [text](url)
         if chars[i] == '[' {
             if let Some((link_text, link_url, end_pos)) = parse_link(&chars, i) {
-                let rid = format!("rId{}", rid_counter);
-                rid_counter += 1;
+                let rid = format!("rId{}", *rid_counter);
+                *rid_counter += 1;
                 // Record the link
                 links.push((rid.clone(), link_url));
                 // Render link as clickable hyperlink element

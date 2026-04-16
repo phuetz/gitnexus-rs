@@ -43,8 +43,8 @@ export function CoverageView() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 24 }}>
         <StatCard label={t("coverage.totalMethods")} value={stats.totalMethods} />
         <StatCard label={t("health.tracing")} value={stats.tracedMethods} color="#73daca" />
-        <StatCard label={t("coverage.deadCode")} value={stats.deadCodeCandidates} color="#f7768e" />
-        <StatCard label={t("coverage.coverageLabel")} value={`${stats.coveragePct}%`} color="#9ece6a" />
+        <StatCard label={t("coverage.deadCode")} value={stats.deadCodeCandidates} color="var(--rose)" />
+        <StatCard label={t("coverage.coverageLabel")} value={`${stats.coveragePct}%`} color="var(--green)" />
       </div>
 
       {/* Dead code candidates */}
@@ -54,7 +54,7 @@ export function CoverageView() {
             className="text-sm font-semibold"
             style={{ color: "var(--text-1)", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}
           >
-            <AlertTriangle size={14} style={{ color: "#f7768e" }} />
+            <AlertTriangle size={14} style={{ color: "var(--rose)" }} />
             {t("coverage.deadCandidates")} ({stats.deadCodeCandidates})
           </h3>
           <div
@@ -112,7 +112,7 @@ export function CoverageView() {
       {stats.deadMethods.length === 0 && (
         <div
           className="flex items-center gap-2"
-          style={{ color: "#9ece6a", padding: 16, background: "var(--bg-1)", borderRadius: "var(--radius-lg)" }}
+          style={{ color: "var(--green)", padding: 16, background: "var(--bg-1)", borderRadius: "var(--radius-lg)" }}
         >
           <CheckCircle size={16} />
           {t("coverage.noDead")}

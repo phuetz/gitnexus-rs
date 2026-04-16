@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useIsFetching } from "@tanstack/react-query";
 import { Link as LinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useAppStore } from "../../stores/app-store";
@@ -23,6 +23,23 @@ function GraphStats() {
       <Sep />
       <span style={{ color: "var(--text-3)", fontVariantNumeric: "tabular-nums" }}>
         {data.stats.nodeCount}n | {data.stats.edgeCount}e
+      </span>
+    </>
+  );
+}
+
+function NetworkActivity() {
+  const fetching = useIsFetching();
+  if (fetching === 0) return null;
+  return (
+    <>
+      <Sep />
+      <span className="flex items-center gap-1" style={{ color: "var(--text-3)" }}>
+        <span
+          className="w-1.5 h-1.5 rounded-full"
+          style={{ background: "var(--accent)", animation: "pulse-subtle 1s ease-in-out infinite" }}
+        />
+        {fetching} req
       </span>
     </>
   );
@@ -144,6 +161,9 @@ export const StatusBar = memo(function StatusBar() {
 
           {/* Graph stats when in explorer */}
           {mode === "explorer" && <GraphStats />}
+
+          {/* Network activity */}
+          <NetworkActivity />
         </>
       ) : (
         <span style={{ color: "var(--text-3)" }}>{t("status.noRepo")}</span>

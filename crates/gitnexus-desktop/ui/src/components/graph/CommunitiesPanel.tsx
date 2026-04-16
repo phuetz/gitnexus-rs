@@ -128,10 +128,9 @@ export function CommunitiesPanel() {
               aria-pressed={isSelected}
               style={{
                 background: isSelected ? `${color}15` : "transparent",
+                border: "none",
                 borderLeft: isSelected ? `3px solid ${color}` : "3px solid transparent",
                 cursor: "pointer",
-                border: "none",
-                borderBottom: "none",
               }}
               title={feat.description || feat.name}
             >

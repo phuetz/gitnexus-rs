@@ -97,11 +97,29 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo) || "global";
   
-  const getActiveSession = useChatSessionStore(s => s.getActiveSession);
+  const sessions = useChatSessionStore(s => s.sessions);
+  const activeSessionId = useChatSessionStore(s => s.activeSessionId);
+  const setActiveSession = useChatSessionStore(s => s.setActiveSession);
   const addMessage = useChatSessionStore(s => s.addMessage);
   const clearSessionMessages = useChatSessionStore(s => s.clearSessionMessages);
 
-  const activeSession = getActiveSession(activeRepo);
+  const activeSession = useMemo(() => {
+    if (activeSessionId) {
+      const session = sessions.find(s => s.id === activeSessionId && s.repo === activeRepo);
+      if (session) return session;
+    }
+    // Fallback: most recent session for this repo
+    const repoSessions = sessions.filter(s => s.repo === activeRepo).sort((a, b) => b.updatedAt - a.updatedAt);
+    return repoSessions[0] ?? null;
+  }, [sessions, activeSessionId, activeRepo]);
+
+  // Sync activeSessionId when the fallback session differs (side-effect, not during render)
+  useEffect(() => {
+    if (activeSession && activeSession.id !== activeSessionId) {
+      setActiveSession(activeSession.id);
+    }
+  }, [activeSession, activeSessionId, setActiveSession]);
+
   const messages = useMemo(() => activeSession?.messages || [], [activeSession?.messages]);
 
   const [input, setInput] = useState("");
@@ -588,7 +606,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
               document.body.appendChild(a);
               a.click();
               document.body.removeChild(a);
-              URL.revokeObjectURL(url);
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
               toast.success(t("chat.exportedAsMarkdown"));
             }}
             className="text-[11px] hover-surface rounded px-2 py-1"
@@ -780,7 +798,7 @@ function MessageBubble({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast.success(t("chat.responseExported"));
     } catch (e) {
       toast.error(t("chat.exportFailed").replace("{0}", String(e)));
@@ -1014,8 +1032,9 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             onKeyDown={onKeyDown}
             placeholder={placeholder}
             aria-label="Ask a question about the code"
-            rows={3}
-            className="flex-1 bg-transparent resize-none text-[14px] outline-none min-h-[56px] max-h-[200px] leading-relaxed"
+            rows={1}
+            className="flex-1 bg-transparent resize-none text-[14px] outline-none min-h-[40px] max-h-[200px] leading-relaxed"
+            onInput={(e) => { const el = e.currentTarget; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 200)}px`; }}
             style={{
               color: "var(--text-0)",
               fontFamily: "var(--font-body)",

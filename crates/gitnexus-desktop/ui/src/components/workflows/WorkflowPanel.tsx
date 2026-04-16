@@ -49,11 +49,11 @@ interface Props {
 }
 
 const STEP_KINDS = [
-  { key: "search", label: "search", icon: Search, color: "#7aa2f7", defaults: { query: "auth" } },
+  { key: "search", label: "search", icon: Search, color: "var(--accent)", defaults: { query: "auth" } },
   { key: "cypher", label: "cypher", icon: Code2, color: "#bb9af7", defaults: { query: "MATCH (n:Function) RETURN n.name LIMIT 10" } },
-  { key: "impact", label: "impact", icon: Zap, color: "#e0af68", defaults: { target: "FooService", maxDepth: 3 } },
-  { key: "read_file", label: "read_file", icon: FileText, color: "#9ece6a", defaults: { path: "src/main.rs", maxBytes: 4000 } },
-  { key: "llm", label: "llm", icon: Sparkles, color: "#f7768e", defaults: { prompt: "Summarize the prior step outputs in 3 bullet points.", system: "You are a senior code reviewer." } },
+  { key: "impact", label: "impact", icon: Zap, color: "var(--amber)", defaults: { target: "FooService", maxDepth: 3 } },
+  { key: "read_file", label: "read_file", icon: FileText, color: "var(--green)", defaults: { path: "src/main.rs", maxBytes: 4000 } },
+  { key: "llm", label: "llm", icon: Sparkles, color: "var(--rose)", defaults: { prompt: "Summarize the prior step outputs in 3 bullet points.", system: "You are a senior code reviewer." } },
 ] as const;
 
 function newStep(kind: (typeof STEP_KINDS)[number]["key"]): WorkflowStep {
@@ -416,7 +416,7 @@ function WorkflowEditor({
           <span
             style={{
               fontSize: 9,
-              color: "#e0af68",
+              color: "var(--amber)",
               padding: "1px 6px",
               border: "1px solid #e0af68",
               borderRadius: 999,
@@ -443,7 +443,7 @@ function WorkflowEditor({
               </button>
             );
           })}
-          <button onClick={onRun} disabled={isRunning} style={pillBtn("#9ece6a")}>
+          <button onClick={onRun} disabled={isRunning} style={pillBtn("var(--green)")}>
             {isRunning ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
             {isRunning ? "running…" : "run all"}
           </button>
@@ -572,7 +572,7 @@ function StepCard({
           <span
             style={{
               fontSize: 9,
-              color: run.status === "ok" ? "#9ece6a" : run.status === "error" ? "#f7768e" : "var(--text-3)",
+              color: run.status === "ok" ? "var(--green)" : run.status === "error" ? "var(--rose)" : "var(--text-3)",
               display: "inline-flex",
               alignItems: "center",
               gap: 3,
@@ -588,7 +588,7 @@ function StepCard({
         <button onClick={onMoveDown} title="Move down" style={iconBtn()}>
           <ArrowDown size={10} />
         </button>
-        <button onClick={onRemove} title="Delete step" style={iconBtn("#f7768e")}>
+        <button onClick={onRemove} title="Delete step" style={iconBtn("var(--rose)")}>
           <Trash2 size={10} />
         </button>
       </div>
@@ -608,7 +608,7 @@ function StepCard({
           }}
         >
           {run.error ? (
-            <div style={{ color: "#f7768e", fontFamily: "var(--font-mono)" }}>{run.error}</div>
+            <div style={{ color: "var(--rose)", fontFamily: "var(--font-mono)" }}>{run.error}</div>
           ) : (
             <pre
               style={{

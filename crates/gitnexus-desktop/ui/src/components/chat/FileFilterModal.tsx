@@ -12,6 +12,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileCode, Search, X, Check, Loader2 } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
 import type { FileQuickPick } from "../../lib/tauri-commands";
 import { useChatStore } from "../../stores/chat-store";
 import { useAppStore } from "../../stores/app-store";
@@ -22,6 +23,7 @@ interface FileFilterModalProps {
 }
 
 export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
+  const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -127,7 +129,7 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search files... (type to filter)"
+            placeholder={t("filters.searchFiles")}
             className="flex-1 bg-transparent outline-none focus:ring-1 focus:ring-[var(--accent)] text-[13px]"
             style={{ color: "var(--text-0)", fontFamily: "var(--font-body)" }}
           />
@@ -141,7 +143,7 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
         <div ref={listRef} className="flex-1 overflow-y-auto py-1">
           {results.length === 0 && !isLoading && (
             <div className="px-4 py-8 text-center text-[13px]" style={{ color: "var(--text-3)" }}>
-              {query ? "No files found" : "Type to search files..."}
+              {query ? t("filters.noFilesFound") : t("filters.typeToSearchFiles")}
             </div>
           )}
 

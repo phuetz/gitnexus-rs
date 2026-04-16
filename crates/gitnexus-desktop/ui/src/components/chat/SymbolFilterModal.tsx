@@ -16,6 +16,7 @@ import {
   GitBranch, Type,
 } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
 import type { SymbolQuickPick } from "../../lib/tauri-commands";
 import { useChatStore } from "../../stores/chat-store";
 import { useAppStore } from "../../stores/app-store";
@@ -26,6 +27,7 @@ interface SymbolFilterModalProps {
 }
 
 export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
+  const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -126,7 +128,7 @@ export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search symbols... (@function, #class)"
+            placeholder={t("filters.searchSymbols")}
             className="flex-1 bg-transparent outline-none focus:ring-1 focus:ring-[var(--accent)] text-[13px]"
             style={{ color: "var(--text-0)", fontFamily: "var(--font-body)" }}
           />
@@ -140,7 +142,7 @@ export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
         <div ref={listRef} className="flex-1 overflow-y-auto py-1">
           {results.length === 0 && !isLoading && (
             <div className="px-4 py-8 text-center text-[13px]" style={{ color: "var(--text-3)" }}>
-              {query ? "No symbols found" : "Type to search symbols..."}
+              {query ? t("filters.noSymbolsFound") : t("filters.typeToSearchSymbols")}
             </div>
           )}
 

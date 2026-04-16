@@ -65,12 +65,12 @@ export function BookmarkStar() {
         background: "transparent",
         border: "none",
         cursor: "pointer",
-        color: isBookmarked ? "#e0af68" : "var(--text-3)",
+        color: isBookmarked ? "var(--amber)" : "var(--text-3)",
         display: "inline-flex",
         alignItems: "center",
       }}
     >
-      <Star size={14} fill={isBookmarked ? "#e0af68" : "transparent"} />
+      <Star size={14} fill={isBookmarked ? "var(--amber)" : "transparent"} />
     </button>
   );
 }

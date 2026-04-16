@@ -17,15 +17,15 @@ import { useI18n } from "../../hooks/use-i18n";
 // ─── Label colors ───────────────────────────────────────────────
 
 const LABEL_COLORS: Record<string, string> = {
-  Class: "#7aa2f7",
+  Class: "var(--accent)",
   Controller: "#bb9af7",
-  Service: "#9ece6a",
-  Method: "#e0af68",
-  Function: "#e0af68",
+  Service: "var(--green)",
+  Method: "var(--amber)",
+  Function: "var(--amber)",
   Interface: "#2ac3de",
-  Struct: "#7aa2f7",
-  Constructor: "#e0af68",
-  View: "#f7768e",
+  Struct: "var(--accent)",
+  Constructor: "var(--amber)",
+  View: "var(--rose)",
   DbEntity: "#ff9e64",
   DbContext: "#ff9e64",
   Enum: "#2ac3de",

@@ -17,7 +17,7 @@ export const GraphView: React.FC = () => {
   if (!graphData) return null;
 
   return (
-    <div className="w-full h-full bg-zinc-950">
+    <div className="w-full h-full bg-zinc-950 relative">
       <ForceGraph2D
         ref={fgRef}
         graphData={graphData}

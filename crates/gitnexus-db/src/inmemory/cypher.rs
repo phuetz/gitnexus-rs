@@ -196,14 +196,15 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
             }
             _ if c.is_ascii_digit() => {
                 let start = i;
-                while i < len && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                let mut dot_seen = false;
+                while i < len && (chars[i].is_ascii_digit() || (chars[i] == '.' && !dot_seen)) {
+                    if chars[i] == '.' { dot_seen = true; }
                     i += 1;
                 }
                 let num_str: String = chars[start..i].iter().collect();
                 if num_str.contains('.') {
-                    if let Ok(f) = num_str.parse::<f64>() {
-                        tokens.push(Token::Float(f));
-                    }
+                    let f = num_str.parse::<f64>().map_err(|_| format!("Invalid numeric literal '{num_str}' at position {start}"))?;
+                    tokens.push(Token::Float(f));
                 } else if let Ok(n) = num_str.parse::<i64>() {
                     tokens.push(Token::Int(n));
                 }

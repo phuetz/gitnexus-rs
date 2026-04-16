@@ -123,10 +123,10 @@ export function RepoManager() {
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="pulse-subtle" style={{ color: "var(--text-3)" }}>
-          {t("repos.loading")}
-        </div>
+      <div className="h-full p-4 space-y-3">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="shimmer rounded-xl" style={{ height: 80, background: "var(--bg-2)" }} />
+        ))}
       </div>
     );
   }
@@ -134,10 +134,17 @@ export function RepoManager() {
   if (error) {
     return (
       <div
-        className="h-full flex items-center justify-center"
+        className="h-full flex flex-col items-center justify-center gap-3"
         style={{ color: "var(--rose)" }}
       >
-        {t("repos.error")}: {String(error)}
+        <span>{t("repos.error")}: {String(error)}</span>
+        <button
+          onClick={() => refetch()}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium"
+          style={{ background: "var(--accent)", color: "#fff", border: "none", cursor: "pointer" }}
+        >
+          {t("common.retry") || "Retry"}
+        </button>
       </div>
     );
   }

@@ -200,7 +200,7 @@ export function GraphContextMenu({
               onClose();
             }}
           >
-            <Hammer size={14} style={{ marginRight: 8, color: "#e0af68" }} />
+            <Hammer size={14} style={{ marginRight: 8, color: "var(--amber)" }} />
             Design changes around this
           </ContextMenuButton>
           <ContextMenuButton
@@ -209,7 +209,7 @@ export function GraphContextMenu({
               onClose();
             }}
           >
-            <ShieldCheck size={14} style={{ marginRight: 8, color: "#9ece6a" }} />
+            <ShieldCheck size={14} style={{ marginRight: 8, color: "var(--green)" }} />
             Review impact of changes
           </ContextMenuButton>
           <ContextMenuButton
@@ -218,7 +218,7 @@ export function GraphContextMenu({
               onClose();
             }}
           >
-            <Skull size={14} style={{ marginRight: 8, color: "#f7768e" }} />
+            <Skull size={14} style={{ marginRight: 8, color: "var(--rose)" }} />
             Dead-code check
           </ContextMenuButton>
           <ContextMenuButton

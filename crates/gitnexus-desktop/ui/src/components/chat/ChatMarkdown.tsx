@@ -263,11 +263,14 @@ const createMarkdownComponents = (onNavigateToNode?: (id: string) => void): Part
   strong: ({ children }: { children?: React.ReactNode }) => (
     <strong style={{ color: "var(--text-0)" }}>{children}</strong>
   ),
-  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
-    <a href={href} style={{ color: "var(--accent)", textDecoration: "underline" }}>
-      {children}
-    </a>
-  ),
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+    const safe = href && !/^javascript:/i.test(href) ? href : undefined;
+    return (
+      <a href={safe} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>
+        {children}
+      </a>
+    );
+  },
   h3: ({ children }: { children?: React.ReactNode }) => (
     <h3 className="text-sm font-semibold mt-3 mb-1" style={{ color: "var(--text-0)" }}>
       {children}

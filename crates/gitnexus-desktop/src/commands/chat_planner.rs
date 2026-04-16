@@ -168,7 +168,7 @@ pub fn analyze_query_impl(
         if needs_impact {
             count += 1;
         }
-        if has_cypher {
+        if has_cypher && !keywords.is_empty() {
             count += 1;
         }
         count

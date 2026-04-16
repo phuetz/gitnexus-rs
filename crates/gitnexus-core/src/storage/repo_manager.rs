@@ -157,6 +157,7 @@ fn with_registry_lock<T>(op: impl FnOnce() -> Result<T>) -> Result<T> {
                         if let Ok(age) = std::time::SystemTime::now().duration_since(modified) {
                             if age.as_secs() > 30 {
                                 let _ = std::fs::remove_file(&lock_path);
+                                continue; // retry immediately after reclaiming stale lock
                             }
                         }
                     }

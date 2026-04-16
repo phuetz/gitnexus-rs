@@ -148,7 +148,7 @@ impl FtsIndex {
         for token in &query_tokens {
             if let Some(postings) = self.inverted.get(token.as_str()) {
                 let df = postings.len() as f64;
-                let idf = ((self.doc_count as f64 - df + 0.5) / (df + 0.5) + 1.0).ln();
+                let idf = ((self.doc_count as f64 - df + 0.5) / (df + 0.5) + 1.0).ln().max(0.0);
 
                 for (doc_id, tf) in postings {
                     let doc_len = *self.doc_lengths.get(doc_id.as_str()).unwrap_or(&1) as f64;

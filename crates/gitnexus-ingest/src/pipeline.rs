@@ -430,6 +430,7 @@ pub fn topological_level_sort(import_map: &HashMap<String, HashSet<String>>) -> 
         all_files.insert(file);
         in_degree.entry(file).or_insert(0);
         for imported in imports {
+            if imported == file { continue; } // skip self-imports
             all_files.insert(imported);
             *in_degree.entry(file.as_str()).or_insert(0) += 1;
             reverse_deps

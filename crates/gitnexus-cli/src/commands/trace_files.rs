@@ -14,7 +14,8 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
         std::env::current_dir()?
     };
 
-    let snap_path = repo_path.join(".gitnexus").join("graph.bin");
+    let storage = gitnexus_core::storage::repo_manager::get_storage_paths(&repo_path);
+    let snap_path = gitnexus_db::snapshot::snapshot_path(std::path::Path::new(&storage.storage_path));
     if !snap_path.exists() {
         println!("{} No index found. Run 'gitnexus analyze' first.", "ERROR".red());
         return Ok(());

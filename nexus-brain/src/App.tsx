@@ -35,6 +35,7 @@ function App() {
       title: "Select GitNexus Vault",
     });
     if (selected && typeof selected === 'string') {
+      setSelectedNote(null); // reset before switching vaults
       setVaultPath(selected);
     }
   };

@@ -205,8 +205,7 @@ fn build_signals(
         }
     }
 
-    let mut s = SimplifySignals::default();
-    s.scope = scope.label.clone();
+    let mut s = SimplifySignals { scope: scope.label.clone(), ..Default::default() };
 
     let mut name_buckets: HashMap<String, Vec<String>> = HashMap::new(); // name → file paths
     let mut files_seen: std::collections::HashSet<String> = std::collections::HashSet::new();

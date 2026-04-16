@@ -57,7 +57,7 @@ export function BookmarksDropdown() {
           border: "1px solid var(--surface-border)",
           borderRadius: 6,
           cursor: "pointer",
-          color: bookmarks.length > 0 ? "#e0af68" : "var(--text-3)",
+          color: bookmarks.length > 0 ? "var(--amber)" : "var(--text-3)",
           fontSize: 11,
           fontFamily: "inherit",
         }}

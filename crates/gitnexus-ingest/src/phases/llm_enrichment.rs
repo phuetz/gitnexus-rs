@@ -494,7 +494,7 @@ fn apply_insights(
 
 fn estimate_tokens(text: &str) -> u64 {
     // Rough heuristic: ~4 chars per token
-    (text.len() as u64 + 3) / 4
+    (text.len() as u64).div_ceil(4)
 }
 
 // ─── Main Entry Point ──────────────────────────────────────────────────
@@ -549,7 +549,7 @@ pub async fn enrich_with_llm(
         .collect();
 
     // Chunk into batches
-    let batch_size = config.batch_size.max(1).min(10);
+    let batch_size = config.batch_size.clamp(1, 10);
     let batches: Vec<Vec<&EnrichmentCandidate>> = candidates
         .iter()
         .collect::<Vec<_>>()

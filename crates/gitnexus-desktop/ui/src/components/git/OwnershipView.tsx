@@ -15,11 +15,11 @@ interface Props {
 }
 
 const AUTHOR_COLORS = [
-  "#7aa2f7",
-  "#9ece6a",
+  "var(--accent)",
+  "var(--green)",
   "#bb9af7",
-  "#e0af68",
-  "#f7768e",
+  "var(--amber)",
+  "var(--rose)",
   "#7dcfff",
   "#73daca",
   "#ff9e64",
@@ -184,7 +184,7 @@ export function OwnershipView({ data, loading }: Props) {
                   <span
                     style={{
                       fontSize: 10,
-                      color: o.ownershipPct < 50 ? "#f7768e" : "var(--text-2)",
+                      color: o.ownershipPct < 50 ? "var(--rose)" : "var(--text-2)",
                       minWidth: 32,
                       textAlign: "right",
                     }}

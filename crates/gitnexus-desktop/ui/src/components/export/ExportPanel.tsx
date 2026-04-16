@@ -73,10 +73,12 @@ export function ExportPanel() {
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
 
-  const [exportStatus, setExportStatus] = useState<ExportStatus>("idle");
+  const [docxStatus, setDocxStatus] = useState<ExportStatus>("idle");
+  const [obsidianStatus, setObsidianStatus] = useState<ExportStatus>("idle");
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [obsidianPath, setObsidianPath] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [docxError, setDocxError] = useState<string | null>(null);
+  const [obsidianError, setObsidianError] = useState<string | null>(null);
 
   const { data: stats = null, isLoading: loading, refetch: refetchStats } = useQuery({
     queryKey: ["aspnet-stats", activeRepo],
@@ -117,37 +119,35 @@ export function ExportPanel() {
   }
 
   const handleExport = async () => {
-    setExportStatus("exporting");
+    setDocxStatus("exporting");
     setExportPath(null);
-    setObsidianPath(null);
-    setErrorMsg(null);
+    setDocxError(null);
     try {
       const path = await commands.exportDocsDocx();
       setExportPath(path);
-      setExportStatus("success");
+      setDocxStatus("success");
       toast.success(t("export.toastSuccess"));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setErrorMsg(msg);
-      setExportStatus("error");
+      setDocxError(msg);
+      setDocxStatus("error");
       toast.error(t("export.toastError").replace("{0}", msg));
     }
   };
 
   const handleObsidianExport = async () => {
-    setExportStatus("exporting");
-    setExportPath(null);
+    setObsidianStatus("exporting");
     setObsidianPath(null);
-    setErrorMsg(null);
+    setObsidianError(null);
     try {
       const path = await commands.exportObsidianVault();
       setObsidianPath(path);
-      setExportStatus("success");
+      setObsidianStatus("success");
       toast.success(t("export.toastSuccess"));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setErrorMsg(msg);
-      setExportStatus("error");
+      setObsidianError(msg);
+      setObsidianStatus("error");
       toast.error(t("export.toastError").replace("{0}", msg));
     }
   };
@@ -256,23 +256,23 @@ export function ExportPanel() {
 
           <button
             onClick={handleExport}
-            disabled={exportStatus === "exporting"}
+            disabled={docxStatus === "exporting"}
             aria-label={t("export.ariaExport")}
             className="w-full flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all"
             style={{
               marginTop: 16,
               padding: "10px 16px",
               background:
-                exportStatus === "exporting"
+                docxStatus === "exporting"
                   ? "var(--surface-1)"
                   : "linear-gradient(135deg, var(--accent), #8b5cf6)",
-              color: exportStatus === "exporting" ? "var(--text-3)" : "white",
+              color: docxStatus === "exporting" ? "var(--text-3)" : "white",
               border: "none",
-              cursor: exportStatus === "exporting" ? "wait" : "pointer",
-              opacity: exportStatus === "exporting" ? 0.7 : 1,
+              cursor: docxStatus === "exporting" ? "wait" : "pointer",
+              opacity: docxStatus === "exporting" ? 0.7 : 1,
             }}
           >
-            {exportStatus === "exporting" ? (
+            {docxStatus === "exporting" ? (
               <>
                 <RefreshCw size={16} className="animate-spin" />
                 {t("export.exporting")}
@@ -286,7 +286,7 @@ export function ExportPanel() {
           </button>
 
           {/* Success message */}
-          {exportStatus === "success" && exportPath && (
+          {docxStatus === "success" && exportPath && (
             <div
               className="flex items-start gap-2 rounded-lg"
               style={{
@@ -312,7 +312,7 @@ export function ExportPanel() {
           )}
 
           {/* Error message */}
-          {exportStatus === "error" && errorMsg && (
+          {docxStatus === "error" && docxError && (
             <div
               className="flex items-start gap-2 rounded-lg"
               style={{
@@ -326,7 +326,7 @@ export function ExportPanel() {
               <AlertCircle size={16} className="shrink-0" style={{ marginTop: 1 }} />
               <div className="min-w-0">
                 <div className="font-medium">{t("export.error")}</div>
-                <div style={{ color: "var(--text-3)", marginTop: 2 }}>{errorMsg}</div>
+                <div style={{ color: "var(--text-3)", marginTop: 2 }}>{docxError}</div>
               </div>
             </div>
           )}
@@ -375,22 +375,22 @@ export function ExportPanel() {
 
           <button
             onClick={handleObsidianExport}
-            disabled={exportStatus === "exporting"}
+            disabled={obsidianStatus === "exporting"}
             className="w-full flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all"
             style={{
               marginTop: 16,
               padding: "10px 16px",
               background:
-                exportStatus === "exporting"
+                obsidianStatus === "exporting"
                   ? "var(--surface-1)"
                   : "linear-gradient(135deg, #a855f7, #ec4899)",
-              color: exportStatus === "exporting" ? "var(--text-3)" : "white",
+              color: obsidianStatus === "exporting" ? "var(--text-3)" : "white",
               border: "none",
-              cursor: exportStatus === "exporting" ? "wait" : "pointer",
-              opacity: exportStatus === "exporting" ? 0.7 : 1,
+              cursor: obsidianStatus === "exporting" ? "wait" : "pointer",
+              opacity: obsidianStatus === "exporting" ? 0.7 : 1,
             }}
           >
-            {exportStatus === "exporting" ? (
+            {obsidianStatus === "exporting" ? (
               <>
                 <RefreshCw size={16} className="animate-spin" />
                 {t("export.exporting")}
@@ -404,7 +404,7 @@ export function ExportPanel() {
           </button>
 
           {/* Success message */}
-          {exportStatus === "success" && obsidianPath && (
+          {obsidianStatus === "success" && obsidianPath && (
             <div
               className="flex items-start gap-2 rounded-lg"
               style={{

@@ -81,7 +81,7 @@ export function CypherQueryFAB() {
 
   const handleSaveCurrent = () => {
     if (!query.trim()) {
-      toast.error("Nothing to save — write a query first");
+      toast.error(t("cypher.emptyQuery"));
       return;
     }
     const name = window.prompt("Name for this saved query:");
@@ -214,31 +214,31 @@ export function CypherQueryFAB() {
                   title="Save the current query"
                   aria-label="Save query"
                   style={{
-                    padding: 3,
+                    padding: 6,
                     background: "transparent",
                     border: "1px solid var(--border)",
-                    borderRadius: 4,
+                    borderRadius: 6,
                     color: "var(--text-2)",
                     cursor: "pointer",
                   }}
                 >
-                  <Save size={11} />
+                  <Save size={14} />
                 </button>
                 <button
                   onClick={() => setShowLibrary((v) => !v)}
                   title={`Saved queries (${savedQueries.length})`}
                   aria-label="Open saved queries library"
                   style={{
-                    padding: 3,
+                    padding: 6,
                     background: showLibrary ? "var(--accent)" : "transparent",
                     border: "1px solid var(--border)",
-                    borderRadius: 4,
+                    borderRadius: 6,
                     color: showLibrary ? "#fff" : "var(--text-2)",
                     cursor: "pointer",
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 3,
-                    fontSize: 10,
+                    gap: 4,
+                    fontSize: 11,
                   }}
                 >
                   <FolderOpen size={11} />
@@ -273,12 +273,15 @@ export function CypherQueryFAB() {
                   savedQueries.map((q) => (
                     <div
                       key={q.id}
+                      className="transition-colors"
                       style={{
                         display: "flex",
                         alignItems: "center",
                         padding: "6px 12px",
                         borderBottom: "1px solid var(--surface-border)",
                       }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-3)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                     >
                       <button
                         onClick={() => {
@@ -299,6 +302,7 @@ export function CypherQueryFAB() {
                       >
                         <div style={{ fontSize: 11, fontWeight: 600 }}>{q.name}</div>
                         <div
+                          title={q.query}
                           style={{
                             fontSize: 10,
                             color: "var(--text-3)",
@@ -313,7 +317,7 @@ export function CypherQueryFAB() {
                         </div>
                       </button>
                       <button
-                        onClick={() => deleteMut.mutate(q.id)}
+                        onClick={() => { if (window.confirm(t("cypher.confirmDelete") || "Delete this saved query?")) deleteMut.mutate(q.id); }}
                         title="Delete saved query"
                         aria-label="Delete saved query"
                         style={{
@@ -422,7 +426,7 @@ export function CypherQueryFAB() {
               <div
                 style={{
                   padding: "8px 14px",
-                  color: "#f7768e",
+                  color: "var(--rose)",
                   fontSize: 11,
                   borderTop: "1px solid var(--border)",
                 }}

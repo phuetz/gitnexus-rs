@@ -60,6 +60,14 @@ export function SearchView() {
         />
       </div>
 
+      {/* Result count */}
+      {rankedResults && !isLoading && (
+        <div className="text-[11px] mb-2" style={{ color: "var(--text-3)" }}>
+          {rankedResults.length} {rankedResults.length === 1 ? "result" : "results"}
+          {query.length >= 2 && ` for "${query}"`}
+        </div>
+      )}
+
       {/* Results */}
       <div className="flex-1 overflow-y-auto space-y-0.5">
         {isLoading && (

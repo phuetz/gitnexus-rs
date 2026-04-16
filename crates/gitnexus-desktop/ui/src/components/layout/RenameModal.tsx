@@ -15,6 +15,7 @@ import { useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Replace, AlertTriangle, Check } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "../../hooks/use-i18n";
 import { commands } from "../../lib/tauri-commands";
 import type { RenameEdit, RenameResult } from "../../lib/tauri-commands";
 
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function RenameModal({ open, initialTarget, onClose }: Props) {
+  const { t } = useI18n();
   const [target, setTarget] = useState(initialTarget ?? "");
   const [newName, setNewName] = useState("");
   const [preview, setPreview] = useState<RenameResult | null>(null);
@@ -143,7 +145,7 @@ export function RenameModal({ open, initialTarget, onClose }: Props) {
                 cursor: canPreview ? "pointer" : "not-allowed",
               }}
             >
-              {previewMut.isPending ? "Searching…" : "Preview"}
+              {previewMut.isPending ? t("rename.searching") : t("rename.preview")}
             </button>
           </div>
 
@@ -185,7 +187,7 @@ export function RenameModal({ open, initialTarget, onClose }: Props) {
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 4,
-                    color: "#e0af68",
+                    color: "var(--amber)",
                   }}
                 >
                   <AlertTriangle size={11} /> Text-search edits are NOT auto-applied — review manually.
@@ -198,7 +200,7 @@ export function RenameModal({ open, initialTarget, onClose }: Props) {
                   marginLeft: "auto",
                   padding: "6px 14px",
                   background:
-                    preview.graphEdits.length > 0 ? "#9ece6a" : "var(--bg-3)",
+                    preview.graphEdits.length > 0 ? "var(--green)" : "var(--bg-3)",
                   color: "#000",
                   border: "none",
                   borderRadius: 6,
@@ -306,7 +308,7 @@ function PreviewList({ result }: { result: RenameResult }) {
                 fontFamily: "var(--font-mono)",
                 fontSize: 11,
                 borderLeft: `3px solid ${
-                  e.confidence >= 0.9 ? "#9ece6a" : e.confidence >= 0.7 ? "#e0af68" : "#7aa2f7"
+                  e.confidence >= 0.9 ? "var(--green)" : e.confidence >= 0.7 ? "var(--amber)" : "var(--accent)"
                 }`,
                 background: "var(--bg-2)",
                 marginBottom: 2,

@@ -8,13 +8,13 @@ import type { GraphPayload, CytoNode } from "../../lib/tauri-commands";
 // ─── Color mapping (matches GraphExplorer LABEL_COLORS) ──────────────
 
 const LABEL_COLORS: Record<string, string> = {
-  Function: "#7aa2f7",
+  Function: "var(--accent)",
   Class: "#bb9af7",
   Method: "#7dcfff",
-  Interface: "#e0af68",
+  Interface: "var(--amber)",
   Struct: "#ff9e64",
-  Trait: "#9ece6a",
-  Enum: "#f7768e",
+  Trait: "var(--green)",
+  Enum: "var(--rose)",
   File: "#565f89",
   Folder: "#414868",
   Module: "#565f89",
@@ -22,12 +22,12 @@ const LABEL_COLORS: Record<string, string> = {
   Variable: "#73daca",
   Type: "#c0caf5",
   Import: "#414868",
-  Community: "#9ece6a",
-  Process: "#e0af68",
+  Community: "var(--green)",
+  Process: "var(--amber)",
   Constructor: "#7dcfff",
   Property: "#73daca",
   Route: "#ff9e64",
-  Tool: "#e0af68",
+  Tool: "var(--amber)",
   Namespace: "#414868",
 };
 

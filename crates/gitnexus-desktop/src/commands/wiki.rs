@@ -137,10 +137,7 @@ pub async fn wiki_generate(
     let total = community_meta.len() as u32;
     let mut pages: Vec<WikiPage> = Vec::new();
     let mut used: HashSet<String> = HashSet::new();
-    let mut idx: u32 = 0;
-
-    for (cid, (name, heuristic)) in &community_meta {
-        idx += 1;
+    for (idx, (cid, (name, heuristic))) in (1_u32..).zip(community_meta.iter()) {
         let _ = app.emit(
             "wiki-progress",
             WikiProgressEvent {

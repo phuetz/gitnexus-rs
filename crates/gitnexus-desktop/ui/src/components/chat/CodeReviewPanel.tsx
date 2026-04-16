@@ -122,7 +122,7 @@ export function CodeReviewPanel({ artifact }: Props) {
               fontSize: 12,
             }}
           >
-            <CheckCircle2 size={14} style={{ color: "#9ece6a" }} />
+            <CheckCircle2 size={14} style={{ color: "var(--green)" }} />
             <span>No high-confidence issues found. Ready to commit.</span>
           </div>
         ) : (
@@ -190,10 +190,10 @@ function IconButton({
 
 function RiskBadge({ level }: { level: string }) {
   const config: Record<string, { color: string; bg: string }> = {
-    none: { color: "#9ece6a", bg: "rgba(158,206,106,0.12)" },
-    low: { color: "#7aa2f7", bg: "rgba(122,162,247,0.12)" },
-    medium: { color: "#e0af68", bg: "rgba(224,175,104,0.12)" },
-    high: { color: "#f7768e", bg: "rgba(247,118,142,0.12)" },
+    none: { color: "var(--green)", bg: "rgba(158,206,106,0.12)" },
+    low: { color: "var(--accent)", bg: "rgba(122,162,247,0.12)" },
+    medium: { color: "var(--amber)", bg: "rgba(224,175,104,0.12)" },
+    high: { color: "var(--rose)", bg: "rgba(247,118,142,0.12)" },
   };
   const c = config[level] ?? config.medium;
   return (
@@ -218,10 +218,10 @@ function VerdictBadge({ verdict }: { verdict: string }) {
   const v = verdict.toLowerCase();
   const config =
     v === "ready"
-      ? { icon: CheckCircle2, color: "#9ece6a", bg: "rgba(158,206,106,0.12)", label: "ready" }
+      ? { icon: CheckCircle2, color: "var(--green)", bg: "rgba(158,206,106,0.12)", label: "ready" }
       : v === "blocked"
-        ? { icon: AlertTriangle, color: "#f7768e", bg: "rgba(247,118,142,0.12)", label: "blocked" }
-        : { icon: AlertTriangle, color: "#e0af68", bg: "rgba(224,175,104,0.12)", label: "needs revisions" };
+        ? { icon: AlertTriangle, color: "var(--rose)", bg: "rgba(247,118,142,0.12)", label: "blocked" }
+        : { icon: AlertTriangle, color: "var(--amber)", bg: "rgba(224,175,104,0.12)", label: "needs revisions" };
   const Icon = config.icon;
   return (
     <span
@@ -291,7 +291,7 @@ function Stat({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-3)" }}>
-        {Icon && <Icon size={10} style={{ color: hot ? "#f7768e" : "var(--text-3)" }} />}
+        {Icon && <Icon size={10} style={{ color: hot ? "var(--rose)" : "var(--text-3)" }} />}
         <span style={{ fontSize: 9, textTransform: "uppercase", fontWeight: 600 }}>{label}</span>
       </div>
       <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{value}</div>
@@ -305,10 +305,10 @@ function IssuesList({ issues }: { issues: ReviewIssue[] }) {
       {issues.map((issue, i) => {
         const sevColor =
           issue.severity === "high"
-            ? "#f7768e"
+            ? "var(--rose)"
             : issue.severity === "medium"
-              ? "#e0af68"
-              : "#7aa2f7";
+              ? "var(--amber)"
+              : "var(--accent)";
         return (
           <div
             key={i}

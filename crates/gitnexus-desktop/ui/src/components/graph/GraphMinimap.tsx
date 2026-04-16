@@ -84,7 +84,7 @@ export function GraphMinimap({
     const vpW = Math.abs(vx2 - vx1);
     const vpH = Math.abs(vy2 - vy1);
 
-    ctx.strokeStyle = "#7aa2f7";
+    ctx.strokeStyle = "var(--accent)";
     ctx.lineWidth = 1.5;
     ctx.fillStyle = "rgba(122, 162, 247, 0.12)";
     ctx.fillRect(vpX, vpY, vpW, vpH);

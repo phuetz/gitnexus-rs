@@ -64,20 +64,9 @@ export function GraphExplorer() {
   const {
     setContextMenu, setHoveredNode, setHoverPos, setHoverDegrees,
     setFocusNodeId, setImpactNodeIds, setImpactOverlay,
-    setLayout, setHiddenEdgeTypes, highlightedNodeType, setHighlightedNodeType
+    setLayout, setHiddenEdgeTypes, highlightedNodeType, setHighlightedNodeType,
+    complexityThreshold, setComplexityThreshold,
   } = gs;
-
-  // ── Derived ──────────────────────────────────────────────────────
-  const highlightedNodeIdsFromType = useMemo(() => {
-    if (!highlightedNodeType || !activeData) return new Set<string>();
-    return new Set(activeData.nodes.filter(n => n.label === highlightedNodeType).map(n => n.id));
-  }, [highlightedNodeType, activeData]);
-
-  const combinedHighlightedNodeIds = useMemo(() => {
-    const set = new Set(searchMatchIds);
-    highlightedNodeIdsFromType.forEach(id => set.add(id));
-    return set;
-  }, [searchMatchIds, highlightedNodeIdsFromType]);
 
   const effectiveHiddenEdgeTypes = useMemo(() => {
     const lensEdgeTypes = LENS_EDGE_TYPES[activeLens];
@@ -93,6 +82,27 @@ export function GraphExplorer() {
     }
     return next;
   }, [gs.hiddenEdgeTypes, activeLens]);
+
+  // ── Data (must precede useSigma so combinedHighlightedNodeIds is available) ──
+  const { data, isLoading, error } = useGraphData({ zoomLevel, maxNodes: 200 } as GraphFilter, true);
+  const { data: subgraphData } = useQuery({
+    queryKey: ["subgraph", activeRepo, gs.focusNodeId],
+    queryFn: () => commands.getSubgraph(gs.focusNodeId!, 2),
+    enabled: !!gs.focusNodeId,
+    staleTime: 30_000,
+  });
+  const activeData = gs.focusNodeId && subgraphData ? subgraphData : data;
+
+  const highlightedNodeIdsFromType = useMemo(() => {
+    if (!highlightedNodeType || !activeData) return new Set<string>();
+    return new Set(activeData.nodes.filter(n => n.label === highlightedNodeType).map(n => n.id));
+  }, [highlightedNodeType, activeData]);
+
+  const combinedHighlightedNodeIds = useMemo(() => {
+    const set = new Set(searchMatchIds);
+    highlightedNodeIdsFromType.forEach(id => set.add(id));
+    return set;
+  }, [searchMatchIds, highlightedNodeIdsFromType]);
 
   // ── Sigma ────────────────────────────────────────────────────────
   const {
@@ -135,19 +145,6 @@ export function GraphExplorer() {
       setFocusNodeId(nodeId);
     }, [setFocusNodeId]),
   });
-
-  // ── Data ─────────────────────────────────────────────────────────
-  const { data, isLoading, error } = useGraphData({ zoomLevel, maxNodes: 200 } as GraphFilter, true);
-  // Scope by `activeRepo` so focusing on a node in repo A and then switching
-  // to repo B doesn't resurrect the cached subgraph when a same-named node
-  // happens to exist (e.g. the workspace root node is always "Folder:").
-  const { data: subgraphData } = useQuery({
-    queryKey: ["subgraph", activeRepo, gs.focusNodeId],
-    queryFn: () => commands.getSubgraph(gs.focusNodeId!, 2),
-    enabled: !!gs.focusNodeId,
-    staleTime: 30_000,
-  });
-  const activeData = gs.focusNodeId && subgraphData ? subgraphData : data;
 
   const { data: hotspotsData } = useQuery({
     queryKey: ["git-hotspots", activeRepo, gs.hotspotDays],
@@ -334,7 +331,7 @@ export function GraphExplorer() {
     if (gs.showDeadCode) {
       g.forEachNode((node, attrs) => {
         if (attrs.isDeadCandidate) {
-          g.setNodeAttribute(node, "color", "#f7768e"); // Rose vif pour le code mort
+          g.setNodeAttribute(node, "color", "var(--rose)"); // Rose vif pour le code mort
           g.setNodeAttribute(node, "size", (attrs.originalSize || attrs.size) * 1.5);
         } else {
           g.setNodeAttribute(node, "color", "rgba(100, 116, 139, 0.2)"); // Très estompé pour le reste

@@ -129,7 +129,7 @@ impl LocalBackend {
         let content = std::fs::read_to_string(&canonical_file).ok()?;
         let lines: Vec<&str> = content.lines().collect();
         let s = start.unwrap_or(1).saturating_sub(1) as usize;
-        let e = end.unwrap_or(start.unwrap_or(1) + 100) as usize;
+        let e = end.map(|v| v as usize).unwrap_or(s + 100).max(s);
         Some(lines[s..e.min(lines.len())].join("\n"))
     }
 
@@ -1999,6 +1999,13 @@ impl LocalBackend {
         let fact = args["fact"]
             .as_str()
             .ok_or_else(|| McpError::InvalidArguments { tool: "save_memory".into(), reason: "Missing required 'fact' parameter".into() })?;
+        const MAX_FACT_BYTES: usize = 64 * 1024;
+        if fact.len() > MAX_FACT_BYTES {
+            return Err(McpError::InvalidArguments {
+                tool: "save_memory".into(),
+                reason: format!("fact exceeds {} byte limit", MAX_FACT_BYTES),
+            });
+        }
         let scope = args["scope"].as_str().unwrap_or("project");
         let repo_name = args["repo"].as_str();
 
@@ -2139,7 +2146,6 @@ fn parse_diff_hunks(text: &str) -> Vec<(String, Vec<(u32, u32)>)> {
                 let spec = &plus[1..]; // strip leading '+'
                 let (start_str, count_str) = spec
                     .split_once(',')
-                    .map(|(a, b)| (a, b))
                     .unwrap_or((spec, "1"));
                 let start: u32 = start_str.parse().unwrap_or(0);
                 let count: u32 = count_str.parse().unwrap_or(1);
@@ -2199,7 +2205,10 @@ fn scan_node_occurrences(
     let Ok(content) = std::fs::read_to_string(&canonical_file) else { return Vec::new() };
 
     let start = node.properties.start_line.unwrap_or(1).saturating_sub(1) as usize;
-    let end = node.properties.end_line.unwrap_or(u32::MAX) as usize;
+    let end = match node.properties.end_line {
+        Some(e) => e as usize,
+        None => return Vec::new(), // no source range — skip
+    };
 
     let mut edits: Vec<Value> = Vec::new();
     for (idx, line) in content.lines().enumerate() {
@@ -2260,7 +2269,7 @@ fn scan_repo_for_identifier(
             if covered.contains(&(rel.clone(), line_no)) {
                 continue;
             }
-            for m in re.find_iter(line) {
+            if let Some(m) = re.find_iter(line).next() {
                 out.push(json!({
                     "file": rel,
                     "line": line_no,
@@ -2269,8 +2278,6 @@ fn scan_repo_for_identifier(
                     "new_text": new_name,
                     "snippet": truncate_snippet(line, 160),
                 }));
-                // One hit per line is enough for review.
-                break;
             }
         }
         if out.len() > 500 {
@@ -2285,7 +2292,13 @@ fn truncate_snippet(s: &str, max: usize) -> String {
     if t.len() <= max {
         t.to_string()
     } else {
-        format!("{}…", &t[..max])
+        // Find the largest char boundary <= max to avoid panicking on multi-byte UTF-8
+        let end = t.char_indices()
+            .take_while(|(i, _)| *i < max)
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(0);
+        format!("{}…", &t[..end])
     }
 }
 
@@ -2311,10 +2324,19 @@ fn apply_edits_to_disk(
     }
 
     let mut applied_per_file: Vec<Value> = Vec::new();
+    let canonical_repo = repo_path.canonicalize()?;
     for (file, mut edits) in by_file {
         edits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
         let full = repo_path.join(&file);
-        let content = std::fs::read_to_string(&full)?;
+        // Path traversal guard — skip if canonicalize fails or path escapes repo
+        let canonical = match full.canonicalize() {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        if !canonical.starts_with(&canonical_repo) {
+            continue;
+        }
+        let content = std::fs::read_to_string(&canonical)?;
         let mut lines: Vec<String> = content.lines().map(String::from).collect();
         let mut applied = 0u32;
         for (line_no, col, old, new) in &edits {
@@ -2325,7 +2347,11 @@ fn apply_edits_to_disk(
             let col_idx = (*col as usize).saturating_sub(1);
             let line = &lines[idx];
             let end = col_idx + old.len();
-            if end <= line.len() && &line[col_idx..end] == old {
+            if end <= line.len()
+                && line.is_char_boundary(col_idx)
+                && line.is_char_boundary(end)
+                && &line[col_idx..end] == old
+            {
                 let mut patched = String::with_capacity(line.len() + new.len());
                 patched.push_str(&line[..col_idx]);
                 patched.push_str(new);
@@ -2339,7 +2365,7 @@ fn apply_edits_to_disk(
         if content.ends_with('\n') {
             new_content.push('\n');
         }
-        std::fs::write(&full, new_content)?;
+        std::fs::write(&canonical, new_content)?;
         applied_per_file.push(json!({"file": file, "applied": applied}));
     }
     Ok(json!({"files": applied_per_file}))

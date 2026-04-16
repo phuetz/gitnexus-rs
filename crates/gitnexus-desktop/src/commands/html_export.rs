@@ -108,15 +108,34 @@ pub async fn export_interactive_html(
         .out_path
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(&storage).join("export-graph.html"));
+
+    // Containment check: out_path must be under the storage directory
+    let canonical_storage = std::path::Path::new(&storage)
+        .canonicalize()
+        .map_err(|e| format!("Cannot resolve storage path: {e}"))?;
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let mut f = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
+    let canonical_out = out_path
+        .canonicalize()
+        .or_else(|_| {
+            // File may not exist yet — canonicalize parent and append filename
+            out_path.parent()
+                .and_then(|p| p.canonicalize().ok())
+                .map(|p| p.join(out_path.file_name().unwrap_or_default()))
+                .ok_or_else(|| std::io::Error::other("invalid path"))
+        })
+        .map_err(|e| format!("Invalid out_path: {e}"))?;
+    if !canonical_out.starts_with(&canonical_storage) {
+        return Err("out_path must be inside the storage directory".to_string());
+    }
+
+    let mut f = std::fs::File::create(&canonical_out).map_err(|e| e.to_string())?;
     f.write_all(html.as_bytes()).map_err(|e| e.to_string())?;
 
-    let size = std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
+    let size = std::fs::metadata(&canonical_out).map(|m| m.len()).unwrap_or(0);
     Ok(HtmlExportResult {
-        path: out_path.to_string_lossy().to_string(),
+        path: canonical_out.to_string_lossy().to_string(),
         node_count: exported_nodes.len() as u32,
         edge_count: exported_edges.len() as u32,
         size,

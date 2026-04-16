@@ -34,13 +34,13 @@ import { InsightsSection } from "../analyze/InsightsSection";
 // ─── Label Colors (mirrored from GraphExplorer) ─────────────────────
 
 const LABEL_COLORS: Record<string, string> = {
-  Function: "#7aa2f7",
+  Function: "var(--accent)",
   Class: "#bb9af7",
   Method: "#7dcfff",
-  Interface: "#e0af68",
+  Interface: "var(--amber)",
   Struct: "#ff9e64",
-  Trait: "#9ece6a",
-  Enum: "#f7768e",
+  Trait: "var(--green)",
+  Enum: "var(--rose)",
   File: "#565f89",
   Folder: "#414868",
   Module: "#565f89",
@@ -48,12 +48,12 @@ const LABEL_COLORS: Record<string, string> = {
   Variable: "#73daca",
   Type: "#c0caf5",
   Import: "#414868",
-  Community: "#9ece6a",
-  Process: "#e0af68",
+  Community: "var(--green)",
+  Process: "var(--amber)",
   Constructor: "#7dcfff",
   Property: "#73daca",
   Route: "#ff9e64",
-  Tool: "#e0af68",
+  Tool: "var(--amber)",
   Namespace: "#414868",
 };
 
@@ -133,7 +133,7 @@ const METRICS: MetricDef[] = [
     key: "functions",
     label: "Functions",
     icon: Code2,
-    color: "#7aa2f7",
+    color: "var(--accent)",
     getValue: (nodes) => countByLabel(nodes, "Function"),
   },
   {
@@ -161,14 +161,14 @@ const METRICS: MetricDef[] = [
     key: "languages",
     label: "Languages",
     icon: Languages,
-    color: "#9ece6a",
+    color: "var(--green)",
     getValue: (nodes) => uniqueLanguages(nodes),
   },
   {
     key: "entryPoints",
     label: "Entry Points",
     icon: Zap,
-    color: "#e0af68",
+    color: "var(--amber)",
     getValue: (nodes) =>
       nodes.filter((n) => n.entryPointScore != null && n.entryPointScore > 0)
         .length,
@@ -204,7 +204,7 @@ function qualityGradient(totalNodes: number): {
       bg: "linear-gradient(135deg, rgba(158,206,106,0.10) 0%, rgba(158,206,106,0.04) 100%)",
       border: "rgba(158,206,106,0.25)",
       badge: "rgba(158,206,106,0.18)",
-      badgeText: "#9ece6a",
+      badgeText: "var(--green)",
       text: "dashboard.healthy",
     };
   }
@@ -213,7 +213,7 @@ function qualityGradient(totalNodes: number): {
       bg: "linear-gradient(135deg, rgba(224,175,104,0.10) 0%, rgba(224,175,104,0.04) 100%)",
       border: "rgba(224,175,104,0.25)",
       badge: "rgba(224,175,104,0.18)",
-      badgeText: "#e0af68",
+      badgeText: "var(--amber)",
       text: "dashboard.growing",
     };
   }

@@ -50,7 +50,7 @@ export function ProcessFlowModal({ open, onClose }: Props) {
             startOnLoad: false,
             theme: "dark",
             themeVariables: {
-              primaryColor: "#7aa2f7",
+              primaryColor: "var(--accent)",
               primaryTextColor: "#c0caf5",
               lineColor: "#565f89",
               secondaryColor: "#bb9af7",

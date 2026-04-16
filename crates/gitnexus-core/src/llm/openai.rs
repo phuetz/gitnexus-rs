@@ -1,11 +1,10 @@
-use std::pin::Pin;
-use futures_util::{Stream, StreamExt};
+use futures_util::StreamExt;
 use reqwest::Client;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use super::{LlmProvider, LlmResponseChunk, Message, ToolCall, ToolDefinition};
+use super::{LlmProvider, LlmResponseChunk, LlmStream, Message, ToolCall, ToolDefinition};
 
 pub struct OpenAILlmProvider {
     client: Client,
@@ -45,7 +44,7 @@ impl LlmProvider for OpenAILlmProvider {
         &self,
         messages: &[Message],
         tools: &[ToolDefinition],
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<LlmResponseChunk, String>> + Send>>, String> {
+    ) -> Result<LlmStream, String> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 
         let mut body = serde_json::json!({
@@ -99,6 +98,10 @@ impl LlmProvider for OpenAILlmProvider {
                         return;
                     }
                 };
+                if byte_buffer.len() + chunk.len() > MAX_LINE_BUFFER {
+                    let _ = tx.send(Err("SSE stream partial line exceeded 1MB — aborting".to_string())).await;
+                    return;
+                }
                 byte_buffer.extend_from_slice(&chunk);
 
                 while let Some(newline_pos) = byte_buffer.iter().position(|&b| b == b'\n') {
@@ -126,10 +129,8 @@ impl LlmProvider for OpenAILlmProvider {
                             let delta = &choice["delta"];
 
                             if let Some(content) = delta["content"].as_str() {
-                                if !content.is_empty() {
-                                    if tx.send(Ok(LlmResponseChunk::Text(content.to_string()))).await.is_err() {
-                                        return;
-                                    }
+                                if !content.is_empty() && tx.send(Ok(LlmResponseChunk::Text(content.to_string()))).await.is_err() {
+                                    return;
                                 }
                             }
 
@@ -158,11 +159,6 @@ impl LlmProvider for OpenAILlmProvider {
                     }
                 }
 
-
-                if byte_buffer.len() > MAX_LINE_BUFFER {
-                    let _ = tx.send(Err("SSE stream partial line exceeded 1MB — aborting".to_string())).await;
-                    return;
-                }
             }
 
             let mut indices: Vec<usize> = active_tool_calls.keys().copied().collect();

@@ -13,13 +13,13 @@ const STEPS = [
     icon: FolderSearch,
     titleKey: "repos.onboarding.step1.title",
     descKey: "repos.onboarding.step1.desc",
-    color: "#7aa2f7",
+    color: "var(--accent)",
   },
   {
     icon: Sparkles,
     titleKey: "repos.onboarding.step2.title",
     descKey: "repos.onboarding.step2.desc",
-    color: "#9ece6a",
+    color: "var(--green)",
   },
   {
     icon: Network,

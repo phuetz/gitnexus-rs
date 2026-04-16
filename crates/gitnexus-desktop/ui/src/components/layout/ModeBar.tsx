@@ -105,7 +105,7 @@ export const ModeBar = memo(function ModeBar() {
           <button
             key={m}
             onClick={() => setMode(m)}
-            className="relative flex items-center w-full mb-0.5 rounded-lg transition-colors"
+            className="relative flex items-center w-full mb-0.5 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
             style={{
               height: 40,
               paddingLeft: expanded ? 14 : 0,

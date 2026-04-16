@@ -11,8 +11,9 @@ use std::time::Duration;
 use dashmap::DashMap;
 use tracing::{info, warn};
 
-use crate::adapter::{DbAdapter, StubDbBackend};
+use crate::adapter::DbAdapter;
 use crate::error::{DbError, Result};
+use crate::inmemory::backend::InMemoryBackend;
 
 /// Maximum number of retry attempts when a database is busy.
 const MAX_BUSY_ATTEMPTS: u32 = 3;
@@ -144,7 +145,7 @@ impl ConnectionPool {
 
     /// Attempt to open a database connection.
     fn try_open(&self, db_path: &Path) -> Result<DbAdapter> {
-        let mut adapter = DbAdapter::new(Box::new(StubDbBackend::new()));
+        let mut adapter = DbAdapter::new(Box::new(InMemoryBackend::new()));
         adapter.open(db_path)?;
         Ok(adapter)
     }

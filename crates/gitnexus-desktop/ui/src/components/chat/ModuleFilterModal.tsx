@@ -11,6 +11,7 @@ import { commands } from "../../lib/tauri-commands";
 import type { ModuleQuickPick } from "../../lib/tauri-commands";
 import { useChatStore } from "../../stores/chat-store";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
 
 interface ModuleFilterModalProps {
   open: boolean;
@@ -18,6 +19,7 @@ interface ModuleFilterModalProps {
 }
 
 export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
+  const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -117,7 +119,7 @@ export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search modules/communities..."
+            placeholder={t("filters.searchModules")}
             className="flex-1 bg-transparent outline-none focus:ring-1 focus:ring-[var(--accent)] text-[13px]"
             style={{ color: "var(--text-0)" }}
           />
@@ -130,7 +132,7 @@ export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
         <div ref={listRef} className="flex-1 overflow-y-auto py-1">
           {results.length === 0 && !isLoading && (
             <div className="px-4 py-8 text-center text-[13px]" style={{ color: "var(--text-3)" }}>
-              {query ? "No modules found" : "Loading modules..."}
+              {query ? t("filters.noModulesFound") : t("filters.loadingModules")}
             </div>
           )}
 

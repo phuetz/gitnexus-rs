@@ -485,7 +485,7 @@ export function CodeInspectorPanel() {
                 filePath={c.filePath}
                 startLine={undefined}
                 endLine={undefined}
-                color="#9ece6a"
+                color="var(--green)"
                 defaultExpanded={false}
               />
             ))}

@@ -8,7 +8,6 @@
 //! tracing coverage, and the timestamp of the last index.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -53,7 +52,8 @@ pub async fn repos_overview(_state: State<'_, AppState>) -> Result<Vec<RepoOverv
     let mut out: Vec<RepoOverview> = Vec::new();
 
     for entry in registry {
-        let snap = PathBuf::from(&entry.storage_path).join("graph.bin");
+        let storage = entry.storage_path.strip_prefix(r"\\?\").unwrap_or(&entry.storage_path);
+        let snap = gitnexus_db::snapshot::snapshot_path(std::path::Path::new(storage));
         match gitnexus_db::snapshot::load_snapshot(&snap) {
             Ok(graph) => {
                 let mut function_count = 0u32;

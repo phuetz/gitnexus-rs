@@ -220,7 +220,7 @@ export function ManageMode() {
         <div className="flex-1 overflow-auto p-6" style={{ maxWidth: 900, margin: "0 auto", width: "100%" }}>
           {tab === "repos" && (
             <>
-              <Section icon={Database} title="Multi-repo overview">
+              <Section icon={Database} title={t("manage.multiRepoOverview")}>
                 <Suspense fallback={manageFallback}>
                   <MultiRepoOverview />
                 </Suspense>

@@ -521,7 +521,7 @@ fn split_path_purpose(s: &str) -> (String, String) {
         if let Some(end) = path.find('`') {
             let path_part = path[..end].to_string();
             let purpose = path[end + 1..]
-                .trim_start_matches(|c: char| c == ' ' || c == '—' || c == '-' || c == ':')
+                .trim_start_matches([' ', '—', '-', ':'])
                 .trim()
                 .to_string();
             return (path_part, purpose);
@@ -542,8 +542,7 @@ pub fn parse_review_from_markdown_pub(md: &str) -> Review {
 }
 
 fn parse_review_from_markdown(md: &str) -> Review {
-    let mut review = Review::default();
-    review.verdict = "ready".to_string();
+    let mut review = Review { verdict: "ready".to_string(), ..Default::default() };
     let mut current: Option<&str> = None;
     let mut impact_buf = String::new();
 
@@ -623,7 +622,7 @@ fn parse_issue_line(line: &str) -> Option<ReviewIssue> {
 
     let (severity, confidence) = parse_sev_conf(&sev_part);
 
-    let rest = rest.trim_start_matches(|c: char| c == ':' || c == ' ').to_string();
+    let rest = rest.trim_start_matches([':', ' ']).to_string();
     let (title, detail) = match rest.split_once(" — ").or_else(|| rest.split_once(" - ")) {
         Some((t, d)) => (t.trim().to_string(), d.trim().to_string()),
         None => (rest.trim().to_string(), String::new()),

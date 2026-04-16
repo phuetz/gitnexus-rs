@@ -177,8 +177,8 @@ export function ActivityTimeline() {
               <Tile label="Edges" value={hovered.edgeCount.toLocaleString()} />
               <Tile label="Files" value={hovered.fileCount.toLocaleString()} />
               <Tile label="Functions" value={hovered.functionCount.toLocaleString()} />
-              <Tile label="Dead" value={hovered.deadCount.toLocaleString()} accent="#f7768e" />
-              <Tile label="Traced" value={hovered.tracedCount.toLocaleString()} accent="#9ece6a" />
+              <Tile label="Dead" value={hovered.deadCount.toLocaleString()} accent="var(--rose)" />
+              <Tile label="Traced" value={hovered.tracedCount.toLocaleString()} accent="var(--green)" />
               <Tile label="Communities" value={hovered.communityCount.toLocaleString()} />
               {hovered.note && (
                 <div style={{ gridColumn: "1 / -1", color: "var(--text-2)", fontStyle: "italic" }}>

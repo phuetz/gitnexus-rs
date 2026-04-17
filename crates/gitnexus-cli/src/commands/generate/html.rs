@@ -737,6 +737,7 @@ fn build_html_template(
   </style>
 </head>
 <body>
+  <a href="#content" id="skip-nav" style="position:absolute;top:-44px;left:6px;padding:8px 16px;background:var(--accent);color:#fff;border-radius:0 0 6px 6px;font-size:13px;font-weight:600;text-decoration:none;z-index:9999;transition:top .15s;" onfocus="this.style.top='0'" onblur="this.style.top='-44px'">Passer au contenu</a>
   <button class="hamburger" onclick="toggleSidebar()" aria-label="Ouvrir la navigation">&#9776;</button>
   <div id="search-overlay" class="hidden"
     style="position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.6);display:flex;align-items:flex-start;justify-content:center;padding-top:15vh;">
@@ -1104,7 +1105,10 @@ fn build_html_template(
       const observer = new IntersectionObserver(entries => {{
         entries.forEach(e => {{
           const link = document.querySelector('.toc a[data-target="' + e.target.id + '"]');
-          if (link) link.classList.toggle('toc-active', e.isIntersecting);
+          if (link) {{
+            link.classList.toggle('toc-active', e.isIntersecting);
+            if (e.isIntersecting) link.scrollIntoView({{block:'nearest'}});
+          }}
         }});
       }}, {{ threshold: 0.3, rootMargin: '-80px 0px -60% 0px' }});
       document.querySelectorAll('h2[id], h3[id]').forEach(h => observer.observe(h));
@@ -1146,6 +1150,7 @@ fn build_html_template(
           const div = document.createElement('div');
           div.className = 'mermaid';
           div.textContent = block.textContent;
+          div.setAttribute('data-source', block.textContent);
           block.parentElement.replaceWith(div);
         }});
       }}
@@ -1168,10 +1173,25 @@ fn build_html_template(
 
     function setupMermaidZoom() {{
       document.querySelectorAll('.mermaid').forEach(div => {{
+        div.style.position = 'relative';
         div.onclick = (e) => {{
+          if (e.target.tagName === 'BUTTON') return;
           const svg = div.querySelector('svg');
           if (svg) openMermaidModal(svg.cloneNode(true));
         }};
+        var srcBtn = document.createElement('button');
+        srcBtn.className = 'copy-btn';
+        srcBtn.style.cssText = 'position:absolute;top:8px;right:8px;font-size:11px;z-index:2;';
+        srcBtn.textContent = 'Copier source';
+        srcBtn.onclick = function(e) {{
+          e.stopPropagation();
+          var src = div.getAttribute('data-source') || '';
+          navigator.clipboard.writeText(src).then(function() {{
+            srcBtn.textContent = '\u2713 Copi\u00e9';
+            setTimeout(function() {{ srcBtn.textContent = 'Copier source'; }}, 1500);
+          }});
+        }};
+        div.appendChild(srcBtn);
       }});
     }}
 
@@ -1369,15 +1389,19 @@ fn build_html_template(
           const idx = r.text.toLowerCase().indexOf(q);
           if (idx >= 0) {{
             const start = Math.max(0, idx - 40);
-            const end = Math.min(r.text.length, idx + q.length + 40);
+            const end = Math.min(r.text.length, idx + q.length + 160);
+            const snippet = (start > 0 ? '\u2026' : '') + r.text.slice(start, end) + (end < r.text.length ? '\u2026' : '');
             const snippetDiv = document.createElement('div');
             snippetDiv.className = 'search-result-snippet';
-            snippetDiv.textContent = (start > 0 ? '...' : '') + r.text.slice(start, idx);
-            const mark = document.createElement('mark');
-            mark.textContent = r.text.slice(idx, idx + q.length);
-            snippetDiv.appendChild(mark);
-            const after = document.createTextNode(r.text.slice(idx + q.length, end) + (end < r.text.length ? '...' : ''));
-            snippetDiv.appendChild(after);
+            var lsnip = snippet.toLowerCase(), sp = 0, lp = 0;
+            while ((sp = lsnip.indexOf(q, lp)) !== -1) {{
+              if (sp > lp) snippetDiv.appendChild(document.createTextNode(snippet.slice(lp, sp)));
+              var mk = document.createElement('mark');
+              mk.textContent = snippet.slice(sp, sp + q.length);
+              snippetDiv.appendChild(mk);
+              lp = sp + q.length;
+            }}
+            if (lp < snippet.length) snippetDiv.appendChild(document.createTextNode(snippet.slice(lp)));
             a.appendChild(snippetDiv);
           }}
           searchResults.appendChild(a);

@@ -1612,6 +1612,21 @@ fn generate_docs_modules(
                     }
                     if rels.len() > 8 { content.push_str(&format!("    more((\"...+{}\"))\n    {} -.- more\n", rels.len() - 8, eid)); }
                     content.push_str("```\n\n");
+                    // Relations as text table
+                    content.push_str("**Relations :**\n\n| Entité liée | Cardinalité |\n|-------------|-------------|\n");
+                    let mut seen_rels: HashSet<String> = HashSet::new();
+                    for (target, card) in rels {
+                        if seen_rels.insert(target.clone()) {
+                            let card_text = match card.as_str() {
+                                "||--o{" => "1 → N (has many)",
+                                "}o--||" => "N → 1 (belongs to)",
+                                "}o--o{" => "N ↔ N",
+                                _ => "1 ↔ 1",
+                            };
+                            content.push_str(&format!("| {} | {} |\n", target, card_text));
+                        }
+                    }
+                    content.push('\n');
                 }
             } else { content.push_str("*Aucune relation détectée dans le modèle.*\n\n"); }
             // Column listing from DbColumn nodes
@@ -1661,6 +1676,44 @@ fn generate_docs_modules(
             content.push_str(&format!("| {} | {} | {} | {} | {} | `{}` |\n", svc.properties.name, layer, iface, used_by, purpose, svc.properties.file_path));
         }
         content.push('\n');
+
+        // Per-service method detail blocks
+        let svcs_with_methods: Vec<(&&GraphNode, Vec<&GraphNode>)> = services.iter()
+            .map(|svc| {
+                let mut methods: Vec<&GraphNode> = graph.iter_relationships()
+                    .filter(|r| r.rel_type == RelationshipType::HasMethod && r.source_id == svc.id)
+                    .filter_map(|r| graph.get_node(&r.target_id))
+                    .filter(|n| n.label == NodeLabel::Method)
+                    .collect();
+                methods.sort_by(|a, b| a.properties.name.cmp(&b.properties.name));
+                (svc, methods)
+            })
+            .filter(|(_, ms)| !ms.is_empty())
+            .collect();
+        if !svcs_with_methods.is_empty() {
+            content.push_str("## Détails des méthodes\n\n");
+            for (svc, methods) in &svcs_with_methods {
+                let deps: Vec<String> = graph.iter_relationships()
+                    .filter(|r| r.rel_type == RelationshipType::DependsOn && r.source_id == svc.id)
+                    .filter_map(|r| graph.get_node(&r.target_id))
+                    .map(|n| n.properties.name.clone())
+                    .collect::<BTreeSet<_>>().into_iter().collect();
+                content.push_str(&format!("<details>\n<summary><strong>{}</strong> — {} méthodes</summary>\n\n", svc.properties.name, methods.len()));
+                if !deps.is_empty() {
+                    content.push_str(&format!("**Dépendances :** {}\n\n", deps.join(", ")));
+                }
+                content.push_str("| Méthode | Ligne |\n|---------|-------|\n");
+                for method in methods.iter().take(40) {
+                    let line = method.properties.start_line.map(|l| l.to_string()).unwrap_or_else(|| "-".to_string());
+                    content.push_str(&format!("| `{}` | {} |\n", method.properties.name, line));
+                }
+                if methods.len() > 40 {
+                    content.push_str(&format!("| *… +{} autres* | |\n", methods.len() - 40));
+                }
+                content.push_str("\n</details>\n\n");
+            }
+        }
+
         let smelly_svcs: Vec<&&GraphNode> = services.iter()
             .filter(|s| s.properties.llm_risk_score.is_some()
                 || s.properties.llm_smells.as_ref().map(|v| !v.is_empty()).unwrap_or(false))

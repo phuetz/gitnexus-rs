@@ -219,6 +219,67 @@ gitnexus generate --path D:\path\to\project wiki      # Wiki pages
 gitnexus generate --path D:\path\to\project skills    # Skill files
 ```
 
+### LLM Enrichment — resilience & off-peak retry
+
+LLM enrichment (`--enrich`) can encounter 503 errors from the Gemini API during peak hours
+(typically 09:00–11:00 Paris time). GitNexus handles this automatically with three layers
+of protection:
+
+**1. Retry with jitter** — each page that fails is retried up to 10 times with
+exponential backoff (5s → 30s) and ±30% jitter, matching the
+[gemini-cli](https://github.com/google-gemini/gemini-cli) strategy.
+
+**2. Persistent failure queue** — pages that still fail after all retries are saved to
+`_meta/queue.json`. On the next enrichment run the queue is loaded automatically and
+already-cached pages are purged from it.
+
+**3. Automatic deferred retry** — at the end of each `--enrich` run, if any pages are
+queued, the pipeline waits 30 seconds (API recovery window) and retries them once before
+saving the final queue state.
+
+#### Recovering failed pages manually
+
+```bash
+# Resume enrichment without regenerating docs (uses cache for already-enriched pages)
+gitnexus generate html --path D:\path\to\project --enrich-only
+
+# Retry only the queued (failed) pages, right now
+gitnexus generate html --path D:\path\to\project --retry-queue
+
+# Schedule the retry for off-peak hours — process sleeps until HH:MM local time
+gitnexus generate html --path D:\path\to\project --retry-queue --retry-at 02:00
+```
+
+The `--retry-at HH:MM` flag makes the process sleep until the specified local time, then
+run the retry automatically. If the time has already passed today it will wait until
+tomorrow. Leave the terminal open (or run in a background shell) — press Ctrl+C to cancel.
+
+`--retry-at` also works with `--enrich`: enrichment runs immediately; if failures remain,
+the deferred retry waits until the specified time instead of the default 30 seconds.
+
+```bash
+# Enrich now; if any pages fail, retry them at 02:00
+gitnexus generate html --path D:\path\to\project --enrich --retry-at 02:00
+```
+
+#### Queue file
+
+The queue is stored in `<docs_dir>/_meta/queue.json` alongside `provenance.json`. Each
+entry records the page name, path, error, and cumulative attempt count. The file is
+deleted automatically when the queue is fully drained.
+
+```json
+[
+  {
+    "page_name": "ctrl-statistiquecontroller",
+    "page_path": "modules/ctrl-statistiquecontroller.md",
+    "attempts": 3,
+    "last_error": "503 Service Unavailable after 10 retries",
+    "queued_at": "2026-04-17T09:45:00Z"
+  }
+]
+```
+
 ### Ask the codebase
 
 ```bash

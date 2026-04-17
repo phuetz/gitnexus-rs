@@ -42,7 +42,7 @@ const TARGET_PDF: &str = "pdf";
 const TARGET_ALL: &str = "all";
 
 #[allow(clippy::too_many_arguments)]
-pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: bool, enrich_profile: &str, enrich_lang: &str, enrich_citations: bool, traces_dir: Option<&str>, input: Option<&str>) -> Result<()> {
+pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: bool, enrich_profile: &str, enrich_lang: &str, enrich_citations: bool, enrich_only: bool, retry_queue: bool, retry_at: Option<&str>, traces_dir: Option<&str>, input: Option<&str>) -> Result<()> {
     // Standalone PDF mode: no knowledge graph needed
     if what == TARGET_PDF {
         if let Some(input_path) = input {
@@ -83,7 +83,7 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
         TARGET_DOCS => {
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
             process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
+            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
                 println!("{} Cross-references: {} links added", "OK".green(), xref_count);
@@ -91,7 +91,7 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
         }
         TARGET_PROCESS_DOC => {
             process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
+            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
                 println!("{} Cross-references: {} links added", "OK".green(), xref_count);
@@ -100,7 +100,7 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
         TARGET_DOCX => {
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
             process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
+            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
                 println!("{} Cross-references: {} links added", "OK".green(), xref_count);
@@ -119,9 +119,15 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
             );
         }
         TARGET_HTML => {
-            docs::generate_docs(&graph, &repo_path, &docs_dir)?;
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
+            if retry_queue {
+                enrichment::run_enrichment_queue_only(&graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
+            } else {
+                if !enrich_only {
+                    docs::generate_docs(&graph, &repo_path, &docs_dir)?;
+                    process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
+                }
+                enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
+            }
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
                 println!("{} Cross-references: {} links added", "OK".green(), xref_count);
@@ -144,7 +150,7 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
         TARGET_PDF => {
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
             process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
+            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
                 println!("{} Cross-references: {} links added", "OK".green(), xref_count);
@@ -163,7 +169,7 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
             skills::generate_skills(&graph, &repo_path)?;
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
             process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir)?;
+            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
                 println!("{} Cross-references: {} links added", "OK".green(), xref_count);

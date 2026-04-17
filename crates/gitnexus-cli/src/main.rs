@@ -154,6 +154,16 @@ enum Commands {
         /// Include source citations in enriched pages
         #[arg(long, default_value_t = true)]
         enrich_citations: bool,
+        /// Skip doc regeneration and only run the enrichment + HTML pass (resume after interruption)
+        #[arg(long, default_value_t = false)]
+        enrich_only: bool,
+        /// Retry only the pages listed in _meta/queue.json (previously failed enrichments)
+        #[arg(long, default_value_t = false)]
+        retry_queue: bool,
+        /// Schedule the retry for a specific local time (HH:MM). The process sleeps until
+        /// then and runs automatically — useful for off-peak hours (e.g. --retry-at 02:00)
+        #[arg(long, value_name = "HH:MM")]
+        retry_at: Option<String>,
         /// Directory containing execution trace files for process documentation
         #[arg(long)]
         traces_dir: Option<String>,
@@ -375,8 +385,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Setup => commands::setup::run(),
         Commands::McpInstall { scope } => commands::mcp_install::run(&scope),
         Commands::Shell { path } => commands::shell::run(path.as_deref()).await,
-        Commands::Generate { what, path, output_dir, input, enrich, enrich_profile, enrich_lang, enrich_citations, traces_dir } => {
-            commands::generate::run(&what, path.as_deref(), output_dir.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations, traces_dir.as_deref(), input.as_deref())
+        Commands::Generate { what, path, output_dir, input, enrich, enrich_profile, enrich_lang, enrich_citations, enrich_only, retry_queue, retry_at, traces_dir } => {
+            commands::generate::run(&what, path.as_deref(), output_dir.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations, enrich_only, retry_queue, retry_at.as_deref(), traces_dir.as_deref(), input.as_deref())
         }
         Commands::Watch { path } => commands::watch::run(path.as_deref()).await,
         Commands::Dashboard { path } => commands::dashboard::run(path.as_deref()),

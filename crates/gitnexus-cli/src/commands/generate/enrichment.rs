@@ -20,11 +20,19 @@ use gitnexus_core::graph::KnowledgeGraph;
 pub(crate) struct LlmConfig {
     #[allow(dead_code)]
     pub(crate) provider: String,
+    // Accept both snake_case (legacy CLI format) and camelCase (desktop app
+    // format) so a config created from the UI is usable by the CLI without
+    // manual renames. Before these aliases, `gitnexus config test` always
+    // reported "No LLM config found" after the user saved their key in the
+    // desktop Settings panel.
+    #[serde(alias = "apiKey")]
     pub(crate) api_key: String,
+    #[serde(alias = "baseUrl")]
     pub(crate) base_url: String,
     pub(crate) model: String,
+    #[serde(alias = "maxTokens")]
     pub(crate) max_tokens: u32,
-    #[serde(default)]
+    #[serde(default, alias = "reasoningEffort")]
     pub(crate) reasoning_effort: String,
 }
 
@@ -37,6 +45,13 @@ pub(super) struct EnrichProfile {
     pub(super) review_critical: bool,
     pub(super) max_retries: u32,
     pub(super) timeout_secs: u64,
+    /// When false, use json_object instead of json_schema — lighter payload,
+    /// avoids the 503 "high demand" spikes that json_schema triggers on Gemini.
+    pub(super) use_json_schema: bool,
+    /// Minimum gap in milliseconds between successive LLM requests.
+    /// 0 = no pacing (quality/strict). 500 = fast profile: smooths bursts
+    /// without meaningfully slowing throughput.
+    pub(super) min_gap_ms: u64,
 }
 
 pub(super) fn get_profile(name: &str) -> EnrichProfile {
@@ -45,15 +60,15 @@ pub(super) fn get_profile(name: &str) -> EnrichProfile {
             max_evidence: 10,
             thinking_boost: false,
             review_critical: false,
-            // Phase 4 / scope 7.5: bumped from 0 to 1 so a single
-            // transient 503 from Gemini doesn't kill the page. One
-            // retry with 2 s backoff is enough to absorb the
-            // rate-limit pressure observed during the phase 3
-            // smoke run — fast profile was the only profile that
-            // had zero retries, which made it catastrophically
-            // brittle against transient 5xx.
-            max_retries: 1,
+            // 8 retries → 9 max_attempts: 2+4+8+16+30+30+30+30 = ~150s max backoff
+            // before a page is skipped. Needed because Gemini 2.5-flash 503s
+            // heavily during EU peak hours.
+            max_retries: 8,
             timeout_secs: 60,
+            // json_schema triggers Gemini 503 "high demand" spikes; fast
+            // profile uses json_object to avoid wasting 2 retries per page.
+            use_json_schema: false,
+            min_gap_ms: 500,
         },
         "strict" => EnrichProfile {
             max_evidence: 30,
@@ -61,6 +76,8 @@ pub(super) fn get_profile(name: &str) -> EnrichProfile {
             review_critical: true,
             max_retries: 2,
             timeout_secs: 300,
+            use_json_schema: true,
+            min_gap_ms: 0,
         },
         _ => EnrichProfile {
             // "quality" default
@@ -69,6 +86,8 @@ pub(super) fn get_profile(name: &str) -> EnrichProfile {
             review_critical: true,
             max_retries: 1,
             timeout_secs: 180,
+            use_json_schema: true,
+            min_gap_ms: 0,
         },
     }
 }
@@ -171,6 +190,89 @@ fn is_cached(cache_dir: &Path, page_name: &str, current_hash: &str) -> bool {
 fn write_cache(cache_dir: &Path, page_name: &str, hash: &str) {
     let _ = std::fs::create_dir_all(cache_dir);
     let _ = std::fs::write(cache_dir.join(format!("{}.hash", page_name)), hash);
+}
+
+// ─── Persistent Failure Queue ─────────────────────────────────────────
+//
+// Tracks pages that failed enrichment (after exhausting all retries) so
+// they can be retried automatically at the end of the run — after a
+// 30-second recovery window — or on-demand via `--retry-queue`.
+//
+// The queue file lives at `docs_dir/_meta/queue.json`. It persists
+// across runs so a `--retry-queue` invocation later in the day (when
+// Gemini's capacity has recovered) can pick up exactly the failed pages
+// without re-processing the entire corpus.
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct QueueEntry {
+    page_name: String,
+    /// Path relative to docs_dir, forward-slashes, for cross-machine portability.
+    page_path: String,
+    attempts: u32,
+    last_error: String,
+    queued_at: String,
+}
+
+fn load_queue(queue_path: &Path) -> Vec<QueueEntry> {
+    let Ok(text) = std::fs::read_to_string(queue_path) else {
+        return Vec::new();
+    };
+    serde_json::from_str(&text).unwrap_or_else(|e| {
+        warn!("enrichment: could not parse queue.json: {e}");
+        Vec::new()
+    })
+}
+
+fn save_queue(queue_path: &Path, entries: &[QueueEntry]) -> Result<()> {
+    if entries.is_empty() {
+        let _ = std::fs::remove_file(queue_path);
+        return Ok(());
+    }
+    let json = serde_json::to_string_pretty(entries)?;
+    std::fs::write(queue_path, json)?;
+    Ok(())
+}
+
+/// Parse "HH:MM" and sleep until that local time (tomorrow if already past).
+/// Prints a countdown so the user knows the process is alive.
+pub(super) fn sleep_until_hhmm(hhmm: &str) -> Result<()> {
+    let mut parts = hhmm.splitn(2, ':');
+    let hour: u32 = parts.next().unwrap_or("").trim().parse()
+        .map_err(|_| anyhow::anyhow!("--retry-at : format attendu HH:MM, reçu '{}'", hhmm))?;
+    let minute: u32 = parts.next().unwrap_or("").trim().parse()
+        .map_err(|_| anyhow::anyhow!("--retry-at : format attendu HH:MM, reçu '{}'", hhmm))?;
+    if hour > 23 || minute > 59 {
+        anyhow::bail!("--retry-at : heure invalide '{}' (plage 00:00–23:59)", hhmm);
+    }
+
+    // Current local time expressed as seconds-since-midnight, without pulling
+    // in extra chrono traits.  Format gives us "HH:MM:SS".
+    let now_fmt = chrono::Local::now().format("%H:%M:%S").to_string();
+    let now_parts: Vec<u32> = now_fmt.split(':')
+        .map(|s| s.parse().unwrap_or(0))
+        .collect();
+    let current_secs = now_parts.get(0).copied().unwrap_or(0) * 3600
+        + now_parts.get(1).copied().unwrap_or(0) * 60
+        + now_parts.get(2).copied().unwrap_or(0);
+    let target_secs = hour * 3600 + minute * 60;
+
+    // If the target is in the past (or within 1 min), aim for tomorrow.
+    let diff_secs = if target_secs as i64 - current_secs as i64 > 60 {
+        (target_secs - current_secs) as u64
+    } else {
+        (86400 - current_secs + target_secs) as u64
+    };
+
+    let h = diff_secs / 3600;
+    let m = (diff_secs % 3600) / 60;
+    println!(
+        "{} En attente jusqu'à {:02}:{:02} ({:02}h {:02}min)… Ctrl+C pour annuler.",
+        "→".cyan(), hour, minute, h, m
+    );
+
+    std::thread::sleep(std::time::Duration::from_secs(diff_secs));
+    println!("{} Heure cible atteinte — démarrage.", "→".cyan());
+    Ok(())
 }
 
 // ─── LLM Response Cache, Debug Dump, Atomic Write (scope 5) ──────────
@@ -337,7 +439,7 @@ enum PageType {
 }
 
 /// A reference to evidence from the codebase.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct EvidenceRef {
     id: String,
     file_path: String,
@@ -379,6 +481,10 @@ struct SectionAugment {
     intro: Option<String>,
     warning: Option<String>,
     developer_tip: Option<String>,
+    #[serde(default)]
+    code_example: Option<String>,
+    #[serde(default)]
+    architecture_note: Option<String>,
     #[serde(default, deserialize_with = "null_as_default")]
     see_also: Vec<String>,
     #[serde(default, deserialize_with = "null_as_default")]
@@ -432,12 +538,14 @@ fn enriched_payload_schema() -> serde_json::Value {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "section_key":   { "type": "string" },
-                        "intro":         { "type": "string" },
-                        "warning":       { "type": "string" },
-                        "developer_tip": { "type": "string" },
-                        "see_also":      { "type": "array", "items": { "type": "string" } },
-                        "source_ids":    { "type": "array", "items": { "type": "string" } }
+                        "section_key":       { "type": "string" },
+                        "intro":             { "type": "string" },
+                        "warning":           { "type": "string" },
+                        "developer_tip":     { "type": "string" },
+                        "code_example":      { "type": "string" },
+                        "architecture_note": { "type": "string" },
+                        "see_also":          { "type": "array", "items": { "type": "string" } },
+                        "source_ids":        { "type": "array", "items": { "type": "string" } }
                     }
                 }
             },
@@ -449,7 +557,7 @@ fn enriched_payload_schema() -> serde_json::Value {
 }
 
 /// Provenance metadata for a generated page.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct ProvenanceEntry {
     page_id: String,
     model: String,
@@ -459,7 +567,7 @@ struct ProvenanceEntry {
     content_hash: String,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct ProvenanceValidation {
     is_valid: bool,
     issues: Vec<String>,
@@ -507,11 +615,63 @@ fn classify_page(page_path: &Path) -> PageType {
 
 // ─── Evidence Collection ──────────────────────────────────────────────
 
+fn score_evidence(node: &GraphNode, page_path: &Path, page_content: &str) -> f64 {
+    let node_name_lower = node.properties.name.to_lowercase();
+    if node_name_lower.is_empty() {
+        return 0.0;
+    }
+
+    // Deprioritize test/mock nodes
+    let label_str = format!("{:?}", node.label);
+    if label_str.contains("Test") || label_str.contains("Mock") {
+        return -1.0;
+    }
+
+    let mut score = 0.0f64;
+    let mut lines = page_content.lines();
+
+    // +3.0 if name appears in H1 title
+    if let Some(first_line) = lines.next() {
+        if first_line.to_lowercase().contains(&node_name_lower) {
+            score += 3.0;
+        }
+    }
+
+    let mut body_count = 0usize;
+    for line in page_content.lines().skip(1) {
+        let lower = line.to_lowercase();
+        // +2.0 if name appears in a ## heading
+        if line.starts_with("## ") && lower.contains(&node_name_lower) {
+            score += 2.0;
+        }
+        // count occurrences in body (cap at 4)
+        if body_count < 4 && lower.contains(&node_name_lower) {
+            body_count += 1;
+        }
+    }
+    score += body_count as f64;
+
+    // +1.0 if node's file_path contains the page filename stem
+    if let Some(stem) = page_path.file_stem().and_then(|s| s.to_str()) {
+        if node.properties.file_path.to_lowercase().contains(&stem.to_lowercase()) {
+            score += 1.0;
+        }
+    }
+
+    // +0.5 if excerpt is non-empty (source available)
+    if !node.properties.file_path.is_empty() {
+        score += 0.5;
+    }
+
+    score
+}
+
 fn collect_evidence(
     graph: &KnowledgeGraph,
     page_path: &Path,
     repo_path: &Path,
     max_evidence: usize,
+    page_content: &str,
 ) -> Vec<EvidenceRef> {
     let page_type = classify_page(page_path);
     let mut evidence = Vec::new();
@@ -537,43 +697,61 @@ fn collect_evidence(
                 .filter(|(_, tail)| !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()))
                 .map(|(head, _)| head)
                 .unwrap_or(raw);
-            graph
+            let mut candidates: Vec<(&GraphNode, f64)> = graph
                 .iter_nodes()
                 .filter(|n| {
                     n.properties.name.to_lowercase().contains(ctrl_name)
                         || n.properties.file_path.to_lowercase().contains(ctrl_name)
                 })
-                .take(max_evidence)
-                .collect()
+                .map(|n| {
+                    let s = score_evidence(n, page_path, page_content);
+                    (n, s)
+                })
+                .collect();
+            candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            candidates.into_iter().take(max_evidence).map(|(n, _)| n).collect()
         }
-        PageType::Service => graph
-            .iter_nodes()
-            .filter(|n| n.label == NodeLabel::Service || n.label == NodeLabel::Repository)
-            .take(max_evidence)
-            .collect(),
-        PageType::DataModel => graph
-            .iter_nodes()
-            .filter(|n| n.label == NodeLabel::DbEntity || n.label == NodeLabel::DbContext)
-            .take(max_evidence)
-            .collect(),
-        PageType::ExternalService => graph
-            .iter_nodes()
-            .filter(|n| n.label == NodeLabel::ExternalService)
-            .take(max_evidence.min(15))
-            .collect(),
+        PageType::Service => {
+            let mut candidates: Vec<(&GraphNode, f64)> = graph
+                .iter_nodes()
+                .filter(|n| n.label == NodeLabel::Service || n.label == NodeLabel::Repository)
+                .map(|n| (n, score_evidence(n, page_path, page_content)))
+                .collect();
+            candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            candidates.into_iter().take(max_evidence).map(|(n, _)| n).collect()
+        }
+        PageType::DataModel => {
+            let mut candidates: Vec<(&GraphNode, f64)> = graph
+                .iter_nodes()
+                .filter(|n| n.label == NodeLabel::DbEntity || n.label == NodeLabel::DbContext)
+                .map(|n| (n, score_evidence(n, page_path, page_content)))
+                .collect();
+            candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            candidates.into_iter().take(max_evidence).map(|(n, _)| n).collect()
+        }
+        PageType::ExternalService => {
+            let mut candidates: Vec<(&GraphNode, f64)> = graph
+                .iter_nodes()
+                .filter(|n| n.label == NodeLabel::ExternalService)
+                .map(|n| (n, score_evidence(n, page_path, page_content)))
+                .collect();
+            candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            candidates.into_iter().take(max_evidence.min(15)).map(|(n, _)| n).collect()
+        }
         _ => {
-            // For overview/architecture: top connected nodes
-            let mut nodes: Vec<(&GraphNode, usize)> = graph
+            // For overview/architecture: combine degree + relevance score
+            let mut nodes: Vec<(&GraphNode, f64)> = graph
                 .iter_nodes()
                 .map(|n| {
                     let degree = graph
                         .iter_relationships()
                         .filter(|r| r.source_id == n.id || r.target_id == n.id)
                         .count();
-                    (n, degree)
+                    let relevance = score_evidence(n, page_path, page_content);
+                    (n, degree as f64 * 0.5 + relevance)
                 })
                 .collect();
-            nodes.sort_by(|a, b| b.1.cmp(&a.1));
+            nodes.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             nodes.into_iter().take(max_evidence.min(15)).map(|(n, _)| n).collect()
         }
     };
@@ -656,6 +834,107 @@ fn hash_simple(input: &str) -> u64 {
 
 // ─── Structured Enrichment ────────────────────────────────────────────
 
+fn build_system_prompt(
+    page_type: &PageType,
+    evidence_ids: &str,
+    lang_instruction: &str,
+    sections: &str,
+    evidence_context: &str,
+) -> String {
+    let page_focus = match page_type {
+        PageType::Controller => {
+            "Cette page documente un contrôleur ASP.NET MVC. \
+             Concentre-toi sur : les endpoints exposés, les paramètres de requête, \
+             les dépendances injectées (injection de services), les cas d'erreur HTTP, \
+             et les flux de données vers les services métier. \
+             Le champ `code_example` doit montrer la signature d'une action typique. \
+             Le champ `architecture_note` doit expliquer la place du contrôleur dans la couche MVC."
+        }
+        PageType::Service => {
+            "Cette page documente un service métier. \
+             Mets en avant : les invariants métier appliqués, les effets de bord sur la base de données, \
+             la gestion des transactions, les appels vers d'autres services ou repositories. \
+             Le champ `code_example` doit illustrer un appel typique au service. \
+             Le champ `architecture_note` doit préciser les dépendances entre couches (service → repository)."
+        }
+        PageType::DataModel => {
+            "Cette page documente un modèle de données Entity Framework 6. \
+             Documente : les relations (FK, navigation properties), les index, \
+             les contraintes de valeur (Required, MaxLength, Range), \
+             les conventions EF6 appliquées, et les impacts de performance (N+1, lazy loading). \
+             Le champ `code_example` doit montrer une requête LINQ typique sur cette entité. \
+             Le champ `architecture_note` doit expliquer la position de l'entité dans le domaine métier."
+        }
+        PageType::Overview | PageType::Architecture => {
+            "Cette page est la page d'entrée ou d'architecture du projet. \
+             Rédige une prose narrative qui explique l'architecture globale, \
+             les choix technologiques clés, et le domaine métier couvert. \
+             Privilégie le contexte de haut niveau sur les détails d'implémentation. \
+             Le champ `architecture_note` des sections doit replacer chaque composant dans l'architecture globale."
+        }
+        PageType::ExternalService => {
+            "Cette page documente une intégration externe (API tierce, service SaaS, etc.). \
+             Documente : l'URL ou l'endpoint, le mécanisme d'authentification, \
+             le format des échanges (JSON/XML/SOAP), les codes d'erreur connus, \
+             et la stratégie de retry/circuit-breaker si applicable. \
+             Le champ `code_example` doit montrer un exemple d'appel HTTP typique."
+        }
+        PageType::FunctionalGuide => {
+            "Cette page est un guide fonctionnel destiné aux utilisateurs métier. \
+             Rédige en langage non-technique, en expliquant les flux métier étape par étape \
+             avec des exemples concrets. Évite le jargon technique. \
+             Focus sur les actions utilisateur, les règles métier visibles, et les cas limites importants."
+        }
+        _ => {
+            "Cette page documente une partie du projet. \
+             Enrichis chaque section avec du contexte pertinent, des conseils développeur, \
+             et des avertissements sur les points d'attention."
+        }
+    };
+
+    format!(
+        r#"Tu es un rédacteur technique senior. Tu enrichis une documentation existante.
+
+{page_focus}
+
+RÈGLES ABSOLUES :
+- Tu ne REMPLACES PAS la documentation. Tu AUGMENTES les sections marquées.
+- Tu ne cites QUE des source_ids parmi ceux fournis : {evidence_ids}
+- {lang_instruction}
+- JAMAIS d'identifiants inventés
+
+Réponds UNIQUEMENT en JSON valide avec cette structure exacte :
+{{
+  "lead": "2-3 phrases résumant QUOI, POURQUOI, QUI pour cette page",
+  "section_augments": [
+    {{
+      "section_key": "nom-de-section",
+      "intro": "1-2 phrases d'introduction pour cette section (ou null)",
+      "warning": "point d'attention si pertinent (ou null)",
+      "developer_tip": "conseil développeur si pertinent (ou null)",
+      "code_example": "snippet de code illustrant l'usage (ou null)",
+      "architecture_note": "insight architectural de haut niveau (ou null)",
+      "see_also": ["page-liee.md"],
+      "source_ids": ["E1", "E3"]
+    }}
+  ],
+  "related_pages": ["overview.md", "services.md"],
+  "relevant_source_ids": ["E1", "E2", "E5"],
+  "closing_summary": "1-2 phrases de conclusion"
+}}
+
+Sections disponibles : {sections}
+
+SOURCES D'EVIDENCE :
+{evidence}"#,
+        page_focus = page_focus,
+        evidence_ids = evidence_ids,
+        lang_instruction = lang_instruction,
+        sections = sections,
+        evidence = evidence_context,
+    )
+}
+
 fn enrich_page_structured(
     page_path: &Path,
     graph: &KnowledgeGraph,
@@ -670,8 +949,8 @@ fn enrich_page_structured(
         return Ok(None);
     }
 
-    let _page_type = classify_page(page_path);
-    let evidence = collect_evidence(graph, page_path, repo_path, profile.max_evidence);
+    let page_type = classify_page(page_path);
+    let evidence = collect_evidence(graph, page_path, repo_path, profile.max_evidence, &content);
 
     // Build evidence context for the prompt
     let evidence_context: String = evidence
@@ -717,41 +996,12 @@ fn enrich_page_structured(
         _ => "Écris en français technique professionnel.",
     };
 
-    let system_prompt = format!(
-        r#"Tu es un rédacteur technique senior. Tu enrichis une documentation existante.
-
-RÈGLES ABSOLUES :
-- Tu ne REMPLACES PAS la documentation. Tu AUGMENTES les sections marquées.
-- Tu ne cites QUE des source_ids parmi ceux fournis : {evidence_ids}
-- {lang_instruction}
-- JAMAIS d'identifiants inventés
-
-Réponds UNIQUEMENT en JSON valide avec cette structure exacte :
-{{
-  "lead": "2-3 phrases résumant QUOI, POURQUOI, QUI pour cette page",
-  "section_augments": [
-    {{
-      "section_key": "nom-de-section",
-      "intro": "1-2 phrases d'introduction pour cette section (ou null)",
-      "warning": "point d'attention si pertinent (ou null)",
-      "developer_tip": "conseil développeur si pertinent (ou null)",
-      "see_also": ["page-liee.md"],
-      "source_ids": ["E1", "E3"]
-    }}
-  ],
-  "related_pages": ["overview.md", "services.md"],
-  "relevant_source_ids": ["E1", "E2", "E5"],
-  "closing_summary": "1-2 phrases de conclusion"
-}}
-
-Sections disponibles : {sections}
-
-SOURCES D'EVIDENCE :
-{evidence}"#,
-        evidence_ids = evidence_ids_str,
-        lang_instruction = lang_instruction,
-        sections = sections_str,
-        evidence = evidence_context,
+    let system_prompt = build_system_prompt(
+        &page_type,
+        &evidence_ids_str,
+        lang_instruction,
+        &sections_str,
+        &evidence_context,
     );
 
     let messages = vec![
@@ -809,14 +1059,18 @@ SOURCES D'EVIDENCE :
     // belt-and-suspenders setup: prompt says "JSON", response_format
     // says "JSON", and if Gemini STILL returns malformed JSON, scope
     // 6.3 repairs it before we give up.
-    body["response_format"] = serde_json::json!({
-        "type": "json_schema",
-        "json_schema": {
-            "name": "gitnexus_enrichment_v1",
-            "schema": enriched_payload_schema(),
-            "strict": false
-        }
-    });
+    body["response_format"] = if profile.use_json_schema {
+        serde_json::json!({
+            "type": "json_schema",
+            "json_schema": {
+                "name": "gitnexus_enrichment_v1",
+                "schema": enriched_payload_schema(),
+                "strict": false
+            }
+        })
+    } else {
+        serde_json::json!({ "type": "json_object" })
+    };
 
     // Phase 4 / scope 7.2 — clamp reasoning_effort for enrichment.
     // Enrichment is a structured rewrite; high reasoning just
@@ -840,79 +1094,176 @@ SOURCES D'EVIDENCE :
         // The profile base still wins for short outputs; long
         // outputs get proportional headroom so we don't rip the
         // connection down while Gemini is still streaming.
-        let timeout = dynamic_timeout_secs(profile.timeout_secs, max_tokens);
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(timeout))
-            .build()
-            .map_err(|e| anyhow::anyhow!("HTTP client: {}", e))?;
+        //
+        // `reqwest::blocking` creates its own internal Tokio runtime.
+        // Dropping it inside an async context (tokio::main) panics with
+        // "Cannot drop a runtime in a context where blocking is not allowed".
+        // `block_in_place` signals that the current thread may block,
+        // allowing the inner runtime to be safely created and dropped.
+        let raw = tokio::task::block_in_place(|| -> Result<String> {
+            let timeout = dynamic_timeout_secs(profile.timeout_secs, max_tokens);
+            let client = reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_secs(timeout))
+                .build()
+                .map_err(|e| anyhow::anyhow!("HTTP client: {}", e))?;
 
-        // Retry logic based on profile
-        let mut last_err = None;
-        let mut json_resp: Option<serde_json::Value> = None;
-        for attempt in 0..=profile.max_retries {
-            if attempt > 0 {
-                debug!("Retry attempt {} for {}", attempt, page_path.display());
-                std::thread::sleep(std::time::Duration::from_secs(2 * attempt as u64));
-            }
+            // Gemini-cli style retry with exponential backoff + jitter.
+            // Mirrors packages/core/src/utils/retry.ts from google-gemini/gemini-cli:
+            //   - Initial delay: 5 s
+            //   - Backoff: ×2 per attempt, capped at 30 s
+            //   - Jitter: ±30 % for 503/5xx, +0–+20 % for 429 (positive-only to
+            //             respect server minimum windows)
+            //   - Retry-After: if present on 429, overrides computed delay
+            //   - After 2 consecutive 503s: switch to json_object (lighter payload)
+            //   - 10 max attempts
+            let max_attempts = profile.max_retries.max(9) as usize + 1; // at least 10
+            let mut current_body = body.clone();
+            let mut json_resp: Option<serde_json::Value> = None;
+            let mut last_err: Option<anyhow::Error> = None;
+            let mut consecutive_503 = 0u32;
+            // current_delay_ms tracks the base delay for the next retry (doubles each time)
+            let mut current_delay_ms: u64 = 5_000;
+            const MAX_DELAY_MS: u64 = 30_000;
 
-            // Build a fresh request each attempt (RequestBuilder is consumed on send)
-            let mut req = client.post(&url).json(&body);
-            if !config.api_key.is_empty() {
-                req = req.header("Authorization", format!("Bearer {}", config.api_key));
-            }
-
-            match req.send() {
-                Ok(resp) if resp.status().is_success() => {
-                    json_resp = resp.json().ok();
-                    if json_resp.is_some() {
-                        last_err = None;
-                        break;
+            for attempt in 0..max_attempts {
+                if attempt > 0 {
+                    // After 2 consecutive 503s, drop json_schema to reduce payload
+                    if consecutive_503 >= 2 {
+                        current_body["response_format"] =
+                            serde_json::json!({ "type": "json_object" });
+                        debug!("503 fallback: switched to json_object response_format");
                     }
-                    last_err = Some(anyhow::anyhow!("Failed to parse LLM JSON response"));
                 }
-                Ok(resp) => {
-                    last_err = Some(anyhow::anyhow!("LLM error: {}", resp.status()));
+
+                let mut req = client.post(&url).json(&current_body);
+                if !config.api_key.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", config.api_key));
                 }
-                Err(e) => {
-                    last_err = Some(anyhow::anyhow!("LLM request: {}", e));
+
+                match req.send() {
+                    Ok(resp) if resp.status().is_success() => {
+                        consecutive_503 = 0;
+                        json_resp = resp.json().ok();
+                        if json_resp.is_some() {
+                            last_err = None;
+                            break;
+                        }
+                        last_err = Some(anyhow::anyhow!("Failed to parse LLM JSON response"));
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let status_u16 = status.as_u16();
+
+                        // Read Retry-After header before consuming body
+                        let retry_after_secs: Option<u64> = resp
+                            .headers()
+                            .get("retry-after")
+                            .and_then(|v| v.to_str().ok())
+                            .and_then(|s| s.parse::<u64>().ok());
+
+                        let err_body = resp.text().unwrap_or_default();
+                        let snippet: String = err_body.chars().take(200).collect();
+                        warn!("LLM HTTP {} — {}", status, snippet);
+
+                        if status_u16 == 503 || status_u16 == 429 || status_u16 == 499
+                            || (status_u16 >= 500 && status_u16 < 600)
+                        {
+                            if status_u16 == 503 || status_u16 >= 500 {
+                                consecutive_503 += 1;
+                            }
+                            last_err = Some(anyhow::anyhow!("LLM error: {} (retryable)", status));
+
+                            if attempt + 1 < max_attempts {
+                                // Compute delay: Retry-After takes precedence for 429
+                                let base_ms = if status_u16 == 429 {
+                                    retry_after_secs
+                                        .map(|s| s * 1_000)
+                                        .unwrap_or(current_delay_ms)
+                                } else {
+                                    current_delay_ms
+                                };
+
+                                // Jitter matching gemini-cli: ±30 % for 5xx, +0..+20 % for 429.
+                                // LCG seeded from subsec_nanos gives enough entropy per page.
+                                let sleep_ms = {
+                                    let nanos = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|d| d.subsec_nanos())
+                                        .unwrap_or(42) as u64;
+                                    // LCG: produces a value in 0..999 per-call
+                                    let r = nanos
+                                        .wrapping_mul(6364136223846793005)
+                                        .wrapping_add(1442695040888963407)
+                                        .wrapping_shr(33)
+                                        % 1000;
+                                    // factor_permille: range depends on error type
+                                    // 429 → 1000..1200 (base × 1.0..1.2)
+                                    // 5xx → 700..1300  (base × 0.7..1.3)
+                                    let factor_permille = if status_u16 == 429 {
+                                        1000 + r * 200 / 1000 // 1000..1199
+                                    } else {
+                                        700 + r * 600 / 1000  // 700..1299
+                                    };
+                                    (base_ms * factor_permille / 1000).min(MAX_DELAY_MS + MAX_DELAY_MS / 3)
+                                };
+                                debug!(
+                                    "Retry {}/{} for {} — status={}, backoff={}ms (base={}ms jitter={}ms)",
+                                    attempt + 1, max_attempts, page_path.display(),
+                                    status_u16, sleep_ms, base_ms, 0u64
+                                );
+                                std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+
+                                // Advance base delay for next attempt (cap at MAX_DELAY_MS)
+                                current_delay_ms = (current_delay_ms * 2).min(MAX_DELAY_MS);
+                            }
+                            continue;
+                        }
+                        // Non-retryable error — bail immediately
+                        return Err(anyhow::anyhow!("LLM error: {} — {}", status, snippet));
+                    }
+                    Err(e) => {
+                        last_err = Some(anyhow::anyhow!("LLM request: {}", e));
+                        consecutive_503 = 0;
+                        if attempt + 1 < max_attempts {
+                            let sleep_ms = current_delay_ms.min(MAX_DELAY_MS);
+                            std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+                            current_delay_ms = (current_delay_ms * 2).min(MAX_DELAY_MS);
+                        }
+                    }
                 }
             }
-        }
 
-        if let Some(err) = last_err {
-            if json_resp.is_none() {
-                return Err(err);
+            if let Some(err) = last_err {
+                if json_resp.is_none() {
+                    return Err(err);
+                }
             }
-        }
 
-        let json_resp =
-            json_resp.ok_or_else(|| anyhow::anyhow!("No LLM response after retries"))?;
-        let raw = json_resp["choices"][0]["message"]["content"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("No content"))?
-            .to_string();
+            let json_resp =
+                json_resp.ok_or_else(|| anyhow::anyhow!("No LLM response after retries"))?;
+            let raw = json_resp["choices"][0]["message"]["content"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("No content"))?
+                .to_string();
 
-        // Phase 4 / scope 7.3 — surface truncation explicitly.
-        // `finish_reason == "length"` means Gemini hit max_tokens
-        // mid-response. The raw content below is a guaranteed-
-        // malformed JSON (missing closing braces, strings cut
-        // mid-word), so we log it + dump it for post-mortem and
-        // let the repair tier try to salvage a partial object.
-        let finish_reason = json_resp["choices"][0]["finish_reason"]
-            .as_str()
-            .unwrap_or("");
-        if finish_reason == "length" {
-            warn!(
-                "enrichment: response truncated (finish_reason=length) for {} — \
-                 raw length={}, handing off to repair tier",
-                page_path.display(),
-                raw.len()
-            );
-            dump_debug_raw(page_path, &raw);
-        }
+            // Phase 4 / scope 7.3 — surface truncation explicitly.
+            let finish_reason = json_resp["choices"][0]["finish_reason"]
+                .as_str()
+                .unwrap_or("");
+            if finish_reason == "length" {
+                warn!(
+                    "enrichment: response truncated (finish_reason=length) for {} — \
+                     raw length={}, handing off to repair tier",
+                    page_path.display(),
+                    raw.len()
+                );
+                dump_debug_raw(page_path, &raw);
+            }
 
-        // Cache the success for future replays (scope 5.1).
-        store_llm_response(page_path, &body, &raw);
+            // Cache the success for future replays (scope 5.1).
+            store_llm_response(page_path, &body, &raw);
+            Ok(raw)
+        })?;
         raw
     };
     let raw_content: &str = &raw_owned;
@@ -1036,6 +1387,12 @@ SOURCES D'EVIDENCE :
                 if let Some(tip) = &aug.developer_tip {
                     enriched.push_str(&format!("> [!TIP]\n> {}\n\n", tip));
                 }
+                if let Some(note) = &aug.architecture_note {
+                    enriched.push_str(&format!("> [!NOTE]\n> **Architecture :** {}\n\n", note));
+                }
+                if let Some(code) = &aug.code_example {
+                    enriched.push_str(&format!("```\n{}\n```\n\n", code));
+                }
                 // Add source references (only if citations are enabled)
                 if enrich_citations && !aug.source_ids.is_empty() {
                     let sources: Vec<String> = aug
@@ -1071,6 +1428,23 @@ SOURCES D'EVIDENCE :
             }
         }
 
+        // Insert ARCH_NOTE and EXAMPLE anchors per section
+        for aug in &payload.section_augments {
+            let Some(section_key) = aug.section_key.as_deref() else { continue };
+            let arch_anchor = format!("<!-- GNX:ARCH_NOTE:{} -->", section_key);
+            if line.contains(&arch_anchor) {
+                if let Some(note) = &aug.architecture_note {
+                    enriched.push_str(&format!("> [!NOTE]\n> **Architecture :** {}\n\n", note));
+                }
+            }
+            let example_anchor = format!("<!-- GNX:EXAMPLE:{} -->", section_key);
+            if line.contains(&example_anchor) {
+                if let Some(code) = &aug.code_example {
+                    enriched.push_str(&format!("```\n{}\n```\n\n", code));
+                }
+            }
+        }
+
         // Insert closing summary
         if line.contains("<!-- GNX:CLOSING -->") {
             if let Some(summary) = &payload.closing_summary {
@@ -1079,17 +1453,21 @@ SOURCES D'EVIDENCE :
                     summary
                 ));
             }
-            // Add related pages
+            // Add related pages as clickable cards
             if !payload.related_pages.is_empty() {
-                let links: Vec<String> = payload
-                    .related_pages
-                    .iter()
-                    .map(|p| format!("[{}](./{})", p.trim_end_matches(".md"), p))
-                    .collect();
-                enriched.push_str(&format!(
-                    "**Voir aussi :** {}\n\n",
-                    links.join(" \u{00b7} ")
-                ));
+                enriched.push_str("<div class=\"related-pages\">\n");
+                enriched.push_str("<div class=\"related-pages-title\">Voir aussi</div>\n");
+                for p in &payload.related_pages {
+                    let stem = p.trim_end_matches(".md");
+                    let display = stem.split('/').last().unwrap_or(stem);
+                    let safe_stem = stem.replace('"', "&quot;").replace('\'', "&#39;");
+                    let safe_display = display.replace('<', "&lt;").replace('>', "&gt;");
+                    enriched.push_str(&format!(
+                        "<a class=\"related-page-card\" href=\"#\" \
+                         onclick=\"showPage('{safe_stem}'); return false;\">{safe_display}</a>\n"
+                    ));
+                }
+                enriched.push_str("</div>\n\n");
             }
         }
     }
@@ -1430,6 +1808,186 @@ DOCUMENT ORIGINAL (pour comparaison) :
     Ok(())
 }
 
+/// Retry pages from `pending` that previously failed.  Called at the end of a normal
+/// enrichment run, after a 30-second recovery window that lets Gemini recover from
+/// transient overload.  Entries that succeed are removed from `pending`; entries that
+/// still fail have their `attempts` and `last_error` updated in-place.
+#[allow(clippy::too_many_arguments)]
+fn retry_queued_pages(
+    pending: &mut Vec<QueueEntry>,
+    docs_dir: &Path,
+    graph: &KnowledgeGraph,
+    config: &LlmConfig,
+    repo_path: &Path,
+    profile: &EnrichProfile,
+    enrich_lang: &str,
+    enrich_citations: bool,
+    cache_dir: &Path,
+    provenance_entries: &mut Vec<ProvenanceEntry>,
+) -> Result<()> {
+    if pending.is_empty() {
+        return Ok(());
+    }
+
+    println!(
+        "{} Retrying {} failed page(s) — waiting 30s for API recovery…",
+        "→".cyan(),
+        pending.len()
+    );
+    std::thread::sleep(std::time::Duration::from_secs(30));
+
+    let mut still_failed: Vec<QueueEntry> = Vec::new();
+
+    for entry in pending.iter_mut() {
+        let page_path = docs_dir.join(&entry.page_path);
+        if !page_path.exists() {
+            warn!("enrichment: queue entry '{}' not found on disk — dropping", entry.page_path);
+            continue;
+        }
+
+        let page_name = page_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&entry.page_name);
+
+        print!("  {} {}…", "LLM".cyan(), entry.page_name);
+        std::io::stdout().flush().ok();
+
+        match enrich_page_structured(&page_path, graph, config, repo_path, profile, enrich_lang, enrich_citations) {
+            Ok(Some(prov)) => {
+                println!(" {} (retry ok, {} evidence)", "OK".green(), prov.evidence_refs.len());
+                let enriched_hash = get_page_hash(&page_path);
+                write_cache(cache_dir, page_name, &enriched_hash);
+                provenance_entries.push(prov);
+            }
+            Ok(None) => {
+                println!(" {} (too small, dropping from queue)", "SKIP".yellow());
+                // Too small will never succeed — drop it silently
+            }
+            Err(e) => {
+                println!(" {} ({})", "FAIL".red(), e);
+                entry.attempts += 1;
+                entry.last_error = e.to_string();
+                still_failed.push(entry.clone());
+            }
+        }
+    }
+
+    *pending = still_failed;
+    Ok(())
+}
+
+/// Process only the pages listed in `_meta/queue.json` (the `--retry-queue` mode).
+/// Skips the full corpus scan; useful when the user knows the API has recovered and
+/// wants to finish only the pages that previously failed.
+pub(super) fn run_enrichment_queue_only(
+    graph: &KnowledgeGraph,
+    repo_path: &Path,
+    enrich_profile: &str,
+    enrich_lang: &str,
+    enrich_citations: bool,
+    docs_dir: &Path,
+    retry_at: Option<&str>,
+) -> Result<()> {
+    let meta_dir = docs_dir.join("_meta");
+    let cache_dir = meta_dir.join("cache");
+    let queue_path = meta_dir.join("queue.json");
+
+    let mut pending = load_queue(&queue_path);
+    if pending.is_empty() {
+        println!("{} Queue vide — rien à relancer.", "OK".green());
+        return Ok(());
+    }
+
+    // If a target time was provided, sleep until then before starting.
+    if let Some(hhmm) = retry_at {
+        sleep_until_hhmm(hhmm)?;
+    }
+
+    let config = match load_llm_config() {
+        Some(cfg) => cfg,
+        None => {
+            println!("{} Aucune config LLM. Créez ~/.gitnexus/chat-config.json.", "WARN".yellow());
+            return Ok(());
+        }
+    };
+
+    let profile = get_profile(enrich_profile);
+    println!(
+        "{} Relance de {} page(s) en queue ({}) [profile: {}]",
+        "→".cyan(),
+        pending.len(),
+        config.model,
+        enrich_profile
+    );
+
+    // Load existing provenance entries to merge into
+    let prov_path = meta_dir.join("provenance.json");
+    let mut provenance_entries: Vec<ProvenanceEntry> = std::fs::read_to_string(&prov_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+
+    let mut still_failed: Vec<QueueEntry> = Vec::new();
+
+    for entry in pending.iter_mut() {
+        let page_path = docs_dir.join(&entry.page_path);
+        if !page_path.exists() {
+            warn!("enrichment: queue entry '{}' not found on disk — dropping", entry.page_path);
+            continue;
+        }
+
+        let page_name = page_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&entry.page_name);
+
+        print!("  {} {}…", "LLM".cyan(), entry.page_name);
+        std::io::stdout().flush().ok();
+
+        match enrich_page_structured(&page_path, graph, &config, repo_path, &profile, enrich_lang, enrich_citations) {
+            Ok(Some(prov)) => {
+                println!(" {} ({} evidence)", "OK".green(), prov.evidence_refs.len());
+                let enriched_hash = get_page_hash(&page_path);
+                write_cache(&cache_dir, page_name, &enriched_hash);
+                // Replace any previous provenance entry for this page
+                provenance_entries.retain(|p| p.page_id != prov.page_id);
+                provenance_entries.push(prov);
+            }
+            Ok(None) => {
+                println!(" {} (too small — dropping)", "SKIP".yellow());
+            }
+            Err(e) => {
+                println!(" {} ({})", "FAIL".red(), e);
+                entry.attempts += 1;
+                entry.last_error = e.to_string();
+                still_failed.push(entry.clone());
+            }
+        }
+
+        if profile.min_gap_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(profile.min_gap_ms));
+        }
+    }
+
+    // Persist updated provenance.json
+    std::fs::create_dir_all(&meta_dir)?;
+    let manifest = serde_json::to_string_pretty(&provenance_entries)?;
+    std::fs::write(&prov_path, manifest)?;
+
+    save_queue(&queue_path, &still_failed)?;
+    if still_failed.is_empty() {
+        println!("{} Queue vidée — toutes les pages enrichies.", "OK".green());
+    } else {
+        println!(
+            "{} {} page(s) toujours en échec. Réessayez plus tard.",
+            "WARN".yellow(),
+            still_failed.len()
+        );
+    }
+    Ok(())
+}
+
 /// Run LLM enrichment on all generated docs if enabled (structured mode with provenance).
 pub(super) fn run_enrichment_if_enabled(
     enrich: bool,
@@ -1439,6 +1997,7 @@ pub(super) fn run_enrichment_if_enabled(
     enrich_lang: &str,
     enrich_citations: bool,
     docs_dir: &Path,
+    retry_at: Option<&str>,
 ) -> Result<()> {
     if !enrich {
         return Ok(());
@@ -1482,6 +2041,17 @@ pub(super) fn run_enrichment_if_enabled(
     let mut enriched_count = 0usize;
     let mut skipped = 0usize;
     let mut cached_count = 0usize;
+
+    // Load (or create) the persistent failure queue.
+    let queue_path = meta_dir.join("queue.json");
+    let mut pending_queue: Vec<QueueEntry> = load_queue(&queue_path);
+
+    // Purge queue entries that are already cached (enriched in a prior run).
+    pending_queue.retain(|e| {
+        let path = docs_dir.join(&e.page_path);
+        let hash = get_page_hash(&path);
+        !is_cached(&cache_dir, &e.page_name, &hash)
+    });
 
     // Collect all .md files to enrich
     let mut pages: Vec<std::path::PathBuf> = Vec::new();
@@ -1559,6 +2129,8 @@ pub(super) fn run_enrichment_if_enabled(
                     "OK".green(),
                     prov.evidence_refs.len()
                 );
+                // Remove from failure queue if it was there.
+                pending_queue.retain(|q| q.page_name != page_name);
                 provenance_entries.push(prov);
                 enriched_count += 1;
 
@@ -1580,6 +2152,11 @@ pub(super) fn run_enrichment_if_enabled(
                 // ── Write cache hash after successful enrichment ──
                 let enriched_hash = get_page_hash(page_path);
                 write_cache(&cache_dir, page_name, &enriched_hash);
+
+                // ── Pacing: smooth request bursts on fast profile ──
+                if profile.min_gap_ms > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(profile.min_gap_ms));
+                }
             }
             Ok(None) => {
                 println!(" {} (too small)", "SKIP".yellow());
@@ -1588,12 +2165,88 @@ pub(super) fn run_enrichment_if_enabled(
             Err(e) => {
                 println!(" {} ({})", "SKIP".yellow(), e);
                 skipped += 1;
+                // Upsert into failure queue so this page can be retried.
+                let rel_path = page_path
+                    .strip_prefix(docs_dir)
+                    .unwrap_or(page_path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if let Some(existing) = pending_queue.iter_mut().find(|q| q.page_name == page_name) {
+                    existing.attempts += 1;
+                    existing.last_error = e.to_string();
+                } else {
+                    pending_queue.push(QueueEntry {
+                        page_name: page_name.to_string(),
+                        page_path: rel_path,
+                        attempts: 1,
+                        last_error: e.to_string(),
+                        queued_at: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
             }
         }
     }
 
-    // Write provenance manifest
+    // ── Deferred retry pass ──
+    if !pending_queue.is_empty() {
+        if let Some(hhmm) = retry_at {
+            // User scheduled a specific retry time — sleep until then instead
+            // of the default 30-second window.
+            sleep_until_hhmm(hhmm)?;
+            // After sleeping, process the queue directly (no extra 30s wait).
+            let mut still_failed: Vec<QueueEntry> = Vec::new();
+            for entry in pending_queue.iter_mut() {
+                let page_path = docs_dir.join(&entry.page_path);
+                if !page_path.exists() { continue; }
+                let page_name = page_path.file_stem().and_then(|s| s.to_str()).unwrap_or(&entry.page_name);
+                print!("  {} {}…", "LLM".cyan(), entry.page_name);
+                std::io::stdout().flush().ok();
+                match enrich_page_structured(&page_path, graph, &config, repo_path, &profile, enrich_lang, enrich_citations) {
+                    Ok(Some(prov)) => {
+                        println!(" {} (retry ok, {} evidence)", "OK".green(), prov.evidence_refs.len());
+                        write_cache(&cache_dir, page_name, &get_page_hash(&page_path));
+                        provenance_entries.push(prov);
+                    }
+                    Ok(None) => { println!(" {} (too small)", "SKIP".yellow()); }
+                    Err(e) => {
+                        println!(" {} ({})", "FAIL".red(), e);
+                        entry.attempts += 1;
+                        entry.last_error = e.to_string();
+                        still_failed.push(entry.clone());
+                    }
+                }
+            }
+            pending_queue = still_failed;
+        } else {
+            retry_queued_pages(
+                &mut pending_queue,
+                docs_dir,
+                graph,
+                &config,
+                repo_path,
+                &profile,
+                enrich_lang,
+                enrich_citations,
+                &cache_dir,
+                &mut provenance_entries,
+            )?;
+        }
+    }
+
+    // Persist queue state (empty = delete the file; failures = update it).
     std::fs::create_dir_all(&meta_dir)?;
+    save_queue(&queue_path, &pending_queue)?;
+    if !pending_queue.is_empty() {
+        println!(
+            "{} {} page(s) toujours en échec → queue sauvegardée dans _meta/queue.json",
+            "WARN".yellow(),
+            pending_queue.len()
+        );
+        println!("   Relancez plus tard : gitnexus generate html --enrich-only");
+        println!("   Ou uniquement la queue : gitnexus generate html --retry-queue");
+    }
+
+    // Write provenance manifest
     let manifest = serde_json::to_string_pretty(&provenance_entries)?;
     std::fs::write(meta_dir.join("provenance.json"), &manifest)?;
     println!("  {} _meta/provenance.json", "OK".green());
@@ -1982,12 +2635,15 @@ mod tests {
     }
 
     #[test]
-    fn fast_profile_now_allows_one_retry() {
+    fn fast_profile_retries_and_pacing() {
         let p = get_profile("fast");
-        assert_eq!(p.max_retries, 1);
-        // quality still has 1, strict still has 2 — sanity check
-        // we didn't accidentally touch the wrong arm.
+        // 8 retries — needed for Gemini 503 recovery during EU peak hours
+        assert_eq!(p.max_retries, 8);
+        assert_eq!(p.min_gap_ms, 500);
+        // quality and strict unchanged
         assert_eq!(get_profile("quality").max_retries, 1);
+        assert_eq!(get_profile("quality").min_gap_ms, 0);
         assert_eq!(get_profile("strict").max_retries, 2);
+        assert_eq!(get_profile("strict").min_gap_ms, 0);
     }
 }

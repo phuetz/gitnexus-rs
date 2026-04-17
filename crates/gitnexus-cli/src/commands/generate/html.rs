@@ -605,7 +605,7 @@ fn build_html_template(
     .search-result:hover {{ background: rgba(106,161,248,0.08); }}
     .search-result-title {{ font-weight: 600; font-size: 13px; }}
     .search-result-snippet {{ font-size: 12px; color: var(--text-muted); margin-top: 4px; }}
-    .search-result-snippet mark {{ background: rgba(106,161,248,0.3); color: var(--text); border-radius: 2px; padding: 0 2px; }}
+    .search-result-snippet mark {{ background: var(--accent); color: #fff; border-radius: 2px; padding: 0 2px; font-weight: 600; }}
     .search-type-badge {{
       font-size: 10px; padding: 1px 5px; border-radius: 3px;
       background: var(--bg-surface); border: 1px solid var(--border);
@@ -631,6 +631,8 @@ fn build_html_template(
       .sidebar.open {{ transform: translateX(0); box-shadow: 4px 0 20px rgba(0,0,0,0.3); }}
       .toc {{ display:none; }}
       .main {{ padding:20px; }}
+      .main table {{ overflow-x: auto; display: block; }}
+      .main th, .main td {{ font-size: 11px; padding: 4px 6px; }}
     }}
     @media print {{
       .sidebar, .toc, .header, .theme-toggle, .copy-btn, .hamburger, .page-nav, .search {{ display: none !important; }}
@@ -821,14 +823,18 @@ fn build_html_template(
     function showPage(id, anchor, skipHistory = false) {{
       const page = PAGES[id];
       if (!page) return;
+      const prevPage = currentPage;
       currentPage = id;
-      
+
       if (!skipHistory) {{
         const url = "#" + id + (anchor ? "%23" + anchor : "");
         history.pushState({{id: id, anchor: anchor}}, "", url);
       }}
 
       const content = document.getElementById('content');
+      if (prevPage && prevPage !== id) {{
+        sessionStorage.setItem('scroll_' + prevPage, content.scrollTop.toString());
+      }}
       content.style.opacity = '0';
       setTimeout(() => {{
         content.innerHTML = page.html;
@@ -971,7 +977,8 @@ fn build_html_template(
             if (el) {{ if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({{behavior:'smooth'}}); }}
           }}, 150);
         }} else {{
-          content.scrollTop = 0;
+          var savedScroll = sessionStorage.getItem('scroll_' + id);
+          content.scrollTop = savedScroll ? parseInt(savedScroll, 10) : 0;
         }}
       }}, 100);
     }}
@@ -1095,6 +1102,16 @@ fn build_html_template(
           }});
         }};
         wrapper.appendChild(btn);
+        var codeEl = pre.querySelector('code');
+        if (codeEl) {{
+          var lm = codeEl.className.match(/language-(\w+)/);
+          if (lm && lm[1] !== 'mermaid') {{
+            var lbl = document.createElement('div');
+            lbl.style.cssText = 'position:absolute;top:8px;right:80px;font-size:10px;color:var(--text-muted);opacity:0.6;font-family:monospace;pointer-events:none;';
+            lbl.textContent = lm[1].toUpperCase();
+            wrapper.appendChild(lbl);
+          }}
+        }}
       }});
     }}
     function renderMermaid() {{
@@ -1111,7 +1128,14 @@ fn build_html_template(
         try {{
           mermaid.run();
           setTimeout(setupMermaidZoom, 200);
-        }} catch(e) {{ console.warn('Mermaid render error:', e); }}
+        }} catch(e) {{
+          document.querySelectorAll('.mermaid').forEach(function(el) {{
+            var errDiv = document.createElement('div');
+            errDiv.style.cssText = 'padding:12px 16px;background:var(--bg-surface);border:1px dashed var(--border);border-radius:6px;color:var(--text-muted);font-size:12px;';
+            errDiv.textContent = 'Diagram error: ' + e.message;
+            el.replaceWith(errDiv);
+          }});
+        }}
       }} else {{
         setTimeout(renderMermaid, 500);
       }}
@@ -1382,6 +1406,13 @@ fn build_html_template(
           }}
         }});
       }}
+      // Alt+← / Alt+→ : navigate between pages
+      document.addEventListener('keydown', function(e) {{
+        if (!e.altKey || e.ctrlKey || e.metaKey) return;
+        var idx = PAGE_ORDER.indexOf(currentPage);
+        if (e.key === 'ArrowLeft'  && idx > 0)                              {{ e.preventDefault(); showPage(PAGE_ORDER[idx - 1]); }}
+        if (e.key === 'ArrowRight' && idx >= 0 && idx < PAGE_ORDER.length - 1) {{ e.preventDefault(); showPage(PAGE_ORDER[idx + 1]); }}
+      }});
     }});
   </script>
 </body>

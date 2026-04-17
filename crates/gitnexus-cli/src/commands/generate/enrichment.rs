@@ -505,6 +505,8 @@ struct SectionAugment {
     #[serde(default)]
     code_example: Option<String>,
     #[serde(default)]
+    code_example_language: Option<String>,
+    #[serde(default)]
     architecture_note: Option<String>,
     #[serde(default, deserialize_with = "null_as_default")]
     see_also: Vec<String>,
@@ -564,6 +566,7 @@ fn enriched_payload_schema() -> serde_json::Value {
                         "warning":           { "type": "string" },
                         "developer_tip":     { "type": "string" },
                         "code_example":      { "type": "string" },
+                        "code_example_language": { "type": "string" },
                         "architecture_note": { "type": "string" },
                         "see_also":          { "type": "array", "items": { "type": "string" } },
                         "source_ids":        { "type": "array", "items": { "type": "string" } }
@@ -1440,7 +1443,8 @@ fn enrich_page_structured(
                     enriched.push_str(&format!("> [!NOTE]\n> **Architecture :** {}\n\n", note));
                 }
                 if let Some(code) = &aug.code_example {
-                    enriched.push_str(&format!("```\n{}\n```\n\n", code));
+                    let lang = aug.code_example_language.as_deref().unwrap_or("");
+                    enriched.push_str(&format!("```{}\n{}\n```\n\n", lang, code));
                 }
                 // Add source references (only if citations are enabled)
                 if enrich_citations && !aug.source_ids.is_empty() {
@@ -1489,7 +1493,8 @@ fn enrich_page_structured(
             let example_anchor = format!("<!-- GNX:EXAMPLE:{} -->", section_key);
             if line.contains(&example_anchor) {
                 if let Some(code) = &aug.code_example {
-                    enriched.push_str(&format!("```\n{}\n```\n\n", code));
+                    let lang = aug.code_example_language.as_deref().unwrap_or("");
+                    enriched.push_str(&format!("```{}\n{}\n```\n\n", lang, code));
                 }
             }
         }
@@ -1498,7 +1503,8 @@ fn enrich_page_structured(
         if line.contains("<!-- GNX:CLOSING -->") {
             if let Some(summary) = &payload.closing_summary {
                 enriched.push_str(&format!(
-                    "\n---\n\n**En r\u{00e9}sum\u{00e9} :** {}\n\n",
+                    "\n---\n\n{} {}\n\n",
+                    if enrich_lang == "en" { "**Summary:**" } else { "**En r\u{00e9}sum\u{00e9} :**" },
                     summary
                 ));
             }
@@ -1539,7 +1545,8 @@ fn enrich_page_structured(
                 }).collect();
                 if !valid_related.is_empty() {
                     enriched.push_str("<div class=\"related-pages\">\n");
-                    enriched.push_str("<div class=\"related-pages-title\">Voir aussi</div>\n");
+                    enriched.push_str(&format!("<div class=\"related-pages-title\">{}</div>\n",
+                        if enrich_lang == "en" { "See Also" } else { "Voir aussi" }));
                     for p in valid_related {
                         let stem = p.trim_end_matches(".md");
                         let display = stem.split('/').last().unwrap_or(stem);

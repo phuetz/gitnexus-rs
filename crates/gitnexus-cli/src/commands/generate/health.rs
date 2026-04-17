@@ -98,6 +98,34 @@ pub(super) fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -
             dead_pct, dead_methods)?;
     }
     writeln!(f, "| Services externes | {} | Points d'intégration |", ext_count)?;
+
+    // Test file coverage
+    let test_files = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::File
+            && (n.properties.file_path.contains("Test")
+                || n.properties.file_path.ends_with(".test.cs")
+                || n.properties.file_path.ends_with("_test.cs")
+                || n.properties.file_path.ends_with("_tests.cs")))
+        .count();
+    let test_ratio = if total_files > 0 {
+        (test_files as f64 / total_files as f64 * 100.0) as u32
+    } else {
+        0
+    };
+    writeln!(f, "| Tests | {} fichiers ({} %) | Ratio couverture test |", test_files, test_ratio)?;
+
+    // LLM smells
+    let smelly_nodes: Vec<_> = graph.iter_nodes()
+        .filter(|n| n.properties.llm_smells.as_ref().map(|s| !s.is_empty()).unwrap_or(false))
+        .collect();
+    if !smelly_nodes.is_empty() {
+        let risk_sum: u32 = smelly_nodes.iter()
+            .filter_map(|n| n.properties.llm_risk_score)
+            .sum();
+        let avg_risk = risk_sum / smelly_nodes.len() as u32;
+        writeln!(f, "| Code Smells LLM | {} symboles | Risque moyen : {} / 100 |",
+            smelly_nodes.len(), avg_risk)?;
+    }
     writeln!(f)?;
 
     // ── Symbol breakdown ──

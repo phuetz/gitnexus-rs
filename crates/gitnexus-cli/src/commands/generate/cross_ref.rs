@@ -43,6 +43,26 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
                     "./modules/external-services.md".to_string(),
                 ));
             }
+            NodeLabel::View | NodeLabel::PartialView => {
+                let views_page = docs_dir.join("modules").join("views.md");
+                if views_page.exists() {
+                    let anchor = sanitize_for_anchor(&node.properties.name);
+                    known_names.push((
+                        node.properties.name.clone(),
+                        format!("./modules/views.md#{}", anchor),
+                    ));
+                }
+            }
+            NodeLabel::ViewModel => {
+                let views_page = docs_dir.join("modules").join("views.md");
+                if views_page.exists() {
+                    let anchor = sanitize_for_anchor(&node.properties.name);
+                    known_names.push((
+                        node.properties.name.clone(),
+                        format!("./modules/views.md#{}", anchor),
+                    ));
+                }
+            }
             _ => {}
         }
     }

@@ -1444,16 +1444,20 @@ fn generate_docs_modules(
         content.push_str(&format!("> {} manages {} endpoints for {}.\n\n", base_name, action_count, desc));
 
         content.push_str(&format!("## Actions ({})\n\n", action_count));
-        content.push_str("| # | Action | Method | Paramètres | Retour | Appelé par |\n");
-        content.push_str("|---|--------|--------|-----------|--------|------------|\n");
+        content.push_str("| # | Action | Method | Route | Paramètres | Retour | Appelé par |\n");
+        content.push_str("|---|--------|--------|-------|-----------|--------|------------|\n");
         for (i, action) in actions.iter().enumerate() {
             let method = action.properties.http_method.as_deref().unwrap_or("GET");
+            let route = action.properties.route_template.as_deref()
+                .filter(|r| !r.is_empty())
+                .map(|r| format!("`{}`", r))
+                .unwrap_or_else(|| "-".to_string());
             let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");
             let params = extract_params_linked(action.properties.description.as_deref().unwrap_or(""), &known_types);
             let called_by = action_callers.get(&action.id)
                 .map(|callers| callers.iter().take(3).map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", "))
                 .unwrap_or_else(|| "-".to_string());
-            content.push_str(&format!("| {} | **{}** | {} | {} | {} | {} |\n", i + 1, action.properties.name, method, params, ret, called_by));
+            content.push_str(&format!("| {} | **{}** | {} | {} | {} | {} | {} |\n", i + 1, action.properties.name, method, route, params, ret, called_by));
         }
         content.push('\n');
         content.push_str("<!-- GNX:TIP:actions -->\n");
@@ -1528,6 +1532,7 @@ fn generate_docs_modules(
                 content.push_str(&format!("**Fichier :** `{}`", ctrl.properties.file_path));
                 if let Some(line) = action.properties.start_line { content.push_str(&format!(" (ligne {})", line)); }
                 content.push('\n');
+                if let Some(rt) = &action.properties.route_template { if !rt.is_empty() { content.push_str(&format!("**Route :** `{}`\n", rt)); } }
                 if params_short != "-" { content.push_str(&format!("**Paramètres :** {}\n", params_short)); }
                 let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");
                 content.push_str(&format!("**Returns:** {}\n", ret));
@@ -1602,6 +1607,23 @@ fn generate_docs_modules(
                     content.push_str("```\n\n");
                 }
             } else { content.push_str("*Aucune relation détectée dans le modèle.*\n\n"); }
+            // Column listing from DbColumn nodes
+            let columns: Vec<&GraphNode> = graph.iter_nodes()
+                .filter(|n| n.label == NodeLabel::DbColumn
+                    && n.properties.declared_in.as_deref() == Some(ename.as_str()))
+                .collect();
+            if !columns.is_empty() {
+                content.push_str("**Colonnes :**\n\n| Colonne | Type | PK | Nullable |\n");
+                content.push_str("|---------|------|----|---------|\n");
+                for col in &columns {
+                    let col_type = col.properties.column_type.as_deref().unwrap_or("-");
+                    let pk   = if col.properties.is_primary_key.unwrap_or(false) { "oui" } else { "-" };
+                    let null = if col.properties.is_nullable.unwrap_or(true) { "oui" } else { "-" };
+                    content.push_str(&format!("| {} | `{}` | {} | {} |\n",
+                        col.properties.name, col_type, pk, null));
+                }
+                content.push('\n');
+            }
             content.push_str("</details>\n\n");
         }
         content.push_str(&nav_footer(&page_order, filename));
@@ -1797,6 +1819,38 @@ fn generate_docs_modules(
         std::fs::write(&out_path, &content)?;
         println!("  {} {}", "OK".green(), out_path.display());
         page_count += 1;
+    }
+
+    // ─── Views & Partials page ────────────────────────────────────────
+    {
+        let views: Vec<&GraphNode> = graph.iter_nodes()
+            .filter(|n| matches!(n.label, NodeLabel::View | NodeLabel::PartialView))
+            .collect();
+        if !views.is_empty() {
+            page_order.push(("views".to_string(), "Views & Partials".to_string()));
+            let out_path = modules_dir.join("views.md");
+            let mut content = String::from("# Views & Partials\n\n");
+            content.push_str(&format!("**Total :** {} vues\n\n", views.len()));
+            content.push_str("| Vue | Type | Modèle | Layout | Contrôleur |\n");
+            content.push_str("|-----|------|--------|--------|------------|\n");
+            for view in &views {
+                let vtype  = if view.label == NodeLabel::PartialView { "Partial" } else { "View" };
+                let model  = view.properties.model_type.as_deref().unwrap_or("-");
+                let layout = view.properties.layout_path.as_deref().unwrap_or("-");
+                let ctrl_name = graph.iter_relationships()
+                    .find(|r| r.rel_type == RelationshipType::RendersView && r.target_id == view.id)
+                    .and_then(|r| graph.get_node(&r.source_id))
+                    .map(|n| n.properties.name.clone())
+                    .unwrap_or_else(|| "-".to_string());
+                content.push_str(&format!("| `{}` | {} | {} | {} | {} |\n",
+                    view.properties.file_path, vtype, model, layout, ctrl_name));
+            }
+            content.push('\n');
+            content.push_str(&nav_footer(&page_order, "views"));
+            std::fs::write(&out_path, &content)?;
+            println!("  {} {}", "OK".green(), out_path.display());
+            page_count += 1;
+        }
     }
 
     Ok(page_count)

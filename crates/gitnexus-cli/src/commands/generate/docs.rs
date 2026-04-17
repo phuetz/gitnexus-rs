@@ -791,6 +791,49 @@ fn generate_docs_architecture(
     writeln!(f, "```")?;
     writeln!(f)?;
 
+    // ── Cross-layer violations ──
+    writeln!(f, "## Violations de couche")?;
+    writeln!(f, "<!-- GNX:INTRO:violations -->")?;
+    writeln!(f)?;
+    {
+        let violations: Vec<(&GraphNode, &GraphNode)> = graph.iter_relationships()
+            .filter(|r| matches!(r.rel_type, RelationshipType::DependsOn | RelationshipType::Calls))
+            .filter_map(|r| {
+                let src = graph.get_node(&r.source_id)?;
+                let tgt = graph.get_node(&r.target_id)?;
+                if matches!(src.label, NodeLabel::Controller)
+                    && matches!(tgt.label, NodeLabel::DbContext | NodeLabel::DbEntity | NodeLabel::Repository)
+                { Some((src, tgt)) } else { None }
+            })
+            .collect();
+        if violations.is_empty() {
+            writeln!(f, "> Aucune violation de couche détectée.")?;
+        } else {
+            writeln!(f, "> **{} violation(s)** — Controllers accédant directement à la couche données.", violations.len())?;
+            writeln!(f)?;
+            writeln!(f, "```mermaid")?;
+            writeln!(f, "graph LR")?;
+            let mut shown: HashSet<String> = HashSet::new();
+            for (src, tgt) in violations.iter().take(20) {
+                let sid = sanitize_mermaid_id(&src.properties.name);
+                let tid = sanitize_mermaid_id(&tgt.properties.name);
+                if shown.insert(format!("{}->{}", sid, tid)) {
+                    writeln!(f, "    {}[\"{}\"] -->|bypass| {}[\"{}\"]",
+                        sid, src.properties.name, tid, tgt.properties.name)?;
+                }
+            }
+            writeln!(f, "```")?;
+            writeln!(f)?;
+            writeln!(f, "| Controller | Accès direct à | Type |")?;
+            writeln!(f, "|-----------|----------------|------|")?;
+            for (src, tgt) in violations.iter().take(30) {
+                writeln!(f, "| `{}` | `{}` | {} |",
+                    src.properties.name, tgt.properties.name, tgt.label.as_str())?;
+            }
+        }
+        writeln!(f)?;
+    }
+
     writeln!(f, "## Layer Details")?;
     writeln!(f, "<!-- GNX:INTRO:layer-details -->")?;
     writeln!(f)?;
@@ -1249,20 +1292,33 @@ fn generate_docs_modules(
 
         writeln!(f, "## Members")?;
         writeln!(f)?;
-        writeln!(f, "| Symbol | Type | File | Lines |")?;
-        writeln!(f, "|--------|------|------|-------|")?;
-
+        let mut by_type: BTreeMap<&str, Vec<&GraphNode>> = BTreeMap::new();
         for mid in &info.member_ids {
             if let Some(node) = graph.get_node(mid) {
-                let lines = match (node.properties.start_line, node.properties.end_line) {
-                    (Some(s), Some(e)) => format!("{}-{}", s, e),
-                    (Some(s), None) => format!("{}", s),
-                    _ => "-".to_string(),
+                let group = match node.label {
+                    NodeLabel::Controller => "Controllers",
+                    NodeLabel::Service | NodeLabel::Repository => "Services & Repositories",
+                    NodeLabel::Method | NodeLabel::Function => "Methods",
+                    _ => "Other",
                 };
-                writeln!(f, "| `{}` | {} | `{}` | {} |", node.properties.name, node.label.as_str(), node.properties.file_path, lines)?;
+                by_type.entry(group).or_default().push(node);
             }
         }
-        writeln!(f)?;
+        for (group_name, members) in &by_type {
+            writeln!(f, "### {} ({})", group_name, members.len())?;
+            writeln!(f, "| Symbole | Fichier | Lignes |")?;
+            writeln!(f, "|---------|---------|--------|")?;
+            for node in members {
+                let lines = match (node.properties.start_line, node.properties.end_line) {
+                    (Some(s), Some(e)) => format!("{}-{}", s, e),
+                    (Some(s), None)    => s.to_string(),
+                    _                  => "-".to_string(),
+                };
+                writeln!(f, "| `{}` | `{}` | {} |",
+                    node.properties.name, node.properties.file_path, lines)?;
+            }
+            writeln!(f)?;
+        }
 
         let mut entry_points: Vec<&GraphNode> = info
             .member_ids.iter()
@@ -1440,8 +1496,12 @@ fn generate_docs_modules(
 
         let base_name = ctrl_name.trim_end_matches("Controller");
         let action_count = actions.len();
-        let desc = describe_controller(ctrl_name);
-        content.push_str(&format!("> {} manages {} endpoints for {}.\n\n", base_name, action_count, desc));
+        let desc_fallback = describe_controller(ctrl_name);
+        let lead = ctrl.properties.description.as_deref()
+            .filter(|d| !d.is_empty())
+            .map(|d| format!("> {}\n\n", d))
+            .unwrap_or_else(|| format!("> {} manages {} endpoints for {}.\n\n", base_name, action_count, desc_fallback));
+        content.push_str(&lead);
 
         content.push_str(&format!("## Actions ({})\n\n", action_count));
         content.push_str("| # | Action | Method | Route | Paramètres | Retour | Appelé par |\n");

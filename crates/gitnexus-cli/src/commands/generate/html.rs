@@ -656,6 +656,8 @@ fn build_html_template(
       h1, h2, h3 {{ page-break-after: avoid; color: #000; }}
       a {{ color: #000; text-decoration: underline; }}
       .callout {{ border: 1px solid #ccc; break-inside: avoid; }}
+      .mermaid, .mermaid svg {{ page-break-inside: avoid; max-width: 100% !important; }}
+      .code-wrapper {{ page-break-inside: avoid; }}
     }}
     /* Provenance badge */
     .provenance-badge {{
@@ -821,18 +823,33 @@ fn build_html_template(
       let html = '';
       INDEX_JSON.forEach((section, i) => {{
         if (section.children && section.children.length > 0) {{
-          html += `<div class="section-title"><i data-lucide="${{section.icon || 'folder'}}" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;"></i>${{section.title.toUpperCase()}}</div>`;
+          var secCollapsed = sessionStorage.getItem('gnx_sec_' + i) === '1';
+          html += '<div class="section-title" style="cursor:pointer;user-select:none;" onclick="toggleSection(this,' + i + ')">'
+            + '<i data-lucide="' + (section.icon || 'folder') + '" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;"></i>'
+            + section.title.toUpperCase()
+            + '<span style="float:right;font-size:10px;margin-right:4px;">' + (secCollapsed ? '\u25b8' : '\u25be') + '</span>'
+            + '</div>';
+          html += '<div id="gnx-sec-' + i + '"' + (secCollapsed ? ' style="display:none"' : '') + '>';
           section.children.forEach(child => {{
-            // Use path or ID to construct the data-page ID.
             const pageId = child.path ? child.path.replace('.md', '') : child.id;
             html += `<a href="#" data-page="${{pageId}}" onclick="showPage('${{pageId}}'); return false;"><i data-lucide="${{child.icon || 'file-text'}}" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;"></i>${{child.title}}</a>`;
           }});
+          html += '</div>';
         }} else {{
             const pageId = section.path ? section.path.replace('.md', '') : section.id;
             html += `<a href="#" data-page="${{pageId}}" onclick="showPage('${{pageId}}'); return false;"><i data-lucide="${{section.icon || 'file-text'}}" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;"></i>${{section.title}}</a>`;
         }}
       }});
       container.innerHTML = html;
+    }}
+    function toggleSection(el, i) {{
+      var ch = document.getElementById('gnx-sec-' + i);
+      if (!ch) return;
+      var collapsed = ch.style.display === 'none';
+      ch.style.display = collapsed ? '' : 'none';
+      var arrow = el.querySelector('span');
+      if (arrow) arrow.textContent = collapsed ? '\u25be' : '\u25b8';
+      sessionStorage.setItem('gnx_sec_' + i, collapsed ? '0' : '1');
     }}
 
     function showToast(msg, ms) {{
@@ -849,6 +866,10 @@ fn build_html_template(
       }}
       const page = PAGES[id];
       if (!page) {{ showToast('Page introuvable\u00a0: ' + id); return; }}
+      if (id === currentPage) {{
+        if (anchor) {{ var aEl = document.getElementById(anchor); if (aEl) aEl.scrollIntoView({{behavior:'smooth'}}); }}
+        return;
+      }}
       const prevPage = currentPage;
       currentPage = id;
 
@@ -1082,7 +1103,7 @@ fn build_html_template(
         a.href = '#heading-' + i;
         a.className = h.tagName === 'H3' ? 'depth-3' : '';
         a.setAttribute('data-target', 'heading-' + i);
-        a.onclick = (e) => {{ e.preventDefault(); h.scrollIntoView({{behavior:'smooth'}}); }};
+        a.onclick = (e) => {{ e.preventDefault(); h.scrollIntoView({{behavior:'smooth'}}); var td = document.querySelector('.toc details'); if (td) td.open = false; }};
         tocDiv.appendChild(a);
       }});
       // Mobile: inject a collapsible <details> at the top of the content
@@ -1310,6 +1331,7 @@ fn build_html_template(
     let _searchActiveFilter = 'all';
     function setSearchFilter(filter, btn) {{
       _searchActiveFilter = filter;
+      sessionStorage.setItem('gnx_search_filter', filter);
       document.querySelectorAll('.search-filter').forEach(b => b.classList.remove('active'));
       if (btn) btn.classList.add('active');
       document.getElementById('search-input').dispatchEvent(new Event('input'));
@@ -1318,6 +1340,13 @@ fn build_html_template(
       const searchInput = document.getElementById('search-input');
       const searchResults = document.getElementById('search-results');
       const searchOverlay = document.getElementById('search-overlay');
+      var savedFilter = sessionStorage.getItem('gnx_search_filter');
+      if (savedFilter) {{
+        _searchActiveFilter = savedFilter;
+        document.querySelectorAll('.search-filter').forEach(function(b) {{
+          b.classList.toggle('active', b.getAttribute('data-filter') === savedFilter);
+        }});
+      }}
       document.addEventListener('keydown', e => {{
         if ((e.ctrlKey || e.metaKey) && e.key === 'k') {{
           e.preventDefault();
@@ -1326,9 +1355,10 @@ fn build_html_template(
         }}
         if (e.key === 'Escape') searchOverlay.classList.add('hidden');
       }});
+      function normSearch(s) {{ return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }}
       function searchScore(page, q) {{
         let s = 0;
-        const t = page.title.toLowerCase(), x = page.text.toLowerCase();
+        const t = normSearch(page.title), x = normSearch(page.text);
         if (q.indexOf(' ') !== -1) {{
           if (t.indexOf(q) !== -1) s += 80;
           if (x.indexOf(q) !== -1) s += 40;
@@ -1344,7 +1374,7 @@ fn build_html_template(
         _searchTimer = setTimeout(runSearch, 250);
       }});
       function runSearch() {{
-        const q = searchInput.value.toLowerCase().trim();
+        const q = normSearch(searchInput.value.trim());
         if (q.length < 2) {{ searchResults.innerHTML = ''; return; }}
         const results = SEARCH_INDEX
           .filter(p => {{
@@ -1352,7 +1382,7 @@ fn build_html_template(
             if (_searchActiveFilter !== 'all') return p.page_type === _searchActiveFilter;
             return true;
           }})
-          .filter(p => p.title.toLowerCase().includes(q) || p.text.toLowerCase().includes(q))
+          .filter(p => normSearch(p.title).includes(q) || normSearch(p.text).includes(q))
           .map(p => ({{ ...p, _score: searchScore(p, q) }}))
           .sort((a, b) => b._score - a._score)
           .slice(0, 15);

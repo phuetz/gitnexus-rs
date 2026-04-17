@@ -158,6 +158,27 @@ pub(super) fn truncate_excerpt(s: &str) -> String {
     out
 }
 
+/// Page-type-aware excerpt truncation: Controller/Service/DataModel get 600 bytes
+/// so full method signatures fit; other page types stay at 400.
+fn truncate_excerpt_for_page(s: &str, page_type: PageType) -> String {
+    match page_type {
+        PageType::Controller | PageType::Service | PageType::DataModel => {
+            const MAX_RICH: usize = 600;
+            if s.len() <= MAX_RICH {
+                return s.to_string();
+            }
+            let mut cut = MAX_RICH;
+            while !s.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let mut out = s[..cut].to_string();
+            out.push('…');
+            out
+        }
+        _ => truncate_excerpt(s),
+    }
+}
+
 // ─── Enrichment Cache ────────────────────────────────────────────────
 
 /// Simple MD5-like hash for cache invalidation (not cryptographic).
@@ -615,6 +636,34 @@ fn classify_page(page_path: &Path) -> PageType {
 
 // ─── Evidence Collection ──────────────────────────────────────────────
 
+/// Returns true if `needle` appears as a whole word in `haystack`
+/// (not preceded or followed by an alphanumeric character or `_`).
+fn has_whole_word(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    let bytes = haystack.as_bytes();
+    let nlen = needle.len();
+    let mut i = 0;
+    while i + nlen <= haystack.len() {
+        if let Some(rel) = haystack[i..].find(needle) {
+            let idx = i + rel;
+            let end = idx + nlen;
+            let before_ok = idx == 0
+                || { let b = bytes[idx - 1]; !b.is_ascii_alphanumeric() && b != b'_' };
+            let after_ok = end >= bytes.len()
+                || { let b = bytes[end]; !b.is_ascii_alphanumeric() && b != b'_' };
+            if before_ok && after_ok {
+                return true;
+            }
+            i = idx + nlen;
+        } else {
+            break;
+        }
+    }
+    false
+}
+
 fn score_evidence(node: &GraphNode, page_path: &Path, page_content: &str) -> f64 {
     let node_name_lower = node.properties.name.to_lowercase();
     if node_name_lower.is_empty() {
@@ -630,26 +679,26 @@ fn score_evidence(node: &GraphNode, page_path: &Path, page_content: &str) -> f64
     let mut score = 0.0f64;
     let mut lines = page_content.lines();
 
-    // +3.0 if name appears in H1 title
+    // +3.0 if name appears as whole word in H1 title
     if let Some(first_line) = lines.next() {
-        if first_line.to_lowercase().contains(&node_name_lower) {
+        if has_whole_word(&first_line.to_lowercase(), &node_name_lower) {
             score += 3.0;
         }
     }
 
-    let mut body_count = 0usize;
+    let body_lower: String = page_content.lines().skip(1).collect::<Vec<_>>().join("\n").to_lowercase();
     for line in page_content.lines().skip(1) {
         let lower = line.to_lowercase();
-        // +2.0 if name appears in a ## heading
-        if line.starts_with("## ") && lower.contains(&node_name_lower) {
+        // +2.0 if name appears as whole word in a ## heading
+        if line.starts_with("## ") && has_whole_word(&lower, &node_name_lower) {
             score += 2.0;
         }
-        // count occurrences in body (cap at 4)
-        if body_count < 4 && lower.contains(&node_name_lower) {
-            body_count += 1;
-        }
     }
-    score += body_count as f64;
+    // logarithmic occurrence count in body (cap cosmetically at 4.0)
+    let occ = body_lower.matches(node_name_lower.as_str()).count();
+    if occ > 0 {
+        score += (occ as f64 + 1.0).ln().min(4.0);
+    }
 
     // +1.0 if node's file_path contains the page filename stem
     if let Some(stem) = page_path.file_stem().and_then(|s| s.to_str()) {
@@ -813,7 +862,7 @@ fn collect_evidence(
             // cap each excerpt at 400 bytes before it enters the
             // prompt. Full method bodies are rarely needed to
             // identify the symbol; a 5–7 line hint is enough.
-            excerpt: truncate_excerpt(&excerpt),
+            excerpt: truncate_excerpt_for_page(&excerpt, page_type),
             title: node.properties.name.clone(),
             kind: format!("{:?}", node.label),
         });
@@ -1453,21 +1502,56 @@ fn enrich_page_structured(
                     summary
                 ));
             }
-            // Add related pages as clickable cards
+            // Add related pages as clickable cards (validate against known pages first)
             if !payload.related_pages.is_empty() {
-                enriched.push_str("<div class=\"related-pages\">\n");
-                enriched.push_str("<div class=\"related-pages-title\">Voir aussi</div>\n");
-                for p in &payload.related_pages {
-                    let stem = p.trim_end_matches(".md");
-                    let display = stem.split('/').last().unwrap_or(stem);
-                    let safe_stem = stem.replace('"', "&quot;").replace('\'', "&#39;");
-                    let safe_display = display.replace('<', "&lt;").replace('>', "&gt;");
-                    enriched.push_str(&format!(
-                        "<a class=\"related-page-card\" href=\"#\" \
-                         onclick=\"showPage('{safe_stem}'); return false;\">{safe_display}</a>\n"
-                    ));
+                // Build a set of valid stems from the docs_dir so we don't emit broken cards
+                let docs_dir = page_path.parent().and_then(|p| {
+                    if p.file_name().map(|n| n == "modules" || n == "processes").unwrap_or(false) {
+                        p.parent()
+                    } else {
+                        Some(p)
+                    }
+                }).unwrap_or(page_path.parent().unwrap_or(page_path));
+                let valid_stems: std::collections::HashSet<String> = {
+                    let mut s = std::collections::HashSet::new();
+                    for subdir in &["", "modules", "processes"] {
+                        let dir = if subdir.is_empty() { docs_dir.to_path_buf() } else { docs_dir.join(subdir) };
+                        if let Ok(entries) = std::fs::read_dir(&dir) {
+                            for entry in entries.flatten() {
+                                let p = entry.path();
+                                if p.extension().is_some_and(|e| e == "md") {
+                                    if let Some(stem) = p.file_stem().and_then(|st| st.to_str()) {
+                                        s.insert(stem.to_lowercase());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    s
+                };
+                let valid_related: Vec<&String> = payload.related_pages.iter().filter(|p| {
+                    let stem = p.trim_end_matches(".md").split('/').last().unwrap_or(p);
+                    let ok = valid_stems.contains(&stem.to_lowercase());
+                    if !ok {
+                        tracing::warn!("enrichment: related_page '{}' not found on disk — skipping", p);
+                    }
+                    ok
+                }).collect();
+                if !valid_related.is_empty() {
+                    enriched.push_str("<div class=\"related-pages\">\n");
+                    enriched.push_str("<div class=\"related-pages-title\">Voir aussi</div>\n");
+                    for p in valid_related {
+                        let stem = p.trim_end_matches(".md");
+                        let display = stem.split('/').last().unwrap_or(stem);
+                        let safe_stem = stem.replace('"', "&quot;").replace('\'', "&#39;");
+                        let safe_display = display.replace('<', "&lt;").replace('>', "&gt;");
+                        enriched.push_str(&format!(
+                            "<a class=\"related-page-card\" href=\"#\" \
+                             onclick=\"showPage('{safe_stem}'); return false;\">{safe_display}</a>\n"
+                        ));
+                    }
+                    enriched.push_str("</div>\n\n");
                 }
-                enriched.push_str("</div>\n\n");
             }
         }
     }

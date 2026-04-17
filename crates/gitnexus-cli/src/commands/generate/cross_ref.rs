@@ -1,6 +1,6 @@
 //! Cross-reference linking between documentation pages.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -25,9 +25,10 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
                 known_names.push((name.clone(), format!("./modules/{}.md", filename)));
             }
             NodeLabel::Service | NodeLabel::Repository => {
+                let anchor = sanitize_for_anchor(&node.properties.name);
                 known_names.push((
                     node.properties.name.clone(),
-                    "./modules/services.md".to_string(),
+                    format!("./modules/services.md#{}", anchor),
                 ));
             }
             NodeLabel::DbEntity => {
@@ -55,6 +56,8 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
     // 2. Process each .md file
     let mut total_links = 0;
     let mut files_to_process: Vec<PathBuf> = Vec::new();
+    // backlinks: target_stem -> vec[source_stems]
+    let mut backlinks: HashMap<String, Vec<String>> = HashMap::new();
 
     for entry in std::fs::read_dir(docs_dir)?.flatten() {
         if entry.path().extension().is_some_and(|e| e == "md") {
@@ -155,6 +158,22 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
                     );
                     linked_names.insert(name.clone());
                     page_links += 1;
+                    // Record backlink: target_stem -> source_stem
+                    let target_stem = link
+                        .trim_start_matches("./modules/")
+                        .trim_start_matches("./")
+                        .trim_end_matches(".md")
+                        .split('#').next()
+                        .unwrap_or("")
+                        .to_string();
+                    if !target_stem.is_empty() {
+                        if let Some(source_stem) = file_path.file_stem().and_then(|s| s.to_str()) {
+                            backlinks
+                                .entry(target_stem)
+                                .or_default()
+                                .push(source_stem.to_string());
+                        }
+                    }
                 }
             }
         }
@@ -165,5 +184,26 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
         }
     }
 
+    // Write backlinks.json for the HTML site to embed
+    if !backlinks.is_empty() {
+        let meta_dir = docs_dir.join("_meta");
+        std::fs::create_dir_all(&meta_dir)?;
+        let backlinks_path = meta_dir.join("backlinks.json");
+        let json = serde_json::to_string_pretty(&backlinks)?;
+        std::fs::write(&backlinks_path, json)?;
+    }
+
     Ok(total_links)
+}
+
+/// Convert a symbol name to a Markdown/HTML anchor slug:
+/// lowercase, spaces and underscores replaced with `-`, non-alphanumeric stripped.
+fn sanitize_for_anchor(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
 }

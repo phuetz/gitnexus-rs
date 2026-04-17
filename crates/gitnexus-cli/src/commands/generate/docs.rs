@@ -166,11 +166,28 @@ fn generate_docs_index(
     for info in communities.values() {
         let filename = sanitize_filename(&info.label);
         if seen_modules.insert(filename.clone()) {
+            let icon = if filename.starts_with("ctrl-") {
+                "server"
+            } else if filename.starts_with("data-") || filename.contains("model") {
+                "database"
+            } else if filename.contains("service") || filename.contains("repository") {
+                "cog"
+            } else if filename.contains("view") || filename.contains("ui") {
+                "layout"
+            } else if filename.contains("process") || filename.contains("flow") {
+                "git-branch"
+            } else if filename.contains("external") {
+                "globe"
+            } else if filename.contains("functional") {
+                "book-open"
+            } else {
+                "file-text"
+            };
             module_children.push(json!({
                 "id": format!("mod-{}", filename),
                 "title": info.label,
                 "path": format!("modules/{}.md", filename),
-                "icon": "box"
+                "icon": icon
             }));
         }
     }

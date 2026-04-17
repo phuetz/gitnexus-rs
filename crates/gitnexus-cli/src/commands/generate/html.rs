@@ -217,13 +217,30 @@ pub(super) fn generate_html_site(
     let page_order_json = serde_json::to_string(&page_order)?;
 
     // 3c. Build SEARCH_INDEX (stripped text for full-text search)
+    // Read provenance early to know which pages are enriched
+    let provenance_path_early = docs_dir.join("_meta").join("provenance.json");
+    let provenance_ids: std::collections::HashSet<String> = if provenance_path_early.exists() {
+        let raw = std::fs::read_to_string(&provenance_path_early).unwrap_or_default();
+        serde_json::from_str::<Vec<serde_json::Value>>(&raw)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|v| v.get("page_id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+            .collect()
+    } else {
+        std::collections::HashSet::new()
+    };
     let search_index: Vec<serde_json::Value> = pages
         .iter()
         .map(|(id, (title, html))| {
+            let page_type = classify_page_from_id(id);
+            let stem = id.split('/').last().unwrap_or(id);
+            let enriched = provenance_ids.contains(id) || provenance_ids.contains(stem);
             json!({
                 "id": id,
                 "title": title,
-                "text": strip_html_tags(html)
+                "text": strip_html_tags(html),
+                "page_type": page_type,
+                "enriched": enriched
             })
         })
         .collect();
@@ -265,6 +282,20 @@ pub(super) fn generate_html_site(
         "{}".to_string()
     };
 
+    let provenance_path = docs_dir.join("_meta").join("provenance.json");
+    let provenance_json = if provenance_path.exists() {
+        std::fs::read_to_string(&provenance_path).unwrap_or_else(|_| "[]".to_string())
+    } else {
+        "[]".to_string()
+    };
+
+    let backlinks_path = docs_dir.join("_meta").join("backlinks.json");
+    let backlinks_json = if backlinks_path.exists() {
+        std::fs::read_to_string(&backlinks_path).unwrap_or_else(|_| "{}".to_string())
+    } else {
+        "{}".to_string()
+    };
+
     let pages_json_str = serde_json::to_string(&pages_json)?;
     let final_html = build_html_template(
         &project_name,
@@ -275,6 +306,8 @@ pub(super) fn generate_html_site(
         &page_order_json,
         &search_index_json,
         &index_json,
+        &provenance_json,
+        &backlinks_json,
     );
 
     // 7. Check for local mermaid.min.js (offline support)
@@ -309,6 +342,19 @@ pub(super) fn strip_html_tags(html: &str) -> String {
     result.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Classify a page ID into a display type for search filtering.
+fn classify_page_from_id(id: &str) -> &'static str {
+    let name = id.split('/').last().unwrap_or(id);
+    if name.starts_with("ctrl-") { "Controller" }
+    else if name.starts_with("data-") || name.contains("model") { "DataModel" }
+    else if name.contains("service") || name.contains("repository") { "Service" }
+    else if name.contains("external") { "ExternalService" }
+    else if name == "overview" { "Overview" }
+    else if name == "architecture" { "Architecture" }
+    else if name.contains("view") || name.contains("ui") { "UI" }
+    else { "Misc" }
+}
+
 /// Build the complete self-contained HTML template.
 #[allow(clippy::too_many_arguments)]
 fn build_html_template(
@@ -320,6 +366,8 @@ fn build_html_template(
     page_order_json: &str,
     search_index_json: &str,
     index_json: &str,
+    provenance_json: &str,
+    backlinks_json: &str,
 ) -> String {
     // `project_name` is derived from the OS folder name (`repo_path.file_name()`)
     // and `stats` is built from internal counts, but the folder name is
@@ -558,6 +606,17 @@ fn build_html_template(
     .search-result-title {{ font-weight: 600; font-size: 13px; }}
     .search-result-snippet {{ font-size: 12px; color: var(--text-muted); margin-top: 4px; }}
     .search-result-snippet mark {{ background: rgba(106,161,248,0.3); color: var(--text); border-radius: 2px; padding: 0 2px; }}
+    .search-type-badge {{
+      font-size: 10px; padding: 1px 5px; border-radius: 3px;
+      background: var(--bg-surface); border: 1px solid var(--border);
+      vertical-align: middle; margin-left: 6px; color: var(--text-muted);
+    }}
+    .page-type-badge {{ font-size: 11px; vertical-align: middle; margin-left: 8px; }}
+    .search-filter {{
+      font-size: 11px; padding: 3px 8px; border: 1px solid var(--border);
+      border-radius: 12px; background: var(--bg-surface); cursor: pointer; color: var(--text);
+    }}
+    .search-filter.active {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
     .search-empty {{ padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px; }}
     .code-wrapper pre {{ counter-reset: line; }}
     .code-wrapper pre code .line {{ counter-increment: line; }}
@@ -582,6 +641,83 @@ fn build_html_template(
       a {{ color: #000; text-decoration: underline; }}
       .callout {{ border: 1px solid #ccc; break-inside: avoid; }}
     }}
+    /* Provenance badge */
+    .provenance-badge {{
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; color: var(--text-muted);
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: 4px; padding: 3px 8px; margin-bottom: 10px;
+      cursor: pointer; user-select: none;
+    }}
+    .provenance-badge:hover {{ border-color: var(--accent); color: var(--accent); }}
+    .provenance-detail {{
+      border-left: 1px solid var(--border); padding-left: 6px; margin-left: 2px;
+    }}
+    /* Evidence sources panel */
+    .ev-panel {{
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px; margin-bottom: 12px;
+      max-height: 280px; overflow-y: auto;
+    }}
+    .ev-panel-title {{
+      font-size: 11px; font-weight: 600; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;
+    }}
+    .ev-source-item {{
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+    }}
+    .ev-source-path {{
+      font-family: monospace; font-size: 11px; cursor: pointer;
+      color: var(--text-muted);
+    }}
+    .ev-source-path:hover {{ color: var(--accent); }}
+    .ev-source-path.copied {{ color: #4ade80; }}
+    /* Staleness warning */
+    .stale-warning {{
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.4);
+      border-radius: 6px; padding: 8px 12px; margin-bottom: 12px;
+      font-size: 12px; color: #ca8a04;
+    }}
+    /* Auto-collapse long code blocks */
+    .code-collapse {{ margin: 12px 0; }}
+    .code-collapse > summary {{
+      cursor: pointer; font-size: 12px; color: var(--text-muted);
+      padding: 4px 8px; background: var(--bg-surface);
+      border: 1px solid var(--border); border-radius: 4px;
+      list-style: none; user-select: none;
+    }}
+    .code-collapse > summary::-webkit-details-marker {{ display: none; }}
+    .code-collapse[open] > summary {{
+      border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none;
+    }}
+    .code-collapse[open] > pre {{
+      margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0;
+    }}
+    /* Related pages cards */
+    .related-pages {{
+      margin: 24px 0; padding: 16px;
+      background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px;
+    }}
+    .related-pages-title {{
+      font-size: 11px; font-weight: 600; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px;
+    }}
+    .related-page-card {{
+      display: inline-block;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px 12px; margin: 4px;
+      font-size: 13px; text-decoration: none; color: var(--accent);
+      transition: background 0.15s;
+    }}
+    .related-page-card:hover {{ background: rgba(106,161,248,0.08); }}
+    /* Backlinks */
+    .backlinks-section {{ margin: 24px 0; padding: 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; }}
+    .backlinks-title {{ font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }}
+    /* Mobile TOC */
+    .toc-mobile-details {{ margin-bottom: 1rem; background: var(--bg-secondary, var(--bg-surface)); border-radius: 6px; padding: 0.5rem 1rem; border: 1px solid var(--border); }}
+    .toc-mobile-details summary {{ cursor: pointer; font-size: 13px; color: var(--text-muted); }}
   </style>
 </head>
 <body>
@@ -592,8 +728,15 @@ fn build_html_template(
       <div style="padding:12px 16px;border-bottom:1px solid var(--border);">
         <input id="search-input" type="text" placeholder="Rechercher dans la documentation... (Ctrl+K)"
           style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;">
+        <div id="search-filters" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+          <button class="search-filter active" data-filter="all" onclick="setSearchFilter('all',this)">Tout</button>
+          <button class="search-filter" data-filter="Controller" onclick="setSearchFilter('Controller',this)">Controllers</button>
+          <button class="search-filter" data-filter="Service" onclick="setSearchFilter('Service',this)">Services</button>
+          <button class="search-filter" data-filter="DataModel" onclick="setSearchFilter('DataModel',this)">Data</button>
+          <button class="search-filter" data-filter="enriched" onclick="setSearchFilter('enriched',this)">Enrichi ✓</button>
+        </div>
       </div>
-      <div id="search-results" style="max-height:400px;overflow-y:auto;padding:8px;"></div>
+      <div id="search-results" style="max-height:380px;overflow-y:auto;padding:8px;"></div>
     </div>
   </div>
   <div id="mermaid-modal" class="mermaid-modal" onclick="closeMermaidModal()"></div>
@@ -647,6 +790,8 @@ fn build_html_template(
     const PAGE_ORDER = {page_order_json};
     const SEARCH_INDEX = {search_index_json};
     const INDEX_JSON = {index_json};
+    const PROVENANCE = {provenance_json};
+    const BACKLINKS = {backlinks_json};
     let currentPage = null;
 
     function buildDynamicSidebar() {{
@@ -687,6 +832,18 @@ fn build_html_template(
       content.style.opacity = '0';
       setTimeout(() => {{
         content.innerHTML = page.html;
+        // Inject page-type badge after the first H1
+        const ptype = page.page_type;
+        if (ptype && ptype !== 'Misc') {{
+          const h1 = content.querySelector('h1');
+          if (h1) {{
+            const typeBadge = document.createElement('span');
+            typeBadge.className = 'search-type-badge page-type-badge';
+            typeBadge.setAttribute('data-type', ptype);
+            typeBadge.textContent = ptype;
+            h1.appendChild(typeBadge);
+          }}
+        }}
         const breadcrumb = buildBreadcrumb(id, page.title);
         content.insertAdjacentHTML('afterbegin', breadcrumb);
         
@@ -694,6 +851,64 @@ fn build_html_template(
         const wordCount = content.textContent.split(/\\s+/).length;
         const readTime = Math.max(1, Math.ceil(wordCount / 200));
         content.insertAdjacentHTML('afterbegin', `<div class="reading-time" style="font-size:12px; color:var(--text-muted); margin-bottom:16px;"><i data-lucide="clock" style="width:12px;height:12px;vertical-align:middle;margin-right:4px;"></i>~${{readTime}} min de lecture</div>`);
+
+        // Provenance badge
+        if (Array.isArray(PROVENANCE)) {{
+          const provEntry = PROVENANCE.find(p =>
+            p.page_id === id || p.page_id === id.split('/').pop()
+          );
+          if (provEntry) {{
+            const model = (provEntry.model || '').split('/').pop();
+            const enrichedAt = new Date(provEntry.enriched_at);
+            const ageDays = (Date.now() - enrichedAt) / 86400000;
+            const ago = timeSince(enrichedAt);
+            const sourcesCount = (provEntry.evidence_refs || []).length;
+            const panelId = 'ev-panel-' + id.replace(/\//g, '-');
+            // Build badge
+            const badge = document.createElement('div');
+            badge.className = 'provenance-badge';
+            badge.title = 'Cliquer pour voir les sources analysées';
+            badge.onclick = function() {{ toggleEvPanel(panelId); }};
+            badge.innerHTML = '<i data-lucide="cpu" style="width:12px;height:12px;"></i> Enrichi par <code>' + model + '</code> · ' + ago + ' <span class="provenance-detail">' + sourcesCount + ' source' + (sourcesCount !== 1 ? 's' : '') + '</span>';
+            content.insertBefore(badge, content.firstChild);
+            // Build evidence panel
+            const panel = document.createElement('div');
+            panel.className = 'ev-panel';
+            panel.id = panelId;
+            panel.style.display = 'none';
+            const panelTitle = document.createElement('div');
+            panelTitle.className = 'ev-panel-title';
+            panelTitle.textContent = 'Sources analysées (' + sourcesCount + ')';
+            panel.appendChild(panelTitle);
+            (provEntry.evidence_refs || []).forEach(function(r) {{
+              const item = document.createElement('div');
+              item.className = 'ev-source-item';
+              const loc = r.start_line ? ':L' + r.start_line : '';
+              const span = document.createElement('span');
+              span.className = 'ev-source-path';
+              span.textContent = (r.file_path || '') + loc;
+              span.title = 'Cliquer pour copier';
+              span.dataset.path = (r.file_path || '') + loc;
+              span.onclick = function() {{ copyPath(this.dataset.path); }};
+              item.appendChild(span);
+              panel.appendChild(item);
+            }});
+            content.insertBefore(panel, badge.nextSibling);
+            if (ageDays > 30) {{
+              content.insertAdjacentHTML('afterbegin', `<div class="stale-warning"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i> Documentation enrichie il y a ${{Math.floor(ageDays)}} jours. Relancer <code>gitnexus generate html --enrich</code> pour actualiser.</div>`);
+            }}
+          }}
+        }}
+
+        // Backlinks "Citée dans"
+        const bl = BACKLINKS[id] || BACKLINKS[id.split('/').pop()] || [];
+        if (bl.length > 0) {{
+          const blDiv = document.createElement('div');
+          blDiv.className = 'backlinks-section';
+          blDiv.innerHTML = '<div class="backlinks-title">Citée dans</div>' +
+            bl.map(p => `<a class="related-page-card" href="#" onclick="showPage('${{p}}');return false;">${{p}}</a>`).join('');
+          content.appendChild(blDiv);
+        }}
 
         // Feedback buttons
         const feedbackHtml = `
@@ -767,6 +982,29 @@ fn build_html_template(
         document.querySelectorAll('.feedback-btn').forEach(btn => btn.style.display = 'none');
     }}
 
+    function timeSince(date) {{
+        const secs = Math.floor((Date.now() - date) / 1000);
+        if (secs < 3600) return Math.floor(secs / 60) + ' min';
+        if (secs < 86400) return Math.floor(secs / 3600) + 'h';
+        const d = Math.floor(secs / 86400);
+        return d + ' jour' + (d > 1 ? 's' : '');
+    }}
+
+    function toggleEvPanel(panelId) {{
+        const panel = document.getElementById(panelId);
+        if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }}
+
+    function copyPath(path) {{
+        navigator.clipboard.writeText(path).catch(() => {{}});
+        document.querySelectorAll('.ev-source-path').forEach(function(s) {{
+            if (s.dataset.path === path) {{
+                s.classList.add('copied');
+                setTimeout(function() {{ s.classList.remove('copied'); }}, 1200);
+            }}
+        }});
+    }}
+
     window.onpopstate = function(event) {{
       if (event.state && event.state.id) {{
         showPage(event.state.id, event.state.anchor, true);
@@ -814,6 +1052,19 @@ fn build_html_template(
         a.onclick = (e) => {{ e.preventDefault(); h.scrollIntoView({{behavior:'smooth'}}); }};
         tocDiv.appendChild(a);
       }});
+      // Mobile: inject a collapsible <details> at the top of the content
+      document.querySelector('.toc-mobile-details')?.remove();
+      if (window.innerWidth < 900 && headings.length > 0) {{
+        const content = document.getElementById('content');
+        const details = document.createElement('details');
+        details.className = 'toc-mobile-details';
+        const summary = document.createElement('summary');
+        summary.textContent = 'Dans cette page (' + headings.length + ' sections)';
+        details.appendChild(summary);
+        const cloned = tocDiv.cloneNode(true);
+        details.appendChild(cloned);
+        content.prepend(details);
+      }}
     }}
     function initScrollSpy() {{
       const tocLinks = document.querySelectorAll('.toc a[data-target]');
@@ -987,6 +1238,13 @@ fn build_html_template(
       }});
       return messages.slice(-10);
     }}
+    let _searchActiveFilter = 'all';
+    function setSearchFilter(filter, btn) {{
+      _searchActiveFilter = filter;
+      document.querySelectorAll('.search-filter').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      document.getElementById('search-input').dispatchEvent(new Event('input'));
+    }}
     function initSearch() {{
       const searchInput = document.getElementById('search-input');
       const searchResults = document.getElementById('search-results');
@@ -999,29 +1257,74 @@ fn build_html_template(
         }}
         if (e.key === 'Escape') searchOverlay.classList.add('hidden');
       }});
+      function searchScore(page, q) {{
+        let s = 0;
+        const t = page.title.toLowerCase(), x = page.text.toLowerCase();
+        if (t.startsWith(q)) s += 20;
+        else if (t.includes(q)) s += 10;
+        if (x.includes(q)) s += 1 + Math.min(4, (x.split(q).length - 1));
+        return s;
+      }}
       searchInput.addEventListener('input', () => {{
         const q = searchInput.value.toLowerCase().trim();
         if (q.length < 2) {{ searchResults.innerHTML = ''; return; }}
         const results = SEARCH_INDEX
+          .filter(p => {{
+            if (_searchActiveFilter === 'enriched') return p.enriched;
+            if (_searchActiveFilter !== 'all') return p.page_type === _searchActiveFilter;
+            return true;
+          }})
           .filter(p => p.title.toLowerCase().includes(q) || p.text.toLowerCase().includes(q))
-          .slice(0, 10);
-        searchResults.innerHTML = results.map(r => {{
-          const idx = r.text.toLowerCase().indexOf(q);
-          const start = Math.max(0, idx - 40);
-          const end = Math.min(r.text.length, idx + q.length + 40);
-          const snippet = (start > 0 ? '...' : '') +
-            r.text.slice(start, idx) +
-            '<mark>' + r.text.slice(idx, idx + q.length) + '</mark>' +
-            r.text.slice(idx + q.length, end) +
-            (end < r.text.length ? '...' : '');
-          return '<a class="search-result" href="#" onclick="showPage(\'' + r.id + '\'); document.getElementById(\'search-overlay\').classList.add(\'hidden\'); return false;">' +
-            '<div class="search-result-title">' + r.title + '</div>' +
-            '<div class="search-result-snippet">' + (idx >= 0 ? snippet : '') + '</div>' +
-            '</a>';
-        }}).join('');
+          .map(p => ({{ ...p, _score: searchScore(p, q) }}))
+          .sort((a, b) => b._score - a._score)
+          .slice(0, 15);
         if (results.length === 0) {{
-          searchResults.innerHTML = '<div class="search-empty">Aucun r&eacute;sultat pour "' + q + '"</div>';
+          searchResults.innerHTML = '<div class="search-empty">Aucun r&eacute;sultat</div>';
+          return;
         }}
+        searchResults.innerHTML = '';
+        results.forEach(r => {{
+          const a = document.createElement('a');
+          a.className = 'search-result';
+          a.href = '#';
+          a.onclick = function() {{
+            showPage(r.id);
+            document.getElementById('search-overlay').classList.add('hidden');
+            return false;
+          }};
+          const titleDiv = document.createElement('div');
+          titleDiv.className = 'search-result-title';
+          titleDiv.textContent = r.title;
+          if (r.page_type && r.page_type !== 'Misc') {{
+            const badge = document.createElement('span');
+            badge.className = 'search-type-badge';
+            badge.textContent = r.page_type;
+            titleDiv.appendChild(badge);
+          }}
+          if (r.enriched) {{
+            const icon = document.createElement('i');
+            icon.setAttribute('data-lucide', 'cpu');
+            icon.style.cssText = 'width:10px;height:10px;color:var(--accent);vertical-align:middle;margin-left:4px;';
+            titleDiv.appendChild(icon);
+          }}
+          a.appendChild(titleDiv);
+          const idx = r.text.toLowerCase().indexOf(q);
+          if (idx >= 0) {{
+            const start = Math.max(0, idx - 40);
+            const end = Math.min(r.text.length, idx + q.length + 40);
+            const snippetDiv = document.createElement('div');
+            snippetDiv.className = 'search-result-snippet';
+            snippetDiv.textContent = (start > 0 ? '...' : '') + r.text.slice(start, idx);
+            const mark = document.createElement('mark');
+            mark.textContent = r.text.slice(idx, idx + q.length);
+            snippetDiv.appendChild(mark);
+            const after = document.createTextNode(r.text.slice(idx + q.length, end) + (end < r.text.length ? '...' : ''));
+            snippetDiv.appendChild(after);
+            a.appendChild(snippetDiv);
+          }}
+          searchResults.appendChild(a);
+        }});
+        if (typeof lucide !== 'undefined') lucide.createIcons();
       }});
     }}
     function filterPages(query) {{

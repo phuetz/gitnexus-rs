@@ -422,6 +422,13 @@ fn build_html_template(
     .sidebar a:hover {{ color:var(--text); background:rgba(255,255,255,0.03); }}
     .sidebar a.active {{ color:var(--accent); border-left-color:var(--accent);
                         background:rgba(106,161,248,0.08); }}
+    .sidebar a:focus-visible,
+    .top-bar button:focus-visible,
+    .theme-toggle:focus-visible,
+    .hamburger:focus-visible,
+    .chat-toggle:focus-visible,
+    .search input:focus-visible,
+    button:focus-visible {{ outline:2px solid var(--accent); outline-offset:2px; border-radius:3px; }}
     .sidebar .section-title {{ font-size:10px; text-transform:uppercase; letter-spacing:0.05em;
                               color:var(--text-muted); padding:16px 20px 4px; }}
     .main {{ flex:1; overflow-y:auto; padding:40px 60px; max-width:900px;
@@ -634,8 +641,15 @@ fn build_html_template(
       .main table {{ overflow-x: auto; display: block; }}
       .main th, .main td {{ font-size: 11px; padding: 4px 6px; }}
     }}
+    #back-to-top {{
+      position:fixed; bottom:24px; right:24px; display:none;
+      padding:8px 14px; background:var(--accent); color:#fff;
+      border:none; border-radius:6px; cursor:pointer;
+      font-size:13px; z-index:100;
+      box-shadow:0 2px 8px rgba(0,0,0,.3); transition:opacity .2s;
+    }}
     @media print {{
-      .sidebar, .toc, .header, .theme-toggle, .copy-btn, .hamburger, .page-nav, .search {{ display: none !important; }}
+      .sidebar, .toc, .header, .theme-toggle, .copy-btn, .hamburger, .page-nav, .search, #back-to-top {{ display: none !important; }}
       .main {{ margin: 0; padding: 20px; max-width: 100%; }}
       body {{ font-family: Georgia, serif; font-size: 11pt; color: #000; background: #fff; }}
       pre {{ border: 1px solid #ccc; page-break-inside: avoid; font-size: 9pt; }}
@@ -723,12 +737,12 @@ fn build_html_template(
   </style>
 </head>
 <body>
-  <button class="hamburger" onclick="toggleSidebar()">&#9776;</button>
+  <button class="hamburger" onclick="toggleSidebar()" aria-label="Ouvrir la navigation">&#9776;</button>
   <div id="search-overlay" class="hidden"
     style="position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.6);display:flex;align-items:flex-start;justify-content:center;padding-top:15vh;">
     <div style="width:560px;max-width:90vw;background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
       <div style="padding:12px 16px;border-bottom:1px solid var(--border);">
-        <input id="search-input" type="text" placeholder="Rechercher dans la documentation... (Ctrl+K)"
+        <input id="search-input" type="text" aria-label="Rechercher dans la documentation" placeholder="Rechercher dans la documentation... (Ctrl+K)"
           style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;">
         <div id="search-filters" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
           <button class="search-filter active" data-filter="all" onclick="setSearchFilter('all',this)">Tout</button>
@@ -745,7 +759,7 @@ fn build_html_template(
   <header class="header">
     <h1>{project_name}</h1>
     <span class="stats">{stats}</span>
-    <button class="theme-toggle" onclick="toggleTheme()">Theme</button>
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Basculer le thème">Theme</button>
   </header>
   <nav class="sidebar">
     <div class="search">
@@ -763,7 +777,7 @@ fn build_html_template(
 
   <!-- Integrated Chat UI -->
   <div id="chat-widget" class="chat-widget">
-    <button id="chat-toggle" class="chat-toggle" onclick="toggleChat()">
+    <button id="chat-toggle" class="chat-toggle" onclick="toggleChat()" aria-label="Ouvrir le chat">
       <i data-lucide="message-square"></i>
       <span class="chat-badge" id="chat-badge" style="display:none"></span>
     </button>
@@ -820,9 +834,20 @@ fn build_html_template(
       container.innerHTML = html;
     }}
 
+    function showToast(msg, ms) {{
+      var t = document.createElement('div');
+      t.style.cssText = 'position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 16px;border-radius:6px;font-size:13px;z-index:999;transition:opacity .4s;pointer-events:none;';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(function() {{ t.style.opacity = '0'; setTimeout(function() {{ t.remove(); }}, 400); }}, ms || 2500);
+    }}
     function showPage(id, anchor, skipHistory = false) {{
+      if (window.innerWidth < 900) {{
+        var sb = document.querySelector('.sidebar');
+        if (sb) sb.classList.remove('open');
+      }}
       const page = PAGES[id];
-      if (!page) return;
+      if (!page) {{ showToast('Page introuvable\u00a0: ' + id); return; }}
       const prevPage = currentPage;
       currentPage = id;
 
@@ -1284,12 +1309,21 @@ fn build_html_template(
       function searchScore(page, q) {{
         let s = 0;
         const t = page.title.toLowerCase(), x = page.text.toLowerCase();
+        if (q.indexOf(' ') !== -1) {{
+          if (t.indexOf(q) !== -1) s += 80;
+          if (x.indexOf(q) !== -1) s += 40;
+        }}
         if (t.startsWith(q)) s += 20;
-        else if (t.includes(q)) s += 10;
-        if (x.includes(q)) s += 1 + Math.min(4, (x.split(q).length - 1));
+        else if (t.indexOf(q) !== -1) s += 10;
+        if (x.indexOf(q) !== -1) s += 1 + Math.min(4, (x.split(q).length - 1));
         return s;
       }}
+      var _searchTimer = null;
       searchInput.addEventListener('input', () => {{
+        clearTimeout(_searchTimer);
+        _searchTimer = setTimeout(runSearch, 250);
+      }});
+      function runSearch() {{
         const q = searchInput.value.toLowerCase().trim();
         if (q.length < 2) {{ searchResults.innerHTML = ''; return; }}
         const results = SEARCH_INDEX
@@ -1349,7 +1383,7 @@ fn build_html_template(
           searchResults.appendChild(a);
         }});
         if (typeof lucide !== 'undefined') lucide.createIcons();
-      }});
+      }}
     }}
     function filterPages(query) {{
       const q = query.toLowerCase();
@@ -1413,8 +1447,15 @@ fn build_html_template(
         if (e.key === 'ArrowLeft'  && idx > 0)                              {{ e.preventDefault(); showPage(PAGE_ORDER[idx - 1]); }}
         if (e.key === 'ArrowRight' && idx >= 0 && idx < PAGE_ORDER.length - 1) {{ e.preventDefault(); showPage(PAGE_ORDER[idx + 1]); }}
       }});
+      // Back-to-top button visibility
+      document.getElementById('content').addEventListener('scroll', function() {{
+        var btn = document.getElementById('back-to-top');
+        if (btn) btn.style.display = this.scrollTop > 300 ? 'block' : 'none';
+      }});
     }});
   </script>
+  <button id="back-to-top" onclick="document.getElementById('content').scrollTop=0"
+          aria-label="Retour en haut de page">&#8593; Haut</button>
 </body>
 </html>"##
     )

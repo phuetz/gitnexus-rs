@@ -1540,6 +1540,13 @@ fn generate_docs_modules(
                     let caller_strs: Vec<String> = callers.iter().map(|(name, stype)| format!("{} ({})", name, stype)).collect();
                     if !caller_strs.is_empty() { content.push_str(&format!("**Appelé par :** {}\n", caller_strs.join(", "))); }
                 }
+                if let Some(keys) = &action.properties.response_keys {
+                    if !keys.is_empty() { content.push_str(&format!("**Réponse :** `{}`\n", keys.join("`, `"))); }
+                }
+                if let Some(keys) = &action.properties.error_keys {
+                    if !keys.is_empty() { content.push_str(&format!("**Erreurs :** `{}`\n", keys.join("`, `"))); }
+                }
+                write_llm_badge(&mut content, &action.properties);
                 if let Some(source) = read_repo_source(&ctrl.properties.file_path) {
                     if let Some(snippet) = extract_method_body(&source, &action.properties.name, 50) {
                         content.push_str("\n```csharp\n"); content.push_str(&snippet); content.push_str("```\n");
@@ -1654,6 +1661,17 @@ fn generate_docs_modules(
             content.push_str(&format!("| {} | {} | {} | {} | {} | `{}` |\n", svc.properties.name, layer, iface, used_by, purpose, svc.properties.file_path));
         }
         content.push('\n');
+        let smelly_svcs: Vec<&&GraphNode> = services.iter()
+            .filter(|s| s.properties.llm_risk_score.is_some()
+                || s.properties.llm_smells.as_ref().map(|v| !v.is_empty()).unwrap_or(false))
+            .collect();
+        if !smelly_svcs.is_empty() {
+            content.push_str("## Qualité LLM — Services\n\n");
+            for svc in &smelly_svcs {
+                content.push_str(&format!("### {}\n\n", svc.properties.name));
+                write_llm_badge(&mut content, &svc.properties);
+            }
+        }
         content.push_str(&nav_footer(&page_order, "services"));
         std::fs::write(&out_path, &content)?;
         println!("  {} {}", "OK".green(), out_path.display());
@@ -1727,12 +1745,14 @@ fn generate_docs_modules(
         let _find_methods = |svc: &GraphNode| -> Vec<&GraphNode> { let svc_name = &svc.properties.name; graph.iter_nodes().filter(|n| n.label == NodeLabel::Method && (n.properties.file_path.contains("WebAPI") || n.properties.file_path.contains("WebApi") || n.properties.file_path.contains(svc_name)) && n.properties.name.ends_with("Async") && !n.properties.name.starts_with("PrepareRequest") && !n.properties.name.starts_with("ProcessResponse") && !n.properties.name.starts_with("ReadObject")).collect() };
 
         if !webapi_services.is_empty() {
-            content.push_str(&format!("## WebAPI Services ({})\n\n| Client | Type | Called From | Purpose |\n|--------|------|------------|--------|\n", webapi_services.len()));
+            content.push_str(&format!("## WebAPI Services ({})\n\n| Client | Type | Called From | Purpose | Docs |\n|--------|------|------------|---------|------|\n", webapi_services.len()));
             for svc in &webapi_services {
                 let stype = svc.properties.service_type.as_deref().unwrap_or("WebAPI");
                 let callers = find_callers(svc); let called_from = if callers.is_empty() { "-".to_string() } else { callers.join(", ") };
                 let purpose = svc.properties.description.as_deref().unwrap_or("-");
-                content.push_str(&format!("| {} | {} | {} | {} |\n", svc.properties.name, stype, called_from, purpose));
+                let docs = svc.properties.source_url.as_deref().filter(|u| !u.is_empty())
+                    .map(|u| format!("[docs]({})", u)).unwrap_or_else(|| "-".to_string());
+                content.push_str(&format!("| {} | {} | {} | {} | {} |\n", svc.properties.name, stype, called_from, purpose, docs));
             }
             content.push('\n');
 
@@ -1763,14 +1783,14 @@ fn generate_docs_modules(
         }
 
         if !wcf_services.is_empty() {
-            content.push_str(&format!("## WCF Services (SOAP) ({})\n\n| Client | Type | Called From | Purpose |\n|--------|------|------------|--------|\n", wcf_services.len()));
-            for svc in &wcf_services { let stype = svc.properties.service_type.as_deref().unwrap_or("WCF"); let callers = find_callers(svc); let called_from = if callers.is_empty() { "-".to_string() } else { callers.join(", ") }; let purpose = svc.properties.description.as_deref().unwrap_or("-"); content.push_str(&format!("| {} | {} | {} | {} |\n", svc.properties.name, stype, called_from, purpose)); }
+            content.push_str(&format!("## WCF Services (SOAP) ({})\n\n| Client | Type | Called From | Purpose | Docs |\n|--------|------|------------|---------|------|\n", wcf_services.len()));
+            for svc in &wcf_services { let stype = svc.properties.service_type.as_deref().unwrap_or("WCF"); let callers = find_callers(svc); let called_from = if callers.is_empty() { "-".to_string() } else { callers.join(", ") }; let purpose = svc.properties.description.as_deref().unwrap_or("-"); let docs = svc.properties.source_url.as_deref().filter(|u| !u.is_empty()).map(|u| format!("[docs]({})", u)).unwrap_or_else(|| "-".to_string()); content.push_str(&format!("| {} | {} | {} | {} | {} |\n", svc.properties.name, stype, called_from, purpose, docs)); }
             content.push('\n');
         }
 
         if !other_services.is_empty() {
-            content.push_str(&format!("## Other Services ({})\n\n| Client | Type | Called From | Purpose |\n|--------|------|------------|--------|\n", other_services.len()));
-            for svc in &other_services { let stype = svc.properties.service_type.as_deref().unwrap_or("External"); let callers = find_callers(svc); let called_from = if callers.is_empty() { "-".to_string() } else { callers.join(", ") }; let purpose = svc.properties.description.as_deref().unwrap_or("-"); content.push_str(&format!("| {} | {} | {} | {} |\n", svc.properties.name, stype, called_from, purpose)); }
+            content.push_str(&format!("## Other Services ({})\n\n| Client | Type | Called From | Purpose | Docs |\n|--------|------|------------|---------|------|\n", other_services.len()));
+            for svc in &other_services { let stype = svc.properties.service_type.as_deref().unwrap_or("External"); let callers = find_callers(svc); let called_from = if callers.is_empty() { "-".to_string() } else { callers.join(", ") }; let purpose = svc.properties.description.as_deref().unwrap_or("-"); let docs = svc.properties.source_url.as_deref().filter(|u| !u.is_empty()).map(|u| format!("[docs]({})", u)).unwrap_or_else(|| "-".to_string()); content.push_str(&format!("| {} | {} | {} | {} | {} |\n", svc.properties.name, stype, called_from, purpose, docs)); }
             content.push('\n');
         }
 
@@ -1854,4 +1874,28 @@ fn generate_docs_modules(
     }
 
     Ok(page_count)
+}
+
+fn write_llm_badge(content: &mut String, props: &NodeProperties) {
+    let risk = props.llm_risk_score;
+    let smells = props.llm_smells.as_ref().map(|v| v.len()).unwrap_or(0);
+    let patterns = props.llm_patterns.as_ref().map(|v| v.len()).unwrap_or(0);
+    if risk.is_none() && smells == 0 && patterns == 0 { return; }
+
+    content.push_str("\n> **Qualité LLM**");
+    if let Some(r) = risk {
+        let label = if r >= 70 { "Risque élevé" } else if r >= 40 { "Risque modéré" } else { "Risque faible" };
+        content.push_str(&format!(" — {} ({}/100)", label, r));
+    }
+    content.push('\n');
+    if let Some(list) = &props.llm_smells {
+        if !list.is_empty() { content.push_str(&format!("> *Smells :* {}  \n", list.join(", "))); }
+    }
+    if let Some(list) = &props.llm_patterns {
+        if !list.is_empty() { content.push_str(&format!("> *Patterns :* {}  \n", list.join(", "))); }
+    }
+    if let Some(hint) = &props.llm_refactoring {
+        if !hint.is_empty() { content.push_str(&format!("> *Refactoring :* {}  \n", hint)); }
+    }
+    content.push('\n');
 }

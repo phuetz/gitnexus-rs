@@ -319,6 +319,41 @@ pub(super) fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -
         writeln!(f)?;
     }
 
+    // ── Technical Debt: TodoMarker nodes ──
+    let todos: Vec<_> = graph.iter_nodes()
+        .filter(|n| n.label == NodeLabel::TodoMarker)
+        .collect();
+    if !todos.is_empty() {
+        writeln!(f, "\n## Marqueurs de dette technique")?;
+        writeln!(f, "<!-- GNX:INTRO:dette-technique -->")?;
+        writeln!(f)?;
+        let mut by_kind: std::collections::HashMap<&str, Vec<_>> = Default::default();
+        for t in &todos {
+            by_kind.entry(t.properties.todo_kind.as_deref().unwrap_or("TODO"))
+                   .or_default()
+                   .push(t);
+        }
+        for kind in &["FIXME", "HACK", "TODO", "XXX"] {
+            if let Some(items) = by_kind.get(kind) {
+                writeln!(f, "### {} ({})", kind, items.len())?;
+                writeln!(f, "| Fichier | Ligne | Note |")?;
+                writeln!(f, "|---------|-------|------|")?;
+                for item in items.iter().take(20) {
+                    let file = item.properties.file_path.split(['/', '\\']).last().unwrap_or("");
+                    let line = item.properties.start_line
+                        .map(|l| l.to_string())
+                        .unwrap_or_else(|| "-".to_string());
+                    let text = item.properties.todo_text.as_deref().unwrap_or("-");
+                    writeln!(f, "| `{}` | {} | {} |", file, line, text)?;
+                }
+                if items.len() > 20 {
+                    writeln!(f, "| … | | *+{} autres* |", items.len() - 20)?;
+                }
+                writeln!(f)?;
+            }
+        }
+    }
+
     writeln!(f, "<!-- GNX:CLOSING -->")?;
     writeln!(f, "---")?;
     writeln!(f, "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)")?;

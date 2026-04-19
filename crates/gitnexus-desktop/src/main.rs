@@ -17,14 +17,22 @@ fn main() {
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             // Repos
+            commands::chat::chat_test_connection,
             commands::repos::list_repos,
             commands::repos::open_repo,
             commands::repos::analyze_repo,
+            commands::repos::unregister_repo,
             commands::repos::generate_docs,
             // Graph
             commands::graph::get_graph_data,
             commands::graph::get_subgraph,
             commands::graph::get_features,
+            // Theme C — graph time-travel & saved views
+            commands::graph::find_path,
+            commands::graph::diff_snapshots,
+            commands::saved_views::saved_views_list,
+            commands::saved_views::saved_views_save,
+            commands::saved_views::saved_views_delete,
             // Search
             commands::search::search_symbols,
             // Context
@@ -41,6 +49,9 @@ fn main() {
             commands::chat::chat_ask,
             commands::chat::chat_get_config,
             commands::chat::chat_set_config,
+            // Chat agent tools (Theme B — introspection + retry)
+            commands::chat::list_chat_tools,
+            commands::chat::chat_retry_tool,
             // Chat Intelligence (Planner & Executor)
             commands::chat_planner::chat_pick_files,
             commands::chat_planner::chat_pick_symbols,
@@ -83,11 +94,12 @@ fn main() {
             commands::activity::activity_record,
             commands::activity::activity_list,
             commands::activity::activity_clear,
-            // Snapshot history + diff (B3 full + B4)
+            // Snapshot history + diff (B3 full + B4) + Theme C commit timeline
             commands::snapshots::snapshot_create,
             commands::snapshots::snapshot_list,
             commands::snapshots::snapshot_delete,
             commands::snapshots::snapshot_diff,
+            commands::snapshots::snapshot_list_commits,
             // Custom dashboards (E)
             commands::dashboards::dashboard_list,
             commands::dashboards::dashboard_load,
@@ -123,6 +135,16 @@ fn main() {
             // Coverage & Diagrams
             commands::coverage::get_coverage_stats,
             commands::diagram::get_diagram,
+            // Code Quality Suite (Theme A)
+            commands::quality::detect_cycles,
+            commands::quality::find_clones_cmd,
+            commands::quality::list_todos_cmd,
+            commands::quality::get_complexity_report,
+            // Schema & API Inventory (Theme D)
+            commands::inventory::list_endpoints,
+            commands::inventory::list_db_tables,
+            commands::inventory::list_env_vars,
+            commands::inventory::get_endpoint_handler,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

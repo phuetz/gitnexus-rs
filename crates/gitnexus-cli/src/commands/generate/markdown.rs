@@ -25,13 +25,17 @@ pub(super) fn markdown_to_html(md: &str) -> String {
             continue;
         }
 
-        // Handle <details>/<summary> blocks (pass through as HTML)
+        // Handle <details>/<summary>/<div>/<a> blocks (pass through as HTML)
         if line.trim_start().starts_with("<details>")
             || line.trim_start().starts_with("<details ")
             || line.trim_start().starts_with("</details>")
             || line.trim_start().starts_with("<summary>")
             || line.trim_start().starts_with("<summary ")
             || line.trim_start().starts_with("</summary>")
+            || line.trim_start().starts_with("<div")
+            || line.trim_start().starts_with("</div")
+            || line.trim_start().starts_with("<a ")
+            || line.trim_start().starts_with("</a>")
         {
             html.push_str(line);
             html.push('\n');
@@ -86,15 +90,32 @@ pub(super) fn markdown_to_html(md: &str) -> String {
                         html_escape(&code_content)
                     ));
                 } else {
-                    // The fence info string is user-controlled (`code_lang` is taken
-                    // verbatim from ```<lang> in the source). Escape it before
-                    // injecting into the `class` attribute or attackers can break
-                    // out via `">` and inject arbitrary HTML.
-                    html.push_str(&format!(
-                        "<pre><code class=\"language-{}\">{}</code></pre>\n",
-                        html_escape(&code_lang),
-                        html_escape(&code_content)
-                    ));
+                    let escaped_lang = html_escape(&code_lang);
+                    let escaped_content = html_escape(&code_content);
+                    let line_count = code_content.lines().count();
+                    if line_count > 25 {
+                        let summary_label = if code_lang.is_empty() {
+                            format!("{} lignes", line_count)
+                        } else {
+                            format!("{} · {} lignes", escaped_lang, line_count)
+                        };
+                        html.push_str(&format!(
+                            "<details class=\"code-collapse\">\
+                             <summary><i data-lucide=\"code-2\" style=\"width:12px;height:12px;vertical-align:middle;margin-right:6px;\"></i>{}</summary>\
+                             <pre><code class=\"language-{}\">{}</code></pre>\
+                             </details>\n",
+                            summary_label, escaped_lang, escaped_content
+                        ));
+                    } else {
+                        // The fence info string is user-controlled (`code_lang` is taken
+                        // verbatim from ```<lang> in the source). Escape it before
+                        // injecting into the `class` attribute or attackers can break
+                        // out via `">` and inject arbitrary HTML.
+                        html.push_str(&format!(
+                            "<pre><code class=\"language-{}\">{}</code></pre>\n",
+                            escaped_lang, escaped_content
+                        ));
+                    }
                 }
                 code_content.clear();
                 in_code_block = false;

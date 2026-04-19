@@ -34,14 +34,31 @@ pub fn analyze_query_impl(
     let q = question.to_lowercase();
     let keywords = extract_keywords(&q);
 
-    // Detect intent patterns
-    let is_definition = q.contains("what is") || q.contains("qu'est-ce que") || q.contains("explain") || q.contains("describe") || q.contains("définir");
-    let is_usage = q.contains("who calls") || q.contains("where is") || q.contains("used by") || q.contains("utilisé") || q.contains("how is") || q.contains("qui appelle");
-    let is_impact = q.contains("impact") || q.contains("affect") || q.contains("depends on") || q.contains("dependency") || q.contains("blast radius") || q.contains("dépendance");
-    let is_architecture = q.contains("architecture") || q.contains("structure") || q.contains("how do") || q.contains("how does") || q.contains("overview") || q.contains("vue d'ensemble");
-    let is_comparison = q.contains("difference") || q.contains("compare") || q.contains("vs") || q.contains("between") || q.contains("comparer");
-    let is_refactor = q.contains("refactor") || q.contains("improve") || q.contains("clean up") || q.contains("simplify") || q.contains("améliorer");
-    let is_flow = q.contains("flow") || q.contains("pipeline") || q.contains("process") || q.contains("chain") || q.contains("lifecycle") || q.contains("flux");
+    // Detect intent patterns. French keywords matter — many GitNexus users
+    // phrase questions in French (e.g. « comment sont calculés les paiements »);
+    // without these, broad French queries fell through to the generic fallback
+    // and got classified Medium instead of Architecture/Complex.
+    let is_definition = q.contains("what is") || q.contains("explain") || q.contains("describe")
+        || q.contains("qu'est-ce que") || q.contains("qu'est ce que") || q.contains("c'est quoi")
+        || q.contains("définir") || q.contains("définition");
+    let is_usage = q.contains("who calls") || q.contains("where is") || q.contains("used by") || q.contains("how is")
+        || q.contains("qui appelle") || q.contains("utilisé") || q.contains("référenc")
+        || q.contains("où est") || q.contains("où se trouve");
+    let is_impact = q.contains("impact") || q.contains("affect") || q.contains("depends on") || q.contains("dependency") || q.contains("blast radius")
+        || q.contains("dépendance") || q.contains("dépend de") || q.contains("casse") || q.contains("impacté");
+    let is_architecture = q.contains("architecture") || q.contains("structure") || q.contains("how do") || q.contains("how does") || q.contains("overview")
+        || q.contains("vue d'ensemble") || q.contains("comment fonctionne") || q.contains("comment fonctionnent")
+        || q.contains("comment sont") || q.contains("comment son") || q.contains("comment est") || q.contains("comment c'est")
+        || q.contains("expliquer") || q.contains("explique") || q.contains("explication")
+        || q.contains("décrire") || q.contains("décris") || q.contains("présente");
+    let is_comparison = q.contains("difference") || q.contains("compare") || q.contains("vs") || q.contains("between")
+        || q.contains("comparer") || q.contains("différence") || q.contains("entre");
+    let is_refactor = q.contains("refactor") || q.contains("improve") || q.contains("clean up") || q.contains("simplify")
+        || q.contains("améliorer") || q.contains("simplifier") || q.contains("refactoriser") || q.contains("nettoyer");
+    let is_flow = q.contains("flow") || q.contains("pipeline") || q.contains("process") || q.contains("chain") || q.contains("lifecycle")
+        || q.contains("flux") || q.contains("processus") || q.contains("enchaînement")
+        || q.contains("calcul") || q.contains("calculé") || q.contains("calculer")
+        || q.contains("traitement") || q.contains("workflow");
 
     // Check if query targets specific symbols
     let has_symbol_match = !keywords.is_empty() && {
@@ -644,5 +661,56 @@ fn node_to_symbol_pick(node: &gitnexus_core::graph::types::GraphNode, graph: &Kn
         file_path: node.properties.file_path.clone(),
         container,
         start_line: node.properties.start_line,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gitnexus_core::graph::KnowledgeGraph;
+    use gitnexus_db::inmemory::fts::FtsIndex;
+
+    fn analyze(q: &str) -> QueryAnalysis {
+        let graph = KnowledgeGraph::new();
+        let fts = FtsIndex::new();
+        analyze_query_impl(q, &None, &graph, &fts).expect("analyze should succeed")
+    }
+
+    #[test]
+    fn french_payment_question_is_flow_complex() {
+        // The question that originally truncated on Alise_v2.
+        let a = analyze("explique moi comment sont calculés les paiements");
+        // "comment sont" hits is_architecture AND "calculés" hits is_flow.
+        // Either path lands the query on Complex via the architecture/flow
+        // branch in the classifier.
+        assert_eq!(a.complexity, QueryComplexity::Complex,
+            "broad French 'how' question must not be Simple");
+        assert!(a.needs_cross_file, "flow/architecture queries span files");
+    }
+
+    #[test]
+    fn french_architecture_questions_route_to_complex() {
+        for q in [
+            "explique l'architecture du projet",
+            "comment fonctionne le module paiement",
+            "décris le flux de traitement des dossiers",
+            "présente le processus de courrier de masse",
+        ] {
+            let a = analyze(q);
+            assert_eq!(a.complexity, QueryComplexity::Complex,
+                "query {q:?} should be Complex");
+        }
+    }
+
+    #[test]
+    fn french_comparison_is_medium() {
+        let a = analyze("quelle est la différence entre FactureService et PaiementService");
+        assert_eq!(a.complexity, QueryComplexity::Medium);
+    }
+
+    #[test]
+    fn french_refactor_is_complex() {
+        let a = analyze("comment simplifier RecherchePaiement");
+        assert_eq!(a.complexity, QueryComplexity::Complex);
     }
 }

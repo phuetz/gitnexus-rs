@@ -13,6 +13,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, RefreshCw, X, Slash, Save } from "lucide-react";
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
+import { useI18n } from "../../hooks/use-i18n";
+import { confirm } from "../../lib/confirm";
 import { useAppStore } from "../../stores/app-store";
 import type { UserCommand } from "../../lib/tauri-commands";
 
@@ -35,6 +37,7 @@ function blank(): UserCommand {
 }
 
 export function UserCommandsPanel({ open, onClose }: Props) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const [editing, setEditing] = useState<UserCommand | null>(null);
@@ -214,8 +217,14 @@ export function UserCommandsPanel({ open, onClose }: Props) {
                       edit
                     </button>
                     <button
-                      onClick={() => {
-                        if (window.confirm(`Delete "/${cmd.name}"?`)) deleteMut.mutate(cmd.id);
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: t("confirm.deleteTitle"),
+                          message: t("userCommand.deleteConfirm").replace("{0}", cmd.name),
+                          confirmLabel: t("confirm.delete"),
+                          danger: true,
+                        });
+                        if (ok) deleteMut.mutate(cmd.id);
                       }}
                       style={pillBtn("var(--rose)")}
                     >

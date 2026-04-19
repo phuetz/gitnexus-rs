@@ -78,7 +78,7 @@ export function ExportPanel() {
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [obsidianPath, setObsidianPath] = useState<string | null>(null);
   const [docxError, setDocxError] = useState<string | null>(null);
-  const [obsidianError, setObsidianError] = useState<string | null>(null);
+  const [, setObsidianError] = useState<string | null>(null);
 
   const { data: stats = null, isLoading: loading, refetch: refetchStats } = useQuery({
     queryKey: ["aspnet-stats", activeRepo],

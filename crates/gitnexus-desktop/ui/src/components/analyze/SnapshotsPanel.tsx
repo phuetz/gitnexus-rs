@@ -9,7 +9,7 @@
  * snapshot copies in <.gitnexus>/snapshots/.
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   useQuery,
   useMutation,
@@ -22,20 +22,26 @@ import {
   PlusCircle,
   Loader2,
   AlertCircle,
+  GitCommit,
 } from "lucide-react";
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
+import { confirm } from "../../lib/confirm";
 import type {
-  SnapshotMeta,
   SnapshotDiff,
+  CommitInfo,
 } from "../../lib/tauri-commands";
 
 export function SnapshotsPanel() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("live");
+  // Lazy init captures the mount timestamp once, keeping render pure.
+  const [liveCreatedAt] = useState<number>(() => Date.now());
 
   const { data: snapshots = [] } = useQuery({
     queryKey: ["snapshots", activeRepo],
@@ -44,20 +50,36 @@ export function SnapshotsPanel() {
     staleTime: 30_000,
   });
 
-  // Auto-select the most-recent snapshot as "from" when the list loads.
-  useEffect(() => {
-    if (snapshots.length > 0 && from === "") {
-      setFrom(snapshots[0].id);
+  // Auto-select the most-recent snapshot as "from" when the list loads —
+  // derived-state pattern per React 19 docs, avoids setState-in-effect.
+  const [prevFirstSnapshotId, setPrevFirstSnapshotId] = useState<string | null>(null);
+  const firstSnapshotId = snapshots[0]?.id ?? null;
+  if (firstSnapshotId !== prevFirstSnapshotId) {
+    setPrevFirstSnapshotId(firstSnapshotId);
+    if (firstSnapshotId && from === "") {
+      setFrom(firstSnapshotId);
     }
-  }, [snapshots, from]);
+  }
 
   const createMut = useMutation({
-    mutationFn: (label?: string) => commands.snapshotCreate(label),
+    mutationFn: (params: { label?: string; commitSha?: string }) =>
+      commands.snapshotCreate(params.label, params.commitSha),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["snapshots", activeRepo] });
       toast.success("Snapshot created");
     },
     onError: (e) => toast.error(`Snapshot failed: ${(e as Error).message}`),
+  });
+
+  // Theme C — recent commits list, lazily loaded.
+  const { data: commits = [], isLoading: commitsLoading, error: commitsError } = useQuery<
+    CommitInfo[],
+    Error
+  >({
+    queryKey: ["commits-for-snapshots", activeRepo],
+    queryFn: () => commands.snapshotListCommits(30),
+    enabled: !!activeRepo,
+    staleTime: 60_000,
   });
 
   const deleteMut = useMutation({
@@ -84,13 +106,97 @@ export function SnapshotsPanel() {
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "320px 1fr",
+        gridTemplateColumns: "320px 320px 1fr",
         gap: 16,
         padding: 16,
         height: "100%",
         overflow: "hidden",
       }}
     >
+      {/* Theme C — Commit timeline */}
+      <div
+        style={{
+          border: "1px solid var(--surface-border)",
+          borderRadius: 8,
+          background: "var(--surface)",
+          padding: 12,
+          overflow: "auto",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+          <GitCommit size={14} style={{ color: "var(--accent)" }} />
+          <span style={{ fontSize: 12, fontWeight: 600 }}>Recent commits</span>
+          <span style={{ fontSize: 10, color: "var(--text-3)" }}>({commits.length})</span>
+        </div>
+        {commitsLoading && (
+          <div style={{ fontSize: 11, color: "var(--text-3)" }}>Loading commits…</div>
+        )}
+        {commitsError && (
+          <div style={{ fontSize: 11, color: "var(--rose)" }}>
+            {commitsError.message}
+          </div>
+        )}
+        {!commitsLoading && !commitsError && commits.length === 0 && (
+          <div style={{ fontSize: 11, color: "var(--text-3)" }}>
+            No git commits found (not a git repo?).
+          </div>
+        )}
+        {commits.map((c) => {
+          const alreadySnapped = snapshots.some((s) => s.commitSha === c.sha);
+          return (
+            <div
+              key={c.sha}
+              style={{
+                padding: 8,
+                marginTop: 6,
+                border: "1px solid var(--surface-border)",
+                borderRadius: 6,
+                background: "var(--bg-2)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <code style={{ fontSize: 10, color: "var(--accent)", fontWeight: 700 }}>
+                  {c.shortSha}
+                </code>
+                <span style={{ fontSize: 11, color: "var(--text-1)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {c.subject}
+                </span>
+              </div>
+              <div style={{ fontSize: 9, color: "var(--text-3)", marginTop: 2 }}>
+                {c.author} · {formatDate(c.authoredAt)}
+              </div>
+              <button
+                onClick={() => {
+                  if (alreadySnapped) {
+                    toast.info("This commit already has a snapshot");
+                    return;
+                  }
+                  createMut.mutate({
+                    label: `Commit ${c.shortSha}: ${c.subject.slice(0, 40)}`,
+                    commitSha: c.sha,
+                  });
+                }}
+                disabled={createMut.isPending || alreadySnapped}
+                style={{
+                  marginTop: 6,
+                  width: "100%",
+                  padding: "3px 6px",
+                  background: alreadySnapped ? "transparent" : "var(--accent)",
+                  border: alreadySnapped ? "1px solid var(--surface-border)" : "none",
+                  borderRadius: 4,
+                  color: alreadySnapped ? "var(--text-3)" : "#fff",
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: alreadySnapped || createMut.isPending ? "default" : "pointer",
+                }}
+              >
+                {alreadySnapped ? "Snapshot exists" : "Snapshot at commit"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Left: list */}
       <div
         style={{
@@ -115,7 +221,7 @@ export function SnapshotsPanel() {
           <button
             onClick={() => {
               const label = window.prompt("Snapshot label:", "Manual snapshot");
-              if (label != null) createMut.mutate(label || "Manual snapshot");
+              if (label != null) createMut.mutate({ label: label || "Manual snapshot" });
             }}
             disabled={createMut.isPending}
             title="Create a snapshot of the current graph"
@@ -143,7 +249,7 @@ export function SnapshotsPanel() {
         <SnapshotRow
           id="live"
           label="Current (live)"
-          createdAt={Date.now()}
+          createdAt={liveCreatedAt}
           nodeCount={null}
           edgeCount={null}
           isFrom={from === "live"}
@@ -166,13 +272,20 @@ export function SnapshotsPanel() {
               nodeCount={s.nodeCount}
               edgeCount={s.edgeCount}
               sizeBytes={s.sizeBytes}
+              commitSha={s.commitSha}
+              subject={s.subject}
               isFrom={from === s.id}
               isTo={to === s.id}
               onPickFrom={() => setFrom(s.id)}
               onPickTo={() => setTo(s.id)}
-              onDelete={() => {
-                if (window.confirm(`Delete snapshot "${s.label}"?`))
-                  deleteMut.mutate(s.id);
+              onDelete={async () => {
+                const ok = await confirm({
+                  title: t("confirm.deleteTitle"),
+                  message: t("snapshot.deleteConfirm").replace("{0}", s.label),
+                  confirmLabel: t("confirm.delete"),
+                  danger: true,
+                });
+                if (ok) deleteMut.mutate(s.id);
               }}
             />
           ))
@@ -223,6 +336,8 @@ function SnapshotRow({
   nodeCount,
   edgeCount,
   sizeBytes,
+  commitSha,
+  subject,
   isFrom,
   isTo,
   onPickFrom,
@@ -235,6 +350,8 @@ function SnapshotRow({
   nodeCount: number | null;
   edgeCount: number | null;
   sizeBytes?: number;
+  commitSha?: string;
+  subject?: string;
   isFrom: boolean;
   isTo: boolean;
   onPickFrom: () => void;
@@ -294,6 +411,34 @@ function SnapshotRow({
               sizeBytes ? ` · ${formatSize(sizeBytes)}` : ""
             }`}
       </div>
+      {commitSha && (
+        <div
+          style={{
+            marginTop: 4,
+            fontSize: 9,
+            color: "var(--accent)",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          <GitCommit size={9} />
+          <code>{commitSha.slice(0, 8)}</code>
+          {subject && (
+            <span
+              style={{
+                color: "var(--text-3)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={subject}
+            >
+              {subject}
+            </span>
+          )}
+        </div>
+      )}
       <div style={{ marginTop: 6, display: "flex", gap: 4 }}>
         <button
           onClick={onPickFrom}

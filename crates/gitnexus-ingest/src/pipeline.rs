@@ -217,6 +217,21 @@ pub async fn run_pipeline(
         &format!("Parsed {total_files} files"),
     );
 
+    // Phase 2c: TODO/FIXME inventory — language-agnostic comment scan.
+    // Runs here because we now have the File nodes (from Phase 1b) and the
+    // full FileEntry list, but we don't need the symbol graph to be built
+    // yet. Fast (parallel via rayon) so the cost stays hidden behind the
+    // much slower parsing phase.
+    let phase_start = Instant::now();
+    let todo_stats = phases::todos::scan_todos(&mut graph, &file_entries);
+    let duration = phase_start.elapsed();
+    tracing::info!(
+        phase = "todos",
+        duration_ms = duration.as_millis() as u64,
+        markers = todo_stats.markers,
+        "Phase complete"
+    );
+
     // Phase 3: Import resolution
     send_progress(PipelinePhase::Imports, 0.0, "Resolving imports...");
     let phase_start = Instant::now();
@@ -315,6 +330,55 @@ pub async fn run_pipeline(
             "No ASP.NET MVC patterns detected",
         );
     }
+
+    // Phase 5c: API surface extraction (Theme D).
+    // Scans for REST endpoints across Express/Next.js/FastAPI/Spring and
+    // creates ApiEndpoint nodes linked to their handler Methods. Skips C#
+    // files (owned by aspnet_mvc).
+    let phase_start = Instant::now();
+    let api_stats = phases::api_surface::extract_api_surface(&mut graph, &file_entries);
+    let duration = phase_start.elapsed();
+    tracing::info!(
+        phase = "api_surface",
+        duration_ms = duration.as_millis() as u64,
+        endpoints = api_stats.endpoints,
+        express = api_stats.express_next,
+        fastapi = api_stats.fastapi_flask,
+        spring = api_stats.spring,
+        next = api_stats.next_app_router,
+        "Phase complete"
+    );
+
+    // Phase 5d: DB schema extraction (Theme D).
+    // Parses SQL migrations, Prisma schemas, and ORM classes to produce
+    // DbEntity + DbColumn nodes with HasColumn / ReferencesTable /
+    // RepresentedBy edges. EF6 / .edmx is owned by aspnet_mvc.
+    let phase_start = Instant::now();
+    let db_stats = phases::db_schema::extract_db_schema(&mut graph, &file_entries);
+    let duration = phase_start.elapsed();
+    tracing::info!(
+        phase = "db_schema",
+        duration_ms = duration.as_millis() as u64,
+        tables = db_stats.tables,
+        columns = db_stats.columns,
+        fks = db_stats.foreign_keys,
+        orm = db_stats.orm_mappings,
+        "Phase complete"
+    );
+
+    // Phase 5e: Config / env-var inventory (Theme D).
+    let phase_start = Instant::now();
+    let env_stats = phases::config_inventory::extract_env_vars(&mut graph, &file_entries);
+    let duration = phase_start.elapsed();
+    tracing::info!(
+        phase = "config_inventory",
+        duration_ms = duration.as_millis() as u64,
+        declared = env_stats.declared,
+        referenced = env_stats.referenced,
+        unused = env_stats.unused,
+        undeclared = env_stats.undeclared,
+        "Phase complete"
+    );
 
     // Phase 6a: Community detection
     send_progress(

@@ -89,6 +89,15 @@ pub enum NodeLabel {
     Document,
     /// Chunk of a document for semantic search
     DocChunk,
+    // ── Code Quality node types ─────────────────────────────────
+    /// A TODO/FIXME/HACK/XXX marker extracted from source code.
+    /// Anchored to File/Method/Function via BelongsTo edges.
+    TodoMarker,
+    // ── Schema & API Inventory (Theme D) ───────────────────────
+    /// A single column of a database table. Child of DbEntity via HasColumn.
+    DbColumn,
+    /// An environment variable declared in config files or referenced in code.
+    EnvVar,
 }
 
 impl NodeLabel {
@@ -151,6 +160,9 @@ impl NodeLabel {
             Self::ExternalService => "ExternalService",
             Self::Document => "Document",
             Self::DocChunk => "DocChunk",
+            Self::TodoMarker => "TodoMarker",
+            Self::DbColumn => "DbColumn",
+            Self::EnvVar => "EnvVar",
         }
     }
 
@@ -213,6 +225,9 @@ impl NodeLabel {
             "ExternalService" => Some(Self::ExternalService),
             "Document" => Some(Self::Document),
             "DocChunk" => Some(Self::DocChunk),
+            "TodoMarker" => Some(Self::TodoMarker),
+            "DbColumn" => Some(Self::DbColumn),
+            "EnvVar" => Some(Self::EnvVar),
             _ => None,
         }
     }
@@ -290,6 +305,17 @@ pub enum RelationshipType {
     BelongsTo,
     /// Chunk mentions a specific code symbol
     Mentions,
+    // ── Schema & API Inventory (Theme D) ────────────────────────
+    /// DbEntity -> DbColumn (entity owns this column)
+    HasColumn,
+    /// DbEntity -> DbEntity (foreign-key reference between tables)
+    ReferencesTable,
+    /// Method/File -> EnvVar (this code reads the environment variable)
+    UsesEnvVar,
+    /// Class -> DbEntity (ORM class represents this entity/table)
+    RepresentedBy,
+    /// ApiEndpoint -> Method (endpoint is implemented by this handler method)
+    HandledBy,
 }
 
 impl RelationshipType {
@@ -331,6 +357,11 @@ impl RelationshipType {
             Self::CallsService => "CALLS_SERVICE",
             Self::BelongsTo => "BELONGS_TO",
             Self::Mentions => "MENTIONS",
+            Self::HasColumn => "HAS_COLUMN",
+            Self::ReferencesTable => "REFERENCES_TABLE",
+            Self::UsesEnvVar => "USES_ENV_VAR",
+            Self::RepresentedBy => "REPRESENTED_BY",
+            Self::HandledBy => "HANDLED_BY",
         }
     }
 
@@ -372,6 +403,11 @@ impl RelationshipType {
             "CALLS_SERVICE" => Some(Self::CallsService),
             "BELONGS_TO" => Some(Self::BelongsTo),
             "MENTIONS" => Some(Self::Mentions),
+            "HAS_COLUMN" => Some(Self::HasColumn),
+            "REFERENCES_TABLE" => Some(Self::ReferencesTable),
+            "USES_ENV_VAR" => Some(Self::UsesEnvVar),
+            "REPRESENTED_BY" => Some(Self::RepresentedBy),
+            "HANDLED_BY" => Some(Self::HandledBy),
             _ => None,
         }
     }
@@ -621,6 +657,58 @@ pub struct NodeProperties {
     /// Source URL for externally-sourced documents
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_url: Option<String>,
+
+    // ── Code Quality (TODO markers) ────────────────────────────
+    /// Kind of TODO marker: "TODO", "FIXME", "HACK", "XXX".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub todo_kind: Option<String>,
+
+    /// Full text of the TODO comment (after the marker).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub todo_text: Option<String>,
+
+    // ── Schema & API Inventory (Theme D) ───────────────────────
+    /// Route path for ApiEndpoint nodes (e.g. "/api/users/:id").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
+
+    /// Node ID of the handler Method for an ApiEndpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handler_id: Option<String>,
+
+    /// Framework that produced the ApiEndpoint (e.g. "express", "fastapi",
+    /// "spring", "nextjs"). Used in filters and badges in the UI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+
+    /// SQL column type for DbColumn (e.g. "VARCHAR(255)", "INTEGER").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_type: Option<String>,
+
+    /// Whether the DbColumn is marked as primary key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_primary_key: Option<bool>,
+
+    /// Whether the DbColumn is nullable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_nullable: Option<bool>,
+
+    /// File where an EnvVar was first declared (`.env`, `appsettings.json`,
+    /// `application.yml`, etc.). None when the variable is only referenced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared_in: Option<String>,
+
+    /// Number of distinct code references to the EnvVar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_in_count: Option<u32>,
+
+    /// EnvVar declared in config files but never referenced in code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unused: Option<bool>,
+
+    /// EnvVar referenced in code but not declared in any config file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub undeclared: Option<bool>,
 }
 
 // ─── Graph Node ──────────────────────────────────────────────────────────
@@ -702,6 +790,10 @@ mod tests {
             NodeLabel::ExternalService,
             // GraphRAG types
             NodeLabel::Document, NodeLabel::DocChunk,
+            // Code Quality types
+            NodeLabel::TodoMarker,
+            // Schema & API Inventory (Theme D)
+            NodeLabel::DbColumn, NodeLabel::EnvVar,
         ];
         for label in &labels {
             let s = label.as_str();
@@ -751,6 +843,36 @@ mod tests {
         assert!(json.contains("\"CALLS\""));
         let parsed: GraphRelationship = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.rel_type, RelationshipType::Calls);
+    }
+
+    #[test]
+    fn test_new_relationship_types_roundtrip() {
+        // Theme D new relationship types — verify SCREAMING_SNAKE_CASE
+        // serialization and `from_str_type` round-trip.
+        let cases = [
+            (RelationshipType::HasColumn, "HAS_COLUMN"),
+            (RelationshipType::ReferencesTable, "REFERENCES_TABLE"),
+            (RelationshipType::UsesEnvVar, "USES_ENV_VAR"),
+            (RelationshipType::RepresentedBy, "REPRESENTED_BY"),
+            (RelationshipType::HandledBy, "HANDLED_BY"),
+        ];
+        for (rt, expected) in &cases {
+            assert_eq!(rt.as_str(), *expected);
+            let parsed = RelationshipType::from_str_type(expected).unwrap();
+            assert_eq!(parsed, *rt);
+        }
+    }
+
+    #[test]
+    fn test_new_node_labels_roundtrip() {
+        // Theme D new node labels.
+        for (label, expected) in [
+            (NodeLabel::DbColumn, "DbColumn"),
+            (NodeLabel::EnvVar, "EnvVar"),
+        ] {
+            assert_eq!(label.as_str(), expected);
+            assert_eq!(NodeLabel::from_str_label(expected).unwrap(), label);
+        }
     }
 
     #[test]

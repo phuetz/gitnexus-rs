@@ -1,3 +1,7 @@
+# Detach from the parent GitNexus workspace — nexus-brain uses edition=2024
+# and has independent dependencies, so it compiles as its own standalone crate.
+[workspace]
+
 [package]
 name = "nexus-brain"
 version = "0.1.0"

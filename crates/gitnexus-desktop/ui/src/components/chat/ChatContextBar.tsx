@@ -17,8 +17,10 @@ import {
   Microscope,
 } from "lucide-react";
 import { useChatStore } from "../../stores/chat-store";
+import { useI18n } from "../../hooks/use-i18n";
 
 export function ChatContextBar() {
+  const { t } = useI18n();
   const {
     filters,
     removeFileFilter,
@@ -106,10 +108,10 @@ export function ChatContextBar() {
             color: deepResearchEnabled ? "var(--purple)" : "var(--text-3)",
             border: `1px solid ${deepResearchEnabled ? "var(--purple)" : "var(--surface-border)"}`,
           }}
-          aria-label="Deep Research mode"
+          aria-label={t("chat.deepResearch.ariaLabel")}
         >
           <Microscope size={11} />
-          <span>Deep Research</span>
+          <span>{t("chat.deepResearch.label")}</span>
         </button>
 
         {/* Clear all filters */}

@@ -10,4 +10,5 @@ export const LENS_EDGE_TYPES: Record<LensType, string[] | null> = {
   "dead-code": null,
   tracing: null,
   hotspots: null,
+  risk: null,
 };

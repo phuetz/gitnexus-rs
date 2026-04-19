@@ -10,7 +10,7 @@
  * directly via the rename command palette entry.
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Replace, AlertTriangle, Check } from "lucide-react";
@@ -31,13 +31,19 @@ export function RenameModal({ open, initialTarget, onClose }: Props) {
   const [newName, setNewName] = useState("");
   const [preview, setPreview] = useState<RenameResult | null>(null);
 
-  useEffect(() => {
+  // Reset state when the modal opens (or initialTarget changes while open) —
+  // derived-from-prop pattern per React 19 docs, avoids setState-in-effect.
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevInitialTarget, setPrevInitialTarget] = useState(initialTarget);
+  if (prevOpen !== open || prevInitialTarget !== initialTarget) {
+    setPrevOpen(open);
+    setPrevInitialTarget(initialTarget);
     if (open) {
       setTarget(initialTarget ?? "");
       setNewName("");
       setPreview(null);
     }
-  }, [open, initialTarget]);
+  }
 
   const previewMut = useMutation({
     mutationFn: () =>

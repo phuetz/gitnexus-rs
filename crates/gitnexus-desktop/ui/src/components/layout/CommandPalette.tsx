@@ -30,6 +30,7 @@ import { AnimatedModal } from "../shared/motion";
 import { useAppStore } from "../../stores/app-store";
 import { useChatStore } from "../../stores/chat-store";
 import { useI18n } from "../../hooks/use-i18n";
+import { confirm } from "../../lib/confirm";
 import type { UserCommand } from "../../lib/tauri-commands";
 
 type CommandItem = {
@@ -203,6 +204,38 @@ function buildCommands(t: (key: string) => string): CommandItem[] {
       action: () => store.setActiveLens("hotspots"),
     },
 
+    // AI Semantic Actions
+    {
+      id: "ai-explain-hotspots",
+      label: "/explain-hotspots — Analyze risk in change areas",
+      group: t("cmd.group.aiActions") || "AI Actions",
+      icon: Sparkles,
+      action: () => {
+        chatStore.dispatchQuestion("qa", "Analyze the current git hotspots. Which ones have the highest technical debt and why?", true);
+        store.setMode("chat");
+      },
+    },
+    {
+      id: "ai-find-dead-code",
+      label: "/find-dead-code — Scan for unused symbols",
+      group: t("cmd.group.aiActions") || "AI Actions",
+      icon: Code2,
+      action: () => {
+        chatStore.dispatchQuestion("qa", "Identify potential dead code in the current context. Look for symbols with no incoming calls.", true);
+        store.setMode("chat");
+      },
+    },
+    {
+      id: "ai-suggest-refactoring",
+      label: "/suggest-refactoring — Propose structural improvements",
+      group: t("cmd.group.aiActions") || "AI Actions",
+      icon: Replace,
+      action: () => {
+        chatStore.dispatchQuestion("simplify", "Scan the codebase for complex modules and suggest refactoring to improve cohesion and reduce coupling.", true);
+        store.setMode("chat");
+      },
+    },
+
     // Actions
     {
       id: "open-settings",
@@ -218,6 +251,22 @@ function buildCommands(t: (key: string) => string): CommandItem[] {
       icon: Sparkles,
       shortcut: "Ctrl+Shift+D",
       action: () => chatStore.toggleDeepResearch(),
+    },
+    {
+      id: "chat-search",
+      label: t("cmd.chatSearch") || "Search chat history",
+      group: t("cmd.group.actions"),
+      icon: MessageSquare,
+      shortcut: "Ctrl+Shift+F",
+      action: () => {
+        // Jump to chat mode so the modal lands in context; ChatPanel
+        // listens for this event and opens its <ChatSearch /> modal.
+        store.setMode("chat");
+        // Defer so the mode switch's re-mount doesn't swallow the event.
+        setTimeout(() => {
+          window.dispatchEvent(new Event("gitnexus:open-chat-search"));
+        }, 30);
+      },
     },
     {
       id: "rename-refactor",
@@ -345,14 +394,22 @@ function buildCommands(t: (key: string) => string): CommandItem[] {
             filters: [{ name: "Zip", extensions: ["zip"] }],
           });
           if (typeof bundlePath !== "string") return;
-          const overwrite = window.confirm(
-            "Overwrite existing files when names collide? (Cancel = skip collisions)",
-          );
-          const tid = toast.loading("Importing bundle…");
+          const overwrite = await confirm({
+            title: t("bundle.import.title"),
+            message: t("bundle.import.overwritePrompt"),
+            confirmLabel: t("bundle.import.overwrite"),
+            cancelLabel: t("bundle.import.skip"),
+          });
+          const tid = toast.loading(t("bundle.import.loading"));
           const r = await commands.userBundleImport({ bundlePath, overwrite });
-          toast.success(`Restored ${r.restored}, skipped ${r.skipped}`, { id: tid });
+          toast.success(
+            t("bundle.import.success")
+              .replace("{0}", String(r.restored))
+              .replace("{1}", String(r.skipped)),
+            { id: tid },
+          );
         } catch (e) {
-          toast.error(`Import failed: ${(e as Error).message}`);
+          toast.error(t("bundle.import.failed").replace("{0}", (e as Error).message));
         }
       },
     },
@@ -451,6 +508,7 @@ export function CommandPalette() {
     t("cmd.group.modes"),
     t("cmd.group.analyzeViews"),
     t("cmd.group.lenses"),
+    t("cmd.group.aiActions") || "AI Actions",
     t("cmd.group.actions"),
     userGroup,
   ];

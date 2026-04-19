@@ -705,6 +705,10 @@ pub async fn chat_ask(
             }
         }
 
+        // Lower-cased copy used by the nudge-detection branch below (we
+        // can't borrow `text_received` after moving it into the Message).
+        let text_lc = text_received.to_lowercase();
+
         if !text_received.is_empty() || !tool_calls_received.is_empty() {
             messages.push(Message {
                 role: Role::Assistant,
@@ -716,6 +720,82 @@ pub async fn chat_ask(
         }
 
         if tool_calls_received.is_empty() {
+            // The LLM emitted only text this turn. Detect if it *announced* a
+            // tool intent ("I'll search…", "Je vais rechercher…") without
+            // actually emitting a tool_call. Gemini 2.5-flash is particularly
+            // prone to this: it describes what it *would* search for but never
+            // emits the structured tool_call payload.
+            let announced_tool_intent = [
+                // French
+                "je vais rechercher", "je vais chercher", "je vais examiner",
+                "je vais regarder", "je vais analyser", "je vais inspecter",
+                "commencer par rechercher", "pour commencer", "rechercher des",
+                "mots-clés comme", "mots clés comme", "termes clés comme",
+                "identifier les symboles", "rechercher les symboles",
+                // English
+                "i'll search", "let me search", "let me check", "let me look",
+                "i will search", "i need to find", "i'll look", "i'll check",
+                "first, i'll", "first, let me", "let me start by",
+                "i'll start by", "keywords like", "search for",
+            ].iter().any(|h| text_lc.contains(h));
+
+            if announced_tool_intent && iteration == 1 {
+                // FALLBACK: auto-execute search_code on the user's question
+                // so we always make forward progress. Text nudging alone was
+                // not enough — the model would just re-announce on the next
+                // turn and stall again.
+                let user_question = messages.iter()
+                    .rev()
+                    .find(|m| matches!(m.role, Role::User))
+                    .and_then(|m| m.content.clone())
+                    .unwrap_or_default();
+
+                let synthetic_id = format!("auto-search-{}", iteration);
+                let tool_args = serde_json::json!({
+                    "query": user_question.trim()
+                }).to_string();
+
+                let _ = app.emit("tool_execution_start", "search_code".to_string());
+                let tool_result = execute_mcp_tool(
+                    "search_code", &tool_args, &repo_path, &graph, &indexes, &fts_index,
+                ).await;
+                let _ = app.emit("tool_execution_end", "search_code".to_string());
+
+                // Retrofit the assistant message we just pushed so the API
+                // sees a matching tool_call/tool_result pair (OpenAI protocol
+                // requires the assistant to "own" the call via tool_calls).
+                if let Some(last) = messages.last_mut() {
+                    if matches!(last.role, Role::Assistant) {
+                        last.tool_calls = Some(vec![ToolCall {
+                            id: synthetic_id.clone(),
+                            name: "search_code".to_string(),
+                            arguments: tool_args.clone(),
+                        }]);
+                    }
+                }
+                messages.push(Message {
+                    role: Role::Tool,
+                    content: Some(tool_result),
+                    tool_calls: None,
+                    tool_call_id: Some(synthetic_id),
+                    name: Some("search_code".to_string()),
+                });
+                // Also nudge so the next turn synthesizes a real answer
+                // using the injected tool result.
+                messages.push(Message {
+                    role: Role::User,
+                    content: Some(
+                        "Based on those search results, please provide a complete answer to my \
+                         original question. Cite specific files and symbols. If you need more \
+                         detail, call get_symbol_context or read_file — but do not announce it, \
+                         just call it.".to_string(),
+                    ),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                });
+                continue;
+            }
             break; // Done, no tools called
         }
 
@@ -761,6 +841,332 @@ pub async fn chat_set_config(
 ) -> Result<(), String> {
     state.set_chat_config(config.clone()).await;
     save_config(&config)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatConnectionTestResult {
+    pub ok: bool,
+    pub status: u16,
+    pub model: String,
+    /// Short preview of the model's reply (when ok) or of the error body.
+    pub message: String,
+    /// Round-trip latency in milliseconds.
+    pub latency_ms: u64,
+}
+
+/// Ping the configured LLM endpoint with a trivial prompt so the user can
+/// validate provider + api_key + base_url + model from the UI. Mirrors what
+/// the CLI's `gitnexus config test` command does.
+#[tauri::command]
+pub async fn chat_test_connection(config: ChatConfig) -> Result<ChatConnectionTestResult, String> {
+    // Hydrate API key from env if the UI left it blank — the CLI does the
+    // same, and power users often set GEMINI_API_KEY / OPENAI_API_KEY
+    // instead of typing the key into the form.
+    let config = hydrate_api_key_from_env(config);
+
+    let url = format!(
+        "{}/chat/completions",
+        config.base_url.trim_end_matches('/')
+    );
+    let body = serde_json::json!({
+        "model": config.model,
+        "messages": [{"role": "user", "content": "Say hello in one word."}],
+        "max_tokens": 10,
+        "temperature": 0.0,
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("HTTP client build failed: {e}"))?;
+
+    let is_local = is_local_llm_url(&config.base_url);
+    let start = std::time::Instant::now();
+    let mut request = client.post(&url).json(&body);
+    if !config.api_key.is_empty() && !is_local {
+        request = request.header("Authorization", format!("Bearer {}", config.api_key));
+    }
+
+    let response = match request.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return Ok(ChatConnectionTestResult {
+                ok: false,
+                status: 0,
+                model: config.model,
+                message: format!("Network error: {e}"),
+                latency_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+    };
+
+    let latency_ms = start.elapsed().as_millis() as u64;
+    let status = response.status().as_u16();
+    let ok = response.status().is_success();
+
+    let message = if ok {
+        match response.json::<serde_json::Value>().await {
+            Ok(json) => json
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .chars()
+                .take(120)
+                .collect::<String>(),
+            Err(e) => format!("parse error: {e}"),
+        }
+    } else {
+        response
+            .text()
+            .await
+            .unwrap_or_default()
+            .chars()
+            .take(200)
+            .collect::<String>()
+    };
+
+    Ok(ChatConnectionTestResult {
+        ok,
+        status,
+        model: config.model,
+        message,
+        latency_ms,
+    })
+}
+
+// ─── Theme B: Agent-tool introspection + retry ──────────────────────
+
+/// Static descriptor for a single agent/MCP tool. Surfaced to the UI so
+/// the "Tools" panel can show what capabilities the chat agent currently
+/// has. Kept in sync with `execute_mcp_tool` above.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatToolDescriptor {
+    /// Tool name as the LLM sees it (stable; matches `execute_mcp_tool`).
+    pub name: String,
+    /// Human description shown in the tools panel.
+    pub description: String,
+    /// Grouping label — purely presentational.
+    pub category: String,
+    /// JSON Schema (draft-07 shape) describing the expected args. Kept in
+    /// sync with the `ToolDefinition` blocks built in `chat_ask`.
+    pub parameters: serde_json::Value,
+}
+
+fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
+    vec![
+        ChatToolDescriptor {
+            name: "search_code".to_string(),
+            description: "Full-text search over the knowledge graph (BM25 + exact name).".to_string(),
+            category: "search".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Search query (symbol, keyword, pattern)" }
+                },
+                "required": ["query"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "read_file".to_string(),
+            description: "Read a range of lines from a source file in the repository.".to_string(),
+            category: "files".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" },
+                    "start_line": { "type": "number" },
+                    "end_line": { "type": "number" }
+                },
+                "required": ["path"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "get_impact".to_string(),
+            description: "Upstream/downstream impact (BFS over Calls/Imports/Inherits).".to_string(),
+            category: "analysis".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "target": { "type": "string" },
+                    "direction": { "type": "string", "enum": ["upstream", "downstream", "both"] },
+                    "max_depth": { "type": "number" }
+                },
+                "required": ["target"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "get_symbol_context".to_string(),
+            description: "360° view of a symbol: callers, callees, imports, inheritance, module.".to_string(),
+            category: "analysis".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string" }
+                },
+                "required": ["symbol"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "execute_cypher".to_string(),
+            description: "Read-only Cypher query against the graph (MATCH/CALL only).".to_string(),
+            category: "query".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string" }
+                },
+                "required": ["query"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "get_diagram".to_string(),
+            description: "Generate a Mermaid flowchart for a class/controller/service.".to_string(),
+            category: "visualize".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "target": { "type": "string" }
+                },
+                "required": ["target"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "save_memory".to_string(),
+            description: "Persist a fact or preference across future chat sessions.".to_string(),
+            category: "memory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "fact": { "type": "string" },
+                    "scope": { "type": "string", "enum": ["global", "project"] }
+                },
+                "required": ["fact", "scope"]
+            }),
+        },
+    ]
+}
+
+/// Return the static list of tools the chat agent can invoke. Used by
+/// the desktop Tools panel to show capabilities to the user; does not
+/// touch the graph so it is cheap and can be called at any time.
+#[tauri::command]
+pub async fn list_chat_tools() -> Result<Vec<ChatToolDescriptor>, String> {
+    Ok(build_tool_descriptors())
+}
+
+/// Payload returned by `chat_retry_tool` — the UI merges the fields back
+/// into the corresponding `ToolCall` in the chat-session store.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatToolRetryResult {
+    pub tool_call_id: String,
+    pub name: String,
+    /// Final args used (possibly overridden by the UI). Always valid JSON.
+    pub args: String,
+    pub result: String,
+    pub duration_ms: u64,
+    /// "success" or "error" — on parse failure, we still return this
+    /// envelope so the UI can store the error message in the tool call.
+    pub status: String,
+}
+
+/// Payload accepted by `chat_retry_tool`. Kept flat so the Tauri layer
+/// can deserialize with camelCase keys from TS.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatToolRetryRequest {
+    /// Chat-session id (ignored by the backend — purely an identifier the
+    /// UI uses to reconcile the response). Kept for symmetry so we can
+    /// persist audit trails later without changing the signature.
+    pub session_id: String,
+    /// Id of the message that hosts the tool call.
+    pub message_id: String,
+    /// Tool-call id (stable across retries).
+    pub tool_call_id: String,
+    /// Tool name. Must match one of `build_tool_descriptors()`.
+    pub name: String,
+    /// New arguments, as a JSON-encoded string. When `None`, the UI
+    /// didn't override anything; backend reuses the prior args.
+    #[serde(default)]
+    pub new_args: Option<String>,
+    /// Prior arguments (JSON-encoded string) — used when `new_args`
+    /// is not supplied.
+    #[serde(default)]
+    pub prior_args: Option<String>,
+}
+
+/// Re-execute a tool call. Mirrors the single-shot dispatch inside
+/// `chat_ask`'s agentic loop: looks up the active repo, routes the
+/// call through `execute_mcp_tool`, and returns the freshly-computed
+/// result along with timing metadata.
+///
+/// The chat executor (`chat_executor.rs`) is intentionally untouched —
+/// retries target the user-facing tool calls that the LLM already made
+/// inside `chat_ask`. New LLM round-trips are NOT performed here.
+#[tauri::command]
+pub async fn chat_retry_tool(
+    state: State<'_, AppState>,
+    request: ChatToolRetryRequest,
+) -> Result<ChatToolRetryResult, String> {
+    let (graph, indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
+    let repo_path = PathBuf::from(&repo_path_str);
+
+    // Pick the arg source in order: new_args overrides prior_args;
+    // empty/invalid strings fall back to `{}` so the tool still runs.
+    let args_raw = request
+        .new_args
+        .clone()
+        .or_else(|| request.prior_args.clone())
+        .unwrap_or_else(|| "{}".to_string());
+    // Validate JSON before hitting the tool — surface parse errors back
+    // to the UI so the inline editor can flag them.
+    if let Err(e) = serde_json::from_str::<serde_json::Value>(&args_raw) {
+        return Ok(ChatToolRetryResult {
+            tool_call_id: request.tool_call_id,
+            name: request.name,
+            args: args_raw,
+            result: format!("Error: invalid JSON args — {e}"),
+            duration_ms: 0,
+            status: "error".to_string(),
+        });
+    }
+
+    let start = std::time::Instant::now();
+    let result_text = execute_mcp_tool(
+        &request.name,
+        &args_raw,
+        &repo_path,
+        &graph,
+        &indexes,
+        &fts_index,
+    )
+    .await;
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    // Heuristic: any result that starts with "Error:" is surfaced as a
+    // failed retry; the tool dispatcher itself returns that shape on
+    // validation failure or unknown tool name.
+    let status = if result_text.starts_with("Error:") {
+        "error"
+    } else {
+        "success"
+    }
+    .to_string();
+
+    Ok(ChatToolRetryResult {
+        tool_call_id: request.tool_call_id,
+        name: request.name,
+        args: args_raw,
+        result: result_text,
+        duration_ms,
+        status,
+    })
 }
 
 // ─── Public Helpers (used by chat_executor) ─────────────────────────
@@ -810,11 +1216,14 @@ fn search_relevant_context(
         }
     }
 
-    // Also search by exact name match in graph
+    // Also search by exact name match in graph. Apply the same path penalty
+    // used by FTS so a name hit inside `jquery-ui-1.8.20.min.js` doesn't
+    // outscore a real BM25 match in business code.
     let query_lower = query.to_lowercase();
     for node in graph.iter_nodes() {
         if node.properties.name.to_lowercase().contains(&query_lower) && seen.insert(node.id.clone()) {
-            results.push((node.id.clone(), 1.0));
+            let score = 1.0 * gitnexus_db::inmemory::fts::path_weight(&node.properties.file_path);
+            results.push((node.id.clone(), score));
         }
     }
 
@@ -1201,34 +1610,136 @@ fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path
         }
     }
 
-    // ── Tools strategy ──────────────────────────────────────────
+    // ── Methodology (the "three sources" pattern) ───────────────
+    // This prompt mirrors METHODOLOGIE-PRODUCTION-DOC.md v1.0 (12/04/2026),
+    // the doc Patrice wrote during the "Nuit des 500 pages" while producing
+    // the Alise v2 functional documentation. The same discipline applies
+    // here: every factual claim must be grounded in one of three sources,
+    // never in guesswork.
     prompt.push_str(
-        "# Available tools — when to use them\n\n\
-         You have 7 tools. Use them ONLY when the context above is insufficient. \
-         Limit to 2-3 tool calls per response unless the question genuinely requires deeper exploration.\n\n\
-         1. **search_code** — Search by keyword when the question mentions a feature/concept not in the context.\n\
-         2. **read_file** — Read more of a file when the snippet (~50 lines) is truncated.\n\
-         3. **get_symbol_context** — 360° view of a symbol (callers, callees, imports, inheritance). Use for \"how does X work?\".\n\
-         4. **get_impact** — Blast radius via BFS. Use for \"what breaks if I change X?\" or \"what depends on X?\".\n\
-         5. **execute_cypher** — Read-only graph queries for complex traversals. Examples:\n\
-            - `MATCH (c:Controller)-[:CALLS_SERVICE]->(s:Service) RETURN c.name, s.name LIMIT 20`\n\
-            - `MATCH (p:Process) WHERE p.name CONTAINS 'Courrier' RETURN p`\n\
-         6. **get_diagram** — Generate a Mermaid flowchart for a class/controller (visual call graph).\n\
-         7. **save_memory** — Persist a fact when the user states a project convention or preference \
-         (\"we always use repository pattern\", \"tests live in /Tests\").\n\n",
+        "# Methodology — the three-sources principle\n\n\
+         Every answer you give must be grounded in AT LEAST ONE of these three sources \
+         (ideally cross-referenced across two or three for complex questions):\n\n\
+         1. **Code graph** (structure, relationships) — accessed via `execute_cypher`, `get_symbol_context`, `get_impact`, `get_diagram`.\n\
+         2. **Source code** (exact lines) — accessed via `read_file` after locating targets with `search_code`.\n\
+         3. **Functional docs** (RAG-indexed specs: .md, .docx, PDF) — accessed via Cypher on `DocChunk` nodes:\n\
+            `MATCH (d:DocChunk) WHERE d.name CONTAINS '<doc_name>' RETURN d.name, d.content LIMIT 30`.\n\n\
+         The pre-fetched context above is a **starting point**, NOT the final answer. It comes \
+         from a BM25 retrieval that can surface noisy or wrong sources (minified libraries, \
+         unrelated tests). **Never trust it blindly** — always verify specific symbols with a \
+         tool call before asserting.\n\n\
+         ## When to use which tool\n\n\
+         | Question shape | Tool chain | Why |\n\
+         |---|---|---|\n\
+         | *\"comment fonctionne X ?\"* / *\"how does X work?\"* | `get_symbol_context` → `read_file` on the method body | 360° view, THEN read the actual body to describe the algorithm |\n\
+         | *\"comment X est calculé ?\"* / *\"comment sont …\"* | `search_code` → `get_symbol_context` → **`read_file` on ALL key methods** | Algorithm answers demand real source code, not summaries |\n\
+         | *\"explique le module Y\"* / *\"explain module Y\"* | `execute_cypher` to list Y's symbols → `read_file` the top 2-3 methods | Exhaustive listing beats noisy RAG + algorithm detail |\n\
+         | *\"où est défini X ?\"* / *\"where is X?\"* | `search_code` on \"X\" | Fast lookup |\n\
+         | *\"qu'est-ce qui appelle X ?\"* / *\"what calls X?\"* | `get_impact` direction=upstream | BFS of incoming edges |\n\
+         | Specific doc excerpt needed (e.g. *\"que dit la SFD sur Y ?\"*) | `execute_cypher` on `DocChunk` | RAG retrieval is noisy; direct extraction is reliable |\n\
+         | Architecture / sequence / flow diagram request | `get_diagram` + `read_file` on the 2-3 pivotal methods | Diagram + algorithmic captions |\n\
+         | Read a specific file / more than the 50-line snippet | `read_file` | Exact code |\n\n\
+         **Core heuristic for quality answers**: the 50-line snippet you see in the pre-fetched \
+         context is often TRUNCATED. For any algorithm question, call `read_file` on the method's \
+         file with a wider `startLine`/`endLine` range to see the full body, then trace the \
+         control flow step-by-step.\n\n\
+         ## Rules — applied from the Alise methodology\n\n\
+         - **Never invent**: if a tool returns nothing, say so. Do NOT fabricate class names, \
+           file paths, method signatures, or CCAS terminology. The methodology's #1 error is \
+           *« Inventer des noms de champs »* — don't.\n\
+         - **Always cite**: every statement about a specific symbol must be followed by its \
+           location, formatted `` `MethodName()` in `path/to/file.cs:123` ``.\n\
+         - **Cypher over RAG for specific docs**: if the user names a controller / module / \
+           document, query it directly (`execute_cypher` on the code graph or on `DocChunk`). \
+           Only use `search_code` (BM25 lexical) for truly open-ended queries.\n\
+         - **Quote verbatim**: when RAG functional docs (`DocChunk` content) provide the answer, \
+           reproduce the original text between `> *\"...\"*` followed by `— Source: [doc name]`. \
+           Do NOT reformulate — authenticity matters.\n\
+         - **Cross-reference**: for non-trivial questions, back your answer with TWO of the \
+           three sources (e.g. graph structure + source code, or source code + functional doc).\n\
+         - **No announcements**: if you intend to call a tool, call it in this same response. \
+           Don't write *\"Je vais rechercher…\"* / *\"I'll search…\"* without emitting the tool \
+           call — the runtime cannot wait for a subsequent turn.\n\
+         - **Algorithms, not summaries** (CRITICAL): when asked *\"comment ça marche ?\"* / \
+           *\"comment X est calculé ?\"* / any process / treatment / computation question, \
+           you MUST describe the **actual algorithm**, not a high-level narrative. This means:\n\
+            1. `read_file` the relevant method body so you see the real control flow.\n\
+            2. Break the logic into numbered steps (*Étape 1 → Étape 2 → Étape 3…*) that trace \
+               the actual if/else/loop structure of the code.\n\
+            3. Make every conditional explicit: *« Si `facture.Statut == DemPaiemVal` ET \
+               `facture.CodeAuxiliaire != null` alors … Sinon … »*.\n\
+            4. Expose input → transformations → output: what parameters does the method receive, \
+               what shape is the return, what side-effects (DB writes, log, throws) occur.\n\
+            5. Cite the file and line ranges for each step.\n\
+            6. Whenever useful, emit a `sequenceDiagram` or `flowchart` Mermaid block that \
+               visually traces the algorithm.\n\
+           A quality answer looks like: *« Étape 1 (FactureService.cs:42-58) : récupère les \
+           `IdAide` distincts de `LigneFacture` via LINQ `.Select(l => l.IdAide).Distinct()`. \
+           Étape 2 (:60-74) : pour chaque `IdAide`, interroge `Plafonds` avec filtre temporel \
+           `p.DateDebut <= dateDebutPrestation AND p.DateFin >= datefinPresta`. Étape 3 (:76-90) : \
+           exclut les unités `Pourcentage` via `p.UniteRef != EnumRefUnitePlafond.Pourcentage`. \
+           Étape 4 : retourne `List<Plafond>`. »*\n\n\
+         ## Available tools (7)\n\n\
+         1. **search_code** — BM25 lexical search. Best for open-ended concept queries.\n\
+         2. **read_file** — Read exact lines from a source file.\n\
+         3. **get_symbol_context** — Callers, callees, imports, inheritance for one symbol.\n\
+         4. **get_impact** — Blast radius via BFS (upstream | downstream | both).\n\
+         5. **execute_cypher** — Read-only graph queries. Core queries:\n\
+            - `MATCH (n:Class) WHERE n.name = '<X>' RETURN n` — find a class\n\
+            - `MATCH (m:Method) WHERE m.filePath CONTAINS '<Controller>' RETURN m.name` — list methods in a file\n\
+            - `MATCH (c:Controller)-[:CALLS_SERVICE]->(s:Service) RETURN c.name, s.name` — architecture slice\n\
+            - `MATCH (d:DocChunk) WHERE d.name CONTAINS '<doc>' RETURN d.content LIMIT 30` — extract a CCAS / functional doc\n\
+            - `MATCH (p:Process) WHERE p.name CONTAINS '<X>' RETURN p` — find a business process\n\
+         6. **get_diagram** — Generate a Mermaid flowchart / sequence / class diagram.\n\
+         7. **save_memory** — Persist a fact across sessions (project conventions, user preferences).\n\n\
+         The runtime caps the loop at 5 iterations. Be deliberate — no hard limit on calls per \
+         response, but each call must advance the answer.\n\n",
     );
 
     // ── Response format ─────────────────────────────────────────
     prompt.push_str(
         "# Response format\n\n\
-         - **Language**: respond in the SAME language as the user's question (French, English, etc.).\n\
-         - **Structure**: use markdown sections with `##` headers.\n\
-         - **Citations**: cite symbols and files with backticks, e.g. `RegleCourriers.GenerateCourrier()` in `Courrier/RegleCourriers.cs:123`.\n\
-         - **Code**: use fenced code blocks with the correct language tag (```csharp, ```typescript, etc.).\n\
-         - **Diagrams**: use ```mermaid blocks for call graphs or flows when they aid understanding.\n\
-         - **Length**: be concise but complete. Bullet points for lists, prose for explanations.\n\
-         - **Honesty**: if you don't know, say so. Do NOT invent symbols, files, or behaviors.\n\
-         - **End** with a `## Voir aussi` (or `## See also`) section listing 3-5 related symbols to explore.\n",
+         - **Language**: reply in the SAME language as the user's question (French, English, etc.).\n\
+         - **Structure**: use `##` markdown headers. On architectural questions, mirror the CCAS \
+           SFD template: *Expression du besoin → Exigences → Modèle de données → \
+           **Algorithmes** (obligatoire si la question porte sur un traitement) → Diagrammes*.\n\
+         - **Algorithm section** (quality-critical): when describing a treatment/computation, \
+           use this canonical structure:\n\
+           ```\n\
+           ### Algorithme — <NomTraitement>\n\
+           \n\
+           **Entrée** : <paramètres avec types>\n\
+           **Sortie** : <type de retour + shape>\n\
+           **Effets de bord** : <DB writes / logs / events / throws / aucun>\n\
+           \n\
+           **Étape 1** (`FichierService.cs:42-58`) — <description précise de ce que fait ce bloc>\n\
+           > `LINQ`/pseudocode ou citation courte du code\n\
+           \n\
+           **Étape 2** (`FichierService.cs:60-74`) — Si `<condition>` alors <action> sinon <action>.\n\
+           …\n\
+           \n\
+           **Invariants** : <règles métier que la méthode garantit>\n\
+           **Cas d'erreur** : <exceptions levées, valeurs de retour spéciales>\n\
+           ```\n\
+         - **Code citations**: symbols and files in backticks with line numbers, e.g. \
+           `` `ReglePaiementMasse.GetAideSelectPaiementMasse()` in `CCAS.Alise.BAL/Facture/Regles/ReglePaiementMasse.cs:42` ``.\n\
+         - **Doc citations** (when DocChunk content is used): the CCAS verbatim block:\n\
+           ```\n\
+           > *\"Citation exacte du document d'origine\"*\n\
+           > — Source : `NomDocument.docx`, section 2.3\n\
+           ```\n\
+         - **Code blocks**: fenced with the correct language tag (```csharp, ```typescript, …).\n\
+         - **Diagrams**: ```mermaid blocks on architectural or flow questions (sequenceDiagram, \
+           classDiagram, stateDiagram, flowchart) — one diagram > five paragraphs of prose. \
+           For algorithms, prefer `flowchart TD` with decision nodes that mirror the if/else \
+           structure of the code.\n\
+         - **Length**: match the question's scope. A \"where is X?\" question gets 2 lines. \
+           A \"comment fonctionne le module paiement ?\" question gets a full structured answer \
+           WITH an explicit Algorithme section per traitement non-trivial.\n\
+         - **Honesty**: if the tools return nothing relevant, say *\"Aucune information trouvée \
+           dans le graphe ni la documentation\"* rather than speculate.\n\
+         - **Voir aussi**: end complex answers with a `## Voir aussi` (or `## See also`) section \
+           listing 3-5 related symbols/modules/docs the user might want to explore next.\n",
     );
 
     prompt

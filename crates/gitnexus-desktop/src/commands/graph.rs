@@ -1,3 +1,7 @@
+use std::collections::{HashSet, VecDeque};
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
@@ -328,6 +332,175 @@ pub async fn get_features(
     features.truncate(50);
 
     Ok(features)
+}
+
+// ─── Theme C — Call-path / shortest-path BFS ─────────────────────────────
+
+/// Result of [`find_path`]: the shortest path from `from` to `to`, including
+/// both endpoints. Returns `None` (Tauri-side serialized as `null`) when no
+/// path exists within `max_depth` hops via the requested edge types.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FindPathResult {
+    pub from: String,
+    pub to: String,
+    pub depth_used: u32,
+    /// Node IDs along the path (length ≥ 2 when `found` is true).
+    pub path: Vec<String>,
+    pub found: bool,
+}
+
+/// BFS over the outgoing edge index, restricted to `edge_types`. Returns the
+/// shortest path from `from_node_id` to `to_node_id`.
+///
+/// `edge_types` strings match `RelationshipType::as_str()` (SCREAMING_SNAKE_CASE,
+/// e.g. `"CALLS"`, `"IMPORTS"`). Empty list = any edge type.
+/// `max_depth` defaults to 10 and is capped at 50 to avoid pathological
+/// traversals — call paths in practice are well under that ceiling.
+#[tauri::command]
+pub async fn find_path(
+    state: State<'_, AppState>,
+    from_node_id: String,
+    to_node_id: String,
+    edge_types: Option<Vec<String>>,
+    max_depth: Option<u32>,
+) -> Result<FindPathResult, String> {
+    let (graph, indexes, _fts, _repo_path) = state.get_repo(None).await?;
+
+    if graph.get_node(&from_node_id).is_none() {
+        return Err(format!("source node '{from_node_id}' not found"));
+    }
+    if graph.get_node(&to_node_id).is_none() {
+        return Err(format!("target node '{to_node_id}' not found"));
+    }
+
+    let depth_cap = max_depth.unwrap_or(10).min(50);
+
+    if from_node_id == to_node_id {
+        return Ok(FindPathResult {
+            from: from_node_id.clone(),
+            to: to_node_id,
+            depth_used: 0,
+            path: vec![from_node_id],
+            found: true,
+        });
+    }
+
+    // Normalise allowed edge types into a HashSet for O(1) membership check.
+    // Comparison is done against the SCREAMING_SNAKE_CASE form.
+    let edge_filter: Option<HashSet<String>> = edge_types
+        .filter(|v| !v.is_empty())
+        .map(|v| v.into_iter().map(|s| s.to_uppercase()).collect());
+
+    // Standard BFS with parent tracking.
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut parent: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut depth: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut queue: VecDeque<String> = VecDeque::new();
+
+    visited.insert(from_node_id.clone());
+    depth.insert(from_node_id.clone(), 0);
+    queue.push_back(from_node_id.clone());
+
+    while let Some(node) = queue.pop_front() {
+        let d = *depth.get(&node).unwrap_or(&0);
+        if d >= depth_cap {
+            continue;
+        }
+        let Some(outs) = indexes.outgoing.get(&node) else {
+            continue;
+        };
+        for (target, rel_type) in outs {
+            if let Some(filter) = &edge_filter {
+                if !filter.contains(rel_type.as_str()) {
+                    continue;
+                }
+            }
+            if !visited.insert(target.clone()) {
+                continue;
+            }
+            parent.insert(target.clone(), node.clone());
+            depth.insert(target.clone(), d + 1);
+            if target == &to_node_id {
+                // Reconstruct path from `to_node_id` walking parents back to `from_node_id`.
+                let mut path = vec![to_node_id.clone()];
+                let mut cur = to_node_id.clone();
+                while let Some(p) = parent.get(&cur) {
+                    path.push(p.clone());
+                    if p == &from_node_id {
+                        break;
+                    }
+                    cur = p.clone();
+                }
+                path.reverse();
+                let depth_used = (path.len() as u32).saturating_sub(1);
+                return Ok(FindPathResult {
+                    from: from_node_id,
+                    to: to_node_id,
+                    depth_used,
+                    path,
+                    found: true,
+                });
+            }
+            queue.push_back(target.clone());
+        }
+    }
+
+    Ok(FindPathResult {
+        from: from_node_id,
+        to: to_node_id,
+        depth_used: depth_cap,
+        path: Vec::new(),
+        found: false,
+    })
+}
+
+// ─── Theme C — Snapshot diff (graph-aware) ───────────────────────────────
+
+/// Resolve a snapshot id (or `"live"` / `"current"`) to a path on disk.
+fn resolve_snapshot_path(storage: &str, id: &str) -> Result<PathBuf, String> {
+    if id == "live" || id == "current" {
+        let p = PathBuf::from(storage).join("graph.bin");
+        if !p.exists() {
+            return Err("Live graph.bin not found".into());
+        }
+        return Ok(p);
+    }
+    let safe: String = id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    let p = PathBuf::from(storage)
+        .join("snapshots")
+        .join(format!("{safe}.bin"));
+    if !p.exists() {
+        return Err(format!("Snapshot '{id}' not found"));
+    }
+    Ok(p)
+}
+
+/// Compute a structural diff between two snapshots (or one snapshot vs the
+/// live graph). Wraps [`gitnexus_db::analytics::graph_diff::diff_graphs`].
+///
+/// Frontend-friendly fields: added/removed node IDs, added/removed edges as
+/// `{source, target, relType}` triples, modified nodes as `{nodeId, changedProps}`.
+#[tauri::command]
+pub async fn diff_snapshots(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+) -> Result<gitnexus_db::analytics::graph_diff::GraphDiff, String> {
+    let storage = state.active_storage_path().await?;
+    let from_path = resolve_snapshot_path(&storage, &from)?;
+    let to_path = resolve_snapshot_path(&storage, &to)?;
+
+    let a = gitnexus_db::snapshot::load_snapshot(&from_path)
+        .map_err(|e| format!("Failed to load 'from' snapshot: {e}"))?;
+    let b = gitnexus_db::snapshot::load_snapshot(&to_path)
+        .map_err(|e| format!("Failed to load 'to' snapshot: {e}"))?;
+
+    Ok(gitnexus_db::analytics::graph_diff::diff_graphs(&a, &b))
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────

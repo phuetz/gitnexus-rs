@@ -1,10 +1,12 @@
-import { Copy } from "lucide-react";
+import { Copy, GitBranch, RefreshCw, ChevronDown, ChevronRight, Pin, PinOff, Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { useEffect, useRef, useState, useId, useMemo } from "react";
 import { useAppStore } from "../../stores/app-store";
 import { commands } from "../../lib/tauri-commands";
+import type { Message, ToolCall, ToolCallStatus } from "../../stores/chat-session-store";
+import { useChatSessionStore } from "../../stores/chat-session-store";
 
 function extractTextFromChildren(children: React.ReactNode): string {
   if (typeof children === "string") return children;
@@ -20,11 +22,30 @@ function extractTextFromChildren(children: React.ReactNode): string {
 
 // ─── Smart Links Integration ─────────────────────────────────────────
 
-function SmartInlineCode({ text, onNavigateToNode, children }: { text: string; onNavigateToNode?: (id: string) => void; children: React.ReactNode }) {
+function SmartInlineCode({ 
+  text, 
+  onNavigateToNode, 
+  onFilePreview,
+  children 
+}: { 
+  text: string; 
+  onNavigateToNode?: (id: string) => void; 
+  onFilePreview?: (file: { path: string; startLine?: number; endLine?: number }) => void;
+  children: React.ReactNode 
+}) {
   const [isHovered, setIsHovered] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  const isFilePath = useMemo(() => {
+    return /^[a-zA-Z0-9_/.-]+\.[a-z0-9]+$/.test(text) || text.includes('/') || text.includes('\\');
+  }, [text]);
+
   const handleClick = async () => {
+    if (isFilePath && onFilePreview) {
+      onFilePreview({ path: text });
+      return;
+    }
+
     if (!onNavigateToNode || !text) return;
     if (text.length < 3) return; // avoid searching for very short generic terms
     
@@ -43,7 +64,7 @@ function SmartInlineCode({ text, onNavigateToNode, children }: { text: string; o
     }
   };
 
-  const isInteractive = !!onNavigateToNode;
+  const isInteractive = !!onNavigateToNode || (isFilePath && !!onFilePreview);
 
   return (
     <code
@@ -56,10 +77,10 @@ function SmartInlineCode({ text, onNavigateToNode, children }: { text: string; o
         color: isHovered && isInteractive ? "var(--accent)" : "var(--accent)",
         fontFamily: "var(--font-mono)",
         cursor: isInteractive ? "pointer" : "default",
-        borderBottom: isHovered && isInteractive ? "1px dashed var(--accent)" : "1px solid transparent",
+        borderBottom: isHovered && isInteractive ? (isFilePath ? "1px solid var(--accent)" : "1px dashed var(--accent)") : "1px solid transparent",
         opacity: isLoading ? 0.7 : 1,
       }}
-      title={isInteractive ? `Locate '${text}' in graph` : undefined}
+      title={isInteractive ? (isFilePath ? `Preview file '${text}'` : `Locate '${text}' in graph`) : undefined}
     >
       {children}
     </code>
@@ -194,7 +215,10 @@ function MermaidDiagram({ chart }: { chart: string }) {
 
 // ─── Markdown Components ─────────────────────────────────────────────
 
-const createMarkdownComponents = (onNavigateToNode?: (id: string) => void): Partial<Components> => ({
+const createMarkdownComponents = (
+  onNavigateToNode?: (id: string) => void,
+  onFilePreview?: (file: { path: string; startLine?: number; endLine?: number }) => void,
+): Partial<Components> => ({
   pre: ({ children }: { children?: React.ReactNode }) => {
     // Intercept mermaid code blocks
     const child = children as React.ReactElement<{ className?: string; children?: React.ReactNode }>;
@@ -242,7 +266,11 @@ const createMarkdownComponents = (onNavigateToNode?: (id: string) => void): Part
     }
     const text = extractTextFromChildren(children);
     return (
-      <SmartInlineCode text={text} onNavigateToNode={onNavigateToNode}>
+      <SmartInlineCode 
+        text={text} 
+        onNavigateToNode={onNavigateToNode}
+        onFilePreview={onFilePreview}
+      >
         {children}
       </SmartInlineCode>
     );
@@ -278,11 +306,321 @@ const createMarkdownComponents = (onNavigateToNode?: (id: string) => void): Part
   ),
 });
 
-export function ChatMarkdown({ content, onNavigateToNode }: { content: string; onNavigateToNode?: (id: string) => void }) {
-  const components = useMemo(() => createMarkdownComponents(onNavigateToNode), [onNavigateToNode]);
+export interface ChatMarkdownProps {
+  content: string;
+  onNavigateToNode?: (id: string) => void;
+  onFilePreview?: (file: { path: string; startLine?: number; endLine?: number }) => void;
+  /** Theme B — when supplied, enables fork/pin buttons + tool-call renderer. */
+  message?: Message;
+  /** Theme B — parent session id; required to fork from a message. */
+  sessionId?: string;
+}
+
+export function ChatMarkdown({
+  content,
+  onNavigateToNode,
+  onFilePreview,
+  message,
+  sessionId,
+}: ChatMarkdownProps) {
+  const components = useMemo(() => createMarkdownComponents(onNavigateToNode, onFilePreview), [onNavigateToNode, onFilePreview]);
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-      {content}
-    </ReactMarkdown>
+    <div>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {content}
+      </ReactMarkdown>
+      {message && (message.toolCalls?.length ?? 0) > 0 && (
+        <ToolCallList
+          toolCalls={message.toolCalls ?? []}
+          messageId={message.id}
+          sessionId={sessionId}
+        />
+      )}
+      {message && sessionId && <MessageActions message={message} sessionId={sessionId} />}
+    </div>
+  );
+}
+
+// ─── Theme B: message-level actions (fork / pin) ────────────────────
+
+function MessageActions({ message, sessionId }: { message: Message; sessionId: string }) {
+  const forkSession = useChatSessionStore((s) => s.forkSession);
+  const pinMessage = useChatSessionStore((s) => s.pinMessage);
+  const pinned = !!message.pinned;
+
+  const handleFork = () => {
+    const newId = forkSession(sessionId, message.id);
+    if (newId) {
+      toast.success("Forked — new chat created from this message.");
+    } else {
+      toast.error("Could not fork from this message.");
+    }
+  };
+
+  const handlePin = () => {
+    pinMessage(sessionId, message.id);
+    toast.success(pinned ? "Unpinned" : "Pinned");
+  };
+
+  return (
+    <div
+      className="mt-2 flex items-center gap-1 opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity"
+      style={{ fontSize: 11, color: "var(--text-3)" }}
+    >
+      <button
+        onClick={handleFork}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded"
+        style={{ border: "1px solid var(--surface-border)", background: "var(--bg-1)", cursor: "pointer" }}
+        title="Fork a new chat from this message"
+      >
+        <GitBranch size={10} /> Fork from here
+      </button>
+      <button
+        onClick={handlePin}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded"
+        style={{ border: "1px solid var(--surface-border)", background: pinned ? "var(--accent-subtle)" : "var(--bg-1)", cursor: "pointer", color: pinned ? "var(--accent)" : "var(--text-3)" }}
+        title={pinned ? "Unpin this message" : "Pin this message"}
+      >
+        {pinned ? <PinOff size={10} /> : <Pin size={10} />} {pinned ? "Pinned" : "Pin"}
+      </button>
+    </div>
+  );
+}
+
+// ─── Theme B: tool-call renderer + retry ────────────────────────────
+
+function statusBadge(status: ToolCallStatus) {
+  const common = { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, padding: "1px 6px", borderRadius: 999 } as const;
+  switch (status) {
+    case "pending":
+      return <span style={{ ...common, background: "var(--bg-3)", color: "var(--text-3)" }}><Clock size={10} /> pending</span>;
+    case "running":
+      return <span style={{ ...common, background: "color-mix(in srgb, var(--orange) 15%, transparent)", color: "var(--orange)" }}><Loader2 size={10} className="animate-spin" /> running</span>;
+    case "success":
+      return <span style={{ ...common, background: "color-mix(in srgb, var(--green) 15%, transparent)", color: "var(--green)" }}><CheckCircle2 size={10} /> success</span>;
+    case "error":
+      return <span style={{ ...common, background: "color-mix(in srgb, var(--rose, #f7768e) 15%, transparent)", color: "var(--rose, #f7768e)" }}><XCircle size={10} /> error</span>;
+  }
+}
+
+function ToolCallList({
+  toolCalls,
+  messageId,
+  sessionId,
+}: {
+  toolCalls: ToolCall[];
+  messageId: string;
+  sessionId?: string;
+}) {
+  if (!toolCalls || toolCalls.length === 0) return null;
+  return (
+    <div className="mt-3 space-y-2">
+      {toolCalls.map((tc) => (
+        <ToolCallBlock key={tc.id} toolCall={tc} messageId={messageId} sessionId={sessionId} />
+      ))}
+    </div>
+  );
+}
+
+function ToolCallBlock({
+  toolCall,
+  messageId,
+  sessionId,
+}: {
+  toolCall: ToolCall;
+  messageId: string;
+  sessionId?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [editingArgs, setEditingArgs] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const updateToolCall = useChatSessionStore((s) => s.updateToolCall);
+
+  const handleRetry = async () => {
+    if (!sessionId) {
+      toast.error("Cannot retry: missing session id.");
+      return;
+    }
+    const newArgs = editingArgs ?? toolCall.args;
+    // Validate JSON client-side so the user gets a quick signal before the
+    // backend round-trip.
+    try {
+      JSON.parse(newArgs);
+    } catch (e) {
+      toast.error(`Invalid JSON: ${(e as Error).message}`);
+      return;
+    }
+
+    setIsRetrying(true);
+    updateToolCall(sessionId, messageId, toolCall.id, {
+      status: "running",
+      invokedAt: Date.now(),
+    });
+
+    try {
+      const result = await commands.chatRetryTool({
+        sessionId,
+        messageId,
+        toolCallId: toolCall.id,
+        name: toolCall.name,
+        newArgs: editingArgs ?? undefined,
+        priorArgs: toolCall.args,
+      });
+      updateToolCall(sessionId, messageId, toolCall.id, {
+        args: result.args,
+        result: result.result,
+        durationMs: result.durationMs,
+        status: result.status === "error" ? "error" : "success",
+        error: result.status === "error" ? result.result : undefined,
+      });
+      setEditingArgs(null);
+      toast.success(`Tool '${toolCall.name}' re-executed (${result.durationMs} ms).`);
+    } catch (e) {
+      updateToolCall(sessionId, messageId, toolCall.id, {
+        status: "error",
+        error: (e as Error).message,
+      });
+      toast.error(`Retry failed: ${(e as Error).message}`);
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        border: "1px solid var(--surface-border)",
+        borderRadius: 8,
+        background: "var(--bg-1)",
+      }}
+    >
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          width: "100%",
+          padding: "6px 10px",
+          background: "transparent",
+          border: "none",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          cursor: "pointer",
+          color: "var(--text-1)",
+        }}
+      >
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <code
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            color: "var(--accent)",
+            background: "var(--bg-3)",
+            padding: "1px 6px",
+            borderRadius: 4,
+          }}
+        >
+          {toolCall.name}
+        </code>
+        {statusBadge(toolCall.status)}
+        {typeof toolCall.durationMs === "number" && (
+          <span style={{ fontSize: 10, color: "var(--text-3)" }}>{toolCall.durationMs} ms</span>
+        )}
+        <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-3)" }}>
+          {open ? "hide" : "details"}
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ padding: "0 10px 10px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div>
+            <div style={{ fontSize: 10, color: "var(--text-3)", marginBottom: 3 }}>Arguments (JSON)</div>
+            <textarea
+              value={editingArgs ?? toolCall.args}
+              onChange={(e) => setEditingArgs(e.target.value)}
+              rows={Math.min(10, Math.max(3, (toolCall.args.match(/\n/g)?.length ?? 0) + 2))}
+              style={{
+                width: "100%",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                padding: 6,
+                background: "var(--bg-0)",
+                border: "1px solid var(--surface-border)",
+                borderRadius: 4,
+                color: "var(--text-1)",
+                resize: "vertical",
+              }}
+            />
+          </div>
+
+          {toolCall.result && (
+            <div>
+              <div style={{ fontSize: 10, color: "var(--text-3)", marginBottom: 3 }}>Result</div>
+              <pre
+                style={{
+                  fontSize: 11,
+                  margin: 0,
+                  padding: 6,
+                  background: "var(--bg-0)",
+                  border: "1px solid var(--surface-border)",
+                  borderRadius: 4,
+                  color: "var(--text-2)",
+                  maxHeight: 240,
+                  overflow: "auto",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {toolCall.result}
+              </pre>
+            </div>
+          )}
+
+          {toolCall.error && !toolCall.result && (
+            <div style={{ fontSize: 11, color: "var(--rose, #f7768e)" }}>
+              {toolCall.error}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              onClick={handleRetry}
+              disabled={isRetrying || !sessionId}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11,
+                padding: "3px 8px",
+                background: "var(--accent)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 4,
+                cursor: isRetrying ? "not-allowed" : "pointer",
+                opacity: isRetrying ? 0.7 : 1,
+              }}
+              title="Re-execute with the current arguments"
+            >
+              {isRetrying ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+              Retry
+            </button>
+            {editingArgs !== null && editingArgs !== toolCall.args && (
+              <button
+                onClick={() => setEditingArgs(null)}
+                style={{
+                  fontSize: 11,
+                  padding: "3px 8px",
+                  background: "transparent",
+                  color: "var(--text-3)",
+                  border: "1px solid var(--surface-border)",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                }}
+              >
+                Reset args
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -41,7 +41,11 @@ export function ExplorerMode() {
     if (isNarrow) {
       rightPanelRef.current?.collapse();
     } else if (selectedNodeId) {
-      rightPanelRef.current?.expand();
+      // Use resize(size) — in react-resizable-panels v4, expand() takes no
+      // arguments and restores to the last pre-collapse size, which is
+      // effectively `minSize` (here "0%") for a panel that has never been
+      // manually expanded. resize() reliably sets the target width.
+      rightPanelRef.current?.resize("28%");
     } else {
       rightPanelRef.current?.collapse();
     }
@@ -52,7 +56,8 @@ export function ExplorerMode() {
     if (isCompact) {
       leftPanelRef.current?.collapse();
     } else {
-      leftPanelRef.current?.expand();
+      // Same caveat as above — restore to the default 20% rather than minSize.
+      leftPanelRef.current?.resize("20%");
     }
   }, [isCompact]);
 
@@ -64,9 +69,9 @@ export function ExplorerMode() {
     <Group orientation="horizontal" className="h-full">
       <Panel
         panelRef={leftPanelRef}
-        defaultSize={isCompact ? 0 : 20}
-        minSize={12}
-        maxSize={25}
+        defaultSize={isCompact ? "0%" : "20%"}
+        minSize="12%"
+        maxSize="25%"
         collapsible
       >
         <ErrorBoundary>
@@ -76,7 +81,7 @@ export function ExplorerMode() {
         </ErrorBoundary>
       </Panel>
       <PanelSeparator />
-      <Panel minSize={30}>
+      <Panel minSize="30%">
         <div className="h-full w-full overflow-hidden">
           <ErrorBoundary>
             <Suspense fallback={explorerFallback}>
@@ -88,9 +93,9 @@ export function ExplorerMode() {
       <PanelSeparator />
       <Panel
         panelRef={rightPanelRef}
-        defaultSize={0}
-        minSize={0}
-        maxSize={35}
+        defaultSize="0%"
+        minSize="0%"
+        maxSize="35%"
         collapsible
       >
         <div className="h-full w-full overflow-hidden">

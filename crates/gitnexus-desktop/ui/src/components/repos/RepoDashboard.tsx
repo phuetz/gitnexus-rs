@@ -30,6 +30,7 @@ import {
 } from "../shared/motion";
 import { DonutChart } from "../shared/DonutChart";
 import { InsightsSection } from "../analyze/InsightsSection";
+import { HealthRadarChart } from "../shared/HealthRadarChart";
 
 // ─── Label Colors (mirrored from GraphExplorer) ─────────────────────
 
@@ -476,38 +477,67 @@ export const RepoDashboard = memo(function RepoDashboard() {
         })}
       </StaggerContainer>
 
-      {/* ── Node Type Distribution ──────────────────────────────── */}
-      {distribution.length > 0 && (
-        <div
-          style={{
-            background: "var(--bg-1)",
-            border: "1px solid var(--surface-border)",
-            borderRadius: 12,
-            padding: "16px 18px",
-          }}
-        >
+      {/* ── Visual Analytics ────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* Node Type Distribution */}
+        {distribution.length > 0 && (
           <div
             style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: "var(--text-2)",
-              marginBottom: 12,
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
+              background: "var(--bg-1)",
+              border: "1px solid var(--surface-border)",
+              borderRadius: 12,
+              padding: "16px 18px",
             }}
           >
-            {t("dashboard.nodeTypeDistribution")}
-          </div>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: "var(--text-2)",
+                marginBottom: 12,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+              }}
+            >
+              {t("dashboard.nodeTypeDistribution")}
+            </div>
 
-          <DonutChart
-            segments={distribution.map((d) => ({ label: d.label, value: d.count, color: d.color }))}
-            size={160}
-            thickness={20}
-            centerValue={String(distributionTotal)}
-            centerLabel="symbols"
-          />
-        </div>
-      )}
+            <DonutChart
+              segments={distribution.map((d) => ({ label: d.label, value: d.count, color: d.color }))}
+              size={160}
+              thickness={20}
+              centerValue={String(distributionTotal)}
+              centerLabel="symbols"
+            />
+          </div>
+        )}
+
+        {/* Health Radar Chart */}
+        {healthData && (
+          <div
+            style={{
+              background: "var(--bg-1)",
+              border: "1px solid var(--surface-border)",
+              borderRadius: 12,
+              padding: "16px 18px",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: "var(--text-2)",
+                marginBottom: 12,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+              }}
+            >
+              Health Radar
+            </div>
+            <HealthRadarChart health={healthData} />
+          </div>
+        )}
+      </div>
 
       {/* ── Top Connected Nodes ─────────────────────────────────── */}
       {topNodes.length > 0 && (

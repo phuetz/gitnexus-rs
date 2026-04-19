@@ -10,7 +10,7 @@
  * (Save button) — so accidental tab-aways don't trash work-in-progress.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   Plus,
   Play,
@@ -28,6 +28,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
+import { confirm } from "../../lib/confirm";
 import type {
   Notebook,
   NotebookCell,
@@ -62,6 +64,7 @@ function blankNotebook(name: string): Notebook {
 }
 
 export function NotebookPanel({ open, onClose }: Props) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const [active, setActive] = useState<Notebook | null>(null);
@@ -95,13 +98,15 @@ export function NotebookPanel({ open, onClose }: Props) {
     },
   });
 
-  // Reset state when modal closes.
-  useEffect(() => {
+  // Reset state when modal closes (derived-from-prop pattern per React 19 docs).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (!open) {
       setActive(null);
       setDirty(false);
     }
-  }, [open]);
+  }
 
   const loadNotebook = useCallback(async (id: string) => {
     try {
@@ -170,11 +175,11 @@ export function NotebookPanel({ open, onClose }: Props) {
             }}
           >
             <FileCode2 size={14} style={{ color: "var(--accent)" }} />
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Notebooks</span>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>{t("panel.notebooks.title")}</span>
             <button
               onClick={newNotebook}
-              title="New notebook"
-              aria-label="New notebook"
+              title={t("panel.notebooks.new")}
+              aria-label={t("panel.notebooks.new")}
               style={{
                 marginLeft: "auto",
                 padding: 3,
@@ -239,7 +244,7 @@ export function NotebookPanel({ open, onClose }: Props) {
               }}
             >
               <FileCode2 size={32} style={{ opacity: 0.4 }} />
-              <div>Open a notebook from the sidebar, or create a new one.</div>
+              <div>{t("panel.notebooks.emptyHint")}</div>
               <button
                 onClick={newNotebook}
                 style={{
@@ -253,7 +258,7 @@ export function NotebookPanel({ open, onClose }: Props) {
                   cursor: "pointer",
                 }}
               >
-                + New notebook
+                + {t("panel.notebooks.new")}
               </button>
             </div>
           )}
@@ -294,10 +299,11 @@ function NotebookList({
   onPick: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
+  const { t } = useI18n();
   if (list.length === 0) {
     return (
       <div style={{ padding: 12, fontSize: 11, color: "var(--text-3)" }}>
-        No notebooks yet.
+        {t("panel.notebooks.empty")}
       </div>
     );
   }
@@ -323,11 +329,17 @@ function NotebookList({
             </div>
           </div>
           <button
-            onClick={(e) => {
+            onClick={async (e) => {
               e.stopPropagation();
-              if (window.confirm(`Delete "${nb.name}"?`)) onDelete(nb.id);
+              const ok = await confirm({
+                title: t("confirm.deleteTitle"),
+                message: t("panel.notebooks.deleteConfirm").replace("{0}", nb.name),
+                confirmLabel: t("confirm.delete"),
+                danger: true,
+              });
+              if (ok) onDelete(nb.id);
             }}
-            aria-label="Delete notebook"
+            aria-label={t("panel.notebooks.delete")}
             style={{
               padding: 4,
               background: "transparent",
@@ -350,7 +362,6 @@ function NotebookEditor({
   onChange,
   onSave,
   isSaving,
-  onClose: _onClose,
 }: {
   notebook: Notebook;
   dirty: boolean;
@@ -405,7 +416,6 @@ function NotebookEditor({
   const runAll = async () => {
     for (let i = 0; i < notebook.cells.length; i++) {
       if (notebook.cells[i].kind === "cypher") {
-        // eslint-disable-next-line no-await-in-loop
         await runCell(i);
       }
     }

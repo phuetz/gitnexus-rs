@@ -35,14 +35,15 @@ mod onnx {
         }
 
         pub fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, Box<dyn std::error::Error>> {
-            // For each text, create input tensors and run inference
-            let mut results = Vec::new();
-            for _text in texts {
-                // Tokenize (simple whitespace tokenization as placeholder)
-                // Real implementation would use a proper tokenizer
-                let _dummy_input = Array2::<f32>::zeros((1, self.dims));
-                let embedding = vec![0.0f32; self.dims]; // placeholder
-                results.push(embedding);
+            // WARN: the real ONNX inference path is not wired yet. We return
+            // zero-vectors so semantic-search degrades silently to BM25-only
+            // rather than panicking. Callers that notice uniformly-tied
+            // similarity scores should treat this as a hint that inference
+            // is not live. See `generate_embeddings` for the runtime warning.
+            let _dummy_input = Array2::<f32>::zeros((1, self.dims));
+            let mut results = Vec::with_capacity(texts.len());
+            for _ in texts {
+                results.push(vec![0.0f32; self.dims]);
             }
             Ok(results)
         }
@@ -51,12 +52,19 @@ mod onnx {
 
 /// Generate embeddings for code snippets.
 /// Uses ONNX Runtime when the "embeddings" feature is enabled.
+///
+/// NOTE: The ONNX code path currently returns zero-vectors (see the TODO in
+/// `onnx::OnnxEmbedder::embed`). When the feature is enabled but inference
+/// is not yet wired, we emit a one-shot warning so users understand that
+/// semantic search will behave as BM25-only.
 pub fn generate_embeddings(
     texts: &[String],
     config: &EmbeddingConfig,
 ) -> Vec<Vec<f32>> {
     #[cfg(feature = "embeddings")]
     {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static WARNED: AtomicBool = AtomicBool::new(false);
         if let Some(model_path) = &config.model_path {
             if let Ok(embedder) = onnx::OnnxEmbedder::new(
                 std::path::Path::new(model_path),
@@ -64,6 +72,15 @@ pub fn generate_embeddings(
             ) {
                 let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
                 if let Ok(embeddings) = embedder.embed(&text_refs) {
+                    if !WARNED.swap(true, Ordering::Relaxed) {
+                        tracing::warn!(
+                            model_path = %model_path,
+                            "semantic embeddings feature is enabled but ONNX inference is a stub \
+                             returning zero-vectors — semantic search will degrade to BM25-only \
+                             results. Wire up tokenization + session.run() in \
+                             gitnexus-search/src/embeddings/mod.rs to enable full semantic search."
+                        );
+                    }
                     return embeddings;
                 }
             }

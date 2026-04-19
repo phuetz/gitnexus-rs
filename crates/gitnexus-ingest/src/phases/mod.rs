@@ -9,3 +9,7 @@ pub mod aspnet_mvc;
 pub mod dead_code;
 pub mod llm_enrichment;
 pub mod architecture;
+pub mod todos;
+pub mod api_surface;
+pub mod db_schema;
+pub mod config_inventory;

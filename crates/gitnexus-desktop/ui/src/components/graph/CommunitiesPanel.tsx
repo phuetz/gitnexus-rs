@@ -76,7 +76,11 @@ export function CommunitiesPanel() {
       className="absolute top-4 right-4 z-20 flex flex-col shadow-lg transition-all"
       style={{
         width: "min(260px, calc(100% - 16px))",
-        maxHeight: "calc(100% - 32px)",
+        // Reserve ~280px at the bottom for GraphLegend (max ~260px when
+        // expanded) + the 12px bottom margin of the legend + a small gap.
+        // Without this, the long community list would render on top of
+        // the legend and hide its rows.
+        maxHeight: "calc(100% - 16px - 280px)",
         background: "var(--glass-bg)",
         backdropFilter: "blur(var(--glass-blur))",
         border: "1px solid var(--glass-border)",

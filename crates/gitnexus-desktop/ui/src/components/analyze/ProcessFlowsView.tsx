@@ -136,7 +136,7 @@ export function ProcessFlowsView() {
           <div
             key={flow.id}
             style={{
-              background: "var(--bg-surface)",
+              background: "var(--surface)",
               border: "1px solid var(--surface-border)",
               borderRadius: "var(--radius-lg)",
               overflow: "hidden",

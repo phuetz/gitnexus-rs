@@ -192,6 +192,15 @@ pub async fn analyze_repo(
     ))
 }
 
+/// Remove a repo from the global registry without touching its files on disk.
+/// Used when the `.gitnexus/graph.bin` is missing/corrupted and the user
+/// wants to drop the orphan entry from the UI.
+#[tauri::command]
+pub async fn unregister_repo(path: String) -> Result<(), String> {
+    let repo_path = std::path::Path::new(&path);
+    repo_manager::unregister_repo(repo_path).map_err(|e| format!("Failed to unregister: {e}"))
+}
+
 /// Generate docs (wiki, context, skills) using the Rust CLI binary.
 /// Finds the gitnexus binary next to the desktop binary, then falls back to PATH.
 #[tauri::command]

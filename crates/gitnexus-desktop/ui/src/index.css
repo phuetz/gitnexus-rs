@@ -1,6 +1,45 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
+@theme {
+  --color-bg-0: var(--bg-0);
+  --color-bg-1: var(--bg-1);
+  --color-bg-2: var(--bg-2);
+  --color-bg-3: var(--bg-3);
+  --color-bg-4: var(--bg-4);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-surface-border: var(--surface-border);
+  --color-surface-border-hover: var(--surface-border-hover);
+  --color-text-0: var(--text-0);
+  --color-text-1: var(--text-1);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-text-4: var(--text-4);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-border: var(--accent-border);
+  --color-green: var(--green);
+  --color-green-subtle: var(--green-subtle);
+  --color-amber: var(--amber);
+  --color-amber-subtle: var(--amber-subtle);
+  --color-rose: var(--rose);
+  --color-rose-subtle: var(--rose-subtle);
+  --color-purple: var(--purple);
+  --color-purple-subtle: var(--purple-subtle);
+  --color-cyan: var(--cyan);
+  --color-cyan-subtle: var(--cyan-subtle);
+  --color-teal: var(--teal);
+  --color-teal-subtle: var(--teal-subtle);
+  --color-blue: var(--blue);
+  --color-blue-subtle: var(--blue-subtle);
+  --color-orange: var(--orange);
+  --color-orange-subtle: var(--orange-subtle);
+  --color-red: var(--red);
+}
+
 :root {
   /* ── Obsidian Observatory v2 — refined dark theme ── */
 

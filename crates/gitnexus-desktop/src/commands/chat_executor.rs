@@ -973,13 +973,37 @@ fn build_research_prompt(question: &str, sources: &[ChatSource], step_summaries:
         }
     }
 
+    // Methodology applied from METHODOLOGIE-PRODUCTION-DOC.md v1.0
+    // (12/04/2026 — Alise v2 SFD production).
     prompt.push_str(
-        "## Instructions\n\n\
-         - Synthesize findings from all research steps into a comprehensive answer.\n\
-         - Reference specific symbols, files, and line numbers.\n\
-         - Use markdown code blocks with the correct language.\n\
-         - Be concise but thorough.\n\
-         - Respond in the same language as the user's question.\n"
+        "## Instructions — methodology (three-sources principle)\n\n\
+         Synthesize findings across the three data sources:\n\
+         1. **Code graph** (symbol relationships, callers, callees, module membership)\n\
+         2. **Source code** (exact method bodies, file paths, line numbers)\n\
+         3. **Functional docs** (any `DocChunk` content returned by Cypher steps)\n\n\
+         Rules:\n\
+         - **Never invent**: if the research steps didn't surface a symbol/file/fact, don't \
+           fabricate one. Say *\"Aucune information trouvée\"* instead.\n\
+         - **Always cite**: every claim about a specific symbol must carry its location, \
+           e.g. `` `MethodName()` in `path/file.cs:123` ``.\n\
+         - **Quote verbatim** when functional doc content appears in the research steps: \
+           reproduce the original text between `> *\"...\"*` followed by \
+           `— Source : <doc name>`. Do NOT reformulate doc content.\n\
+         - **Cross-reference**: if two sources confirm the same behaviour, mention both.\n\
+         - **Algorithms, not summaries** (CRITICAL for quality docs): when the question asks \
+           *\"comment ça marche ?\"* / *\"comment X est calculé ?\"* / describes a process, \
+           treatment, or computation, describe the **actual algorithm** — not a narrative. \
+           Extract it from the method body shown in `read_file_content` snippets. Format as \
+           numbered steps (*Étape 1, Étape 2, …*) that trace real if/else/loop control flow. \
+           Make conditionals explicit: *« Si `facture.Statut == 'DemPaiemVal'` alors … »*. \
+           Expose input parameters → transformations → output → side-effects. Cite file:line \
+           for each step. Emit a `sequenceDiagram` or `flowchart` Mermaid block when useful.\n\
+         - **Language**: reply in the SAME language as the user's question.\n\
+         - **Structure**: use `##` markdown headers. For architectural questions, use sections \
+           (Besoin → Exigences → Modèle de données → Algorithmes → Diagrammes) and include a \
+           Mermaid diagram when appropriate.\n\
+         - **Voir aussi**: end with a `## Voir aussi` / `## See also` section listing 3-5 \
+           related symbols or docs the user might explore next.\n"
     );
 
     prompt

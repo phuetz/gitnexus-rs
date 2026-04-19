@@ -65,6 +65,20 @@ export function useKeyboardShortcuts() {
         setExplorerLeftCollapsed(!useAppStore.getState().explorerLeftCollapsed);
       }
 
+      // Ctrl+L → Jump to chat and focus the input. Useful from anywhere in
+      // the app — e.g., you're reading the graph in Explorer and want to
+      // ask a question about the selected node without reaching for the
+      // mouse. Dispatches an event that ChatPanel listens to.
+      if ((e.ctrlKey || e.metaKey) && e.key === "l") {
+        e.preventDefault();
+        const app = useAppStore.getState();
+        if (app.mode !== "chat") app.setMode("chat");
+        // Defer focus until after the mode switch has mounted the ChatPanel.
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("gitnexus:focus-chat-input"));
+        }, 50);
+      }
+
       // Escape → close chat modals, deselect, close search/palette
       if (e.key === "Escape") {
         const chatState = useChatStore.getState();
@@ -86,6 +100,17 @@ export function useKeyboardShortcuts() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "D") {
         e.preventDefault();
         useChatStore.getState().toggleDeepResearch();
+      }
+
+      // Ctrl+Shift+F → Cross-session chat search (Theme B). Works from
+      // any mode; switches to chat and lets ChatPanel open the modal.
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "F" || e.key === "f")) {
+        e.preventDefault();
+        const app = useAppStore.getState();
+        if (app.mode !== "chat") app.setMode("chat");
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("gitnexus:open-chat-search"));
+        }, 30);
       }
 
       // F → Fit graph to screen (when not in an input, explorer mode only)

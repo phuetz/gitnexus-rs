@@ -1,4 +1,4 @@
-//! JSON Schema definitions for the 14 MCP tools.
+//! JSON Schema definitions for the MCP tools.
 //!
 //! Each tool has a name, description, and inputSchema following the MCP spec.
 
@@ -11,7 +11,8 @@ pub struct ToolDefinition {
     pub input_schema: Value,
 }
 
-/// Return definitions for all 14 MCP tools.
+/// Return definitions for all 27 MCP tools
+/// (19 original + 4 Code Quality Suite + 4 Schema & API Inventory).
 pub fn tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
@@ -436,6 +437,203 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        // ── Code Quality Suite (Theme A) ───────────────────────────
+        ToolDefinition {
+            name: "find_cycles",
+            description: "Detect circular dependencies via strongly connected components (Tarjan). Scope: 'imports' (File→File) or 'calls' (Method→Method). Returns ordered node lists with severity (low/medium/high).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["imports", "calls"],
+                        "description": "Cycle scope: 'imports' (File->File) or 'calls' (Method->Method). Default: 'imports'.",
+                        "default": "imports"
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum cycles to return (default: 50, max: 100)",
+                        "default": 50
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "find_similar_code",
+            description: "Find duplicate / near-duplicate code using Rabin-Karp rolling hash on normalized tokens. Returns clusters of Method/Function nodes that share token windows, filtered by Jaccard similarity.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "min_tokens": {
+                        "type": "number",
+                        "description": "Minimum window size in tokens (default: 30)",
+                        "default": 30
+                    },
+                    "threshold": {
+                        "type": "number",
+                        "description": "Jaccard similarity threshold [0.0, 1.0] (default: 0.9)",
+                        "default": 0.9
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum clusters to return (default: 50, max: 100)",
+                        "default": 50
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "list_todos",
+            description: "List TODO/FIXME/HACK/XXX markers found in source comments. Each entry includes kind, text, file, and line. Results ordered by severity (FIXME > HACK > TODO > XXX).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "severity": {
+                        "type": "string",
+                        "enum": ["TODO", "FIXME", "HACK", "XXX"],
+                        "description": "Filter by marker kind (default: all)"
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum markers to return (default: 200, max: 500)",
+                        "default": 200
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "get_complexity",
+            description: "Get cyclomatic complexity report for the repo: global averages, percentiles, severity buckets, per-module stats, and top-N most complex functions/methods.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "threshold": {
+                        "type": "number",
+                        "description": "Only list symbols with complexity >= this value (default: 0)",
+                        "default": 0
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum symbols in top_symbols list (default: 50, max: 200)",
+                        "default": 50
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        // ── Schema & API Inventory (Theme D) ───────────────────────
+        ToolDefinition {
+            name: "list_endpoints",
+            description: "List REST/GraphQL endpoints extracted from the codebase (Express, Next.js, FastAPI, Flask, Spring, ASP.NET MVC). Each entry includes HTTP method, route pattern, framework, source file, and the resolved handler method ID when available.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "Filter by HTTP method (GET, POST, PUT, DELETE, PATCH). Case-insensitive."
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "Substring filter applied to the route (case-insensitive)."
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum endpoints to return (default: 200, max: 500)",
+                        "default": 200
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "list_db_tables",
+            description: "List database tables discovered from SQL migrations, Prisma schemas, SQLAlchemy/TypeORM classes, or EF6 DbContexts. Each entry includes column count and foreign-key reference count.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum tables to return (default: 200, max: 500)",
+                        "default": 200
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "list_env_vars",
+            description: "List environment variables declared in config files (.env, appsettings.json, application.yml) and referenced in code (process.env.X, os.getenv, Environment.GetEnvironmentVariable). Flags unused declarations and undeclared references for audit.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "unused_only": {
+                        "type": "boolean",
+                        "description": "When true, returns only variables declared but never referenced (audit mode).",
+                        "default": false
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum vars to return (default: 200, max: 1000)",
+                        "default": 200
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "get_endpoint_handler",
+            description: "Resolve the handler method for a given endpoint (route + method) and return its first-degree call neighborhood (callers + callees).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "route": {
+                        "type": "string",
+                        "description": "Route path as discovered by list_endpoints (e.g. '/api/users/:id')."
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "HTTP method (GET, POST, PUT, DELETE, PATCH)."
+                    }
+                },
+                "required": ["route", "method"],
+                "additionalProperties": false
+            }),
+        },
     ]
 }
 
@@ -461,7 +659,7 @@ mod tests {
 
     #[test]
     fn test_tool_definitions_count() {
-        assert_eq!(tool_definitions().len(), 19);
+        assert_eq!(tool_definitions().len(), 27);
     }
 
     #[test]
@@ -487,13 +685,22 @@ mod tests {
         assert!(names.contains(&"read_file"));
         assert!(names.contains(&"get_insights"));
         assert!(names.contains(&"save_memory"));
+        assert!(names.contains(&"find_cycles"));
+        assert!(names.contains(&"find_similar_code"));
+        assert!(names.contains(&"list_todos"));
+        assert!(names.contains(&"get_complexity"));
+        // Schema & API Inventory (Theme D)
+        assert!(names.contains(&"list_endpoints"));
+        assert!(names.contains(&"list_db_tables"));
+        assert!(names.contains(&"list_env_vars"));
+        assert!(names.contains(&"get_endpoint_handler"));
     }
 
     #[test]
     fn test_tools_list_json() {
         let json = tools_list_json();
         let tools = json["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 19);
+        assert_eq!(tools.len(), 27);
         for tool in tools {
             assert!(tool.get("name").is_some());
             assert!(tool.get("description").is_some());

@@ -28,6 +28,11 @@ export interface SigmaNodeAttributes {
   zIndex?: number;
   mass?: number;
   community?: string;
+  // Theme C — graph diff / path modes. Attribute-only markers; actual
+  // visual styling lives in the Sigma node reducer when wired up.
+  diffMark?: "added" | "removed" | "modified" | null;
+  pathDim?: boolean;
+  pathOnPath?: boolean;
 }
 
 export interface SigmaEdgeAttributes {

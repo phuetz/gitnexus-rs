@@ -6,16 +6,20 @@
  */
 
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Globe, Folder, AlertCircle, RefreshCw } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Folder, AlertCircle, RefreshCw, Trash2 } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
+import { confirm } from "../../lib/confirm";
 import type { RepoOverview } from "../../lib/tauri-commands";
 import { toast } from "sonner";
 
 type SortKey = "name" | "nodeCount" | "deadCount" | "tracingCoverage" | "indexedAt";
 
 export function MultiRepoOverview() {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
   const setActiveRepo = useAppStore((s) => s.setActiveRepo);
   const setMode = useAppStore((s) => s.setMode);
   const [sortKey, setSortKey] = useState<SortKey>("nodeCount");
@@ -25,6 +29,16 @@ export function MultiRepoOverview() {
     queryKey: ["repos-overview"],
     queryFn: () => commands.reposOverview(),
     staleTime: 60_000,
+  });
+
+  const unregisterMut = useMutation({
+    mutationFn: (path: string) => commands.unregisterRepo(path),
+    onSuccess: (_data, path) => {
+      queryClient.invalidateQueries({ queryKey: ["repos-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["repos"] });
+      toast.success(t("multiRepo.unregistered").replace("{0}", path));
+    },
+    onError: (e) => toast.error(`${(e as Error).message}`),
   });
 
   const sorted = useMemo(() => {
@@ -85,7 +99,7 @@ export function MultiRepoOverview() {
   if (!data || data.length === 0) {
     return (
       <div style={{ padding: 24, fontSize: 12, color: "var(--text-3)" }}>
-        No repos indexed yet. Run <code>gitnexus analyze</code> in a project to register one.
+        {t("multiRepo.empty.prefix")} <code>gitnexus analyze</code> {t("multiRepo.empty.suffix")}
       </div>
     );
   }
@@ -162,11 +176,24 @@ export function MultiRepoOverview() {
           </thead>
           <tbody>
             {sorted.map((r) => (
-              <RepoRow key={r.path} repo={r} onPick={() => {
-                setActiveRepo(r.name);
-                setMode("explorer");
-                toast.success(`Switched to ${r.name}`);
-              }} />
+              <RepoRow
+                key={r.path}
+                repo={r}
+                onPick={() => {
+                  setActiveRepo(r.name);
+                  setMode("explorer");
+                  toast.success(`Switched to ${r.name}`);
+                }}
+                onRemove={async () => {
+                  const ok = await confirm({
+                    title: t("confirm.deleteTitle"),
+                    message: t("multiRepo.unregisterConfirm").replace("{0}", r.name),
+                    confirmLabel: t("multiRepo.unregister"),
+                    danger: true,
+                  });
+                  if (ok) unregisterMut.mutate(r.path);
+                }}
+              />
             ))}
           </tbody>
         </table>
@@ -239,23 +266,39 @@ function Th({
   );
 }
 
-function RepoRow({ repo, onPick }: { repo: RepoOverview; onPick: () => void }) {
+function RepoRow({
+  repo,
+  onPick,
+  onRemove,
+}: {
+  repo: RepoOverview;
+  onPick: () => void;
+  onRemove: () => void;
+}) {
+  const { t } = useI18n();
   const tracingPct = Math.round(repo.tracingCoverage * 100);
+  // Disable row-level click-to-select when the repo is broken: the row has
+  // nothing useful to open, and we want the "Remove" button to be the
+  // primary action.
+  const disabled = !!repo.error;
   return (
     <tr
-      onClick={onPick}
+      onClick={disabled ? undefined : onPick}
       style={{
-        cursor: "pointer",
+        cursor: disabled ? "default" : "pointer",
         background: "var(--bg-1)",
         borderBottom: "1px solid var(--surface-border)",
+        opacity: disabled ? 0.7 : 1,
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-hover)")}
+      onMouseEnter={(e) => {
+        if (!disabled) e.currentTarget.style.background = "var(--surface-hover)";
+      }}
       onMouseLeave={(e) => (e.currentTarget.style.background = "var(--bg-1)")}
     >
       <td style={tdStyle()}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <Folder size={11} style={{ color: "var(--accent)", flexShrink: 0 }} />
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontWeight: 600 }}>{repo.name}</div>
             <div
               style={{
@@ -270,9 +313,43 @@ function RepoRow({ repo, onPick }: { repo: RepoOverview; onPick: () => void }) {
               {repo.path}
             </div>
             {repo.error && (
-              <div style={{ fontSize: 10, color: "var(--rose)" }}>
-                <AlertCircle size={9} style={{ marginRight: 4, verticalAlign: -1 }} />
-                {repo.error}
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--rose)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginTop: 2,
+                }}
+              >
+                <AlertCircle size={9} style={{ verticalAlign: -1, flexShrink: 0 }} />
+                <span style={{ flex: 1 }}>{repo.error}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove();
+                  }}
+                  title={t("multiRepo.unregister")}
+                  aria-label={t("multiRepo.unregister")}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 3,
+                    padding: "2px 6px",
+                    background: "transparent",
+                    border: "1px solid var(--rose)",
+                    borderRadius: 4,
+                    color: "var(--rose)",
+                    cursor: "pointer",
+                    fontSize: 9,
+                    fontWeight: 600,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Trash2 size={9} />
+                  {t("multiRepo.unregister")}
+                </button>
               </div>
             )}
           </div>

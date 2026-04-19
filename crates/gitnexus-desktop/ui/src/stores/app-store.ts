@@ -5,7 +5,25 @@ import type { ZoomLevel } from "../lib/tauri-commands";
 export type DetailTab = "context" | "code" | "properties" | "layers" | "health";
 export type ThemeMode = "dark" | "light" | "system";
 export type AppMode = 'explorer' | 'analyze' | 'chat' | 'manage';
-export type AnalyzeView = 'overview' | 'hotspots' | 'coupling' | 'ownership' | 'coverage' | 'diagram' | 'report' | 'health' | 'processes' | 'snapshots';
+export type AnalyzeView =
+  | 'overview'
+  | 'hotspots'
+  | 'coupling'
+  | 'ownership'
+  | 'coverage'
+  | 'diagram'
+  | 'report'
+  | 'health'
+  | 'processes'
+  | 'snapshots'
+  | 'cycles'
+  | 'clones'
+  | 'todos'
+  | 'complexity'
+  // Schema & API Inventory (Theme D)
+  | 'endpoints'
+  | 'schema'
+  | 'env_vars';
 export type LensType = 'all' | 'calls' | 'structure' | 'heritage' | 'impact' | 'dead-code' | 'tracing' | 'hotspots' | 'risk';
 
 interface HistoryEntry {
@@ -13,7 +31,7 @@ interface HistoryEntry {
   nodeName: string | null;
 }
 
-interface AppState {
+export interface AppState {
   activeRepo: string | null;
   setActiveRepo: (name: string | null) => void;
 
@@ -59,6 +77,10 @@ interface AppState {
   setAnalyzeView: (view: AnalyzeView) => void;
   activeLens: LensType;
   setActiveLens: (lens: LensType) => void;
+  clusterByCommunity: boolean;
+  setClusterByCommunity: (v: boolean) => void;
+  riskThreshold: number;
+  setRiskThreshold: (v: number) => void;
   egoDepth: 1 | 2 | 3;
   setEgoDepth: (depth: 1 | 2 | 3) => void;
   explorerLeftCollapsed: boolean;
@@ -89,6 +111,14 @@ interface AppState {
 
   userCommandsOpen: boolean;
   setUserCommandsOpen: (open: boolean) => void;
+
+  /**
+   * Chat settings modal — lifted to the store so it can be opened from
+   * anywhere in the app (e.g., clicking the LLM model name in the
+   * StatusBar) instead of only from the Chat mode's local state.
+   */
+  chatSettingsOpen: boolean;
+  setChatSettingsOpen: (open: boolean) => void;
 }
 
 const MAX_HISTORY = 50;
@@ -197,6 +227,10 @@ export const useAppStore = create<AppState>()(
       setAnalyzeView: (view) => set({ analyzeView: view }),
       activeLens: 'all',
       setActiveLens: (lens) => set({ activeLens: lens }),
+      clusterByCommunity: false,
+      setClusterByCommunity: (clusterByCommunity) => set({ clusterByCommunity }),
+      riskThreshold: 0.0,
+      setRiskThreshold: (riskThreshold) => set({ riskThreshold }),
       egoDepth: 2,
       setEgoDepth: (depth) => set({ egoDepth: depth }),
       explorerLeftCollapsed: false,
@@ -229,6 +263,9 @@ export const useAppStore = create<AppState>()(
 
       userCommandsOpen: false,
       setUserCommandsOpen: (open) => set({ userCommandsOpen: open }),
+
+      chatSettingsOpen: false,
+      setChatSettingsOpen: (open) => set({ chatSettingsOpen: open }),
     }),
     {
       name: "gitnexus-app-state",
@@ -238,6 +275,8 @@ export const useAppStore = create<AppState>()(
         mode: state.mode,
         analyzeView: state.analyzeView,
         activeLens: state.activeLens,
+        clusterByCommunity: state.clusterByCommunity,
+        riskThreshold: state.riskThreshold,
         egoDepth: state.egoDepth,
         zoomLevel: state.zoomLevel,
       }),

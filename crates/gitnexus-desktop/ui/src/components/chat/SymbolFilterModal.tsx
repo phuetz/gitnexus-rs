@@ -26,6 +26,10 @@ interface SymbolFilterModalProps {
   onClose: () => void;
 }
 
+// Stable module-level empty array so the compare-in-render reset below
+// doesn't see a new reference each render.
+const EMPTY_RESULTS: SymbolQuickPick[] = [];
+
 export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
@@ -38,12 +42,13 @@ export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
 
   // Scope by `activeRepo` so switching repos doesn't return the previous
   // repo's cached symbol picks for the same query.
-  const { data: results = [], isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["chatPickSymbols", activeRepo, query],
     queryFn: () => commands.chatPickSymbols(query, undefined, 40),
     enabled: open,
     staleTime: 2000,
   });
+  const results = data ?? EMPTY_RESULTS;
 
   // Reset on open (render-time state adjustment)
   const [prevOpen, setPrevOpen] = useState(open);
@@ -78,14 +83,17 @@ export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
   }, [selectedIndex]);
 
   const toggleSymbol = useCallback(
-    (name: string) => {
-      if (filters.symbols.includes(name)) {
+    (name: string, keepOpen = false) => {
+      const already = filters.symbols.includes(name);
+      if (already) {
         removeSymbolFilter(name);
       } else {
         addSymbolFilter(name);
       }
+      // Auto-close on add — Shift/Alt keeps the modal open for multi-select.
+      if (!already && !keepOpen) onClose();
     },
-    [filters.symbols, addSymbolFilter, removeSymbolFilter]
+    [filters.symbols, addSymbolFilter, removeSymbolFilter, onClose]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -97,7 +105,7 @@ export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
       setSelectedIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter" && results[selectedIndex]) {
       e.preventDefault();
-      toggleSymbol(results[selectedIndex].name);
+      toggleSymbol(results[selectedIndex].name, e.shiftKey);
     } else if (e.key === "Escape") {
       onClose();
     }
@@ -152,7 +160,7 @@ export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
               symbol={sym}
               isSelected={i === selectedIndex}
               isActive={filters.symbols.includes(sym.name)}
-              onClick={() => toggleSymbol(sym.name)}
+              onClick={(e) => toggleSymbol(sym.name, e.altKey || e.shiftKey)}
               onMouseEnter={() => setSelectedIndex(i)}
             />
           ))}
@@ -164,12 +172,12 @@ export function SymbolFilterModal({ open, onClose }: SymbolFilterModalProps) {
           style={{ borderTop: "1px solid var(--surface-border)", color: "var(--text-3)" }}
         >
           <span>
-            {filters.symbols.length} symbol{filters.symbols.length !== 1 ? "s" : ""} selected
+            {t("filter.symbolsSelected").replace("{0}", String(filters.symbols.length))}
           </span>
           <span>
-            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Enter</kbd> toggle
+            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Enter</kbd> {t("filter.toggle")}
             {" · "}
-            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Esc</kbd> close
+            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Esc</kbd> {t("filter.close")}
           </span>
         </div>
       </div>
@@ -189,7 +197,7 @@ function SymbolItem({
   symbol: SymbolQuickPick;
   isSelected: boolean;
   isActive: boolean;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent) => void;
   onMouseEnter: () => void;
 }) {
   const KindIcon = KIND_ICONS[symbol.kind] || Braces;

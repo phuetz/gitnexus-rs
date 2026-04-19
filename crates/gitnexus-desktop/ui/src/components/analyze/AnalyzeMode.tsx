@@ -40,6 +40,27 @@ const CodeHealthCard = lazy(() =>
 const SnapshotsPanel = lazy(() =>
   import("./SnapshotsPanel").then((m) => ({ default: m.SnapshotsPanel })),
 );
+const CyclesView = lazy(() =>
+  import("./CyclesView").then((m) => ({ default: m.CyclesView })),
+);
+const ClonesView = lazy(() =>
+  import("./ClonesView").then((m) => ({ default: m.ClonesView })),
+);
+const TodosView = lazy(() =>
+  import("./TodosView").then((m) => ({ default: m.TodosView })),
+);
+const ComplexityView = lazy(() =>
+  import("./ComplexityView").then((m) => ({ default: m.ComplexityView })),
+);
+const EndpointsView = lazy(() =>
+  import("./EndpointsView").then((m) => ({ default: m.EndpointsView })),
+);
+const SchemaView = lazy(() =>
+  import("./SchemaView").then((m) => ({ default: m.SchemaView })),
+);
+const EnvVarsView = lazy(() =>
+  import("./EnvVarsView").then((m) => ({ default: m.EnvVarsView })),
+);
 
 const analyzeFallback = (
   <div className="flex items-center justify-center h-full">
@@ -124,6 +145,13 @@ export function AnalyzeMode() {
       case "diagram":    return <DiagramView />;
       case "report":     return <ReportView />;
       case "snapshots":  return <SnapshotsPanel />;
+      case "cycles":     return <CyclesView />;
+      case "clones":     return <ClonesView />;
+      case "todos":      return <TodosView />;
+      case "complexity": return <ComplexityView />;
+      case "endpoints":  return <EndpointsView />;
+      case "schema":     return <SchemaView />;
+      case "env_vars":   return <EnvVarsView />;
       case "health":
         return (
           <div className="p-6" style={{ maxWidth: 800, margin: "0 auto" }}>

@@ -580,6 +580,17 @@ fn enriched_payload_schema() -> serde_json::Value {
     })
 }
 
+/// Minimal payload for the lead+closing call in per-section enrichment.
+#[derive(Debug, serde::Deserialize, Default)]
+struct LeadClosingPayload {
+    #[serde(default)]
+    lead: Option<String>,
+    #[serde(default)]
+    closing_summary: Option<String>,
+    #[serde(default, deserialize_with = "null_as_default")]
+    related_pages: Vec<String>,
+}
+
 /// Provenance metadata for a generated page.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct ProvenanceEntry {
@@ -884,6 +895,500 @@ fn hash_simple(input: &str) -> u64 {
     hash
 }
 
+// ─── Per-section helpers ──────────────────────────────────────────────
+
+/// Returns the markdown slice that provides context for a given section key.
+/// Tries `GNX:INTRO:key` first (slice AFTER anchor until next GNX anchor).
+/// Falls back to `GNX:TIP:key` / `GNX:ARCH_NOTE:key` / `GNX:EXAMPLE:key`
+/// (slice BEFORE anchor back to previous GNX anchor or start of file).
+/// This lets us enrich pages that use trailing anchors without a matching
+/// leading INTRO anchor (the common controller layout in Alise_v2).
+fn section_content_slice<'a>(content: &'a str, section_key: &str) -> &'a str {
+    let intro_anchor = format!("<!-- GNX:INTRO:{} -->", section_key);
+    if let Some(pos) = content.find(&intro_anchor) {
+        let start = pos + intro_anchor.len();
+        let after = &content[start..];
+        let end = after.find("<!-- GNX:").unwrap_or(after.len());
+        return after[..end].trim();
+    }
+    for kind in ["TIP", "ARCH_NOTE", "EXAMPLE"] {
+        let anchor = format!("<!-- GNX:{}:{} -->", kind, section_key);
+        if let Some(pos) = content.find(&anchor) {
+            let before = &content[..pos];
+            let start = before.rfind("<!-- GNX:")
+                .and_then(|p| before[p..].find("-->").map(|rel| p + rel + 3))
+                .unwrap_or(0);
+            return content[start..pos].trim();
+        }
+    }
+    ""
+}
+
+/// Minimal LLM call helper shared by per-section functions.
+/// Checks cache, calls the API with basic 503/429 retry, caches the result.
+fn call_structured_llm(
+    page_path: &Path,
+    body: &serde_json::Value,
+    config: &LlmConfig,
+    timeout_secs: u64,
+) -> Result<String> {
+    if let Some(cached) = try_cached_llm_response(page_path, body) {
+        return Ok(cached);
+    }
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+    let raw = tokio::task::block_in_place(|| -> Result<String> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+            .build()
+            .map_err(|e| anyhow::anyhow!("HTTP client: {}", e))?;
+        let mut delay_ms = 5_000u64;
+        for attempt in 0..5usize {
+            let mut req = client.post(&url).json(body);
+            if !config.api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", config.api_key));
+            }
+            match req.send() {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() {
+                        let j: serde_json::Value = resp.json()?;
+                        return Ok(j["choices"][0]["message"]["content"]
+                            .as_str()
+                            .ok_or_else(|| anyhow::anyhow!("No content field"))?
+                            .to_string());
+                    } else if status.as_u16() == 503 || status.as_u16() == 429 {
+                        if attempt + 1 < 5 {
+                            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                            delay_ms = (delay_ms * 2).min(30_000);
+                        }
+                    } else {
+                        let body_text = resp.text().unwrap_or_else(|_| String::from("<no body>"));
+                        let short = if body_text.len() > 500 { &body_text[..500] } else { &body_text };
+                        return Err(anyhow::anyhow!("HTTP {} body={}", status, short));
+                    }
+                }
+                Err(e) => {
+                    if attempt + 1 < 5 {
+                        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                        delay_ms = (delay_ms * 2).min(30_000);
+                    } else {
+                        return Err(anyhow::anyhow!("Request failed: {}", e));
+                    }
+                }
+            }
+        }
+        Err(anyhow::anyhow!("LLM call failed after retries"))
+    })?;
+    store_llm_response(page_path, body, &raw);
+    Ok(raw)
+}
+
+/// Parse a raw LLM JSON string into T, stripping optional markdown fences.
+fn parse_llm_json<T: for<'de> serde::Deserialize<'de>>(raw: &str) -> Option<T> {
+    let s = raw.trim()
+        .trim_start_matches("```json").trim_start_matches("```")
+        .trim_end_matches("```").trim();
+    serde_json::from_str(s).ok()
+}
+
+/// Single LLM call that generates only `lead`, `closing_summary`, `related_pages`.
+fn enrich_lead_closing(
+    page_path: &Path,
+    page_content: &str,
+    evidence: &[EvidenceRef],
+    config: &LlmConfig,
+    page_type: &PageType,
+    enrich_lang: &str,
+) -> Result<LeadClosingPayload> {
+    let lang_instr = if enrich_lang == "en" {
+        "Write in English. Professional technical documentation style."
+    } else {
+        "Écris en français technique professionnel."
+    };
+    let ev_ids: Vec<&str> = evidence.iter().take(5).map(|e| e.id.as_str()).collect();
+    let ev_ctx: String = evidence.iter().take(5)
+        .map(|e| format!("[{}] {} ({})\n```\n{}\n```", e.id, e.title, e.kind, e.excerpt))
+        .collect::<Vec<_>>().join("\n\n");
+    let page_preview: String = page_content.lines().take(40).collect::<Vec<_>>().join("\n");
+    let system = format!(
+        "Tu es un rédacteur technique senior. {}\n\
+         Génère UNIQUEMENT le lead paragraph et le résumé final pour cette page de type {:?}.\n\
+         Tu ne cites QUE ces source_ids : {}\n\
+         Réponds en JSON valide : {{\"lead\": \"2-3 phrases\", \"closing_summary\": \"1-2 phrases\", \"related_pages\": []}}\n\n\
+         SOURCES :\n{}",
+        lang_instr, page_type, ev_ids.join(", "), ev_ctx
+    );
+    let mut body = serde_json::json!({
+        "model": config.model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": format!("Page (début) :\n\n{}", page_preview)},
+        ],
+        "max_tokens": 4096u32,
+        "temperature": 0.3,
+        "stream": false,
+        "response_format": {"type": "json_object"},
+    });
+    let effort = clamp_enrichment_effort(&config.reasoning_effort);
+    if !effort.is_empty() && effort != "none" {
+        body["reasoning_effort"] = serde_json::Value::String(effort);
+    }
+    let raw = call_structured_llm(page_path, &body, config, 90)?;
+    Ok(parse_llm_json::<LeadClosingPayload>(&raw).unwrap_or_default())
+}
+
+/// Single LLM call that generates one `SectionAugment` for a given GNX section.
+/// `required_fields` lists fields the page's anchors actually inject (e.g. a
+/// page that only has `GNX:TIP:actions` should emphasize `developer_tip`).
+fn enrich_single_section(
+    page_path: &Path,
+    section_key: &str,
+    section_content: &str,
+    evidence: &[EvidenceRef],
+    config: &LlmConfig,
+    page_type: &PageType,
+    enrich_lang: &str,
+    required_fields: &[&str],
+) -> Result<SectionAugment> {
+    let lang_instr = if enrich_lang == "en" {
+        "Write in English. Professional technical documentation style."
+    } else {
+        "Écris en français technique professionnel."
+    };
+    let required_hint = if required_fields.is_empty() {
+        String::new()
+    } else if enrich_lang == "en" {
+        format!("\nIMPORTANT: these fields MUST be non-null: {}.", required_fields.join(", "))
+    } else {
+        format!("\nIMPORTANT : ces champs DOIVENT être non-null : {}.", required_fields.join(", "))
+    };
+    // Prefer evidence nodes mentioned in the section content
+    let mut scored: Vec<(&EvidenceRef, usize)> = evidence.iter()
+        .map(|e| (e, section_content.matches(e.title.as_str()).count()))
+        .collect();
+    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    let top_ev: Vec<&EvidenceRef> = scored.into_iter().take(5).map(|(e, _)| e).collect();
+    let ev_ids: Vec<&str> = top_ev.iter().map(|e| e.id.as_str()).collect();
+    let ev_ctx: String = top_ev.iter()
+        .map(|e| format!("[{}] {} ({})\n```\n{}\n```", e.id, e.title, e.kind, e.excerpt))
+        .collect::<Vec<_>>().join("\n\n");
+    // Limit section content to 3 KB to keep input small
+    let snippet = if section_content.len() > 3_000 { &section_content[..3_000] } else { section_content };
+    let system = format!(
+        "Tu es un rédacteur technique senior. {}\n\
+         Génère un SectionAugment JSON pour la section '{}' de cette page de type {:?}.\n\
+         Tu ne REMPLACES PAS le contenu — tu l'AUGMENTES avec des explications.\n\
+         Tu ne cites QUE ces source_ids : {}{}\n\
+         Réponds en JSON valide :\n\
+         {{\"section_key\": \"{}\", \"intro\": null ou \"1-2 phrases\", \
+         \"warning\": null ou \"avertissement\", \"developer_tip\": null ou \"conseil\", \
+         \"code_example\": null ou \"snippet\", \"architecture_note\": null ou \"note\", \
+         \"source_ids\": []}}\n\nSOURCES :\n{}",
+        lang_instr, section_key, page_type, ev_ids.join(", "), required_hint, section_key, ev_ctx
+    );
+    let mut body = serde_json::json!({
+        "model": config.model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": format!("Contenu de la section '{}' :\n\n{}", section_key, snippet)},
+        ],
+        "max_tokens": 4096u32,
+        "temperature": 0.3,
+        "stream": false,
+        "response_format": {"type": "json_object"},
+    });
+    let effort = clamp_enrichment_effort(&config.reasoning_effort);
+    if !effort.is_empty() && effort != "none" {
+        body["reasoning_effort"] = serde_json::Value::String(effort);
+    }
+    let raw = call_structured_llm(page_path, &body, config, 90)?;
+    Ok(parse_llm_json::<SectionAugment>(&raw).unwrap_or_else(|| SectionAugment {
+        section_key: Some(section_key.to_string()),
+        intro: None, warning: None, developer_tip: None,
+        code_example: None, code_example_language: None,
+        architecture_note: None, see_also: Vec::new(), source_ids: Vec::new(),
+    }))
+}
+
+/// Extract the injection+validation+write logic so both the monolithic and
+/// per-section paths can share it without duplicating ~200 lines.
+fn inject_enrichment(
+    page_path: &Path,
+    content: &str,
+    payload: &EnrichedPayload,
+    evidence: Vec<EvidenceRef>,
+    enrich_citations: bool,
+    enrich_lang: &str,
+    model: &str,
+) -> Result<ProvenanceEntry> {
+    // Validate source_ids
+    let valid_ids: std::collections::HashSet<&str> =
+        evidence.iter().map(|e| e.id.as_str()).collect();
+    let mut invalid_ids = Vec::new();
+    for aug in &payload.section_augments {
+        for sid in &aug.source_ids {
+            if !valid_ids.contains(sid.as_str()) {
+                invalid_ids.push(sid.clone());
+            }
+        }
+    }
+
+    // Build enriched string
+    let mut enriched = String::new();
+    let mut lead_inserted = false;
+    for line in content.lines() {
+        enriched.push_str(line);
+        enriched.push('\n');
+        if line.contains("<!-- GNX:LEAD -->") && !lead_inserted {
+            if let Some(lead) = &payload.lead {
+                enriched.push('\n');
+                enriched.push_str(&format!("> {}\n\n", lead));
+                lead_inserted = true;
+            }
+        }
+        for aug in &payload.section_augments {
+            let Some(section_key) = aug.section_key.as_deref() else { continue };
+            let anchor = format!("<!-- GNX:INTRO:{} -->", section_key);
+            if line.contains(&anchor) {
+                if let Some(intro) = &aug.intro {
+                    enriched.push_str(&format!("\n{}\n\n", intro));
+                }
+                if let Some(warning) = &aug.warning {
+                    enriched.push_str(&format!("> [!WARNING]\n> {}\n\n", warning));
+                }
+                if let Some(tip) = &aug.developer_tip {
+                    enriched.push_str(&format!("> [!TIP]\n> {}\n\n", tip));
+                }
+                if let Some(note) = &aug.architecture_note {
+                    enriched.push_str(&format!("> [!NOTE]\n> **Architecture :** {}\n\n", note));
+                }
+                if let Some(code) = &aug.code_example {
+                    let lang = aug.code_example_language.as_deref().unwrap_or("");
+                    enriched.push_str(&format!("```{}\n{}\n```\n\n", lang, code));
+                }
+                if enrich_citations && !aug.source_ids.is_empty() {
+                    let sources: Vec<String> = aug.source_ids.iter()
+                        .filter_map(|sid| evidence.iter().find(|e| e.id == *sid))
+                        .map(|e| if let Some(sl) = e.start_line {
+                            format!("`{}` (L{})", e.file_path, sl)
+                        } else {
+                            format!("`{}`", e.file_path)
+                        })
+                        .collect();
+                    if !sources.is_empty() {
+                        enriched.push_str(&format!("*Sources : {}*\n\n", sources.join(" \u{00b7} ")));
+                    }
+                }
+            }
+        }
+        if line.contains("<!-- GNX:TIP:actions -->") {
+            for aug in &payload.section_augments {
+                if aug.section_key.as_deref() == Some("actions") {
+                    if let Some(tip) = &aug.developer_tip {
+                        enriched.push_str(&format!("> [!TIP]\n> {}\n\n", tip));
+                    }
+                }
+            }
+        }
+        for aug in &payload.section_augments {
+            let Some(sk) = aug.section_key.as_deref() else { continue };
+            if line.contains(&format!("<!-- GNX:ARCH_NOTE:{} -->", sk)) {
+                if let Some(note) = &aug.architecture_note {
+                    enriched.push_str(&format!("> [!NOTE]\n> **Architecture :** {}\n\n", note));
+                }
+            }
+            if line.contains(&format!("<!-- GNX:EXAMPLE:{} -->", sk)) {
+                if let Some(code) = &aug.code_example {
+                    let lang = aug.code_example_language.as_deref().unwrap_or("");
+                    enriched.push_str(&format!("```{}\n{}\n```\n\n", lang, code));
+                }
+            }
+        }
+        if line.contains("<!-- GNX:CLOSING -->") {
+            if let Some(summary) = &payload.closing_summary {
+                enriched.push_str(&format!(
+                    "\n---\n\n{} {}\n\n",
+                    if enrich_lang == "en" { "**Summary:**" } else { "**En r\u{00e9}sum\u{00e9} :**" },
+                    summary
+                ));
+            }
+            if !payload.related_pages.is_empty() {
+                let docs_dir = page_path.parent().and_then(|p| {
+                    if p.file_name().map(|n| n == "modules" || n == "processes").unwrap_or(false) {
+                        p.parent()
+                    } else { Some(p) }
+                }).unwrap_or(page_path.parent().unwrap_or(page_path));
+                let valid_stems: std::collections::HashSet<String> = {
+                    let mut s = std::collections::HashSet::new();
+                    for subdir in &["", "modules", "processes"] {
+                        let dir = if subdir.is_empty() { docs_dir.to_path_buf() } else { docs_dir.join(subdir) };
+                        if let Ok(entries) = std::fs::read_dir(&dir) {
+                            for entry in entries.flatten() {
+                                let p = entry.path();
+                                if p.extension().is_some_and(|e| e == "md") {
+                                    if let Some(stem) = p.file_stem().and_then(|st| st.to_str()) {
+                                        s.insert(stem.to_lowercase());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    s
+                };
+                let valid_related: Vec<&String> = payload.related_pages.iter().filter(|p| {
+                    let stem = p.trim_end_matches(".md").split('/').last().unwrap_or(p);
+                    let ok = valid_stems.contains(&stem.to_lowercase());
+                    if !ok { tracing::warn!("enrichment: related_page '{}' not found — skipping", p); }
+                    ok
+                }).collect();
+                if !valid_related.is_empty() {
+                    enriched.push_str("<div class=\"related-pages\">\n");
+                    enriched.push_str(&format!("<div class=\"related-pages-title\">{}</div>\n",
+                        if enrich_lang == "en" { "See Also" } else { "Voir aussi" }));
+                    for p in valid_related {
+                        let stem = p.trim_end_matches(".md");
+                        let display = stem.split('/').last().unwrap_or(stem);
+                        let safe_stem = stem.replace('"', "&quot;").replace('\'', "&#39;");
+                        let safe_display = display.replace('<', "&lt;").replace('>', "&gt;");
+                        enriched.push_str(&format!(
+                            "<a class=\"related-page-card\" href=\"#\" \
+                             onclick=\"showPage('{safe_stem}'); return false;\">{safe_display}</a>\n"
+                        ));
+                    }
+                    enriched.push_str("</div>\n\n");
+                }
+            }
+        }
+    }
+
+    // Validate enriched content
+    let orig_pipes = content.chars().filter(|c| *c == '|').count();
+    let enrich_pipes = enriched.chars().filter(|c| *c == '|').count();
+    if orig_pipes > 5 && enrich_pipes < orig_pipes / 2 {
+        return Err(anyhow::anyhow!("Tables lost during enrichment"));
+    }
+    if enriched.len() < content.len() / 2 {
+        return Err(anyhow::anyhow!("Enriched content too short"));
+    }
+
+    atomic_write_page(page_path, &enriched)?;
+
+    let page_id = page_path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
+    Ok(ProvenanceEntry {
+        page_id,
+        model: model.to_string(),
+        enriched_at: chrono::Utc::now().to_rfc3339(),
+        evidence_refs: evidence,
+        validation: ProvenanceValidation {
+            is_valid: invalid_ids.is_empty(),
+            issues: if invalid_ids.is_empty() { vec![] } else {
+                vec![format!("Invalid source IDs: {}", invalid_ids.join(", "))]
+            },
+        },
+        content_hash: format!("{:x}", hash_simple(&enriched)),
+    })
+}
+
+/// Orchestrate per-section enrichment for large pages (≥ 50 KB).
+/// Makes N+1 LLM calls: one for lead+closing, one per GNX:INTRO section.
+/// Each call produces < 10K tokens — well under the 65K Gemini hard cap.
+fn enrich_page_sectioned(
+    page_path: &Path,
+    graph: &KnowledgeGraph,
+    config: &LlmConfig,
+    repo_path: &Path,
+    profile: &EnrichProfile,
+    enrich_lang: &str,
+    enrich_citations: bool,
+) -> Result<Option<ProvenanceEntry>> {
+    let content = std::fs::read_to_string(page_path)?;
+    if content.len() < 100 { return Ok(None); }
+
+    let page_type = classify_page(page_path);
+    let evidence = collect_evidence(graph, page_path, repo_path, profile.max_evidence, &content);
+
+    // Collect all section keys and the anchor kinds each key carries, so we
+    // can tell the LLM which fields the page actually needs.
+    let mut section_keys: Vec<String> = Vec::new();
+    let mut key_anchors: std::collections::HashMap<String, Vec<&'static str>> =
+        std::collections::HashMap::new();
+    for (prefix, kind) in [
+        ("GNX:INTRO:", "INTRO"),
+        ("GNX:TIP:", "TIP"),
+        ("GNX:ARCH_NOTE:", "ARCH_NOTE"),
+        ("GNX:EXAMPLE:", "EXAMPLE"),
+    ] {
+        for line in content.lines() {
+            if !line.contains(prefix) { continue; }
+            if let Some(after) = line.split(prefix).nth(1) {
+                if let Some(key) = after.split("-->").next() {
+                    let k = key.trim().to_string();
+                    if k.is_empty() { continue; }
+                    let kinds = key_anchors.entry(k.clone()).or_default();
+                    if !kinds.contains(&kind) {
+                        kinds.push(kind);
+                    }
+                    if !section_keys.contains(&k) {
+                        section_keys.push(k);
+                    }
+                }
+            }
+        }
+    }
+
+    // Call 0: lead + closing
+    let lead_payload = enrich_lead_closing(
+        page_path, &content, &evidence, config, &page_type, enrich_lang,
+    ).unwrap_or_default();
+
+    // Calls 1..N: one per section
+    let mut section_augments: Vec<SectionAugment> = Vec::new();
+    let total = section_keys.len();
+    for (i, section_key) in section_keys.iter().enumerate() {
+        let slice = section_content_slice(&content, section_key);
+        let empty = Vec::new();
+        let kinds = key_anchors.get(section_key).unwrap_or(&empty);
+        let required_fields: Vec<&str> = kinds.iter().map(|k| match *k {
+            "INTRO" => "intro",
+            "TIP" => "developer_tip",
+            "ARCH_NOTE" => "architecture_note",
+            "EXAMPLE" => "code_example",
+            _ => "",
+        }).filter(|s| !s.is_empty()).collect();
+        tracing::info!(
+            "enrichment: section {}/{} '{}' anchors={:?} for {}",
+            i + 1, total, section_key, kinds, page_path.display()
+        );
+        let aug = enrich_single_section(
+            page_path, section_key, slice, &evidence, config, &page_type, enrich_lang,
+            &required_fields,
+        ).unwrap_or_else(|e| {
+            warn!("enrichment: section '{}' skipped ({})", section_key, e);
+            SectionAugment {
+                section_key: Some(section_key.clone()),
+                intro: None, warning: None, developer_tip: None,
+                code_example: None, code_example_language: None,
+                architecture_note: None, see_also: Vec::new(), source_ids: Vec::new(),
+            }
+        });
+        section_augments.push(aug);
+    }
+
+    let payload = EnrichedPayload {
+        lead: lead_payload.lead,
+        what_text: None, why_text: None, who_text: None,
+        section_augments,
+        related_pages: lead_payload.related_pages,
+        relevant_source_ids: Vec::new(),
+        closing_summary: lead_payload.closing_summary,
+    };
+
+    let prov = inject_enrichment(
+        page_path, &content, &payload, evidence, enrich_citations, enrich_lang, &config.model,
+    )?;
+    Ok(Some(prov))
+}
+
 // ─── Structured Enrichment ────────────────────────────────────────────
 
 fn build_system_prompt(
@@ -999,6 +1504,11 @@ fn enrich_page_structured(
     let content = std::fs::read_to_string(page_path)?;
     if content.len() < 100 {
         return Ok(None);
+    }
+
+    // Large pages: use per-section LLM calls to stay under the 65K token output cap.
+    if content.len() >= 50_000 {
+        return enrich_page_sectioned(page_path, graph, config, repo_path, profile, enrich_lang, enrich_citations);
     }
 
     let page_type = classify_page(page_path);
@@ -1139,8 +1649,8 @@ fn enrich_page_structured(
     // resume without new API cost.
     let cached = try_cached_llm_response(page_path, &body);
 
-    let raw_owned: String = if let Some(cached) = cached {
-        cached
+    let (raw_owned, was_truncated): (String, bool) = if let Some(cached) = cached {
+        (cached, false)
     } else {
         // Phase 4 / scope 7.1 — HTTP timeout scales with max_tokens.
         // The profile base still wins for short outputs; long
@@ -1152,7 +1662,7 @@ fn enrich_page_structured(
         // "Cannot drop a runtime in a context where blocking is not allowed".
         // `block_in_place` signals that the current thread may block,
         // allowing the inner runtime to be safely created and dropped.
-        let raw = tokio::task::block_in_place(|| -> Result<String> {
+        tokio::task::block_in_place(|| -> Result<(String, bool)> {
             let timeout = dynamic_timeout_secs(profile.timeout_secs, max_tokens);
             let client = reqwest::blocking::Client::builder()
                 .timeout(std::time::Duration::from_secs(timeout))
@@ -1302,7 +1812,8 @@ fn enrich_page_structured(
             let finish_reason = json_resp["choices"][0]["finish_reason"]
                 .as_str()
                 .unwrap_or("");
-            if finish_reason == "length" {
+            let was_truncated = finish_reason == "length";
+            if was_truncated {
                 warn!(
                     "enrichment: response truncated (finish_reason=length) for {} — \
                      raw length={}, handing off to repair tier",
@@ -1314,9 +1825,8 @@ fn enrich_page_structured(
 
             // Cache the success for future replays (scope 5.1).
             store_llm_response(page_path, &body, &raw);
-            Ok(raw)
-        })?;
-        raw
+            Ok((raw, was_truncated))
+        })?
     };
     let raw_content: &str = &raw_owned;
 
@@ -1391,217 +1901,20 @@ fn enrich_page_structured(
         }
     };
 
-    // Validate: check source_ids are real
-    let valid_ids: std::collections::HashSet<&str> =
-        evidence.iter().map(|e| e.id.as_str()).collect();
-    let mut invalid_ids = Vec::new();
-    for aug in &payload.section_augments {
-        for sid in &aug.source_ids {
-            if !valid_ids.contains(sid.as_str()) {
-                invalid_ids.push(sid.clone());
-            }
-        }
+    // If the LLM response was truncated (finish_reason=length), the repair tier
+    // above has written a partial enrichment to disk. We still return Err so the
+    // caller adds this page to the retry queue: a subsequent --retry-queue run
+    // will re-enrich with the reduced-scope section limiting (see max_intro_sections
+    // above) and produce a complete, non-truncated result. The page cache hash is
+    // deliberately NOT written on the Err path so the retry runner sees a cache miss.
+    if was_truncated {
+        return Err(anyhow::anyhow!(
+            "response truncated (finish_reason=length) — queued for retry with reduced scope"
+        ));
     }
 
-    // MERGE: Insert augmentations at anchor points
-    let mut enriched = String::new();
-    let mut lead_inserted = false;
-
-    for line in content.lines() {
-        enriched.push_str(line);
-        enriched.push('\n');
-
-        // Insert LEAD after the anchor
-        if line.contains("<!-- GNX:LEAD -->") && !lead_inserted {
-            if let Some(lead) = &payload.lead {
-                enriched.push('\n');
-                enriched.push_str(&format!("> {}\n\n", lead));
-                lead_inserted = true;
-            }
-        }
-
-        // Insert section augments
-        for aug in &payload.section_augments {
-            // Phase 3: section_key is Option<String>. Gemini sometimes
-            // emits a SectionAugment without one — we can't match it
-            // to an anchor, so skip silently.
-            let Some(section_key) = aug.section_key.as_deref() else {
-                continue;
-            };
-            let anchor = format!("<!-- GNX:INTRO:{} -->", section_key);
-            if line.contains(&anchor) {
-                if let Some(intro) = &aug.intro {
-                    enriched.push_str(&format!("\n{}\n\n", intro));
-                }
-                if let Some(warning) = &aug.warning {
-                    enriched.push_str(&format!("> [!WARNING]\n> {}\n\n", warning));
-                }
-                if let Some(tip) = &aug.developer_tip {
-                    enriched.push_str(&format!("> [!TIP]\n> {}\n\n", tip));
-                }
-                if let Some(note) = &aug.architecture_note {
-                    enriched.push_str(&format!("> [!NOTE]\n> **Architecture :** {}\n\n", note));
-                }
-                if let Some(code) = &aug.code_example {
-                    let lang = aug.code_example_language.as_deref().unwrap_or("");
-                    enriched.push_str(&format!("```{}\n{}\n```\n\n", lang, code));
-                }
-                // Add source references (only if citations are enabled)
-                if enrich_citations && !aug.source_ids.is_empty() {
-                    let sources: Vec<String> = aug
-                        .source_ids
-                        .iter()
-                        .filter_map(|sid| evidence.iter().find(|e| e.id == *sid))
-                        .map(|e| {
-                            if let Some(start) = e.start_line {
-                                format!("`{}` (L{})", e.file_path, start)
-                            } else {
-                                format!("`{}`", e.file_path)
-                            }
-                        })
-                        .collect();
-                    if !sources.is_empty() {
-                        enriched.push_str(&format!(
-                            "*Sources : {}*\n\n",
-                            sources.join(" \u{00b7} ")
-                        ));
-                    }
-                }
-            }
-        }
-
-        // Insert TIP augments for controller action tables
-        if line.contains("<!-- GNX:TIP:actions -->") {
-            for aug in &payload.section_augments {
-                if aug.section_key.as_deref() == Some("actions") {
-                    if let Some(tip) = &aug.developer_tip {
-                        enriched.push_str(&format!("> [!TIP]\n> {}\n\n", tip));
-                    }
-                }
-            }
-        }
-
-        // Insert ARCH_NOTE and EXAMPLE anchors per section
-        for aug in &payload.section_augments {
-            let Some(section_key) = aug.section_key.as_deref() else { continue };
-            let arch_anchor = format!("<!-- GNX:ARCH_NOTE:{} -->", section_key);
-            if line.contains(&arch_anchor) {
-                if let Some(note) = &aug.architecture_note {
-                    enriched.push_str(&format!("> [!NOTE]\n> **Architecture :** {}\n\n", note));
-                }
-            }
-            let example_anchor = format!("<!-- GNX:EXAMPLE:{} -->", section_key);
-            if line.contains(&example_anchor) {
-                if let Some(code) = &aug.code_example {
-                    let lang = aug.code_example_language.as_deref().unwrap_or("");
-                    enriched.push_str(&format!("```{}\n{}\n```\n\n", lang, code));
-                }
-            }
-        }
-
-        // Insert closing summary
-        if line.contains("<!-- GNX:CLOSING -->") {
-            if let Some(summary) = &payload.closing_summary {
-                enriched.push_str(&format!(
-                    "\n---\n\n{} {}\n\n",
-                    if enrich_lang == "en" { "**Summary:**" } else { "**En r\u{00e9}sum\u{00e9} :**" },
-                    summary
-                ));
-            }
-            // Add related pages as clickable cards (validate against known pages first)
-            if !payload.related_pages.is_empty() {
-                // Build a set of valid stems from the docs_dir so we don't emit broken cards
-                let docs_dir = page_path.parent().and_then(|p| {
-                    if p.file_name().map(|n| n == "modules" || n == "processes").unwrap_or(false) {
-                        p.parent()
-                    } else {
-                        Some(p)
-                    }
-                }).unwrap_or(page_path.parent().unwrap_or(page_path));
-                let valid_stems: std::collections::HashSet<String> = {
-                    let mut s = std::collections::HashSet::new();
-                    for subdir in &["", "modules", "processes"] {
-                        let dir = if subdir.is_empty() { docs_dir.to_path_buf() } else { docs_dir.join(subdir) };
-                        if let Ok(entries) = std::fs::read_dir(&dir) {
-                            for entry in entries.flatten() {
-                                let p = entry.path();
-                                if p.extension().is_some_and(|e| e == "md") {
-                                    if let Some(stem) = p.file_stem().and_then(|st| st.to_str()) {
-                                        s.insert(stem.to_lowercase());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    s
-                };
-                let valid_related: Vec<&String> = payload.related_pages.iter().filter(|p| {
-                    let stem = p.trim_end_matches(".md").split('/').last().unwrap_or(p);
-                    let ok = valid_stems.contains(&stem.to_lowercase());
-                    if !ok {
-                        tracing::warn!("enrichment: related_page '{}' not found on disk — skipping", p);
-                    }
-                    ok
-                }).collect();
-                if !valid_related.is_empty() {
-                    enriched.push_str("<div class=\"related-pages\">\n");
-                    enriched.push_str(&format!("<div class=\"related-pages-title\">{}</div>\n",
-                        if enrich_lang == "en" { "See Also" } else { "Voir aussi" }));
-                    for p in valid_related {
-                        let stem = p.trim_end_matches(".md");
-                        let display = stem.split('/').last().unwrap_or(stem);
-                        let safe_stem = stem.replace('"', "&quot;").replace('\'', "&#39;");
-                        let safe_display = display.replace('<', "&lt;").replace('>', "&gt;");
-                        enriched.push_str(&format!(
-                            "<a class=\"related-page-card\" href=\"#\" \
-                             onclick=\"showPage('{safe_stem}'); return false;\">{safe_display}</a>\n"
-                        ));
-                    }
-                    enriched.push_str("</div>\n\n");
-                }
-            }
-        }
-    }
-
-    // Validation: tables preserved
-    let orig_pipes = content.chars().filter(|c| *c == '|').count();
-    let enrich_pipes = enriched.chars().filter(|c| *c == '|').count();
-    if orig_pipes > 5 && enrich_pipes < orig_pipes / 2 {
-        return Err(anyhow::anyhow!("Tables lost"));
-    }
-    if enriched.len() < content.len() / 2 {
-        return Err(anyhow::anyhow!("Enriched too short"));
-    }
-
-    // Scope 5.4 — atomic write so a crash mid-write leaves either
-    // the pre-enrichment or post-enrichment content, never a
-    // half-flushed file.
-    atomic_write_page(page_path, &enriched)?;
-
-    // Build provenance entry
-    let page_id = page_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    let provenance = ProvenanceEntry {
-        page_id,
-        model: config.model.clone(),
-        enriched_at: chrono::Utc::now().to_rfc3339(),
-        evidence_refs: evidence,
-        validation: ProvenanceValidation {
-            is_valid: invalid_ids.is_empty(),
-            issues: if invalid_ids.is_empty() {
-                vec![]
-            } else {
-                vec![format!("Invalid source IDs: {}", invalid_ids.join(", "))]
-            },
-        },
-        content_hash: format!("{:x}", hash_simple(&enriched)),
-    };
-
-    Ok(Some(provenance))
+    inject_enrichment(page_path, &content, &payload, evidence, enrich_citations, enrich_lang, &config.model)
+        .map(Some)
 }
 
 // ─── Freeform Enrichment (legacy fallback) ────────────────────────────

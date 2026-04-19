@@ -11,7 +11,7 @@
  * tweak widgets; saves are explicit.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   useMutation,
   useQuery,
@@ -35,6 +35,8 @@ import {
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
+import { confirm } from "../../lib/confirm";
 import type {
   Dashboard,
   DashboardSummary,
@@ -85,6 +87,7 @@ function blankDashboard(name: string): Dashboard {
 }
 
 export function DashboardPanel({ open, onClose }: Props) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const [active, setActive] = useState<Dashboard | null>(null);
@@ -117,13 +120,16 @@ export function DashboardPanel({ open, onClose }: Props) {
     },
   });
 
-  useEffect(() => {
+  // Reset state when the modal closes (derived-from-prop pattern per React 19 docs).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (!open) {
       setActive(null);
       setDirty(false);
       setEditing(false);
     }
-  }, [open]);
+  }
 
   const loadDashboard = async (id: string) => {
     try {
@@ -194,11 +200,11 @@ export function DashboardPanel({ open, onClose }: Props) {
             }}
           >
             <LayoutDashboard size={14} style={{ color: "var(--accent)" }} />
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Dashboards</span>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>{t("panel.dashboards.title")}</span>
             <button
               onClick={newDashboard}
-              title="New dashboard"
-              aria-label="New dashboard"
+              title={t("panel.dashboards.new")}
+              aria-label={t("panel.dashboards.new")}
               style={iconBtn()}
             >
               <Plus size={11} />
@@ -216,8 +222,14 @@ export function DashboardPanel({ open, onClose }: Props) {
             list={list}
             activeId={active?.id ?? null}
             onPick={loadDashboard}
-            onDelete={(id) => {
-              if (window.confirm("Delete this dashboard?")) deleteMut.mutate(id);
+            onDelete={async (id) => {
+              const ok = await confirm({
+                title: t("confirm.deleteTitle"),
+                message: t("panel.dashboards.deleteConfirm"),
+                confirmLabel: t("confirm.delete"),
+                danger: true,
+              });
+              if (ok) deleteMut.mutate(id);
             }}
           />
         </div>
@@ -251,7 +263,7 @@ export function DashboardPanel({ open, onClose }: Props) {
               }}
             >
               <LayoutDashboard size={32} style={{ opacity: 0.4 }} />
-              <div>Open a dashboard from the sidebar, or create a new one.</div>
+              <div>{t("panel.dashboards.emptyHint")}</div>
               <button
                 onClick={newDashboard}
                 style={{
@@ -265,7 +277,7 @@ export function DashboardPanel({ open, onClose }: Props) {
                   cursor: "pointer",
                 }}
               >
-                + New dashboard
+                + {t("panel.dashboards.new")}
               </button>
             </div>
           )}
@@ -305,10 +317,11 @@ function DashboardList({
   onPick: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
+  const { t } = useI18n();
   if (list.length === 0) {
     return (
       <div style={{ padding: 12, fontSize: 11, color: "var(--text-3)" }}>
-        No dashboards yet.
+        {t("panel.dashboards.empty")}
       </div>
     );
   }

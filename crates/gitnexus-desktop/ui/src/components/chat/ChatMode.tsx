@@ -8,7 +8,7 @@
  * - No-repo guard: shows an empty state when no repo is loaded
  */
 
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MessageSquare, Settings2, ChevronDown, Compass, BookOpen } from "lucide-react";
 import { Group, Panel } from "react-resizable-panels";
@@ -78,7 +78,11 @@ export function ChatMode() {
   const setActiveRepo = useAppStore((s) => s.setActiveRepo);
   const setMode = useAppStore((s) => s.setMode);
   const setSelectedNodeId = useAppStore((s) => s.setSelectedNodeId);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Settings modal state lives in the store so it can be opened from
+  // anywhere (e.g., clicking the LLM model in the StatusBar while on any
+  // mode, not just Chat).
+  const settingsOpen = useAppStore((s) => s.chatSettingsOpen);
+  const setSettingsOpen = useAppStore((s) => s.setChatSettingsOpen);
   const { isCompact } = useResponsive();
   const { data: repos } = useRepos();
   const openRepo = useOpenRepo();
@@ -89,7 +93,7 @@ export function ChatMode() {
       const first = repos[0].name;
       openRepo.mutateAsync(first).then(() => setActiveRepo(first)).catch(() => {});
     }
-  }, [repos, activeRepo]);
+  }, [repos, activeRepo, openRepo, setActiveRepo]);
 
   // Fetch LLM config to detect unconfigured state
   const { isLoading: configLoading } = useQuery({
@@ -109,7 +113,7 @@ export function ChatMode() {
       {/* Sidebar: Chat history (like ChatGPT/Claude left panel) */}
       {!isCompact && (
         <>
-          <Panel defaultSize={18} minSize={12} maxSize={28} collapsible>
+          <Panel defaultSize="18%" minSize="12%" maxSize="28%" collapsible>
             <ErrorBoundary>
               <ChatHistorySidebar />
             </ErrorBoundary>
@@ -119,7 +123,7 @@ export function ChatMode() {
       )}
 
       {/* Chat Panel — full width, clean layout like ChatGPT/Claude */}
-      <Panel defaultSize={82} minSize={50}>
+      <Panel defaultSize="82%" minSize="50%">
         <div className="flex flex-col h-full w-full" style={{ background: "var(--bg-0)" }}>
           {/* Header: Repo selector + settings button */}
           <div

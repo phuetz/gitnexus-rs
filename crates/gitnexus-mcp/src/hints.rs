@@ -96,6 +96,49 @@ pub fn hint_for(tool_name: &str) -> &'static str {
             "Fact saved. This will be available in future sessions. Use `search_code` \
              or `context` to continue exploring the codebase."
         }
+        "find_cycles" => {
+            "Review the detected cycles — short 2-node cycles are often design \
+             smells (mutual imports), while long cycles usually indicate a \
+             missing abstraction. Use `context` on any node to see its neighbors \
+             or `impact` to gauge the blast radius of breaking the loop."
+        }
+        "find_similar_code" => {
+            "Review each clone cluster and consider extracting the shared \
+             behavior. Use `context` on any member to see its usages, or \
+             `impact` to check what would be affected by a merge."
+        }
+        "list_todos" => {
+            "Triage the TODO/FIXME markers. FIXMEs and HACKs often surface \
+             undocumented risks. Use `context` on the enclosing file or method \
+             to understand what the marker is blocking."
+        }
+        "get_complexity" => {
+            "The top complex methods are natural refactoring targets. Use \
+             `find_similar_code` to check if the complexity is due to duplicated \
+             branches, or `coverage` to see which complex methods lack tracing."
+        }
+        "list_endpoints" => {
+            "Review the endpoint catalog. Use `get_endpoint_handler` on any \
+             route to open the handler and its neighborhood, or `impact` on \
+             the handler ID to gauge the blast radius of changes."
+        }
+        "list_db_tables" => {
+            "Inspect the schema surface. Use `context` on a table name to see \
+             the ORM classes that represent it, or `cypher` with \
+             `MATCH (t:DbEntity)-[:REFERENCES_TABLE]->(o) RETURN t, o` to map \
+             the foreign-key graph."
+        }
+        "list_env_vars" => {
+            "Variables flagged `unused: true` are candidates for cleanup; \
+             `undeclared: true` means code reads a variable that isn't in any \
+             config file (likely a production-only secret or a missing \
+             declaration). Use `search_code` to audit references."
+        }
+        "get_endpoint_handler" => {
+            "The handler and its callers/callees frame the request flow. Use \
+             `context` on the handler for a 360-degree view, or `impact` to \
+             understand what changes when the endpoint is modified."
+        }
         _ => "Use `list_repos` to see indexed repositories, or `query` to search.",
     }
 }
@@ -126,6 +169,14 @@ mod tests {
             "read_file",
             "get_insights",
             "save_memory",
+            "find_cycles",
+            "find_similar_code",
+            "list_todos",
+            "get_complexity",
+            "list_endpoints",
+            "list_db_tables",
+            "list_env_vars",
+            "get_endpoint_handler",
         ];
         for tool in &tools {
             let hint = hint_for(tool);

@@ -1,8 +1,8 @@
-import { GraphToolbar } from "./GraphToolbar";
+import { GraphToolbar, type GraphMode } from "./GraphToolbar";
 import { LensSelector } from "../explorer/LensSelector";
 import { EgoDepthSlider } from "../explorer/EgoDepthSlider";
 import { ViewModeToggle, type ViewMode } from "./ViewModeToggle";
-import type { GraphStats } from "../../lib/tauri-commands";
+import type { GraphStats, SavedView, CameraState } from "../../lib/tauri-commands";
 
 const SEP_STYLE = {
   width: 1,
@@ -22,6 +22,17 @@ interface GraphToolbarRowProps {
   onToggleEdgeType: (type: string) => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  // Theme C — graph-mode (Normal/Diff/Path) + saved views
+  graphMode?: GraphMode;
+  onGraphModeChange?: (mode: GraphMode) => void;
+  collectViewState?: () => {
+    name?: string;
+    lens?: string;
+    filters?: unknown;
+    cameraState?: CameraState;
+    nodeSelection?: string[];
+  };
+  onApplyView?: (view: SavedView) => void;
 }
 
 export function GraphToolbarRow({
@@ -35,6 +46,10 @@ export function GraphToolbarRow({
   onToggleEdgeType,
   viewMode,
   onViewModeChange,
+  graphMode,
+  onGraphModeChange,
+  collectViewState,
+  onApplyView,
 }: GraphToolbarRowProps) {
   return (
     <div
@@ -54,6 +69,10 @@ export function GraphToolbarRow({
           hiddenEdgeTypes={hiddenEdgeTypes}
           onToggleEdgeType={onToggleEdgeType}
           onFlows={onFlows}
+          viewMode={graphMode}
+          onViewModeChange={onGraphModeChange}
+          collectViewState={collectViewState}
+          onApplyView={onApplyView}
         />
       </div>
 

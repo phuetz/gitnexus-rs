@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { X, Check, Loader2 } from "lucide-react";
+import { X, Check, Loader2, Zap } from "lucide-react";
 import { commands, type ChatConfig } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 
@@ -90,6 +90,32 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
     },
     onError: (err) => {
       toast.error(`Failed to save: ${err instanceof Error ? err.message : String(err)}`);
+    },
+  });
+
+  // Test Connection — pings the LLM endpoint with a trivial prompt so the
+  // user can validate their api_key + base_url + model without committing.
+  // We feed it the current form state (not the persisted config) so changes
+  // can be tested before save.
+  const testMutation = useMutation({
+    mutationFn: (cfg: ChatConfig) => commands.chatTestConnection(cfg),
+    onSuccess: (result) => {
+      if (result.ok) {
+        toast.success(
+          t("chatSettings.testSuccess")
+            .replace("{0}", String(result.status))
+            .replace("{1}", String(result.latencyMs)),
+        );
+      } else {
+        toast.error(
+          t("chatSettings.testFailed")
+            .replace("{0}", String(result.status))
+            .replace("{1}", result.message || "no body"),
+        );
+      }
+    },
+    onError: (err) => {
+      toast.error(`${err instanceof Error ? err.message : String(err)}`);
     },
   });
 
@@ -242,28 +268,49 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
           </div>
         </div>
 
-        {/* Save */}
-        <div className="flex justify-end gap-2 mt-6">
+        {/* Actions — Test Connection on the left, Cancel + Save on the right */}
+        <div className="flex justify-between items-center gap-2 mt-6">
           <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg text-[13px]"
-            style={{ color: "var(--text-2)" }}
+            onClick={() => testMutation.mutate(form)}
+            disabled={testMutation.isPending || saveMutation.isPending}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--surface-border)",
+              color: "var(--text-2)",
+            }}
+            title={t("chatSettings.testConnection.tooltip")}
           >
-            {t("settings.cancel")}
-          </button>
-          <button
-            onClick={() => saveMutation.mutate(form)}
-            disabled={saveMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium"
-            style={{ background: "var(--accent)", color: "#fff" }}
-          >
-            {saveMutation.isPending ? (
-              <Loader2 size={14} className="animate-spin" />
+            {testMutation.isPending ? (
+              <Loader2 size={12} className="animate-spin" />
             ) : (
-              <Check size={14} />
+              <Zap size={12} />
             )}
-            {t("settings.save")}
+            {t("chatSettings.testConnection")}
           </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-[13px]"
+              style={{ color: "var(--text-2)" }}
+            >
+              {t("settings.cancel")}
+            </button>
+            <button
+              onClick={() => saveMutation.mutate(form)}
+              disabled={saveMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium"
+              style={{ background: "var(--accent)", color: "#fff" }}
+            >
+              {saveMutation.isPending ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Check size={14} />
+              )}
+              {t("settings.save")}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -11,7 +11,7 @@
  * per-step result inline).
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Workflow as WorkflowIcon,
@@ -35,6 +35,8 @@ import {
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
+import { confirm } from "../../lib/confirm";
 import type {
   Workflow,
   WorkflowStep,
@@ -77,6 +79,7 @@ function blankWorkflow(name: string): Workflow {
 }
 
 export function WorkflowPanel({ open, onClose }: Props) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const [active, setActive] = useState<Workflow | null>(null);
@@ -121,13 +124,16 @@ export function WorkflowPanel({ open, onClose }: Props) {
     onError: (e) => toast.error(`Run failed: ${(e as Error).message}`),
   });
 
-  useEffect(() => {
+  // Reset state when modal closes (derived-from-prop pattern per React 19 docs).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (!open) {
       setActive(null);
       setDirty(false);
       setRunResult(null);
     }
-  }, [open]);
+  }
 
   const loadWorkflow = async (id: string) => {
     try {
@@ -198,8 +204,8 @@ export function WorkflowPanel({ open, onClose }: Props) {
             }}
           >
             <WorkflowIcon size={14} style={{ color: "var(--accent)" }} />
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Workflows</span>
-            <button onClick={newWorkflow} title="New workflow" aria-label="New workflow" style={iconBtn()}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>{t("panel.workflows.title")}</span>
+            <button onClick={newWorkflow} title={t("panel.workflows.new")} aria-label={t("panel.workflows.new")} style={iconBtn()}>
               <Plus size={11} />
             </button>
             <button onClick={() => refetch()} title="Refresh" aria-label="Refresh" style={iconBtn()}>
@@ -210,8 +216,14 @@ export function WorkflowPanel({ open, onClose }: Props) {
             list={list}
             activeId={active?.id ?? null}
             onPick={loadWorkflow}
-            onDelete={(id) => {
-              if (window.confirm("Delete this workflow?")) deleteMut.mutate(id);
+            onDelete={async (id) => {
+              const ok = await confirm({
+                title: t("confirm.deleteTitle"),
+                message: t("panel.workflows.deleteConfirm"),
+                confirmLabel: t("confirm.delete"),
+                danger: true,
+              });
+              if (ok) deleteMut.mutate(id);
             }}
           />
         </div>
@@ -246,7 +258,7 @@ export function WorkflowPanel({ open, onClose }: Props) {
               }}
             >
               <WorkflowIcon size={32} style={{ opacity: 0.4 }} />
-              <div>Open a workflow from the sidebar, or create a new one.</div>
+              <div>{t("panel.workflows.emptyHint")}</div>
               <button
                 onClick={newWorkflow}
                 style={{
@@ -260,7 +272,7 @@ export function WorkflowPanel({ open, onClose }: Props) {
                   cursor: "pointer",
                 }}
               >
-                + New workflow
+                + {t("panel.workflows.new")}
               </button>
             </div>
           )}
@@ -300,8 +312,9 @@ function WorkflowList({
   onPick: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
+  const { t } = useI18n();
   if (list.length === 0) {
-    return <div style={{ padding: 12, fontSize: 11, color: "var(--text-3)" }}>No workflows yet.</div>;
+    return <div style={{ padding: 12, fontSize: 11, color: "var(--text-3)" }}>{t("panel.workflows.empty")}</div>;
   }
   return (
     <div style={{ overflow: "auto" }}>

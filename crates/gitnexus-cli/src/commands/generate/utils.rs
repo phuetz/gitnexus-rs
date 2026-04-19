@@ -495,24 +495,3 @@ pub(super) fn detect_technology_stack(graph: &KnowledgeGraph, lang_stats: &BTree
     (languages, frameworks, ui_libs, description)
 }
 
-/// Describe a controller based on its name heuristic.
-pub(super) fn describe_controller(name: &str) -> String {
-    let base = name.trim_end_matches("Controller");
-    match base.to_lowercase().as_str() {
-        s if s.contains("dossier") => "case/file management".to_string(),
-        s if s.contains("beneficiaire") || s.contains("beneficiary") => "beneficiary lookup and management".to_string(),
-        s if s.contains("home") => "main dashboard and landing page".to_string(),
-        s if s.contains("account") || s.contains("auth") => "authentication and account management".to_string(),
-        s if s.contains("admin") => "administration and system configuration".to_string(),
-        s if s.contains("user") => "user management".to_string(),
-        s if s.contains("report") => "reporting and analytics".to_string(),
-        s if s.contains("search") => "search functionality".to_string(),
-        s if s.contains("document") || s.contains("doc") => "document management".to_string(),
-        s if s.contains("setting") || s.contains("config") => "application settings and configuration".to_string(),
-        s if s.contains("notification") || s.contains("alert") => "notifications and alerts".to_string(),
-        s if s.contains("api") => "API endpoints".to_string(),
-        s if s.contains("log") => "logging and audit trail".to_string(),
-        s if s.contains("dashboard") => "dashboard and overview".to_string(),
-        _ => format!("{} management", base),
-    }
-}

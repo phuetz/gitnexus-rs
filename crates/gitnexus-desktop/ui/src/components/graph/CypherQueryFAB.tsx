@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
+import { confirm } from "../../lib/confirm";
 import { useAppStore } from "../../stores/app-store";
 import type { SavedQuery } from "../../lib/tauri-commands";
 
@@ -317,9 +318,17 @@ export function CypherQueryFAB() {
                         </div>
                       </button>
                       <button
-                        onClick={() => { if (window.confirm(t("cypher.confirmDelete") || "Delete this saved query?")) deleteMut.mutate(q.id); }}
-                        title="Delete saved query"
-                        aria-label="Delete saved query"
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: t("confirm.deleteTitle"),
+                            message: t("cypher.confirmDelete"),
+                            confirmLabel: t("confirm.delete"),
+                            danger: true,
+                          });
+                          if (ok) deleteMut.mutate(q.id);
+                        }}
+                        title={t("cypher.deleteSaved")}
+                        aria-label={t("cypher.deleteSaved")}
                         style={{
                           padding: 4,
                           background: "transparent",

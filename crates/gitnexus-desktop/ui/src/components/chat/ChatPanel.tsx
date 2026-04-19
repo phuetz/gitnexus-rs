@@ -1,42 +1,28 @@
 /**
  * ChatPanel — Intelligent Q&A chat with IDE-style filtering and multi-step research.
- *
- * Features:
- * - Natural language questions answered using knowledge graph + LLM
- * - IDE-style file/symbol/module filtering (Ctrl+P, Ctrl+Shift+O)
- * - Query complexity analysis with visual indicators
- * - Deep Research mode: multi-step plans executed like Manus AI
- * - Source citations with expandable code snippets
- * - Markdown-rendered responses with syntax highlighting
- * - Conversation history
  */
 
-import { lazy, Suspense, useState, useRef, useEffect, useCallback, useMemo, forwardRef } from "react";
+import { lazy, Suspense, useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useI18n } from "../../hooks/use-i18n";
+import { confirm } from "../../lib/confirm";
 import { ChatSuggestions } from "./ChatSuggestions";
 import {
-  Send,
   Loader2,
-  Settings2,
   Sparkles,
   Microscope,
   Hammer,
-  Zap,
-  Copy,
   Trash2,
   Download,
+  Wrench,
+  Search,
+  FileJson,
 } from "lucide-react";
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
-import { isTauri } from "../../lib/tauri-env";
 import type {
   ChatSmartResponse,
-  QueryComplexity,
   FeatureDevArtifact,
-  FeatureDevPhase,
-  FeatureDevPhaseEvent,
-  FeatureDevSectionEvent,
   CodeReviewArtifact,
   SimplifyArtifact,
 } from "../../lib/tauri-commands";
@@ -45,9 +31,14 @@ import { useChatStore } from "../../stores/chat-store";
 import { useChatSessionStore, type Message } from "../../stores/chat-session-store";
 import { ChatContextBar } from "./ChatContextBar";
 import { ArtifactPanel } from "./ArtifactPanel";
-import { CodeReviewPanel } from "./CodeReviewPanel";
-import { SimplifyPanel } from "./SimplifyPanel";
 import { ShieldCheck } from "lucide-react";
+
+// Refactored components and hooks
+import { ChatInput } from "./ChatInput";
+import { ChatMessage } from "./ChatMessage";
+import { useChatStream } from "../../hooks/use-chat-stream";
+import { CodePreviewPanel } from "./CodePreviewPanel";
+import { ResearchProgress } from "./ResearchProgress";
 
 const FileFilterModal = lazy(() =>
   import("./FileFilterModal").then((m) => ({ default: m.FileFilterModal })),
@@ -58,14 +49,14 @@ const SymbolFilterModal = lazy(() =>
 const ModuleFilterModal = lazy(() =>
   import("./ModuleFilterModal").then((m) => ({ default: m.ModuleFilterModal })),
 );
-const ResearchPlanViewer = lazy(() =>
-  import("./ResearchPlanViewer").then((m) => ({ default: m.ResearchPlanViewer })),
-);
-const SourceReferences = lazy(() =>
-  import("./SourceReferences").then((m) => ({ default: m.SourceReferences })),
-);
 const ChatMarkdown = lazy(() =>
   import("./ChatMarkdown").then((m) => ({ default: m.ChatMarkdown })),
+);
+const ChatToolsPanel = lazy(() =>
+  import("./ChatToolsPanel").then((m) => ({ default: m.ChatToolsPanel })),
+);
+const ChatSearch = lazy(() =>
+  import("./ChatSearch").then((m) => ({ default: m.ChatSearch })),
 );
 
 // ─── Props ──────────────────────────────────────────────────────────
@@ -108,12 +99,10 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       const session = sessions.find(s => s.id === activeSessionId && s.repo === activeRepo);
       if (session) return session;
     }
-    // Fallback: most recent session for this repo
     const repoSessions = sessions.filter(s => s.repo === activeRepo).sort((a, b) => b.updatedAt - a.updatedAt);
     return repoSessions[0] ?? null;
   }, [sessions, activeSessionId, activeRepo]);
 
-  // Sync activeSessionId when the fallback session differs (side-effect, not during render)
   useEffect(() => {
     if (activeSession && activeSession.id !== activeSessionId) {
       setActiveSession(activeSession.id);
@@ -123,12 +112,38 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
   const messages = useMemo(() => activeSession?.messages || [], [activeSession?.messages]);
 
   const [input, setInput] = useState("");
-  const [streamingText, setStreamingText] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [activeTools, setActiveTools] = useState<string[]>([]);
+  const [previewFile, setPreviewFile] = useState<{ path: string; startLine?: number; endLine?: number } | null>(null);
+  const [toolsPanelOpen, setToolsPanelOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const {
+    streamingText,
+    setStreamingText,
+    isStreaming,
+    setIsStreaming,
+    activeTools,
+    toolHistory,
+    setToolHistory,
+    liveArtifact,
+    setLiveArtifact,
+    activePhase,
+    setActivePhase
+  } = useChatStream();
+
   const streamingMsgIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Global "focus the chat input" shortcut: Ctrl+L from anywhere switches
+  // to Chat mode and dispatches this event. We listen here because the
+  // input ref only exists when ChatPanel is mounted.
+  useEffect(() => {
+    const onFocus = () => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    };
+    window.addEventListener("gitnexus:focus-chat-input", onFocus);
+    return () => window.removeEventListener("gitnexus:focus-chat-input", onFocus);
+  }, []);
 
   const {
     chatMode,
@@ -142,137 +157,43 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     clearPendingQuestion,
   } = useChatStore();
 
-  // ── Feature-Dev live state ───────────────────────────────────
-  // Artifact id → partial artifact being assembled as sections stream in.
-  const [liveArtifact, setLiveArtifact] = useState<FeatureDevArtifact | null>(null);
-  const [activePhase, setActivePhase] = useState<FeatureDevPhase | null>(null);
-
   // Scroll to bottom when messages change or streaming updates
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingText, activeTools]);
 
-  // ── Listen for SSE stream chunks from the backend ───────────
-  useEffect(() => {
-    if (!isTauri()) return;
-
-    let cancelled = false;
-    let chunkUnlisten: (() => void) | null = null;
-    let doneUnlisten: (() => void) | null = null;
-    let toolStartUnlisten: (() => void) | null = null;
-    let toolEndUnlisten: (() => void) | null = null;
-
-    import("@tauri-apps/api/event").then((mod) => {
-      mod.listen<string>("chat-stream-chunk", (event) => {
-        if (cancelled) return;
-        setStreamingText((prev) => prev + event.payload);
-      }).then((fn) => {
-        if (cancelled) fn(); else chunkUnlisten = fn;
-      });
-
-      mod.listen<string>("tool_execution_start", (event) => {
-        if (cancelled) return;
-        setActiveTools((prev) => [...prev, event.payload]);
-      }).then((fn) => {
-        if (cancelled) fn(); else toolStartUnlisten = fn;
-      });
-
-      mod.listen<string>("tool_execution_end", (event) => {
-        if (cancelled) return;
-        setActiveTools((prev) => prev.filter((t) => t !== event.payload));
-      }).then((fn) => {
-        if (cancelled) fn(); else toolEndUnlisten = fn;
-      });
-
-      mod.listen<void>("chat-stream-done", () => {
-        if (cancelled) return;
-        setActiveTools([]);
-        setIsStreaming(false);
-      }).then((fn) => {
-        if (cancelled) fn(); else doneUnlisten = fn;
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      chunkUnlisten?.();
-      doneUnlisten?.();
-      toolStartUnlisten?.();
-      toolEndUnlisten?.();
-    };
-  }, []);
-
-  // ── Listen for feature-dev phase / section events ────────────
-  useEffect(() => {
-    if (!isTauri()) return;
-
-    let cancelled = false;
-    let phaseUnlisten: (() => void) | null = null;
-    let sectionUnlisten: (() => void) | null = null;
-
-    import("@tauri-apps/api/event").then((mod) => {
-      mod
-        .listen<FeatureDevPhaseEvent>("feature-dev-phase", (event) => {
-          if (cancelled) return;
-          const { phase, status } = event.payload;
-          if (status === "running") setActivePhase(phase);
-          else if (status === "completed" || status === "failed") setActivePhase(null);
-        })
-        .then((fn) => {
-          if (cancelled) fn();
-          else phaseUnlisten = fn;
-        });
-
-      mod
-        .listen<FeatureDevSectionEvent>("feature-dev-section", (event) => {
-          if (cancelled) return;
-          setLiveArtifact((prev) => {
-            if (!prev || prev.id !== event.payload.artifactId) return prev;
-            // Replace-or-append by phase so re-runs of a phase don't duplicate.
-            const others = prev.sections.filter(
-              (s) => s.phase !== event.payload.section.phase,
-            );
-            return {
-              ...prev,
-              sections: [...others, event.payload.section],
-            };
-          });
-        })
-        .then((fn) => {
-          if (cancelled) fn();
-          else sectionUnlisten = fn;
-        });
-    });
-
-    return () => {
-      cancelled = true;
-      phaseUnlisten?.();
-      sectionUnlisten?.();
-    };
-  }, []);
-
   // ── Keyboard shortcuts for filter modals ─────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Ctrl+P → File picker
       if ((e.ctrlKey || e.metaKey) && e.key === "p" && !e.shiftKey) {
         e.preventDefault();
         useChatStore.getState().openModal("files");
       }
-      // Ctrl+Shift+O → Symbol picker
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "O") {
         e.preventDefault();
         useChatStore.getState().openModal("symbols");
       }
-      // Ctrl+Shift+M → Module picker
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "M") {
         e.preventDefault();
         useChatStore.getState().openModal("modules");
+      }
+      // Theme B — cross-session search
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "F" || e.key === "f")) {
+        e.preventDefault();
+        setSearchOpen(true);
       }
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Listen for a global event so the command palette / menus can open
+  // the cross-session search modal without reaching into this component.
+  useEffect(() => {
+    const onOpenSearch = () => setSearchOpen(true);
+    window.addEventListener("gitnexus:open-chat-search", onOpenSearch);
+    return () => window.removeEventListener("gitnexus:open-chat-search", onOpenSearch);
   }, []);
 
   // ── Smart Ask mutation (uses plan executor for deep research) ─
@@ -286,7 +207,6 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       | { __kind: "code_review"; artifact: CodeReviewArtifact }
       | { __kind: "simplify"; artifact: SimplifyArtifact }
     > => {
-      // Build history from ref + the user message just added (ref may not be synced yet)
       const history = [
         ...messagesRef.current,
         { role: "user" as const, content: question },
@@ -300,7 +220,6 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
       const isDeep = mode === "deep_research";
       const hasFilters = useChatStore.getState().hasActiveFilters();
 
-      // Simplify mode: target may be `simplify: <file/module/symbol>`, or empty.
       if (mode === "simplify") {
         const match = question.match(/^\s*simplify:\s*(.+)$/i);
         const target = match ? match[1].trim() : question.trim() || undefined;
@@ -308,10 +227,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         return { __kind: "simplify", artifact };
       }
 
-      // Code-Review mode: run the pre-commit review and return an artifact.
       if (mode === "code_review") {
-        // The question can be either an explicit symbol list ("review: foo, bar")
-        // or empty/arbitrary → use git diff scope. Parse a leading "review:" prefix.
         const match = question.match(/^\s*review:\s*(.+)$/i);
         const targetSymbols = match
           ? match[1].split(/[,\s]+/).map((s) => s.trim()).filter(Boolean)
@@ -324,12 +240,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         return { __kind: "code_review", artifact };
       }
 
-      // Feature-Dev mode: run the 3-phase artifact pipeline instead of the
-      // standard chat pipeline. Sections stream in via feature-dev-section
-      // events; the final artifact is returned here when all phases finish.
       if (mode === "feature_dev") {
-        // Seed a placeholder artifact so the live UI has something to render
-        // the moment the first event arrives.
         const placeholderId = `fd_pending_${Date.now()}`;
         setLiveArtifact({
           id: placeholderId,
@@ -343,14 +254,12 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
           featureDescription: question,
           filters: hasFilters ? currentFilters : undefined,
         });
-        // Swap placeholder id with the real one; keep any sections already streamed.
-        setLiveArtifact((prev) =>
+        setLiveArtifact((prev: FeatureDevArtifact | null) =>
           prev && prev.id === placeholderId ? { ...prev, id: artifact.id } : prev,
         );
         return { __kind: "feature_dev", artifact };
       }
 
-      // Use the smart planner/executor for deep research or filtered queries
       if (isDeep || hasFilters) {
         return commands.chatExecutePlan({
           question,
@@ -360,21 +269,24 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         });
       }
 
-      // Standard chat — reset streaming state and start listening for chunks
       setStreamingText("");
+      setToolHistory([]);
       setIsStreaming(true);
       streamingMsgIdRef.current = `msg-${Date.now()}-stream`;
 
       const response = await commands.chatAsk({ question, history });
+      // Don't fake a complexity value — chatAsk is the streaming agentic path
+      // and doesn't run the planner. Leaving `complexity` undefined hides the
+      // badge, which is the honest UX; the former hardcoded "simple" value
+      // triggered a "⚡ Réponse rapide" badge even when the agent ran 5 tool
+      // iterations.
       return {
         answer: response.answer,
         sources: response.sources,
         model: response.model,
-        complexity: "simple" as QueryComplexity,
       } as ChatSmartResponse;
     },
     onSuccess: (response) => {
-      // Simplify path: surface the simplify artifact.
       if ("__kind" in response && response.__kind === "simplify") {
         setIsStreaming(false);
         const proposalCount = response.artifact.proposals.length;
@@ -389,7 +301,6 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         return;
       }
 
-      // Code-Review path: surface the review artifact as an assistant message.
       if ("__kind" in response && response.__kind === "code_review") {
         setIsStreaming(false);
         const issueCount = response.artifact.review.issues.length;
@@ -405,7 +316,6 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         return;
       }
 
-      // Feature-Dev path: surface the artifact as an assistant message.
       if ("__kind" in response && response.__kind === "feature_dev") {
         setIsStreaming(false);
         setActivePhase(null);
@@ -421,7 +331,6 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         return;
       }
 
-      // Finalize: stop streaming, add the complete message
       setIsStreaming(false);
       setStreamingText("");
       streamingMsgIdRef.current = null;
@@ -468,10 +377,6 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     const question = input.trim();
     if (!question || askMutation.isPending) return;
 
-    // User slash-command interception: `/<name> <args>` → resolve via the
-    // per-repo user_commands store. If matched, dispatch through the chat
-    // store (mode + autoSend) so the rest of the pipeline behaves as if
-    // the resolved text was typed directly.
     const slashMatch = question.match(/^\/(\w[\w-]*)\b\s*(.*)$/);
     if (slashMatch) {
       try {
@@ -489,7 +394,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
           return;
         }
       } catch {
-        // Fall through and send the literal text if resolution fails.
+        // Fall through
       }
     }
 
@@ -505,12 +410,8 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     askMutation.mutate(question);
   }, [input, askMutation, addMessage, activeRepo]);
 
-  // ── Consume pendingQuestion (dispatched from context menu, etc.) ──
-  // The store's dispatchQuestion already switched the mode; here we just
-  // seed the input and optionally auto-send.
   useEffect(() => {
     if (!pendingQuestion) return;
-    setInput(pendingQuestion.text);
     if (pendingQuestion.autoSend && !askMutation.isPending) {
       const text = pendingQuestion.text;
       const userMessage: Message = {
@@ -520,14 +421,15 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         timestamp: Date.now(),
       };
       addMessage(activeRepo, userMessage);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing external store event (pendingQuestion) into local input; single-shot, store is cleared immediately below
       setInput("");
       askMutation.mutate(text);
     } else {
+      setInput(pendingQuestion.text);
       inputRef.current?.focus();
     }
     clearPendingQuestion();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingQuestion]);
+  }, [pendingQuestion, askMutation, addMessage, activeRepo, clearPendingQuestion]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -536,557 +438,259 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     }
   };
 
-  // ─── Empty State ──────────────────────────────────────────────
+  // ─── Render ──────────────────────────────────────────────────
 
-  if (messages.length === 0) {
-    return (
-      <div className="h-full flex flex-col">
+  return (
+    <div className="h-full flex flex-row overflow-hidden bg-bg-0">
+      <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${previewFile ? 'max-w-[50%]' : 'max-w-full'}`}>
         {/* Context filter bar + mode switcher */}
         <div className="flex items-center">
           <div className="flex-1">
             <ChatContextBar />
           </div>
-          <div className="mr-2">
+          <div className="flex items-center gap-1 mr-2">
             <ModeSwitcher mode={chatMode} onChange={setChatMode} />
-          </div>
-        </div>
-
-        {/* Suggestions */}
-        <div className="flex-1 min-h-0 overflow-auto">
-          <ChatSuggestions onSelect={(q) => { setInput(q); inputRef.current?.focus(); }} />
-        </div>
-
-        {/* Input bar — shrink-0 ensures it never gets squeezed off-screen */}
-        <div className="shrink-0">
-          <ChatInput
-            ref={inputRef}
-            value={input}
-            onChange={setInput}
-            onSend={handleSend}
-            onKeyDown={handleKeyDown}
-            isPending={askMutation.isPending}
-            onOpenSettings={onOpenSettings}
-            deepResearch={deepResearchEnabled}
-            hasFilters={hasActiveFilters()}
-          />
-        </div>
-
-        {/* Filter modals */}
-        {renderFilterModals(activeModal, closeModal)}
-      </div>
-    );
-  }
-
-  // ─── Conversation View ────────────────────────────────────────
-
-  return (
-    <div className="h-full flex flex-col">
-      {/* Context filter bar + action buttons */}
-      <div className="flex items-center">
-        <div className="flex-1">
-          <ChatContextBar />
-        </div>
-        <div className="flex items-center gap-1 mr-2">
-          {/* Mode switcher — exclusive buttons for Deep Research / Feature-Dev */}
-          <ModeSwitcher mode={chatMode} onChange={setChatMode} />
-        </div>
-        <div className="flex items-center gap-1 mr-2">
-          <button
-            onClick={() => {
-              const date = new Date().toISOString().split("T")[0];
-              const filename = `gitnexus-chat-${activeRepo || "global"}-${date}.md`;
-              const content = messages
-                .map((m) => `### ${m.role === "user" ? "You" : "GitNexus"}\n\n${m.content}\n`)
-                .join("\n---\n\n");
-              const blob = new Blob([content], { type: "text/markdown" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = filename;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              setTimeout(() => URL.revokeObjectURL(url), 1000);
-              toast.success(t("chat.exportedAsMarkdown"));
-            }}
-            className="text-[11px] hover-surface rounded px-2 py-1"
-            style={{ color: "var(--text-3)" }}
-            title={t("chat.exportChatMarkdown")}
-            aria-label="Export chat"
-          >
-            <Download size={12} />
-          </button>
-          <button
-            onClick={() => {
-              if (!window.confirm(t("chat.confirmClear"))) return;
-              clearSessionMessages(activeRepo);
-              toast.success(t("chat.conversationCleared"));
-            }}
-            className="text-[11px] hover-surface rounded px-2 py-1"
-            style={{ color: "var(--text-3)" }}
-            title={t("chat.clearConversation") || "Clear conversation"}
-            aria-label="Clear conversation"
-          >
-            <Trash2 size={12} />
-          </button>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4" aria-live="polite" aria-label="Chat messages">
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            onNavigateToNode={onNavigateToNode}
-          />
-        ))}
-
-        {/* Active tool badges — shown during tool execution */}
-        {activeTools.length > 0 && (
-          <div className="fade-in flex flex-wrap gap-1.5 px-1 py-1">
-            {activeTools.map((tool) => (
-              <span
-                key={tool}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
-                style={{
-                  background: "color-mix(in srgb, var(--orange) 15%, transparent)",
-                  color: "var(--orange)",
-                }}
-              >
-                <Loader2 size={9} className="animate-spin" />
-                {tool}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Streaming response — show tokens as they arrive */}
-        {isStreaming && streamingText && (
-          <div className="fade-in">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: "var(--purple)" }}
-              />
-              <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
-                GitNexus
-              </span>
-            </div>
-            <div
-              className="prose-sm text-[13px] leading-relaxed"
-              style={{ color: "var(--text-1)" }}
-              aria-live="assertive"
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="text-[11px] hover:bg-[var(--bg-3)] rounded px-2 py-1"
+              style={{ color: "var(--text-3)" }}
+              title={(t("chat.searchAll") || "Search all sessions") + " (Ctrl+Shift+F)"}
             >
-              <Suspense fallback={<MarkdownFallback content={streamingText} />}>
-                <ChatMarkdown content={streamingText} onNavigateToNode={onNavigateToNode} />
-              </Suspense>
-              <span className="typing-cursor" />
-            </div>
+              <Search size={12} />
+            </button>
+            <button
+              onClick={() => setToolsPanelOpen((v) => !v)}
+              className="text-[11px] hover:bg-[var(--bg-3)] rounded px-2 py-1"
+              style={{
+                color: toolsPanelOpen ? "var(--accent)" : "var(--text-3)",
+                background: toolsPanelOpen ? "var(--accent-subtle)" : undefined,
+              }}
+              title={t("chat.toolsPanel") || "Agent tools panel"}
+            >
+              <Wrench size={12} />
+            </button>
+            {messages.length > 0 && (
+              <>
+                <button
+                  onClick={() => {
+                    const date = new Date().toISOString().split("T")[0];
+                    const filename = `gitnexus-chat-${activeRepo || "global"}-${date}.md`;
+                    const content = messages
+                      .map((m) => `### ${m.role === "user" ? "You" : "GitNexus"}\n\n${m.content}\n`)
+                      .join("\n---\n\n");
+                    const blob = new Blob([content], { type: "text/markdown" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    toast.success(t("chat.exportedAsMarkdown"));
+                  }}
+                  className="text-[11px] hover:bg-[var(--bg-3)] rounded px-2 py-1"
+                  style={{ color: "var(--text-3)" }}
+                  title={t("chat.exportChatMarkdown")}
+                >
+                  <Download size={12} />
+                </button>
+                <button
+                  onClick={() => {
+                    const date = new Date().toISOString().split("T")[0];
+                    const filename = `gitnexus-chat-${activeRepo || "global"}-${date}.json`;
+                    // Structured dump: include every persisted field so a
+                    // round-trip can rebuild the session exactly (useful for
+                    // sharing a retry/fork trail or archiving an experiment).
+                    const payload = {
+                      exportedAt: new Date().toISOString(),
+                      repo: activeRepo,
+                      session: activeSession
+                        ? {
+                            id: activeSession.id,
+                            title: activeSession.title,
+                            parentId: activeSession.parentId,
+                            branchFromMessageId: activeSession.branchFromMessageId,
+                            updatedAt: activeSession.updatedAt,
+                          }
+                        : null,
+                      messages,
+                    };
+                    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+                      type: "application/json",
+                    });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    toast.success(t("chat.exportedAsJson") || "Chat exported as JSON");
+                  }}
+                  className="text-[11px] hover:bg-[var(--bg-3)] rounded px-2 py-1"
+                  style={{ color: "var(--text-3)" }}
+                  title={t("chat.exportChatJson") || "Export chat as JSON (messages + toolCalls)"}
+                >
+                  <FileJson size={12} />
+                </button>
+                <button
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: t("confirm.deleteTitle"),
+                      message: t("chat.confirmClear"),
+                      confirmLabel: t("confirm.delete"),
+                      danger: true,
+                    });
+                    if (!ok) return;
+                    clearSessionMessages(activeRepo);
+                    toast.success(t("chat.conversationCleared"));
+                  }}
+                  className="text-[11px] hover:bg-[var(--bg-3)] rounded px-2 py-1"
+                  style={{ color: "var(--text-3)" }}
+                  title={t("chat.clearConversation")}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </>
+            )}
           </div>
-        )}
+        </div>
 
-        {/* Thinking/loading shimmer — before any tokens arrive */}
-        {askMutation.isPending && !isStreaming && (
-          <div className="fade-in">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: "var(--purple)" }}
-              />
-              <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
-                GitNexus
-              </span>
-              <span className="text-[11px]" style={{ color: "var(--text-3)" }}>
-                {deepResearchEnabled
-                  ? t("chat.executingResearch")
-                  : hasActiveFilters()
-                  ? t("chat.searchingContext")
-                  : t("chat.thinking")}
-              </span>
-            </div>
-            <div className="space-y-2 py-4 px-4">
-              <div className="shimmer rounded" style={{ height: 14, width: "80%", background: "var(--bg-3)" }} />
-              <div className="shimmer rounded" style={{ height: 14, width: "65%", background: "var(--bg-3)" }} />
-              <div className="shimmer rounded" style={{ height: 14, width: "45%", background: "var(--bg-3)" }} />
-            </div>
-          </div>
-        )}
+        {/* Content Area */}
+        <div className="flex-1 min-h-0 overflow-auto">
+          {messages.length === 0 ? (
+            <ChatSuggestions onSelect={(q) => { setInput(q); inputRef.current?.focus(); }} />
+          ) : (
+            <div className="px-4 py-4 space-y-4" aria-live="polite">
+              {messages.map((msg) => (
+                  <ChatMessage
+                    key={msg.id}
+                    message={msg}
+                    sessionId={activeSession?.id}
+                    onNavigateToNode={onNavigateToNode}
+                    onFilePreview={setPreviewFile}
+                  />
+                ))}
 
-        {/* Live feature-dev artifact (streams in as phases complete) */}
-        {liveArtifact && (
-          <div className="fade-in">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Hammer size={12} style={{ color: "var(--accent)" }} />
-              <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
-                Feature-Dev in progress…
-              </span>
-            </div>
-            <ArtifactPanel artifact={liveArtifact} activePhase={activePhase} />
-          </div>
-        )}
+              {/* Research Progress Pipeline */}
+              {toolHistory.length > 0 && isStreaming && (
+                <ResearchProgress steps={toolHistory} />
+              )}
 
-        {/* Waiting for first token — streaming started but no text yet */}
-        {isStreaming && !streamingText && (
-          <div className="fade-in">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: "var(--purple)" }}
-              />
-              <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
-                GitNexus
-              </span>
-              <span className="text-[11px]" style={{ color: "var(--text-3)" }}>
-                {t("chat.generatingResponse")}
-              </span>
-            </div>
-            <div className="py-2 px-4">
-              <span className="typing-cursor" />
-            </div>
-          </div>
-        )}
+              {/* Active tool badges */}              {activeTools.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 px-1 py-1">
+                  {activeTools.map((tool) => (
+                    <span
+                      key={tool}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
+                      style={{
+                        background: "color-mix(in srgb, var(--orange) 15%, transparent)",
+                        color: "var(--orange)",
+                      }}
+                    >
+                      <Loader2 size={9} className="animate-spin" />
+                      {tool}
+                    </span>
+                  ))}
+                </div>
+              )}
 
-        <div ref={messagesEndRef} />
+              {/* Streaming response */}
+              {isStreaming && streamingText && (
+                <div className="fade-in">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: "var(--purple)" }} />
+                    <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>GitNexus</span>
+                  </div>
+                  <div className="prose-sm text-[13px] leading-relaxed" style={{ color: "var(--text-1)" }}>
+                    <Suspense fallback={<MarkdownFallback content={streamingText} />}>
+                      <ChatMarkdown content={streamingText} onNavigateToNode={onNavigateToNode} />
+                    </Suspense>
+                    <span className="typing-cursor" />
+                  </div>
+                </div>
+              )}
+
+              {/* Thinking state */}
+              {askMutation.isPending && !isStreaming && (
+                <div className="fade-in">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: "var(--purple)" }} />
+                    <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>GitNexus</span>
+                    <span className="text-[11px]" style={{ color: "var(--text-3)" }}>
+                      {deepResearchEnabled ? t("chat.executingResearch") : hasActiveFilters() ? t("chat.searchingContext") : t("chat.thinking")}
+                    </span>
+                  </div>
+                  <div className="space-y-2 py-4 px-4">
+                    <div className="shimmer rounded" style={{ height: 14, width: "80%", background: "var(--bg-3)" }} />
+                    <div className="shimmer rounded" style={{ height: 14, width: "65%", background: "var(--bg-3)" }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Live artifact */}
+              {liveArtifact && (
+                <div className="fade-in">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Hammer size={12} style={{ color: "var(--accent)" }} />
+                    <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>Feature-Dev in progress…</span>
+                  </div>
+                  <ArtifactPanel artifact={liveArtifact} activePhase={activePhase} />
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
+
+        {/* Input area */}
+        <ChatInput
+          ref={inputRef}
+          value={input}
+          onChange={setInput}
+          onSend={handleSend}
+          onKeyDown={handleKeyDown}
+          isPending={askMutation.isPending}
+          onOpenSettings={onOpenSettings}
+          deepResearch={deepResearchEnabled}
+          hasFilters={hasActiveFilters()}
+        />
       </div>
 
-      {/* Input bar */}
-      <ChatInput
-        ref={inputRef}
-        value={input}
-        onChange={setInput}
-        onSend={handleSend}
-        onKeyDown={handleKeyDown}
-        isPending={askMutation.isPending}
-        onOpenSettings={onOpenSettings}
-        deepResearch={deepResearchEnabled}
-        hasFilters={hasActiveFilters()}
-      />
+      {/* Code Preview Split Panel */}
+      {previewFile && (
+        <div className="w-1/2 min-w-[300px] border-l border-surface-border fade-in">
+          <CodePreviewPanel
+            filePath={previewFile.path}
+            startLine={previewFile.startLine}
+            endLine={previewFile.endLine}
+            onClose={() => setPreviewFile(null)}
+          />
+        </div>
+      )}
+
+      {/* Tools panel right rail */}
+      {toolsPanelOpen && !previewFile && (
+        <div className="w-[300px] min-w-[260px] fade-in">
+          <Suspense fallback={null}>
+            <ChatToolsPanel onClose={() => setToolsPanelOpen(false)} />
+          </Suspense>
+        </div>
+      )}
+
+      {/* Cross-session search modal */}
+      <Suspense fallback={null}>
+        <ChatSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+      </Suspense>
 
       {/* Filter modals */}
       {renderFilterModals(activeModal, closeModal)}
     </div>
   );
 }
-
-// ─── MessageBubble (flat developer-tool layout) ────────────────────
-
-function MessageBubble({
-  message,
-  onNavigateToNode,
-}: {
-  message: Message;
-  onNavigateToNode?: (nodeId: string) => void;
-}) {
-  const { t } = useI18n();
-  const handleCopyMessage = useCallback(() => {
-    navigator.clipboard.writeText(message.content).then(
-      () => toast.success(t("chat.copiedToClipboard")),
-      () => toast.error(t("chat.copyFailed")),
-    );
-  }, [message.content, t]);
-
-  const handleExportMessage = useCallback(() => {
-    try {
-      const date = new Date().toISOString().split("T")[0];
-      const filename = `gitnexus-response-${date}.md`;
-      const blob = new Blob([message.content], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast.success(t("chat.responseExported"));
-    } catch (e) {
-      toast.error(t("chat.exportFailed").replace("{0}", String(e)));
-    }
-  }, [message.content, t]);
-
-  if (message.role === "user") {
-    return (
-      <div className="group relative fade-in">
-        {/* Role label */}
-        <div className="flex items-center gap-1.5 mb-1">
-          <span
-            className="w-2 h-2 rounded-full flex-shrink-0"
-            style={{ background: "var(--accent)" }}
-          />
-          <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
-            {t("chat.you")}
-          </span>
-        </div>
-        {/* Message content */}
-        <div
-          className="px-4 py-3 rounded-lg text-[13px] leading-relaxed"
-          style={{ background: "var(--bg-2)", color: "var(--text-1)" }}
-        >
-          {message.content}
-        </div>
-        {/* Hover actions */}
-        <div
-          className="absolute top-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
-          style={{ marginTop: -2 }}
-        >
-          <button
-            onClick={handleCopyMessage}
-            className="p-1 rounded transition-colors"
-            style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
-            aria-label="Copy message"
-          >
-            <Copy size={12} />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="group relative fade-in">
-      {/* Role label */}
-      <div className="flex items-center gap-1.5 mb-1">
-        <span
-          className="w-2 h-2 rounded-full flex-shrink-0"
-          style={{ background: "var(--purple)" }}
-        />
-        <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
-          GitNexus
-        </span>
-        {/* Complexity badge inline */}
-        {message.complexity && <ComplexityIndicator complexity={message.complexity} />}
-      </div>
-
-      {/* Hover actions */}
-      <div
-        className="absolute top-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
-        style={{ marginTop: -2 }}
-      >
-        <button
-          onClick={handleExportMessage}
-          className="p-1 rounded transition-colors"
-          style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
-          title={t("chat.exportResponseMarkdown")}
-          aria-label="Export response"
-        >
-          <Download size={12} />
-        </button>
-        <button
-          onClick={handleCopyMessage}
-          className="p-1 rounded transition-colors"
-          style={{ background: "var(--bg-3)", color: "var(--text-3)" }}
-          aria-label="Copy message"
-        >
-          <Copy size={12} />
-        </button>
-      </div>
-
-      {/* Research plan (if present) */}
-      {message.plan && (
-        <div className="mb-3">
-          <Suspense fallback={null}>
-            <ResearchPlanViewer plan={message.plan} />
-          </Suspense>
-        </div>
-      )}
-
-      {/* Artifact panels (mutually exclusive with plain content) */}
-      {message.artifact ? (
-        <ArtifactPanel artifact={message.artifact} />
-      ) : message.reviewArtifact ? (
-        <CodeReviewPanel artifact={message.reviewArtifact} />
-      ) : message.simplifyArtifact ? (
-        <SimplifyPanel artifact={message.simplifyArtifact} />
-      ) : (
-        /* Response content */
-        <div
-          className="prose-sm text-[13px] leading-relaxed"
-          style={{ color: "var(--text-1)" }}
-        >
-          <Suspense fallback={<MarkdownFallback content={message.content} />}>
-            <ChatMarkdown content={message.content} onNavigateToNode={onNavigateToNode} />
-          </Suspense>
-        </div>
-      )}
-
-      {/* Enhanced source references */}
-      {message.sources && message.sources.length > 0 && (
-        <Suspense fallback={null}>
-          <SourceReferences
-            sources={message.sources}
-            onNavigateToNode={onNavigateToNode}
-          />
-        </Suspense>
-      )}
-
-      {/* Model indicator */}
-      {message.model && (
-        <div className="mt-2 text-[11px]" style={{ color: "var(--text-3)" }}>
-          Answered by {message.model}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── ComplexityIndicator ────────────────────────────────────────────
-
-function ComplexityIndicator({ complexity }: { complexity: QueryComplexity }) {
-  const { t } = useI18n();
-  const configs: Record<string, { label: string; color: string; icon: typeof Zap }> = {
-    simple: { label: t("chat.quickAnswer"), color: "var(--green)", icon: Zap },
-    medium: { label: t("chat.multiSource"), color: "var(--orange)", icon: Sparkles },
-    complex: { label: t("chat.deepResearch"), color: "var(--purple)", icon: Microscope },
-  };
-  const config = configs[complexity] ?? configs.simple;
-
-  const Icon = config.icon;
-
-  return (
-    <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
-      style={{
-        background: `color-mix(in srgb, ${config.color} 10%, transparent)`,
-        color: config.color,
-      }}
-    >
-      <Icon size={9} />
-      {config.label}
-    </span>
-  );
-}
-
-// ─── ChatInput ──────────────────────────────────────────────────────
-
-interface ChatInputProps {
-  value: string;
-  onChange: (value: string) => void;
-  onSend: () => void;
-  onKeyDown: (e: React.KeyboardEvent) => void;
-  isPending: boolean;
-  onOpenSettings?: () => void;
-  deepResearch: boolean;
-  hasFilters: boolean;
-}
-
-const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
-  ({ value, onChange, onSend, onKeyDown, isPending, onOpenSettings, deepResearch, hasFilters }, ref) => {
-    const { t } = useI18n();
-    const internalRef = useRef<HTMLTextAreaElement | null>(null);
-    const placeholder = deepResearch
-      ? "Ask a complex question (deep research mode)..."
-      : hasFilters
-      ? "Ask about filtered context..."
-      : "Ask about this codebase...";
-
-    // Auto-resize textarea on input change (min 56px to prevent shrink)
-    useEffect(() => {
-      const el = internalRef.current;
-      if (!el) return;
-      el.style.height = "56px";
-      el.style.height = `${Math.max(56, Math.min(el.scrollHeight, 200))}px`;
-    }, [value]);
-
-    // Merge forwarded ref with internal ref
-    const setRefs = useCallback(
-      (node: HTMLTextAreaElement | null) => {
-        internalRef.current = node;
-        if (typeof ref === "function") {
-          ref(node);
-        } else if (ref) {
-          (ref as React.MutableRefObject<HTMLTextAreaElement | null>).current = node;
-        }
-      },
-      [ref],
-    );
-
-    return (
-      <div
-        className="flex-shrink-0 px-4 py-3"
-        style={{ borderTop: "1px solid var(--surface-border)" }}
-      >
-        <div
-          className="chat-input-container flex items-end gap-2 rounded-2xl px-4 py-3 transition-all"
-          style={{
-            background: "var(--bg-2)",
-            border: deepResearch
-              ? "2px solid var(--purple)"
-              : "1px solid var(--surface-border)",
-            boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
-          }}
-        >
-          {/* Deep research indicator */}
-          {deepResearch && (
-            <Microscope
-              size={16}
-              className="mb-1 flex-shrink-0"
-              style={{ color: "var(--purple)" }}
-            />
-          )}
-
-          <textarea
-            ref={setRefs}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder={placeholder}
-            aria-label="Ask a question about the code"
-            rows={1}
-            className="flex-1 bg-transparent resize-none text-[14px] outline-none min-h-[40px] max-h-[200px] leading-relaxed"
-            onInput={(e) => { const el = e.currentTarget; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 200)}px`; }}
-            style={{
-              color: "var(--text-0)",
-              fontFamily: "var(--font-body)",
-            }}
-          />
-          <div className="flex items-center gap-1">
-            {onOpenSettings && (
-              <button
-                onClick={onOpenSettings}
-                className="p-1.5 rounded-lg transition-colors"
-                style={{ color: "var(--text-3)" }}
-                aria-label="Chat Settings"
-              >
-                <Settings2 size={14} />
-              </button>
-            )}
-            <button
-              onClick={onSend}
-              disabled={!value.trim() || isPending}
-              aria-label={isPending ? "Sending..." : "Send message"}
-              className="p-2 rounded-xl transition-all"
-              style={{
-                background: value.trim() && !isPending
-                  ? deepResearch ? "var(--purple)" : "var(--accent)"
-                  : "var(--bg-3)",
-                color: value.trim() && !isPending ? "#fff" : "var(--text-3)",
-                minWidth: 36,
-                minHeight: 36,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {isPending ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <Send size={16} />
-              )}
-            </button>
-          </div>
-        </div>
-        <p className="mt-1.5 text-[11px] text-center" style={{ color: "var(--text-3)" }}>
-          {deepResearch
-            ? t("chat.deepResearchHint")
-            : t("chat.inputHint")}
-        </p>
-      </div>
-    );
-  }
-);
-
-ChatInput.displayName = "ChatInput";
 
 // ─── ModeSwitcher ──────────────────────────────────────────────────
 
@@ -1099,6 +703,7 @@ function ModeSwitcher({
     m: "qa" | "deep_research" | "feature_dev" | "code_review" | "simplify",
   ) => void;
 }) {
+  const { t } = useI18n();
   const modes: Array<{
     key: "qa" | "deep_research" | "feature_dev" | "code_review" | "simplify";
     icon: typeof Microscope;
@@ -1109,36 +714,36 @@ function ModeSwitcher({
     {
       key: "qa",
       icon: Sparkles,
-      label: "Q&A",
-      tooltip: "Standard Q&A mode",
+      label: t("chat.mode.qa.label"),
+      tooltip: t("chat.mode.qa.tooltip"),
       color: "var(--accent)",
     },
     {
       key: "deep_research",
       icon: Microscope,
-      label: "Research",
-      tooltip: "Deep research — multi-step plan",
+      label: t("chat.mode.research.label"),
+      tooltip: t("chat.mode.research.tooltip"),
       color: "var(--purple)",
     },
     {
       key: "feature_dev",
       icon: Hammer,
-      label: "Feature-Dev",
-      tooltip: "3-phase feature design: Explore → Architect → Review",
+      label: t("chat.mode.featureDev.label"),
+      tooltip: t("chat.mode.featureDev.tooltip"),
       color: "var(--orange, #e0af68)",
     },
     {
       key: "code_review",
       icon: ShieldCheck,
-      label: "Review",
-      tooltip: "Pre-commit code review using graph signals",
+      label: t("chat.mode.review.label"),
+      tooltip: t("chat.mode.review.tooltip"),
       color: "var(--green, #9ece6a)",
     },
     {
       key: "simplify",
       icon: Sparkles,
-      label: "Simplify",
-      tooltip: "Refactor proposals: dead code, complexity, duplicates",
+      label: t("chat.mode.simplify.label"),
+      tooltip: t("chat.mode.simplify.tooltip"),
       color: "var(--purple, #bb9af7)",
     },
   ];
@@ -1180,4 +785,3 @@ function ModeSwitcher({
     </div>
   );
 }
-

@@ -213,6 +213,16 @@ impl LocalBackend {
             "read_file" => self.tool_read_file(args).await,
             "get_insights" => self.tool_get_insights(args).await,
             "save_memory" => self.tool_save_memory(args).await,
+            // Code Quality Suite (Theme A)
+            "find_cycles" => self.tool_find_cycles(args).await,
+            "find_similar_code" => self.tool_find_similar_code(args).await,
+            "list_todos" => self.tool_list_todos(args).await,
+            "get_complexity" => self.tool_get_complexity(args).await,
+            // Schema & API Inventory (Theme D)
+            "list_endpoints" => self.tool_list_endpoints(args).await,
+            "list_db_tables" => self.tool_list_db_tables(args).await,
+            "list_env_vars" => self.tool_list_env_vars(args).await,
+            "get_endpoint_handler" => self.tool_get_endpoint_handler(args).await,
             _ => Err(McpError::UnknownTool(name.to_string())),
         }
     }
@@ -404,81 +414,136 @@ impl LocalBackend {
         let uid = args.get("uid").and_then(|v| v.as_str());
         let file_filter = args.get("file").and_then(|v| v.as_str());
 
-        let entry = self.resolve_repo(repo_name)?;
-        let db_path = std::path::Path::new(&entry.storage_path).join("db");
-        let adapter = self.pool.get_or_open(&db_path).map_err(McpError::Db)?;
+        // Previously this tool issued a Cypher query using map literals
+        // (`collect(DISTINCT {rel: ..., target: ...})`). The default
+        // in-memory Cypher executor does not support map literal syntax,
+        // so the query always failed to parse on real data. Implement the
+        // 360° lookup directly against the loaded snapshot — same pattern
+        // as `tool_impact` below.
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
+        let query_start = Instant::now();
+        let graph = self.load_cached_snapshot(&snap_path)?;
 
-        // Build context query
-        let escaped_name = query::escape_cypher_string(name);
-        let cypher = if let Some(uid_val) = uid {
-            let escaped_uid = query::escape_cypher_string(uid_val);
-            format!(
-                "MATCH (n) WHERE n.id = '{escaped_uid}' \
-                 OPTIONAL MATCH (n)-[r]->(m) \
-                 OPTIONAL MATCH (p)-[r2]->(n) \
-                 RETURN n, collect(DISTINCT {{rel: type(r), target: m.name, targetId: m.id}}) AS outgoing, \
-                        collect(DISTINCT {{rel: type(r2), source: p.name, sourceId: p.id}}) AS incoming"
-            )
+        // Resolve the target node id. Priority: explicit uid → exact name
+        // (+ optional file filter) → case-insensitive exact name.
+        let node_id: Option<String> = if let Some(uid_val) = uid {
+            graph.get_node(uid_val).map(|n| n.id.clone())
         } else {
-            let file_clause = file_filter
-                .map(|f| {
-                    let ef = query::escape_cypher_string(f);
-                    format!(" AND n.filePath = '{ef}'")
+            let name_lower = name.to_lowercase();
+            graph
+                .iter_nodes()
+                .find(|n| {
+                    let name_match = n.properties.name == name
+                        || n.properties.name.to_lowercase() == name_lower;
+                    let file_match = match file_filter {
+                        Some(f) => n.properties.file_path == f,
+                        None => true,
+                    };
+                    name_match && file_match
                 })
-                .unwrap_or_default();
-            format!(
-                "MATCH (n) WHERE n.name = '{escaped_name}'{file_clause} \
-                 OPTIONAL MATCH (n)-[r]->(m) \
-                 OPTIONAL MATCH (p)-[r2]->(n) \
-                 RETURN n, collect(DISTINCT {{rel: type(r), target: m.name, targetId: m.id}}) AS outgoing, \
-                        collect(DISTINCT {{rel: type(r2), source: p.name, sourceId: p.id}}) AS incoming"
-            )
+                .map(|n| n.id.clone())
         };
 
-        let query_start = Instant::now();
-        let mut results = adapter.execute_query(&cypher).map_err(McpError::Db)?;
-        let duration = query_start.elapsed();
+        let Some(node_id) = node_id else {
+            let duration = query_start.elapsed();
+            return Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!("Symbol '{}' not found.", name)
+                }],
+                "_meta": {
+                    "hint": hints::hint_for("context"),
+                    "durationMs": duration.as_millis() as u64,
+                    "enrichment": json!(null)
+                }
+            }));
+        };
 
+        // Build outgoing / incoming relationship lists by iterating the graph.
+        // Deduplicate on (rel_type, other_id) to match the old
+        // `collect(DISTINCT ...)` semantics.
+        let mut outgoing_seen = std::collections::HashSet::new();
+        let mut incoming_seen = std::collections::HashSet::new();
+        let mut outgoing: Vec<Value> = Vec::new();
+        let mut incoming: Vec<Value> = Vec::new();
+        for rel in graph.iter_relationships() {
+            let rel_type = rel.rel_type.as_str();
+            if rel.source_id == node_id {
+                if outgoing_seen.insert((rel_type, rel.target_id.clone())) {
+                    let target_name = graph
+                        .get_node(&rel.target_id)
+                        .map(|n| n.properties.name.clone())
+                        .unwrap_or_default();
+                    outgoing.push(json!({
+                        "rel": rel_type,
+                        "target": target_name,
+                        "targetId": rel.target_id,
+                    }));
+                }
+            }
+            if rel.target_id == node_id
+                && incoming_seen.insert((rel_type, rel.source_id.clone()))
+            {
+                let source_name = graph
+                    .get_node(&rel.source_id)
+                    .map(|n| n.properties.name.clone())
+                    .unwrap_or_default();
+                incoming.push(json!({
+                    "rel": rel_type,
+                    "source": source_name,
+                    "sourceId": rel.source_id,
+                }));
+            }
+        }
+
+        // Cap the payload so we don't flood the LLM context with hub nodes.
+        const MAX_EDGES_PER_DIRECTION: usize = 1000;
+        if outgoing.len() > MAX_EDGES_PER_DIRECTION {
+            tracing::warn!(
+                total = outgoing.len(),
+                "context: truncating outgoing edges to {}",
+                MAX_EDGES_PER_DIRECTION
+            );
+            outgoing.truncate(MAX_EDGES_PER_DIRECTION);
+        }
+        if incoming.len() > MAX_EDGES_PER_DIRECTION {
+            tracing::warn!(
+                total = incoming.len(),
+                "context: truncating incoming edges to {}",
+                MAX_EDGES_PER_DIRECTION
+            );
+            incoming.truncate(MAX_EDGES_PER_DIRECTION);
+        }
+
+        let node = graph.get_node(&node_id).expect("node_id was just resolved");
+        let p = &node.properties;
+        let node_json = json!({
+            "id": node.id,
+            "label": node.label.as_str(),
+            "name": p.name,
+            "filePath": p.file_path,
+            "startLine": p.start_line,
+            "endLine": p.end_line,
+        });
+
+        let enrichment = Self::collect_enrichment_for_node(&graph, &node_id);
+        let duration = query_start.elapsed();
         if duration.as_secs() > 5 {
             tracing::warn!(
-                query = %cypher,
+                node_id = %node_id,
                 duration_ms = duration.as_millis() as u64,
-                "Slow context query detected"
+                "Slow context lookup detected"
             );
         }
 
-        let total_rows = results.len();
-        if total_rows > 1000 {
-            tracing::warn!(
-                total_rows = total_rows,
-                "Context query returned {} results, truncating to 1000",
-                total_rows
-            );
-            results.truncate(1000);
-        }
-
-        // Enrich with snapshot data if available
-        let enrichment = {
-            let snap_path = gitnexus_db::snapshot::snapshot_path(
-                &std::path::PathBuf::from(&entry.storage_path),
-            );
-            if let Ok(graph) = self.load_cached_snapshot(&snap_path) {
-                // Try to find the node by uid or name
-                if let Some(uid_val) = uid {
-                    Self::collect_enrichment_for_node(&graph, uid_val)
-                } else {
-                    // Search by name
-                    let name_lower = name.to_lowercase();
-                    graph
-                        .iter_nodes()
-                        .find(|n| n.properties.name.to_lowercase() == name_lower)
-                        .map(|n| Self::collect_enrichment_for_node(&graph, &n.id))
-                        .unwrap_or(json!(null))
-                }
-            } else {
-                json!(null)
-            }
-        };
+        let results = vec![json!({
+            "n": node_json,
+            "outgoing": outgoing,
+            "incoming": incoming,
+        })];
 
         Ok(json!({
             "content": [{
@@ -2046,6 +2111,486 @@ impl LocalBackend {
         }))
     }
 
+    // ─── Code Quality Suite (Theme A) ────────────────────────────────
+
+    async fn tool_find_cycles(&mut self, args: &Value) -> Result<Value> {
+        use gitnexus_db::analytics::cycles::{find_cycles, CycleScope};
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let scope_str = args.get("scope").and_then(|v| v.as_str()).unwrap_or("imports");
+        let scope = CycleScope::parse(scope_str).ok_or_else(|| McpError::InvalidArguments {
+            tool: "find_cycles".into(),
+            reason: format!("Invalid scope '{scope_str}' (expected 'imports' or 'calls')"),
+        })?;
+        let limit = clamp_limit(args.get("limit").and_then(|v| v.as_u64()), 50, MAX_ANALYTICS_LIMIT);
+
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        let mut cycles = find_cycles(&graph, scope);
+        cycles.truncate(limit);
+        let results: Vec<Value> = cycles
+            .iter()
+            .map(|c| serde_json::to_value(c).unwrap_or_default())
+            .collect();
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("find_cycles"),
+                "scope": scope_str,
+                "resultCount": results.len(),
+            }
+        }))
+    }
+
+    async fn tool_find_similar_code(&mut self, args: &Value) -> Result<Value> {
+        use gitnexus_db::analytics::clones::{find_clones, CloneOptions};
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let min_tokens = args
+            .get("min_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(30) as usize;
+        let threshold = args
+            .get("threshold")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.9);
+        let limit = clamp_limit(args.get("limit").and_then(|v| v.as_u64()), 50, MAX_ANALYTICS_LIMIT);
+
+        let (repo_path, snap_path) = {
+            let entry = self.resolve_repo(repo_name)?;
+            (
+                std::path::PathBuf::from(&entry.path),
+                std::path::Path::new(&entry.storage_path).join("graph.bin"),
+            )
+        };
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        let opts = CloneOptions {
+            min_tokens: min_tokens.max(5),
+            threshold: threshold.clamp(0.0, 1.0),
+            max_clusters: limit,
+        };
+        let clusters = find_clones(&graph, &repo_path, opts);
+        let results: Vec<Value> = clusters
+            .iter()
+            .map(|c| serde_json::to_value(c).unwrap_or_default())
+            .collect();
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("find_similar_code"),
+                "minTokens": min_tokens,
+                "threshold": threshold,
+                "resultCount": results.len(),
+            }
+        }))
+    }
+
+    async fn tool_list_todos(&mut self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let severity_filter = args.get("severity").and_then(|v| v.as_str());
+        let limit = clamp_limit(args.get("limit").and_then(|v| v.as_u64()), 200, 500);
+
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        let mut todos: Vec<Value> = Vec::new();
+        for node in graph.iter_nodes() {
+            if node.label != NodeLabel::TodoMarker {
+                continue;
+            }
+            let kind = node.properties.todo_kind.clone().unwrap_or_default();
+            if let Some(want) = severity_filter {
+                if !kind.eq_ignore_ascii_case(want) {
+                    continue;
+                }
+            }
+            todos.push(json!({
+                "nodeId": node.id,
+                "kind": kind,
+                "text": node.properties.todo_text,
+                "filePath": node.properties.file_path,
+                "line": node.properties.start_line,
+                "language": node.properties.language,
+            }));
+        }
+        // Sort: FIXME > HACK > TODO > XXX, then by file path.
+        todos.sort_by(|a, b| {
+            let ka = todo_rank(a.get("kind").and_then(|v| v.as_str()).unwrap_or(""));
+            let kb = todo_rank(b.get("kind").and_then(|v| v.as_str()).unwrap_or(""));
+            ka.cmp(&kb).then_with(|| {
+                a.get("filePath")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .cmp(b.get("filePath").and_then(|v| v.as_str()).unwrap_or(""))
+            })
+        });
+        let total = todos.len();
+        todos.truncate(limit);
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&todos).unwrap_or_else(|_| "[]".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("list_todos"),
+                "resultCount": todos.len(),
+                "totalCount": total,
+            }
+        }))
+    }
+
+    async fn tool_get_complexity(&mut self, args: &Value) -> Result<Value> {
+        use gitnexus_db::analytics::complexity::{get_complexity, ComplexityOptions};
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let threshold = args.get("threshold").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let top_n = clamp_limit(args.get("limit").and_then(|v| v.as_u64()), 50, 200);
+
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        let report = get_complexity(
+            &graph,
+            ComplexityOptions {
+                threshold,
+                top_n,
+            },
+        );
+        let body = serde_json::to_value(&report).unwrap_or_default();
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("get_complexity"),
+                "threshold": threshold,
+                "topN": top_n,
+            }
+        }))
+    }
+
+    // ─── Schema & API Inventory (Theme D) ─────────────────────────────
+
+    async fn tool_list_endpoints(&mut self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let want_method = args
+            .get("method")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_ascii_uppercase());
+        let pattern = args
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_ascii_lowercase());
+        let limit = clamp_limit(args.get("limit").and_then(|v| v.as_u64()), 200, 500);
+
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        let mut results: Vec<Value> = Vec::new();
+        for node in graph.iter_nodes() {
+            if node.label != NodeLabel::ApiEndpoint {
+                continue;
+            }
+            let http = node.properties.http_method.clone().unwrap_or_default();
+            let route = node
+                .properties
+                .route
+                .clone()
+                .or_else(|| node.properties.route_template.clone())
+                .unwrap_or_default();
+            if let Some(w) = &want_method {
+                if !http.eq_ignore_ascii_case(w) {
+                    continue;
+                }
+            }
+            if let Some(pat) = &pattern {
+                if !route.to_ascii_lowercase().contains(pat) {
+                    continue;
+                }
+            }
+            let handler_name = node
+                .properties
+                .handler_id
+                .as_deref()
+                .and_then(|hid| graph.get_node(hid).map(|n| n.properties.name.clone()));
+            results.push(json!({
+                "nodeId": node.id,
+                "httpMethod": http,
+                "route": route,
+                "framework": node.properties.framework,
+                "filePath": node.properties.file_path,
+                "startLine": node.properties.start_line,
+                "handlerId": node.properties.handler_id,
+                "handlerName": handler_name,
+            }));
+        }
+        let total = results.len();
+        results.truncate(limit);
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("list_endpoints"),
+                "resultCount": results.len(),
+                "totalCount": total,
+            }
+        }))
+    }
+
+    async fn tool_list_db_tables(&mut self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let limit = clamp_limit(args.get("limit").and_then(|v| v.as_u64()), 200, 500);
+
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        // Aggregate column + FK counts.
+        let mut col_count: HashMap<String, u32> = HashMap::new();
+        let mut fk_count: HashMap<String, u32> = HashMap::new();
+        for rel in graph.iter_relationships() {
+            match rel.rel_type {
+                RelationshipType::HasColumn => {
+                    *col_count.entry(rel.source_id.clone()).or_insert(0) += 1;
+                }
+                RelationshipType::ReferencesTable => {
+                    *fk_count.entry(rel.source_id.clone()).or_insert(0) += 1;
+                }
+                _ => {}
+            }
+        }
+
+        let mut results: Vec<Value> = Vec::new();
+        for node in graph.iter_nodes() {
+            if node.label != NodeLabel::DbEntity {
+                continue;
+            }
+            results.push(json!({
+                "nodeId": node.id,
+                "name": node.properties.name,
+                "filePath": node.properties.file_path,
+                "columnCount": col_count.get(&node.id).copied().unwrap_or(0),
+                "fkCount": fk_count.get(&node.id).copied().unwrap_or(0),
+            }));
+        }
+        let total = results.len();
+        results.truncate(limit);
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("list_db_tables"),
+                "resultCount": results.len(),
+                "totalCount": total,
+            }
+        }))
+    }
+
+    async fn tool_list_env_vars(&mut self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let unused_only = args
+            .get("unused_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let limit = clamp_limit(args.get("limit").and_then(|v| v.as_u64()), 200, 1000);
+
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        let mut results: Vec<Value> = Vec::new();
+        for node in graph.iter_nodes() {
+            if node.label != NodeLabel::EnvVar {
+                continue;
+            }
+            let unused = node.properties.unused.unwrap_or(false);
+            if unused_only && !unused {
+                continue;
+            }
+            results.push(json!({
+                "nodeId": node.id,
+                "name": node.properties.name,
+                "declaredIn": node.properties.declared_in,
+                "usedInCount": node.properties.used_in_count.unwrap_or(0),
+                "unused": unused,
+                "undeclared": node.properties.undeclared.unwrap_or(false),
+            }));
+        }
+        let total = results.len();
+        results.truncate(limit);
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("list_env_vars"),
+                "resultCount": results.len(),
+                "totalCount": total,
+            }
+        }))
+    }
+
+    async fn tool_get_endpoint_handler(&mut self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let route = args
+            .get("route")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::InvalidArguments {
+                tool: "get_endpoint_handler".into(),
+                reason: "Missing required 'route' parameter".into(),
+            })?
+            .to_string();
+        let method = args
+            .get("method")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::InvalidArguments {
+                tool: "get_endpoint_handler".into(),
+                reason: "Missing required 'method' parameter".into(),
+            })?
+            .to_ascii_uppercase();
+
+        let snap_path = {
+            let entry = self.resolve_repo(repo_name)?;
+            std::path::Path::new(&entry.storage_path).join("graph.bin")
+        };
+        let graph = self.load_cached_snapshot(&snap_path)?;
+
+        // Find the endpoint.
+        let endpoint = graph.iter_nodes().find(|n| {
+            n.label == NodeLabel::ApiEndpoint
+                && n.properties
+                    .http_method
+                    .as_deref()
+                    .map(|m| m.eq_ignore_ascii_case(&method))
+                    .unwrap_or(false)
+                && (n.properties.route.as_deref() == Some(route.as_str())
+                    || n.properties.route_template.as_deref() == Some(route.as_str()))
+        });
+
+        let Some(endpoint) = endpoint else {
+            return Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!("No endpoint found for {} {}", method, route)
+                }],
+                "_meta": {
+                    "hint": hints::hint_for("get_endpoint_handler"),
+                    "found": false,
+                }
+            }));
+        };
+
+        // Resolve handler via HandledBy edge.
+        let handler_id = graph
+            .iter_relationships()
+            .find(|r| {
+                matches!(r.rel_type, RelationshipType::HandledBy)
+                    && r.source_id == endpoint.id
+            })
+            .map(|r| r.target_id.clone())
+            .or_else(|| endpoint.properties.handler_id.clone());
+
+        let mut callers: Vec<Value> = Vec::new();
+        let mut callees: Vec<Value> = Vec::new();
+        let mut handler_json = Value::Null;
+
+        if let Some(hid) = &handler_id {
+            if let Some(handler) = graph.get_node(hid) {
+                handler_json = json!({
+                    "nodeId": handler.id,
+                    "name": handler.properties.name,
+                    "label": handler.label.as_str(),
+                    "filePath": handler.properties.file_path,
+                    "startLine": handler.properties.start_line,
+                    "endLine": handler.properties.end_line,
+                });
+                for rel in graph.iter_relationships() {
+                    if !matches!(rel.rel_type, RelationshipType::Calls) {
+                        continue;
+                    }
+                    if rel.target_id == *hid {
+                        if let Some(src) = graph.get_node(&rel.source_id) {
+                            callers.push(json!({
+                                "nodeId": src.id,
+                                "name": src.properties.name,
+                                "label": src.label.as_str(),
+                            }));
+                        }
+                    }
+                    if rel.source_id == *hid {
+                        if let Some(tgt) = graph.get_node(&rel.target_id) {
+                            callees.push(json!({
+                                "nodeId": tgt.id,
+                                "name": tgt.properties.name,
+                                "label": tgt.label.as_str(),
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+
+        let payload = json!({
+            "endpoint": {
+                "nodeId": endpoint.id,
+                "httpMethod": endpoint.properties.http_method,
+                "route": endpoint.properties.route.clone().or(endpoint.properties.route_template.clone()),
+                "framework": endpoint.properties.framework,
+                "filePath": endpoint.properties.file_path,
+                "startLine": endpoint.properties.start_line,
+            },
+            "handler": handler_json,
+            "callers": callers,
+            "callees": callees,
+        });
+
+        Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())
+            }],
+            "_meta": {
+                "hint": hints::hint_for("get_endpoint_handler"),
+                "found": true,
+                "hasHandler": handler_id.is_some(),
+            }
+        }))
+    }
+
     /// Collect neighbor names from an adjacency list (incoming or outgoing).
     fn collect_neighbors(
         graph: &KnowledgeGraph,
@@ -2078,6 +2623,17 @@ impl LocalBackend {
 
 fn sanitize_mermaid_id(id: &str) -> String {
     id.replace([':', '/', '.', ' ', '<', '>', '(', ')', '{', '}'], "_")
+}
+
+/// Ranking for TODO-kind severity sort (lower = more urgent).
+fn todo_rank(kind: &str) -> u8 {
+    match kind {
+        "FIXME" => 0,
+        "HACK" => 1,
+        "TODO" => 2,
+        "XXX" => 3,
+        _ => 4,
+    }
 }
 
 /// Escape characters that would break a Mermaid `["..."]` label literal.

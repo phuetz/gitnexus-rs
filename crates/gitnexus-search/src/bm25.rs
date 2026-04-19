@@ -122,38 +122,34 @@ fn parse_fts_row(row: &Value, table: &str) -> Option<BM25SearchResult> {
     })
 }
 
-/// Merge results by file_path, summing scores and keeping the highest-scoring
-/// node metadata for each file.
+/// Merge results by file_path, keeping the **best** single-node score (MAX)
+/// for each file along with that node's metadata.
+///
+/// Previously this summed per-file scores, which inflated files with many
+/// small matches (e.g. minified JavaScript bundles where every query token
+/// happens to occur in a function name). Taking the max keeps ranking driven
+/// by the strongest individual match, which aligns with "best symbol in the
+/// file" — the mental model the chat UI ends up surfacing to users.
 fn merge_by_file_path(
     results: Vec<BM25SearchResult>,
 ) -> HashMap<String, BM25SearchResult> {
     let mut merged: HashMap<String, BM25SearchResult> = HashMap::new();
 
-    // Track the best individual score per file to keep the highest-scoring node's metadata
-    let mut best_individual: HashMap<String, f64> = HashMap::new();
-
     for result in results {
         let file_path = result.file_path.clone();
-        let individual_score = result.score;
         merged
-            .entry(file_path.clone())
+            .entry(file_path)
             .and_modify(|existing| {
-                existing.score += individual_score;
-                // Keep the highest individual-scoring node's metadata (not accumulated)
-                let best = best_individual.get(&file_path).copied().unwrap_or(0.0);
-                if individual_score > best {
+                if result.score > existing.score {
+                    existing.score = result.score;
                     existing.node_id = result.node_id.clone();
                     existing.name = result.name.clone();
                     existing.label = result.label.clone();
                     existing.start_line = result.start_line;
                     existing.end_line = result.end_line;
-                    best_individual.insert(file_path.clone(), individual_score);
                 }
             })
-            .or_insert_with(|| {
-                best_individual.insert(file_path, individual_score);
-                result
-            });
+            .or_insert(result);
     }
 
     merged
@@ -211,7 +207,12 @@ mod tests {
 
         let merged = merge_by_file_path(results);
         assert_eq!(merged.len(), 2);
-        assert!((merged["src/a.ts"].score - 3.0).abs() < f64::EPSILON);
+        // MAX-merge: best single-symbol score wins per file.
+        // src/a.ts had 2.0 (foo) and 1.0 (bar) → keeps 2.0 + foo's metadata.
+        assert!((merged["src/a.ts"].score - 2.0).abs() < f64::EPSILON);
+        assert_eq!(merged["src/a.ts"].node_id, "f1");
+        assert_eq!(merged["src/a.ts"].name, "foo");
+        // src/b.ts only had one result at 3.0 → unchanged.
         assert!((merged["src/b.ts"].score - 3.0).abs() < f64::EPSILON);
     }
 

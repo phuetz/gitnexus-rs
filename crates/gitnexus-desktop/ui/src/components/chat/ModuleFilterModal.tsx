@@ -18,6 +18,10 @@ interface ModuleFilterModalProps {
   onClose: () => void;
 }
 
+// Stable module-level empty array so the compare-in-render reset below
+// doesn't see a new reference each render.
+const EMPTY_RESULTS: ModuleQuickPick[] = [];
+
 export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
@@ -30,12 +34,13 @@ export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
 
   // Scope by `activeRepo` so switching repos doesn't return the previous
   // repo's cached module picks for the same query.
-  const { data: results = [], isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["chatPickModules", activeRepo, query],
     queryFn: () => commands.chatPickModules(query, 30),
     enabled: open,
     staleTime: 5000,
   });
+  const results = data ?? EMPTY_RESULTS;
 
   // Reset on open (render-time state adjustment)
   const [prevOpen, setPrevOpen] = useState(open);
@@ -70,14 +75,16 @@ export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
   }, [selectedIndex]);
 
   const toggleModule = useCallback(
-    (name: string) => {
-      if (filters.modules.includes(name)) {
+    (name: string, keepOpen = false) => {
+      const already = filters.modules.includes(name);
+      if (already) {
         removeModuleFilter(name);
       } else {
         addModuleFilter(name);
       }
+      if (!already && !keepOpen) onClose();
     },
-    [filters.modules, addModuleFilter, removeModuleFilter]
+    [filters.modules, addModuleFilter, removeModuleFilter, onClose]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -89,7 +96,7 @@ export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
       setSelectedIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter" && results[selectedIndex]) {
       e.preventDefault();
-      toggleModule(results[selectedIndex].name);
+      toggleModule(results[selectedIndex].name, e.shiftKey);
     } else if (e.key === "Escape") {
       onClose();
     }
@@ -142,7 +149,7 @@ export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
               module={mod}
               isSelected={i === selectedIndex}
               isActive={filters.modules.includes(mod.name)}
-              onClick={() => toggleModule(mod.name)}
+              onClick={(e) => toggleModule(mod.name, e.altKey || e.shiftKey)}
               onMouseEnter={() => setSelectedIndex(i)}
             />
           ))}
@@ -153,12 +160,12 @@ export function ModuleFilterModal({ open, onClose }: ModuleFilterModalProps) {
           style={{ borderTop: "1px solid var(--surface-border)", color: "var(--text-3)" }}
         >
           <span>
-            {filters.modules.length} module{filters.modules.length !== 1 ? "s" : ""} selected
+            {t("filter.modulesSelected").replace("{0}", String(filters.modules.length))}
           </span>
           <span>
-            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Enter</kbd> toggle
+            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Enter</kbd> {t("filter.toggle")}
             {" · "}
-            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Esc</kbd> close
+            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Esc</kbd> {t("filter.close")}
           </span>
         </div>
       </div>
@@ -176,7 +183,7 @@ function ModuleItem({
   module: ModuleQuickPick;
   isSelected: boolean;
   isActive: boolean;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent) => void;
   onMouseEnter: () => void;
 }) {
   return (

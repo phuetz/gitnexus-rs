@@ -163,39 +163,112 @@ impl FtsIndex {
             }
         }
 
-        // Collect and filter
-        let mut results: Vec<(&str, f64)> = scores.into_iter().collect();
-        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        let mut output = Vec::new();
-        for (node_id, score) in results {
-            if let Some(node) = graph.get_node(node_id) {
-                // Apply table filter BEFORE checking the limit, otherwise the
-                // limit could be reached on entries that get filtered out and
-                // we would return fewer matches than requested.
+        // Apply relevance weighting (path + label) BEFORE sorting, then sort.
+        // We look up every candidate node once to read its label + file_path —
+        // O(n) cost, n = distinct docs that matched any query term.
+        let mut weighted: Vec<(&str, f64, &gitnexus_core::graph::types::GraphNode)> = scores
+            .into_iter()
+            .filter_map(|(node_id, score)| {
+                let node = graph.get_node(node_id)?;
+                // Apply table filter early so we don't weight nodes we'll drop.
                 if let Some(filter) = table_filter {
                     if node.label.as_str() != filter {
-                        continue;
+                        return None;
                     }
                 }
+                let weighted_score = score
+                    * path_weight(&node.properties.file_path)
+                    * label_weight(node.label);
+                Some((node_id, weighted_score, node))
+            })
+            .collect();
 
-                output.push(FtsResult {
-                    node_id: node_id.to_string(),
-                    score,
-                    name: node.properties.name.clone(),
-                    file_path: node.properties.file_path.clone(),
-                    label: node.label.as_str().to_string(),
-                    start_line: node.properties.start_line,
-                    end_line: node.properties.end_line,
-                });
+        weighted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-                if output.len() >= limit {
-                    break;
-                }
-            }
-        }
+        weighted
+            .into_iter()
+            .take(limit)
+            .map(|(node_id, score, node)| FtsResult {
+                node_id: node_id.to_string(),
+                score,
+                name: node.properties.name.clone(),
+                file_path: node.properties.file_path.clone(),
+                label: node.label.as_str().to_string(),
+                start_line: node.properties.start_line,
+                end_line: node.properties.end_line,
+            })
+            .collect()
+    }
+}
 
-        output
+/// Deprioritize minified assets and third-party library bundles so business
+/// code wins over `jquery-ui.min.js` on generic queries. Returns a multiplier
+/// in `[0.1, 1.0]`.
+///
+/// Exposed so callers that score nodes outside `FtsIndex::search` (e.g.
+/// `chat::search_relevant_context`'s name-match pass) can apply the same
+/// penalty consistently.
+pub fn path_weight(file_path: &str) -> f64 {
+    let lc = file_path.to_ascii_lowercase();
+
+    // Substring patterns — anywhere in the path. Good for file-extension
+    // markers and fragment matches.
+    const SUBSTRING_PENALIZE: &[&str] = &[
+        // Minified assets
+        ".min.js", ".min.css", ".min.map", "-min.js", "-min.css",
+        // Visual Studio doc-comment stubs
+        "-vsdoc.js", ".vsdoc.js",
+        // Generated sources (EF6, designer, XAML-gen)
+        ".designer.cs", ".g.cs", ".g.i.cs",
+        // Common third-party script bundles (match both fragments and prefix dirs)
+        "scripts/jquery", "scripts/knockout", "scripts/kendo",
+        "scripts/telerik", "scripts/angular", "scripts/bootstrap",
+        "scripts/modernizr", "scripts/moment", "scripts/history",
+    ];
+    if SUBSTRING_PENALIZE.iter().any(|p| lc.contains(p)) {
+        return 0.1;
+    }
+
+    // Directory-name patterns — must match a full path component (split on
+    // `/` or `\`), so `mypackages/` doesn't trigger the `packages` rule.
+    const DIR_PENALIZE: &[&str] = &[
+        "packages", "node_modules", "bower_components", "vendor", "obj", "bin",
+    ];
+    let is_sep = |c: char| c == '/' || c == '\\';
+    if lc.split(is_sep).any(|comp| DIR_PENALIZE.contains(&comp)) {
+        return 0.1;
+    }
+
+    // Special case: `wwwroot/lib/` third-party drop (ASP.NET static assets).
+    if lc.contains("wwwroot/lib/") || lc.contains("wwwroot\\lib\\") {
+        return 0.1;
+    }
+
+    1.0
+}
+
+/// Boost business-logic labels (Controller, Service, Method, Class…) over
+/// meta-nodes that often win BM25 purely through name-token frequency
+/// (ScriptFile, Import, ExternalService).
+fn label_weight(label: NodeLabel) -> f64 {
+    match label {
+        // Core domain code
+        NodeLabel::Class
+        | NodeLabel::Method
+        | NodeLabel::Function
+        | NodeLabel::Constructor
+        | NodeLabel::Interface
+        | NodeLabel::Controller
+        | NodeLabel::ControllerAction
+        | NodeLabel::Service
+        | NodeLabel::Repository
+        | NodeLabel::Route => 1.5,
+        // Noisy / lightweight
+        NodeLabel::ScriptFile
+        | NodeLabel::Import
+        | NodeLabel::ExternalService
+        | NodeLabel::UiComponent => 0.4,
+        _ => 1.0,
     }
 }
 
@@ -342,5 +415,52 @@ mod tests {
         let results = index.search(&graph, "handleLogin", None, 10);
         assert!(!results.is_empty());
         assert!(results[0].score > 0.0);
+    }
+
+    #[test]
+    fn test_path_weight_penalizes_minified() {
+        assert_eq!(path_weight("CCAS.Alise.ihm/Scripts/jquery-1.7.1.min.js"), 0.1);
+        assert_eq!(path_weight("packages/jQuery.1.7.1.1/Content/Scripts/jquery-1.7.1.js"), 0.1);
+        assert_eq!(path_weight("node_modules/react/index.js"), 0.1);
+        assert_eq!(path_weight("CCAS.Alise.BAL/Facture/FactureService.cs"), 1.0);
+        assert_eq!(path_weight("src/main.rs"), 1.0);
+    }
+
+    #[test]
+    fn test_label_weight_boosts_business_code() {
+        assert!(label_weight(NodeLabel::Method) > label_weight(NodeLabel::ScriptFile));
+        assert!(label_weight(NodeLabel::Controller) > 1.0);
+        assert!(label_weight(NodeLabel::Service) > 1.0);
+        assert!(label_weight(NodeLabel::ScriptFile) < 1.0);
+    }
+
+    #[test]
+    fn test_business_code_wins_over_minified_on_same_score() {
+        // Two nodes with the same raw BM25 (name = "paiement" in both);
+        // one is a .cs Method, the other a minified .js file. After weighting
+        // the Method must rank first.
+        let mut g = KnowledgeGraph::new();
+        g.add_node(GraphNode {
+            id: "Method:BAL/Facture/FactureService.cs:Paiement".into(),
+            label: NodeLabel::Method,
+            properties: NodeProperties {
+                name: "Paiement".into(),
+                file_path: "CCAS.Alise.BAL/Facture/FactureService.cs".into(),
+                ..Default::default()
+            },
+        });
+        g.add_node(GraphNode {
+            id: "ScriptFile:Scripts/telerik-Paiement.min.js:x".into(),
+            label: NodeLabel::ScriptFile,
+            properties: NodeProperties {
+                name: "Paiement".into(),
+                file_path: "CCAS.Alise.ihm/Scripts/telerik-Paiement.min.js".into(),
+                ..Default::default()
+            },
+        });
+        let idx = FtsIndex::build(&g);
+        let results = idx.search(&g, "Paiement", None, 10);
+        assert!(!results.is_empty());
+        assert_eq!(results[0].label, "Method", "business code must outrank minified");
     }
 }

@@ -212,6 +212,48 @@ export interface ChatConfig {
   reasoningEffort: string;
 }
 
+export interface ChatConnectionTestResult {
+  ok: boolean;
+  /** HTTP status code (0 for network errors). */
+  status: number;
+  model: string;
+  /** Trimmed model reply (when ok) or short body preview (when error). */
+  message: string;
+  latencyMs: number;
+}
+
+// ─── Chat agent tools (Theme B) ──────────────────────────────────────
+
+/** Descriptor for an agent/MCP tool surfaced to the chat UI. */
+export interface ChatToolDescriptor {
+  name: string;
+  description: string;
+  category: string;
+  /** JSON schema (draft-07) for the tool's args. */
+  parameters: unknown;
+}
+
+export interface ChatToolRetryRequest {
+  sessionId: string;
+  messageId: string;
+  toolCallId: string;
+  name: string;
+  /** New JSON-encoded args. When absent, the backend reuses `priorArgs`. */
+  newArgs?: string;
+  /** Prior JSON-encoded args, used when `newArgs` is not supplied. */
+  priorArgs?: string;
+}
+
+export interface ChatToolRetryResult {
+  toolCallId: string;
+  name: string;
+  args: string;
+  result: string;
+  durationMs: number;
+  /** "success" | "error". */
+  status: string;
+}
+
 // ─── Chat Intelligence Types ────────────────────────────────────────
 
 export type QueryComplexity = "simple" | "medium" | "complex";
@@ -622,6 +664,18 @@ export interface SnapshotMeta {
   nodeCount: number;
   edgeCount: number;
   sizeBytes: number;
+  /** Theme C — commit-aware snapshots */
+  commitSha?: string;
+  authoredAt?: number;
+  subject?: string;
+}
+
+export interface CommitInfo {
+  sha: string;
+  shortSha: string;
+  author: string;
+  authoredAt: number;
+  subject: string;
 }
 
 export interface DiffNode {
@@ -757,6 +811,60 @@ export interface SavedQuery {
   description?: string;
   tags: string[];
   updatedAt: number;
+}
+
+// ─── Saved Graph Views (Theme C) ─────────────────────────────────
+
+export interface CameraState {
+  x: number;
+  y: number;
+  ratio: number;
+  angle?: number;
+}
+
+export interface SavedView {
+  id: string;
+  repo?: string;
+  name: string;
+  lens?: string;
+  /** Free-form filter object — front-end owns the schema. */
+  filters?: unknown;
+  cameraState?: CameraState;
+  nodeSelection: string[];
+  description?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ─── Graph diff (Theme C) ────────────────────────────────────────
+
+export interface EdgeKey {
+  sourceId: string;
+  targetId: string;
+  relType: string;
+}
+
+export interface ModifiedNodeDiff {
+  nodeId: string;
+  changedProps: string[];
+}
+
+export interface GraphDiff {
+  addedNodes: string[];
+  removedNodes: string[];
+  addedEdges: EdgeKey[];
+  removedEdges: EdgeKey[];
+  modified: ModifiedNodeDiff[];
+}
+
+// ─── Path finding (Theme C) ──────────────────────────────────────
+
+export interface FindPathResult {
+  from: string;
+  to: string;
+  depthUsed: number;
+  path: string[];
+  found: boolean;
 }
 
 export interface ProcessStep {
@@ -917,6 +1025,7 @@ export const commands = {
   listRepos: () => invoke<RepoInfo[]>("list_repos"),
   openRepo: (name: string) => invoke<RepoInfo>("open_repo", { name }),
   analyzeRepo: (path: string) => invoke<string>("analyze_repo", { path }),
+  unregisterRepo: (path: string) => invoke<void>("unregister_repo", { path }),
   generateDocs: (what: string, path: string) =>
     invoke<string>("generate_docs", { what, path }),
 
@@ -972,6 +1081,14 @@ export const commands = {
     invoke<ChatConfig>("chat_get_config"),
   chatSetConfig: (config: ChatConfig) =>
     invoke<void>("chat_set_config", { config }),
+  chatTestConnection: (config: ChatConfig) =>
+    invoke<ChatConnectionTestResult>("chat_test_connection", { config }),
+
+  // Chat agent tool introspection + retry (Theme B)
+  listChatTools: () =>
+    invoke<ChatToolDescriptor[]>("list_chat_tools"),
+  chatRetryTool: (request: ChatToolRetryRequest) =>
+    invoke<ChatToolRetryResult>("chat_retry_tool", { request }),
 
   // Chat Intelligence (Executor)
   chatExecuteStep: (planId: string, stepId: string) =>
@@ -1043,13 +1160,40 @@ export const commands = {
   activityClear: () => invoke<void>("activity_clear"),
 
   // Snapshot history + diff
-  snapshotCreate: (label?: string) =>
-    invoke<SnapshotMeta>("snapshot_create", { label: label ?? null }),
+  snapshotCreate: (label?: string, commitSha?: string) =>
+    invoke<SnapshotMeta>("snapshot_create", {
+      label: label ?? null,
+      commitSha: commitSha ?? null,
+    }),
   snapshotList: () => invoke<SnapshotMeta[]>("snapshot_list"),
   snapshotDelete: (id: string) =>
     invoke<SnapshotMeta[]>("snapshot_delete", { id }),
   snapshotDiff: (request: SnapshotDiffRequest) =>
     invoke<SnapshotDiff>("snapshot_diff", { request }),
+  /** Theme C — list recent commits on the active repo's current branch. */
+  snapshotListCommits: (limit?: number) =>
+    invoke<CommitInfo[]>("snapshot_list_commits", { limit: limit ?? null }),
+
+  // Theme C — graph time-travel & saved views
+  diffSnapshots: (from: string, to: string) =>
+    invoke<GraphDiff>("diff_snapshots", { from, to }),
+  findPath: (
+    fromNodeId: string,
+    toNodeId: string,
+    edgeTypes?: string[],
+    maxDepth?: number,
+  ) =>
+    invoke<FindPathResult>("find_path", {
+      fromNodeId,
+      toNodeId,
+      edgeTypes: edgeTypes ?? null,
+      maxDepth: maxDepth ?? null,
+    }),
+  savedViewsList: () => invoke<SavedView[]>("saved_views_list"),
+  savedViewsSave: (view: SavedView) =>
+    invoke<SavedView[]>("saved_views_save", { view }),
+  savedViewsDelete: (id: string) =>
+    invoke<SavedView[]>("saved_views_delete", { id }),
 
   // Custom dashboards
   dashboardList: () => invoke<DashboardSummary[]>("dashboard_list"),
@@ -1124,6 +1268,26 @@ export const commands = {
     invoke<CoverageStats>("get_coverage_stats"),
   getDiagram: (target: string, diagramType?: string) =>
     invoke<DiagramResult>("get_diagram", { target, diagramType }),
+
+  // Code Quality Suite (Theme A)
+  detectCycles: (scope?: "imports" | "calls") =>
+    invoke<Cycle[]>("detect_cycles", { scope }),
+  findClones: (minTokens?: number, threshold?: number, limit?: number) =>
+    invoke<CloneCluster[]>("find_clones_cmd", { minTokens, threshold, limit }),
+  listTodos: (severity?: string, limit?: number) =>
+    invoke<TodoEntry[]>("list_todos_cmd", { severity, limit }),
+  getComplexityReport: (threshold?: number, limit?: number) =>
+    invoke<ComplexityReport>("get_complexity_report", { threshold, limit }),
+
+  // Schema & API Inventory (Theme D)
+  listEndpoints: (method?: string, pattern?: string) =>
+    invoke<ApiEndpointSummary[]>("list_endpoints", { method, pattern }),
+  listDbTables: () =>
+    invoke<DbTableSummary[]>("list_db_tables"),
+  listEnvVars: (unusedOnly?: boolean) =>
+    invoke<EnvVarSummary[]>("list_env_vars", { unusedOnly }),
+  getEndpointHandler: (route: string, method: string) =>
+    invoke<EndpointHandlerDetails>("get_endpoint_handler", { route, method }),
 };
 
 // ─── Coverage ────────────────────────────────────────────────────────
@@ -1162,4 +1326,140 @@ export interface AspNetStats {
   entities: number;
   dbContexts: number;
   areas: number;
+}
+
+// ─── Code Quality Suite (Theme A) ─────────────────────────────────────
+
+export interface Cycle {
+  nodes: string[];
+  names: string[];
+  filePaths: string[];
+  length: number;
+  severity: string;
+}
+
+export interface CloneMember {
+  nodeId: string;
+  name: string;
+  filePath: string;
+  startLine?: number;
+  endLine?: number;
+  tokenCount: number;
+  snippet: string;
+}
+
+export interface CloneCluster {
+  clusterId: string;
+  members: CloneMember[];
+  similarity: number;
+  minTokens: number;
+}
+
+export interface TodoEntry {
+  nodeId: string;
+  kind: string;
+  text?: string;
+  filePath: string;
+  line?: number;
+  language?: string;
+}
+
+export interface ComplexSymbolReport {
+  nodeId: string;
+  name: string;
+  filePath: string;
+  label: string;
+  complexity: number;
+  startLine?: number;
+  endLine?: number;
+  severity: string;
+}
+
+export interface ComplexitySeverityCounts {
+  low: number;
+  medium: number;
+  high: number;
+  critical: number;
+}
+
+export interface ModuleComplexity {
+  module: string;
+  symbolCount: number;
+  avgComplexity: number;
+  maxComplexity: number;
+}
+
+export interface ComplexityReport {
+  totalSymbols: number;
+  measuredSymbols: number;
+  avgComplexity: number;
+  maxComplexity: number;
+  p50: number;
+  p90: number;
+  p99: number;
+  topSymbols: ComplexSymbolReport[];
+  severityCounts: ComplexitySeverityCounts;
+  byModule: ModuleComplexity[];
+}
+
+// ─── Schema & API Inventory (Theme D) ─────────────────────────────────
+
+export interface ApiEndpointSummary {
+  nodeId: string;
+  httpMethod: string;
+  route: string;
+  framework?: string;
+  filePath: string;
+  startLine?: number;
+  handlerId?: string;
+  handlerName?: string;
+}
+
+export interface DbColumnSummary {
+  nodeId: string;
+  name: string;
+  columnType?: string;
+  isPrimaryKey: boolean;
+  isNullable: boolean;
+}
+
+export interface DbTableSummary {
+  nodeId: string;
+  name: string;
+  filePath: string;
+  columnCount: number;
+  fkCount: number;
+  columns: DbColumnSummary[];
+}
+
+export interface EnvVarSummary {
+  nodeId: string;
+  name: string;
+  declaredIn?: string;
+  usedInCount: number;
+  unused: boolean;
+  undeclared: boolean;
+}
+
+export interface HandlerNeighbor {
+  nodeId: string;
+  name: string;
+  label: string;
+  relType: string;
+}
+
+export interface HandlerInfo {
+  nodeId: string;
+  name: string;
+  label: string;
+  filePath: string;
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface EndpointHandlerDetails {
+  endpoint: ApiEndpointSummary;
+  handler?: HandlerInfo | null;
+  callers: HandlerNeighbor[];
+  callees: HandlerNeighbor[];
 }

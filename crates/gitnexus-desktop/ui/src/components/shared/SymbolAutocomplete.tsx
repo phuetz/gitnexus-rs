@@ -100,21 +100,24 @@ export function SymbolAutocomplete({
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Debounce the search query (200ms)
+  // Debounce the search query (200ms). All setState calls happen inside the
+  // timeout callback so the effect itself doesn't synchronously mutate state.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (value.trim().length < 2) {
-      setDebouncedQuery("");
-      setIsOpen(false);
-      return;
-    }
+    const trimmed = value.trim();
+    const shortValue = trimmed.length < 2;
     debounceRef.current = setTimeout(() => {
-      setDebouncedQuery(value.trim());
-      setIsOpen(true);
-      setHighlightIndex(0);
-    }, 200);
+      if (shortValue) {
+        setDebouncedQuery("");
+        setIsOpen(false);
+      } else {
+        setDebouncedQuery(trimmed);
+        setIsOpen(true);
+        setHighlightIndex(0);
+      }
+    }, shortValue ? 0 : 200);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };

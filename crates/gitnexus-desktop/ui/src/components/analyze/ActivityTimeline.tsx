@@ -11,10 +11,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Activity, Camera, Trash2 } from "lucide-react";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
+import { useI18n } from "../../hooks/use-i18n";
+import { confirm } from "../../lib/confirm";
 import type { ActivityEntry } from "../../lib/tauri-commands";
 import { toast } from "sonner";
 
 export function ActivityTimeline() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const activeRepo = useAppStore((s) => s.activeRepo);
   const [hovered, setHovered] = useState<ActivityEntry | null>(null);
@@ -93,9 +96,14 @@ export function ActivityTimeline() {
           </button>
           {entries.length > 0 && (
             <button
-              onClick={() => {
-                if (window.confirm("Clear all activity entries? This is irreversible."))
-                  clearMut.mutate();
+              onClick={async () => {
+                const ok = await confirm({
+                  title: t("confirm.deleteTitle"),
+                  message: t("activity.clearConfirm"),
+                  confirmLabel: t("activity.clear"),
+                  danger: true,
+                });
+                if (ok) clearMut.mutate();
               }}
               title="Clear history"
               aria-label="Clear activity history"

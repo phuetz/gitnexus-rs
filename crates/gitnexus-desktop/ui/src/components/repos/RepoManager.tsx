@@ -108,7 +108,7 @@ export function RepoManager() {
     } catch (e) {
       console.error("Folder selection failed:", e);
     }
-  }, []);
+  }, [t]);
 
   const handleAnalyzeComplete = useCallback(() => {
     setIsAnalyzing(false);

@@ -192,6 +192,23 @@ impl AppState {
             .ok_or_else(|| format!("Repository '{active}' not loaded"))
     }
 
+    /// Resolve the on-disk source path of the active repo (the directory the
+    /// user actually opened). Used by Theme C's commit-aware snapshot logic
+    /// that needs to invoke `git worktree add` against the real working tree.
+    pub async fn active_repo_path(&self) -> Result<String, String> {
+        let active = self
+            .active_repo
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| "No active repository.".to_string())?;
+        let repos = self.repos.read().await;
+        repos
+            .get(&active)
+            .map(|l| normalize_path(&l.entry.path))
+            .ok_or_else(|| format!("Repository '{active}' not loaded"))
+    }
+
     /// Get the current session's full chat config, if one has been set.
     pub async fn chat_config(&self) -> Option<ChatConfig> {
         self.chat_config.read().await.clone()

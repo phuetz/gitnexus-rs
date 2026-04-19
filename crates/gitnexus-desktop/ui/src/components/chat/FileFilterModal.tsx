@@ -22,6 +22,10 @@ interface FileFilterModalProps {
   onClose: () => void;
 }
 
+// Stable module-level empty array so our compare-in-render reset
+// (see `prevResults` below) doesn't see a new reference each render.
+const EMPTY_RESULTS: FileQuickPick[] = [];
+
 export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo);
@@ -36,12 +40,16 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
   // Scope by `activeRepo`: two different repos may share the same query
   // string (e.g. empty) and would otherwise return cached picks from the
   // previously active repo.
-  const { data: results = [], isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["chatPickFiles", activeRepo, query],
     queryFn: () => commands.chatPickFiles(query, 30),
     enabled: open,
     staleTime: 2000,
   });
+  // Stable default: use a module-level empty array when `data` is undefined
+  // to avoid creating a new reference each render (which would trip the
+  // compare-in-render reset below into an infinite loop).
+  const results = data ?? EMPTY_RESULTS;
 
   // Reset on open (render-time state adjustment)
   const [prevOpen, setPrevOpen] = useState(open);
@@ -61,7 +69,10 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
     }
   }, [open]);
 
-  // Reset selection on results change (render-time state adjustment)
+  // Reset selection on results change (render-time state adjustment).
+  // We compare by reference — `results` is stable between renders because
+  // TanStack Query returns the same array reference until the data actually
+  // changes, and our EMPTY_RESULTS sentinel covers the undefined case.
   const [prevResults, setPrevResults] = useState(results);
   if (results !== prevResults) {
     setPrevResults(results);
@@ -77,14 +88,20 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
   }, [selectedIndex]);
 
   const toggleFile = useCallback(
-    (path: string) => {
-      if (filters.files.includes(path)) {
+    (path: string, keepOpen = false) => {
+      const already = filters.files.includes(path);
+      if (already) {
         removeFileFilter(path);
       } else {
         addFileFilter(path);
       }
+      // Close the modal after adding a filter so the user can get back to
+      // the chat input immediately. Hold Alt (or keepOpen=true) to stay
+      // open for multi-select. Removing a filter also keeps the modal
+      // open — we're not in an "add & go" flow there.
+      if (!already && !keepOpen) onClose();
     },
-    [filters.files, addFileFilter, removeFileFilter]
+    [filters.files, addFileFilter, removeFileFilter, onClose]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -96,7 +113,8 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
       setSelectedIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter" && results[selectedIndex]) {
       e.preventDefault();
-      toggleFile(results[selectedIndex].path);
+      // Shift+Enter keeps the modal open for multi-select.
+      toggleFile(results[selectedIndex].path, e.shiftKey);
     } else if (e.key === "Escape") {
       onClose();
     }
@@ -153,7 +171,7 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
               file={file}
               isSelected={i === selectedIndex}
               isActive={filters.files.includes(file.path)}
-              onClick={() => toggleFile(file.path)}
+              onClick={(e) => toggleFile(file.path, e.altKey || e.shiftKey)}
               onMouseEnter={() => setSelectedIndex(i)}
             />
           ))}
@@ -165,12 +183,12 @@ export function FileFilterModal({ open, onClose }: FileFilterModalProps) {
           style={{ borderTop: "1px solid var(--surface-border)", color: "var(--text-3)" }}
         >
           <span>
-            {filters.files.length} file{filters.files.length !== 1 ? "s" : ""} selected
+            {t("filter.filesSelected").replace("{0}", String(filters.files.length))}
           </span>
           <span>
-            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Enter</kbd> toggle
+            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Enter</kbd> {t("filter.toggle")}
             {" · "}
-            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Esc</kbd> close
+            <kbd className="px-1 rounded" style={{ background: "var(--bg-3)" }}>Esc</kbd> {t("filter.close")}
           </span>
         </div>
       </div>
@@ -190,7 +208,7 @@ function FileItem({
   file: FileQuickPick;
   isSelected: boolean;
   isActive: boolean;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent) => void;
   onMouseEnter: () => void;
 }) {
   const langColor = LANG_COLORS[file.language || ""] || "var(--text-3)";

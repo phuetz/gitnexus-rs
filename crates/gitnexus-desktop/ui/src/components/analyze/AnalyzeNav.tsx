@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useMemo } from "react";
-import { LayoutDashboard, Flame, Link2, Users, Shield, GitBranch, FileText, Heart, Workflow, Camera } from "lucide-react";
+import { LayoutDashboard, Flame, Link2, Users, Shield, GitBranch, FileText, Heart, Workflow, Camera, RotateCcw, Copy, CheckSquare, Activity, Globe, Database, KeyRound } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import type { AnalyzeView } from "../../stores/app-store";
 import { useI18n } from "../../hooks/use-i18n";
@@ -12,6 +12,13 @@ const NAV_ITEMS: { view: AnalyzeView; icon: typeof LayoutDashboard; i18nKey: str
   { view: "coupling", icon: Link2, i18nKey: "analyze.nav.coupling", requiresGit: true },
   { view: "ownership", icon: Users, i18nKey: "analyze.nav.ownership", requiresGit: true },
   { view: "coverage", icon: Shield, i18nKey: "analyze.nav.coverage" },
+  { view: "cycles", icon: RotateCcw, i18nKey: "analyze.nav.cycles" },
+  { view: "clones", icon: Copy, i18nKey: "analyze.nav.clones" },
+  { view: "todos", icon: CheckSquare, i18nKey: "analyze.nav.todos" },
+  { view: "complexity", icon: Activity, i18nKey: "analyze.nav.complexity" },
+  { view: "endpoints", icon: Globe, i18nKey: "analyze.nav.endpoints" },
+  { view: "schema", icon: Database, i18nKey: "analyze.nav.schema" },
+  { view: "env_vars", icon: KeyRound, i18nKey: "analyze.nav.env_vars" },
   { view: "diagram", icon: GitBranch, i18nKey: "analyze.nav.diagrams" },
   { view: "report", icon: FileText, i18nKey: "analyze.nav.report" },
   { view: "snapshots", icon: Camera, i18nKey: "analyze.nav.snapshots" },

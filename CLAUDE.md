@@ -26,6 +26,9 @@ cd crates/gitnexus-desktop/ui && npm install && npm run build && cd ../../..
 cargo build -p gitnexus-desktop
 
 # Run the desktop app in dev mode (with hot reload)
+# Dev server on port 1421 (Tauri's default 1420 is commonly used by other
+# projects on this machine — kept at 1421 to avoid collisions; see
+# tauri.conf.json devUrl/beforeDevCommand).
 cd crates/gitnexus-desktop && cargo tauri dev
 
 # Frontend only (from ui/ dir)
@@ -106,13 +109,18 @@ Uses rayon for parallel file processing with a 20MB chunk budget and LRU AST cac
 
 **Search** (`gitnexus-search`): Reciprocal Rank Fusion (K=60) merging BM25 lexical results with optional ONNX-based semantic embeddings. Gracefully degrades without the `embeddings` feature.
 
-**MCP** (`gitnexus-mcp`): Implements MCP protocol version 2024-11-05. Thirteen tools: `list_repos`, `query`, `context`, `impact`, `detect_changes`, `rename`, `cypher`, `hotspots`, `coupling`, `ownership`, `coverage`, `diagram`, `report`. Stdio and HTTP transports. `LocalBackend` coordinates registry loading and tool dispatch.
+**MCP** (`gitnexus-mcp`): Implements MCP protocol version 2024-11-05. Nineteen tools dispatched in `backend/local.rs`:
+- **Graph & query**: `list_repos`, `query`, `context`, `impact`, `detect_changes`, `rename`, `cypher`, `search_code`, `read_file`
+- **Analytics**: `hotspots`, `coupling`, `ownership`, `coverage`, `diagram`, `report`, `business`, `analyze_execution_trace`
+- **Agent support**: `get_insights`, `save_memory`
+
+Stdio and HTTP transports. `LocalBackend` coordinates registry loading and tool dispatch.
 
 **Git** (`gitnexus-git`): Git history analysis: `analyze_hotspots` (file churn scoring), `analyze_coupling` (temporal coupling between files), `analyze_ownership` (author distribution per file). Used by CLI and desktop app.
 
 **RAG** (`gitnexus-rag`): GraphRAG integration — ingests external documentation (Markdown, PDF, DOCX), chunks it into `DocChunk` structs, and anchors chunks semantically into the knowledge graph. Uses pulldown-cmark for Markdown parsing.
 
-**Desktop** (`gitnexus-desktop`): Tauri v2 desktop app with React 19 frontend. Accesses `KnowledgeGraph` + `GraphIndexes` + `FtsIndex` directly via Tauri IPC (not via MCP envelope — this is a deliberate performance choice). Frontend uses Sigma.js + Graphology for graph visualization, Zustand + TanStack Query for state, Tailwind CSS v4 + framer-motion for styling/animations. 17 Tauri command modules in `src/commands/` bridge frontend↔Rust. Four app modes: Explorer (graph + lenses), Analyze (hotspots/coupling/ownership/coverage/diagram/report/health), Chat (LLM Q&A with context), Manage (repo CRUD). State in `ui/src/stores/app-store.ts` (Zustand) and `ui/src/hooks/use-tauri-query.ts` (TanStack Query wrapper for IPC). Graph rendering: `ui/src/components/graph/GraphExplorer.tsx` (hot path).
+**Desktop** (`gitnexus-desktop`): Tauri v2 desktop app with React 19 frontend. Accesses `KnowledgeGraph` + `GraphIndexes` + `FtsIndex` directly via Tauri IPC (not via MCP envelope — this is a deliberate performance choice). Frontend uses Sigma.js + Graphology for graph visualization, Zustand + TanStack Query for state, Tailwind CSS v4 + framer-motion for styling/animations. 35 Tauri command modules in `src/commands/` bridge frontend↔Rust. Four app modes: Explorer (graph + lenses), Analyze (hotspots/coupling/ownership/coverage/diagram/report/health), Chat (LLM Q&A with context), Manage (repo CRUD). State in `ui/src/stores/app-store.ts` (Zustand) and `ui/src/hooks/use-tauri-query.ts` (TanStack Query wrapper for IPC). Graph rendering: `ui/src/components/graph/GraphExplorer.tsx` (hot path).
 
 **NexusBrain** (`nexus-brain/`): Separate Tauri v2 app (not a workspace member) — an Obsidian-like "Knowledge IDE" that reads Markdown Vaults exported by the GitNexus desktop app's "Digital Brain" export feature. React 18 + Tailwind CSS 3 frontend, md-editor-rt for Markdown editing, react-force-graph-2d for graph visualization. Independent from the Rust workspace — has its own `Cargo.toml` under `src-tauri/`.
 
@@ -145,6 +153,10 @@ Uses rayon for parallel file processing with a 20MB chunk budget and LRU AST cac
 - **Snapshot is JSON, not bincode**: Despite the filename `graph.bin`, snapshots are JSON. Bincode is incompatible because `NodeProperties` uses `#[serde(skip_serializing_if)]` on ~40 optional fields, which breaks bincode's positional format. Migrating requires either removing skip attributes (breaking JSON API), using bincode 2.x `Encode`/`Decode` traits, or switching to MessagePack (`rmp-serde`).
 - **cxx-build pin on Windows**: `cxx-build` is pinned to `=1.0.138` to match kuzu's `cxx` version. Newer cxx-build encodes patch versions into bridge symbol names, causing `LNK2019` linker errors on Windows. Do not bump without verifying kuzu compatibility.
 - **Adding a new language**: Implement `LanguageProvider` in `crates/gitnexus-lang/src/languages/`, add query strings in `queries/`, an import resolver in `import_resolvers/`, and register in `registry.rs`.
+- **LLM enrichment Authorization header**: `call_structured_llm` in `crates/gitnexus-cli/src/commands/generate/enrichment.rs` MUST set the `Authorization: Bearer <key>` header for OpenAI-compatible endpoints (Gemini via `generativelanguage.googleapis.com/v1beta/openai`). Missing header → HTTP 400 "Missing or invalid Authorization header" on section-mode calls (fixed L944-946).
+- **Sectioned enrichment anchors**: Pages >50KB are split into multiple LLM calls per anchor (`INTRO`, `SERVICES`, `ENTITIES`, etc.). Before the Phase A fix, only `INTRO` anchor was supported — non-INTRO anchors never triggered sectioned mode, causing systematic truncation on modules like `dossiers.md`. Fix is in `enrichment.rs` L1266-1331.
+- **LLM response cache**: Enrichment responses are cached in `<repo>/.gitnexus/docs/_meta/cache/llm/*.txt` keyed by MD5 of the full request body. A re-run reuses all cached responses gratis — extremely useful for retry with different models/settings without re-burning tokens.
+- **Gemini Flash output ceiling**: Gemini 2.5 Flash truncates at ~65K output tokens (`finish_reason: length`). On large pages this fires constantly. The fallback freeform parser recovers ~60% of truncated responses; the rest go to the auto retry queue with reduced scope. For quality runs on large repos, prefer Gemini 3.1 Pro Preview (65K native, fewer truncations).
 
 ## Rust Version and Toolchain
 

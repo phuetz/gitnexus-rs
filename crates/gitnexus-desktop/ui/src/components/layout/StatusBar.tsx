@@ -179,13 +179,13 @@ export const StatusBar = memo(function StatusBar() {
               const url = buildShareUrl();
               try {
                 await navigator.clipboard.writeText(url);
-                toast.success("Share link copied");
+                toast.success(t("share.linkCopied"));
               } catch {
-                toast.error("Copy failed");
+                toast.error(t("share.copyFailed"));
               }
             }}
-            title="Copy a shareable link to the current view"
-            aria-label="Copy share link"
+            title={t("share.tooltip")}
+            aria-label={t("share.label")}
             style={{
               padding: "2px 6px",
               background: "transparent",
@@ -201,14 +201,36 @@ export const StatusBar = memo(function StatusBar() {
             }}
           >
             <LinkIcon size={11} />
-            <span>Share</span>
+            <span>{t("share.button")}</span>
           </button>
         )}
 
         <Sep />
 
-        {/* LLM status indicator */}
-        <div className="flex items-center gap-1.5">
+        {/* LLM status indicator — click opens Chat Settings (quick model switch) */}
+        <button
+          type="button"
+          onClick={() => {
+            // The ChatSettings modal is currently rendered inside <ChatMode>,
+            // so we need to switch to Chat first if we're somewhere else.
+            // When the modal is lifted to ModalManager (future refactor)
+            // this `setMode` call can be dropped.
+            const store = useAppStore.getState();
+            if (store.mode !== "chat") store.setMode("chat");
+            store.setChatSettingsOpen(true);
+          }}
+          title={t("statusbar.llm.tooltip")}
+          aria-label={t("statusbar.llm.tooltip")}
+          className="flex items-center gap-1.5 transition-colors hover:brightness-125"
+          style={{
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            color: "inherit",
+            font: "inherit",
+          }}
+        >
           <span
             className="rounded-full shrink-0"
             style={{
@@ -220,7 +242,7 @@ export const StatusBar = memo(function StatusBar() {
           {llmModelName && (
             <span style={{ color: "var(--text-3)" }}>{llmModelName}</span>
           )}
-        </div>
+        </button>
 
         <Sep />
 

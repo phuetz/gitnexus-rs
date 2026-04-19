@@ -6,3 +6,4 @@ pub mod error;
 pub mod query;
 pub mod snapshot;
 pub mod inmemory;
+pub mod analytics;

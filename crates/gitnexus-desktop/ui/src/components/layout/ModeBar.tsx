@@ -17,15 +17,10 @@ const modes: { mode: AppMode; icon: typeof Compass; i18nKey: string; shortcut: s
 function Badge({ value, color }: { value: string; color: string }) {
   return (
     <span
+      className="text-[9px] font-bold px-1.5 py-0.5 rounded-lg leading-[14px] shrink-0"
       style={{
-        fontSize: 9,
-        fontWeight: 700,
-        padding: "1px 5px",
-        borderRadius: 8,
         background: `${color}20`,
         color,
-        lineHeight: "14px",
-        flexShrink: 0,
       }}
     >
       {value}
@@ -67,14 +62,9 @@ export const ModeBar = memo(function ModeBar() {
 
   return (
     <div
-      className="flex flex-col items-start py-2 h-full shrink-0"
-      style={{
-        width: expanded ? 180 : 48,
-        background: "var(--mode-bar-bg)",
-        borderRight: "1px solid var(--surface-border)",
-        transition: "width var(--transition-slow)",
-        overflow: "hidden",
-      }}
+      className={`flex flex-col items-start py-2 h-full shrink-0 bg-bg-0 border-r border-surface-border transition-[width] duration-280 ease-out overflow-hidden ${
+        expanded ? "w-[180px]" : "w-12"
+      }`}
     >
       {/* Mode buttons */}
       {modes.map(({ mode: m, icon: Icon, i18nKey, shortcut }) => {
@@ -90,13 +80,9 @@ export const ModeBar = memo(function ModeBar() {
         if (m === "chat") {
           badge = (
             <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: llmConnected ? "#4ade80" : "#fb7185",
-                flexShrink: 0,
-              }}
+              className={`w-[7px] h-[7px] rounded-full shrink-0 ${
+                llmConnected ? "bg-green" : "bg-rose"
+              }`}
             />
           );
         }
@@ -105,44 +91,19 @@ export const ModeBar = memo(function ModeBar() {
           <button
             key={m}
             onClick={() => setMode(m)}
-            className="relative flex items-center w-full mb-0.5 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
-            style={{
-              height: 40,
-              paddingLeft: expanded ? 14 : 0,
-              paddingRight: expanded ? 10 : 0,
-              justifyContent: expanded ? "flex-start" : "center",
-              gap: 10,
-              color: active ? "var(--accent)" : "var(--text-3)",
-              background: active ? "var(--accent-subtle)" : "transparent",
-              boxShadow: active ? "var(--glow-accent, 0 0 8px var(--accent))" : "none",
-              border: "none",
-              cursor: "pointer",
-              marginLeft: expanded ? 4 : 4,
-              marginRight: expanded ? 4 : 4,
-            }}
-            aria-label={label}
+            className={`relative flex items-center w-full mb-0.5 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none h-10 gap-2.5 mx-1 border-none cursor-pointer ${
+              active ? "text-accent bg-accent-subtle shadow-[var(--glow-accent)]" : "text-text-3 bg-transparent"
+            } ${expanded ? "pl-3.5 pr-2.5 justify-start" : "justify-center"}`}
+            aria-label={`${label}${shortcut ? ` (${shortcut})` : ""}`}
             aria-current={active ? "page" : undefined}
           >
             {active && (
-              <div
-                className="absolute left-0 top-1/2 -translate-y-1/2 rounded-r"
-                style={{ width: 3, height: 20, background: "var(--accent)" }}
-              />
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 rounded-r w-[3px] h-5 bg-accent" />
             )}
-            <Icon size={20} style={{ flexShrink: 0 }} />
+            <Icon size={20} className="shrink-0" />
             {expanded && (
               <>
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: active ? 600 : 500,
-                    fontFamily: "var(--font-body)",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    flex: 1,
-                    textAlign: "left",
-                  }}
-                >
+                <span className={`text-[13px] font-body whitespace-nowrap overflow-hidden flex-1 text-left ${active ? "font-semibold" : "font-medium"}`}>
                   {label}
                 </span>
                 {badge}
@@ -152,14 +113,14 @@ export const ModeBar = memo(function ModeBar() {
         );
 
         return expanded ? (
-          <div key={m}>{button}</div>
+          <div key={m} className="w-full">{button}</div>
         ) : (
           <Tooltip key={m} content={`${label} (${shortcut})`}>
-            <div style={{ position: "relative" }}>
+            <div className="relative w-full">
               {button}
               {/* Collapsed badge overlay */}
               {badge && (
-                <div style={{ position: "absolute", top: 4, right: 4, pointerEvents: "none" }}>
+                <div className="absolute top-1 right-1 pointer-events-none">
                   {badge}
                 </div>
               )}
@@ -171,61 +132,41 @@ export const ModeBar = memo(function ModeBar() {
       <div className="flex-1" />
 
       {/* Command palette */}
-      <Tooltip content={`${t("mode.commandPalette")} (Ctrl+K)`} placement={expanded ? "right" : "right"}>
+      <Tooltip content={`${t("mode.commandPalette")} (Ctrl+K)`} placement="right">
         <button
           onClick={() => setCommandPaletteOpen(true)}
-          className="flex items-center w-full rounded-lg transition-colors"
-          style={{
-            height: 36,
-            paddingLeft: expanded ? 14 : 0,
-            paddingRight: expanded ? 10 : 0,
-            justifyContent: expanded ? "flex-start" : "center",
-            gap: 10,
-            color: "var(--text-3)",
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            marginLeft: 4,
-            marginRight: 4,
-            marginBottom: 2,
-          }}
+          className={`flex items-center w-full rounded-lg transition-colors h-9 gap-2.5 mx-1 mb-0.5 border-none cursor-pointer text-text-3 bg-transparent ${
+            expanded ? "pl-3.5 pr-2.5 justify-start" : "justify-center"
+          }`}
           aria-label={t("mode.commandPalette")}
         >
-          <Search size={18} style={{ flexShrink: 0 }} />
+          <Search size={18} className="shrink-0" />
           {expanded && (
-            <span style={{ fontSize: 12, whiteSpace: "nowrap", color: "var(--text-3)" }}>
+            <span className="text-[12px] whitespace-nowrap text-text-3">
               Ctrl+K
             </span>
           )}
         </button>
       </Tooltip>
 
-      {/* Toggle expand/collapse */}
-      <button
-        onClick={toggleSidebar}
-        className="flex items-center w-full rounded-lg transition-colors"
-        style={{
-          height: 32,
-          justifyContent: expanded ? "flex-start" : "center",
-          paddingLeft: expanded ? 14 : 0,
-          gap: 8,
-          color: "var(--text-4)",
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          marginLeft: 4,
-          marginRight: 4,
-          marginBottom: 4,
-        }}
-        aria-label={expanded ? t("sidebar.collapse") : t("sidebar.expand")}
-      >
-        {expanded ? <ChevronsLeft size={16} /> : <ChevronsRight size={16} />}
-        {expanded && (
-          <span style={{ fontSize: 11, color: "var(--text-4)", whiteSpace: "nowrap" }}>
-            {t("mode.collapse")}
-          </span>
-        )}
-      </button>
+      {/* Toggle expand/collapse — always wrap in Tooltip so the collapsed
+          icon-only state has discoverable meaning. */}
+      <Tooltip content={expanded ? t("mode.collapse") : t("mode.expand")} placement="right">
+        <button
+          onClick={toggleSidebar}
+          className={`flex items-center w-full rounded-lg transition-colors h-8 gap-2 mx-1 mb-1 border-none cursor-pointer text-text-4 bg-transparent ${
+            expanded ? "pl-3.5 justify-start" : "justify-center"
+          }`}
+          aria-label={expanded ? t("mode.collapse") : t("mode.expand")}
+        >
+          {expanded ? <ChevronsLeft size={16} /> : <ChevronsRight size={16} />}
+          {expanded && (
+            <span className="text-[11px] text-text-4 whitespace-nowrap">
+              {t("mode.collapse")}
+            </span>
+          )}
+        </button>
+      </Tooltip>
     </div>
   );
 });

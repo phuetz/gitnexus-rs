@@ -404,6 +404,28 @@ fn generate_docs_overview(
     } else {
         writeln!(f, "> {}", _auto_desc)?;
     }
+    // Tracing / dead-code extra sentence (conditionnel)
+    {
+        let dead_count = graph.iter_nodes()
+            .filter(|n| n.properties.is_dead_candidate.unwrap_or(false))
+            .count();
+        let traced_count = graph.iter_nodes()
+            .filter(|n| n.properties.is_traced.unwrap_or(false))
+            .count();
+        if traced_count > 0 || dead_count > 0 {
+            let mut extra = String::new();
+            if traced_count > 0 {
+                extra.push_str(&format!("{} méthodes instrumentées avec StackLogger.", traced_count));
+            }
+            if dead_count > 0 {
+                if !extra.is_empty() { extra.push(' '); }
+                extra.push_str(&format!("{} méthode{} candidate{} au code mort.",
+                    dead_count, if dead_count > 1 { "s" } else { "" },
+                    if dead_count > 1 { "s" } else { "" }));
+            }
+            writeln!(f, "> {}", extra)?;
+        }
+    }
     writeln!(f)?;
 
     // Metrics grid (Cards)
@@ -1496,11 +1518,42 @@ fn generate_docs_modules(
 
         let base_name = ctrl_name.trim_end_matches("Controller");
         let action_count = actions.len();
-        let desc_fallback = describe_controller(ctrl_name);
-        let lead = ctrl.properties.description.as_deref()
-            .filter(|d| !d.is_empty())
-            .map(|d| format!("> {}\n\n", d))
-            .unwrap_or_else(|| format!("> {} manages {} endpoints for {}.\n\n", base_name, action_count, desc_fallback));
+
+        // Verb distribution from already-collected actions
+        let mut get_n = 0usize; let mut post_n = 0usize; let mut other_n = 0usize;
+        for a in &actions {
+            match a.properties.http_method.as_deref().unwrap_or("GET") {
+                "GET" => get_n += 1, "POST" => post_n += 1, _ => other_n += 1,
+            }
+        }
+        let view_count_lead = graph.iter_relationships()
+            .filter(|r| r.source_id == ctrl.id && r.rel_type == RelationshipType::RendersView)
+            .count();
+        let svc_count_lead = graph.iter_relationships()
+            .filter(|r| r.source_id == ctrl.id && r.rel_type == RelationshipType::DependsOn)
+            .count();
+
+        let lead = if let Some(d) = ctrl.properties.description.as_deref().filter(|d| !d.is_empty()) {
+            format!("> {}\n\n", d)
+        } else {
+            let mut s = format!("> **{}** expose **{}** action{}",
+                base_name, action_count, if action_count > 1 { "s" } else { "" });
+            let mut verbs = Vec::new();
+            if get_n > 0 { verbs.push(format!("{} GET", get_n)); }
+            if post_n > 0 { verbs.push(format!("{} POST", post_n)); }
+            if other_n > 0 { verbs.push(format!("{} autres", other_n)); }
+            if !verbs.is_empty() { s.push_str(&format!(" ({})", verbs.join(", "))); }
+            s.push('.');
+            if svc_count_lead > 0 {
+                s.push_str(&format!(" Appelle **{}** service{}.", svc_count_lead,
+                    if svc_count_lead > 1 { "s" } else { "" }));
+            }
+            if view_count_lead > 0 {
+                s.push_str(&format!(" Rend **{}** vue{}.", view_count_lead,
+                    if view_count_lead > 1 { "s" } else { "" }));
+            }
+            format!("{}\n\n", s)
+        };
         content.push_str(&lead);
 
         content.push_str(&format!("## Actions ({})\n\n", action_count));
@@ -1641,6 +1694,48 @@ fn generate_docs_modules(
         content.push_str(&source_files_section(&src_file_refs));
         content.push_str(&format!("**File:** `{}`\n\n**Entities:** {}\n\n", ctx.properties.file_path, entities.len()));
 
+        // Auto-prose: column stats via HasColumn relationships
+        {
+            let mut total_columns = 0usize;
+            let mut pk_count = 0usize;
+            let mut nullable_count = 0usize;
+            let mut traced_entities = 0usize;
+            for entity in &entities {
+                if entity.properties.is_traced.unwrap_or(false) { traced_entities += 1; }
+                for rel in graph.iter_relationships() {
+                    if rel.source_id == entity.id && rel.rel_type == RelationshipType::HasColumn {
+                        if let Some(col) = graph.get_node(&rel.target_id) {
+                            total_columns += 1;
+                            if col.properties.is_primary_key.unwrap_or(false) { pk_count += 1; }
+                            if col.properties.is_nullable.unwrap_or(false) { nullable_count += 1; }
+                        }
+                    }
+                }
+            }
+            if !entities.is_empty() {
+                let mut para = format!("> Ce modèle de données définit **{}** entité{}",
+                    entities.len(), if entities.len() > 1 { "s" } else { "" });
+                if total_columns > 0 {
+                    para.push_str(&format!(" réparties sur **{}** colonne{}",
+                        total_columns, if total_columns > 1 { "s" } else { "" }));
+                    let mut details = Vec::new();
+                    if pk_count > 0 { details.push(format!("{} clé{} primaire{}", pk_count,
+                        if pk_count > 1 { "s" } else { "" }, if pk_count > 1 { "s" } else { "" })); }
+                    if nullable_count > 0 { details.push(format!("{} nullable{}", nullable_count,
+                        if nullable_count > 1 { "s" } else { "" })); }
+                    if !details.is_empty() { para.push_str(&format!(" ({})", details.join(", "))); }
+                }
+                para.push('.');
+                if traced_entities > 0 {
+                    para.push_str(&format!(" {} entité{} tracée{}.", traced_entities,
+                        if traced_entities > 1 { "s" } else { "" },
+                        if traced_entities > 1 { "s" } else { "" }));
+                }
+                para.push_str("\n\n");
+                content.push_str(&para);
+            }
+        }
+
         let mut entity_rels: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
         for rel in graph.iter_relationships() {
             if rel.rel_type == RelationshipType::AssociatesWith {
@@ -1721,11 +1816,44 @@ fn generate_docs_modules(
         let svc_file_refs: Vec<&str> = svc_files.iter().take(15).map(|s| s.as_str()).collect();
         let mut content = String::from("# Service Layer\n\n<!-- GNX:LEAD -->\n");
         content.push_str(&source_files_section(&svc_file_refs));
-        content.push_str(&format!("**Total services:** {}\n\n", services.len()));
         let mut service_used_by: HashMap<String, Vec<String>> = HashMap::new();
         for svc in &services {
             let users: Vec<String> = graph.iter_relationships().filter(|r| r.rel_type == RelationshipType::DependsOn && r.target_id == svc.id).filter_map(|r| graph.get_node(&r.source_id).filter(|n| n.label == NodeLabel::Controller).map(|n| n.properties.name.clone())).collect::<BTreeSet<String>>().into_iter().collect();
             service_used_by.insert(svc.id.clone(), users);
+        }
+        // Auto-prose lead for service layer
+        {
+            let total_method_count: usize = services.iter().map(|svc|
+                graph.iter_relationships()
+                    .filter(|r| r.rel_type == RelationshipType::HasMethod && r.source_id == svc.id)
+                    .count()
+            ).sum();
+            let top_caller = service_used_by.iter()
+                .filter_map(|(id, callers)| {
+                    if callers.is_empty() { return None; }
+                    graph.get_node(id).map(|n| (n.properties.name.clone(), callers.len()))
+                })
+                .max_by_key(|(_, c)| *c);
+            let iface_count = services.iter()
+                .filter(|s| s.properties.implements_interface.as_deref()
+                    .filter(|i| !i.is_empty() && *i != "-").is_some())
+                .count();
+            let mut lead_svc = format!(
+                "> La couche service expose **{}** méthode{} dans **{}** classe{}.",
+                total_method_count, if total_method_count > 1 { "s" } else { "" },
+                services.len(), if services.len() > 1 { "s" } else { "" }
+            );
+            if let Some((name, callers)) = top_caller {
+                lead_svc.push_str(&format!(" Service le plus sollicité : **{}** ({} appelant{}).",
+                    name, callers, if callers > 1 { "s" } else { "" }));
+            }
+            if iface_count > 0 {
+                lead_svc.push_str(&format!(" {} service{} implémente{} une interface.",
+                    iface_count, if iface_count > 1 { "s" } else { "" },
+                    if iface_count > 1 { "nt" } else { "" }));
+            }
+            lead_svc.push_str("\n\n");
+            content.push_str(&lead_svc);
         }
         content.push_str("## Services\n\n| Service | Type | Interface | Used By | Purpose | File |\n|---------|------|-----------|---------|---------|------|\n");
         for svc in &services {

@@ -507,8 +507,11 @@ pub async fn chat_ask(
     // 3. Read code snippets for top results
     let sources = build_sources(&search_results, &graph, &repo_path);
 
+    // 3b. Read enriched documentation pages for relevant modules (higher quality context)
+    let enriched_doc_context = load_enriched_doc_pages(&search_results, &graph, &repo_path);
+
     // 4. Assemble the prompt
-    let system_prompt = build_system_prompt(&graph, &sources, &repo_path);
+    let system_prompt = build_system_prompt(&graph, &sources, &repo_path, &enriched_doc_context);
     
     // Convert history to gitnexus_core::llm::Message format
     let mut messages = vec![Message {
@@ -1247,6 +1250,111 @@ fn search_relevant_context(
     results
 }
 
+/// Read enriched documentation pages for the nodes most relevant to the query.
+///
+/// The enriched .md pages (in `.gitnexus/docs/`) contain LLM-generated descriptions,
+/// call graphs, evidence refs — much richer context than raw code snippets.
+/// This function maps node types → page paths and returns the markdown content.
+fn load_enriched_doc_pages(
+    results: &[(String, f64)],
+    graph: &KnowledgeGraph,
+    repo_path: &Path,
+) -> String {
+    let docs_dir = repo_path.join(".gitnexus").join("docs");
+    if !docs_dir.exists() {
+        return String::new();
+    }
+
+    let mut seen_pages = std::collections::HashSet::new();
+    let mut content = String::new();
+
+    for (node_id, _score) in results.iter().take(6) {
+        let node = match graph.get_node(node_id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // Map node label + name to a documentation page path
+        let candidates = doc_page_candidates(&node.label, &node.properties.name);
+
+        for candidate in candidates {
+            if seen_pages.contains(&candidate) {
+                continue;
+            }
+            let page_path = docs_dir.join(&candidate);
+            if page_path.exists() {
+                if let Ok(text) = std::fs::read_to_string(&page_path) {
+                    // Only include pages with meaningful enrichment (> 200 chars)
+                    if text.len() > 200 {
+                        seen_pages.insert(candidate.clone());
+                        // Strip HTML comments (GNX anchors) and trim to 3000 chars
+                        let clean: String = text
+                            .lines()
+                            .filter(|l| !l.trim().starts_with("<!-- GNX:"))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        let trimmed = if clean.len() > 3000 {
+                            format!("{}\n\n*[…tronqué]*", &clean[..3000])
+                        } else {
+                            clean
+                        };
+                        content.push_str(&format!(
+                            "### Documentation enrichie : `{}`\n\n{}\n\n---\n\n",
+                            candidate, trimmed
+                        ));
+                        break; // first matching page per node is enough
+                    }
+                }
+            }
+        }
+    }
+
+    content
+}
+
+/// Return candidate doc page paths (relative to docs_dir) for a given node.
+fn doc_page_candidates(label: &NodeLabel, name: &str) -> Vec<String> {
+    let sanitized = name
+        .to_lowercase()
+        .replace(' ', "-")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .collect::<String>();
+
+    match label {
+        NodeLabel::Controller => vec![
+            format!("modules/ctrl-{}.md", sanitized),
+            format!("modules/{}.md", sanitized),
+        ],
+        NodeLabel::Service | NodeLabel::Repository => vec![
+            format!("modules/services.md"),
+            format!("modules/{}.md", sanitized),
+        ],
+        NodeLabel::DbEntity | NodeLabel::DbContext => vec![
+            format!("modules/data-{}.md", sanitized),
+            format!("aspnet-entities.md"),
+            format!("aspnet-data-model.md"),
+        ],
+        NodeLabel::View | NodeLabel::PartialView => vec![
+            format!("modules/views.md"),
+            format!("aspnet-views.md"),
+        ],
+        NodeLabel::ExternalService => vec![
+            format!("modules/external-services.md"),
+            format!("aspnet-external.md"),
+        ],
+        NodeLabel::Community => vec![
+            format!("modules/{}.md", sanitized),
+        ],
+        NodeLabel::Process => vec![
+            format!("processes/{}.md", sanitized),
+        ],
+        _ => vec![
+            format!("modules/{}.md", sanitized),
+        ],
+    }
+}
+
 /// Build source citations with code snippets.
 fn build_sources(
     results: &[(String, f64)],
@@ -1503,7 +1611,7 @@ fn top_processes(graph: &KnowledgeGraph, limit: usize) -> Vec<ProcessSummary> {
     processes
 }
 
-fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path: &Path) -> String {
+fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path: &Path, enriched_doc_context: &str) -> String {
     let meta = gather_project_meta(graph, repo_path);
     let communities = top_communities(graph, 10);
     let processes = top_processes(graph, 5);
@@ -1584,6 +1692,15 @@ fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path
         prompt.push_str("# Persistent memory\n\n");
         prompt.push_str(&memory_context);
         prompt.push_str("\n\n");
+    }
+
+    // ── Enriched documentation pages ────────────────────────────
+    // LLM-generated descriptions of relevant modules — primary context source
+    if !enriched_doc_context.is_empty() {
+        prompt.push_str("# Enriched module documentation\n\n");
+        prompt.push_str("The following pages were auto-generated by analyzing the codebase and enriched by an LLM. ");
+        prompt.push_str("They contain functional descriptions, call graphs and evidence — use them as primary context.\n\n");
+        prompt.push_str(enriched_doc_context);
     }
 
     // ── Relevant code context ───────────────────────────────────

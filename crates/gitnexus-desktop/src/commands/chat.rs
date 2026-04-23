@@ -690,6 +690,17 @@ pub async fn chat_ask(
         };
 
         while let Some(chunk_result) = stream.next().await {
+            // Check cancellation flag — set by chat_cancel command
+            if state.cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                state.cancel_flag.store(false, std::sync::atomic::Ordering::Relaxed);
+                let _ = app.emit("chat-stream-done", ());
+                let _ = app.emit("chat-stream-cancelled", ());
+                return Ok(ChatResponse {
+                    answer: final_answer,
+                    sources: sources.clone(),
+                    model: Some(config.model.clone()),
+                });
+            }
             match chunk_result {
                 Ok(LlmResponseChunk::Text(text)) => {
                     final_answer.push_str(&text);
@@ -1816,6 +1827,14 @@ fn build_llm_request(
 }
 
 
+
+/// Signal the current streaming chat request to stop.
+/// The flag is checked between each streamed chunk in `chat_ask`.
+#[tauri::command]
+pub async fn chat_cancel(state: State<'_, AppState>) -> Result<(), String> {
+    state.cancel_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
 
 /// Call an OpenAI-compatible LLM API (non-streaming, for the executor module).
 async fn call_llm(

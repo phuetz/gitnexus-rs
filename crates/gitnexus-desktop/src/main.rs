@@ -52,6 +52,7 @@ fn main() {
             // Chat agent tools (Theme B — introspection + retry)
             commands::chat::list_chat_tools,
             commands::chat::chat_retry_tool,
+            commands::chat::chat_cancel,
             // Chat Intelligence (Planner & Executor)
             commands::chat_planner::chat_pick_files,
             commands::chat_planner::chat_pick_symbols,

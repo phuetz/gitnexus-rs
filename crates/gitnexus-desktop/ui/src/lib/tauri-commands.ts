@@ -1089,6 +1089,8 @@ export const commands = {
     invoke<ChatToolDescriptor[]>("list_chat_tools"),
   chatRetryTool: (request: ChatToolRetryRequest) =>
     invoke<ChatToolRetryResult>("chat_retry_tool", { request }),
+  chatCancel: () =>
+    invoke<void>("chat_cancel"),
 
   // Chat Intelligence (Executor)
   chatExecuteStep: (planId: string, stepId: string) =>

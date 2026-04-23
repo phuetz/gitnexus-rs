@@ -657,6 +657,8 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
           onOpenSettings={onOpenSettings}
           deepResearch={deepResearchEnabled}
           hasFilters={hasActiveFilters()}
+          isStreaming={isStreaming}
+          onCancel={() => { void commands.chatCancel(); }}
         />
       </div>
 

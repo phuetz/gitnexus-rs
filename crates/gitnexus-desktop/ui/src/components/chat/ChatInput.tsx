@@ -1,5 +1,5 @@
 import { forwardRef, useRef, useEffect, useCallback } from "react";
-import { Settings2, Send, Loader2, Microscope } from "lucide-react";
+import { Settings2, Send, Loader2, Microscope, Square } from "lucide-react";
 import { useI18n } from "../../hooks/use-i18n";
 
 interface ChatInputProps {
@@ -11,10 +11,14 @@ interface ChatInputProps {
   onOpenSettings?: () => void;
   deepResearch: boolean;
   hasFilters: boolean;
+  /** Called when the user clicks the Stop button during streaming */
+  onCancel?: () => void;
+  /** True while tokens are actively streaming (shows Stop button) */
+  isStreaming?: boolean;
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
-  ({ value, onChange, onSend, onKeyDown, isPending, onOpenSettings, deepResearch, hasFilters }, ref) => {
+  ({ value, onChange, onSend, onKeyDown, isPending, onOpenSettings, deepResearch, hasFilters, onCancel, isStreaming }, ref) => {
     const { t } = useI18n();
     const internalRef = useRef<HTMLTextAreaElement | null>(null);
     const placeholder = deepResearch
@@ -94,29 +98,40 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                 <Settings2 size={14} />
               </button>
             )}
-            <button
-              onClick={onSend}
-              disabled={!value.trim() || isPending}
-              aria-label={isPending ? "Sending..." : "Send message"}
-              className="p-2 rounded-xl transition-all"
-              style={{
-                background: value.trim() && !isPending
-                  ? deepResearch ? "var(--purple)" : "var(--accent)"
-                  : "var(--bg-3)",
-                color: value.trim() && !isPending ? "#fff" : "var(--text-3)",
-                minWidth: 36,
-                minHeight: 36,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {isPending ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <Send size={16} />
-              )}
-            </button>
+            {isStreaming && onCancel ? (
+              <button
+                onClick={onCancel}
+                aria-label="Stop streaming"
+                title="Stop"
+                className="p-2 rounded-xl transition-all"
+                style={{
+                  background: "rgba(239,68,68,0.15)",
+                  border: "1px solid rgba(239,68,68,0.4)",
+                  color: "rgb(239,68,68)",
+                  minWidth: 36, minHeight: 36,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                <Square size={14} />
+              </button>
+            ) : (
+              <button
+                onClick={onSend}
+                disabled={!value.trim() || isPending}
+                aria-label={isPending ? "Sending..." : "Send message"}
+                className="p-2 rounded-xl transition-all"
+                style={{
+                  background: value.trim() && !isPending
+                    ? deepResearch ? "var(--purple)" : "var(--accent)"
+                    : "var(--bg-3)",
+                  color: value.trim() && !isPending ? "#fff" : "var(--text-3)",
+                  minWidth: 36, minHeight: 36,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                {isPending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              </button>
+            )}
           </div>
         </div>
         <p className="mt-1.5 text-[11px] text-center" style={{ color: "var(--text-3)" }}>

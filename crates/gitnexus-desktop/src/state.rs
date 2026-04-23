@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use gitnexus_core::graph::KnowledgeGraph;
@@ -44,6 +45,8 @@ pub struct AppState {
     /// Full chat config for the current desktop session. Secrets stay here,
     /// not on disk.
     chat_config: RwLock<Option<ChatConfig>>,
+    /// Cancellation flag — set to true to abort the current streaming chat request.
+    pub cancel_flag: Arc<AtomicBool>,
 }
 
 impl Default for AppState {
@@ -61,6 +64,7 @@ impl AppState {
             active_repo: RwLock::new(None),
             load_lock: Mutex::new(()),
             chat_config: RwLock::new(None),
+            cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 

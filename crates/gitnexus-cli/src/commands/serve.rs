@@ -1,4 +1,20 @@
 //! The `serve` command: starts an HTTP server for the web UI and MCP HTTP endpoint.
+//!
+//! `/api/chat` — Server-Sent Events (SSE) chat endpoint.
+//!
+//! Request body (JSON):
+//! ```json
+//! {
+//!   "question": "Explain the DossiersController",
+//!   "repo": "Alise_v2",
+//!   "history": [
+//!     { "role": "user",      "content": "Previous question" },
+//!     { "role": "assistant", "content": "Previous answer"   }
+//!   ]
+//! }
+//! ```
+//!
+//! Response: SSE stream of text deltas, terminated by `data: [DONE]`.
 
 use std::sync::Arc;
 
@@ -6,12 +22,13 @@ use axum::{
     routing::post,
     Json,
     extract::State,
-    http::StatusCode,
+    http::{StatusCode, Method, HeaderValue, header},
     response::Sse,
     response::sse::{Event, KeepAlive},
     response::IntoResponse,
 };
 use tower_http::services::ServeDir;
+use tower_http::cors::CorsLayer;
 use tokio::sync::Mutex;
 use serde::Deserialize;
 use std::convert::Infallible;
@@ -22,9 +39,18 @@ use gitnexus_mcp::transport::http::{mcp_http_router, SharedBackend};
 #[derive(Deserialize)]
 struct ChatRequest {
     question: String,
+    #[serde(default)]
     repo: String,
-    #[allow(dead_code)]
-    history: Vec<serde_json::Value>,
+    /// Optional conversation history for multi-turn context.
+    /// Each entry: { "role": "user"|"assistant", "content": "..." }
+    #[serde(default)]
+    history: Vec<HistoryEntry>,
+}
+
+#[derive(Deserialize, Clone)]
+struct HistoryEntry {
+    role: String,
+    content: String,
 }
 
 pub async fn run(port: u16, host: &str) -> anyhow::Result<()> {
@@ -34,12 +60,19 @@ pub async fn run(port: u16, host: &str) -> anyhow::Result<()> {
     }
 
     let shared: SharedBackend = Arc::new(Mutex::new(backend));
-    
+
+    // CORS — allow browser access from documentation HTML served on same host
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([header::CONTENT_TYPE, header::ACCEPT])
+        .allow_origin(tower_http::cors::Any);
+
     // Base router from MCP
     let app = mcp_http_router()
-        .route("/api/chat", post(chat_handler));
+        .route("/api/chat", post(chat_handler))
+        .layer(cors);
 
-    // Add Static File serving for documentation
+    // Static file serving for documentation
     let docs_dir = std::env::current_dir()?.join(".gitnexus").join("docs");
     let app = if docs_dir.exists() {
         println!("Serving documentation from {}", docs_dir.display());
@@ -48,13 +81,13 @@ pub async fn run(port: u16, host: &str) -> anyhow::Result<()> {
         app
     };
 
-    // Apply shared state LAST to get Router<()>
     let app = app.with_state(shared);
 
     let addr = format!("{host}:{port}");
     println!("GitNexus HTTP server starting on http://{addr}");
     println!("  Documentation: http://{addr}/index.html");
-    println!("  MCP endpoint: POST http://{addr}/mcp");
+    println!("  Chat API:      POST http://{addr}/api/chat  (SSE)");
+    println!("  MCP endpoint:  POST http://{addr}/mcp");
     println!("  Press Ctrl+C to stop");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -71,35 +104,65 @@ async fn chat_handler(
     Json(payload): Json<ChatRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let backend_guard = backend.lock().await;
-    
-    // Resolve repo path
+
+    // Resolve repo path from name, fallback to first indexed repo
     let registry = backend_guard.registry();
-    let repo_entry = registry.iter().find(|e| e.name == payload.repo)
-        .or_else(|| registry.first()) // Fallback to first repo if name doesn't match
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "No repository found".to_string()))?;
-    
+    let repo_entry = registry
+        .iter()
+        .find(|e| e.name == payload.repo)
+        .or_else(|| registry.first())
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "No repository found. Run 'gitnexus analyze' first.".to_string()))?;
+
     let repo_path = repo_entry.path.clone();
-    drop(backend_guard); // Release lock before calling LLM
+    drop(backend_guard);
 
     let question = payload.question;
-    
-    // Create a channel for streaming
+    let history = payload.history;
+
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-    // Spawn blocking task for the 'ask' logic
     tokio::task::spawn_blocking(move || {
-        let tx_err = tx.clone();
+        let tx_chunk = tx.clone();
+        let tx_done = tx.clone();
+
+        // Build prior turn messages for context window (last 6 turns = 12 messages)
+        let history_context: String = history
+            .iter()
+            .rev()
+            .take(6)
+            .rev()
+            .map(|h| format!("**{}**: {}", h.role, h.content))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        // Augment the question with history context if available
+        let augmented_question = if history_context.is_empty() {
+            question.clone()
+        } else {
+            format!("{}\n\n---\n*Contexte de la conversation précédente :*\n{}", question, history_context)
+        };
+
         let stream_cb = Box::new(move |delta: &str| {
-            let _ = tx.send(Ok::<Event, Infallible>(Event::default().data(delta)));
+            let _ = tx_chunk.send(Ok::<Event, Infallible>(Event::default().data(delta)));
         });
 
-        if let Err(e) = super::ask::ask_question(&question, Some(&repo_path), Some(stream_cb)) {
-            let _ = tx_err.send(Ok(Event::default().data(format!("Error: {}", e))));
+        let result = super::ask::ask_question(&augmented_question, Some(&repo_path), Some(stream_cb));
+
+        // Send [DONE] sentinel so clients know the stream has ended
+        match result {
+            Ok(_) => {
+                let _ = tx_done.send(Ok(Event::default().data("[DONE]")));
+            }
+            Err(e) => {
+                let _ = tx_done.send(Ok(Event::default()
+                    .event("error")
+                    .data(format!("Error: {}", e))));
+                let _ = tx_done.send(Ok(Event::default().data("[DONE]")));
+            }
         }
     });
 
     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 

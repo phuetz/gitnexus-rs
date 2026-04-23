@@ -25,7 +25,7 @@ pub(super) fn markdown_to_html(md: &str) -> String {
             continue;
         }
 
-        // Handle <details>/<summary>/<div>/<a> blocks (pass through as HTML)
+        // Handle <details>/<summary>/<div>/<a>/<img> blocks (pass through as HTML)
         if line.trim_start().starts_with("<details>")
             || line.trim_start().starts_with("<details ")
             || line.trim_start().starts_with("</details>")
@@ -36,8 +36,16 @@ pub(super) fn markdown_to_html(md: &str) -> String {
             || line.trim_start().starts_with("</div")
             || line.trim_start().starts_with("<a ")
             || line.trim_start().starts_with("</a>")
+            || line.trim_start().starts_with("<img")
         {
             html.push_str(line);
+            html.push('\n');
+            continue;
+        }
+
+        // Markdown image syntax: ![alt](url) → <img src="url" alt="alt">
+        if let Some(img_html) = parse_md_image(line) {
+            html.push_str(&img_html);
             html.push('\n');
             continue;
         }
@@ -540,6 +548,24 @@ pub(super) fn html_escape(text: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// Parse a standalone Markdown image `![alt](url)` line → `<div><img/></div>`.
+/// Returns `None` if the line is not a standalone image.
+pub(super) fn parse_md_image(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with("![") {
+        return None;
+    }
+    let alt_end = trimmed.find("](")?;
+    let alt = &trimmed[2..alt_end];
+    let rest = &trimmed[alt_end + 2..];
+    let paren_end = rest.rfind(')')?;
+    let url_part = rest[..paren_end].splitn(2, '"').next().unwrap_or(&rest[..paren_end]).trim();
+    Some(format!(
+        "<div class=\"gnx-img-wrapper\" style=\"margin:12px 0;text-align:center;\"><img src=\"{}\" alt=\"{}\" style=\"max-width:100%;border-radius:6px;\"/></div>",
+        html_escape(url_part), html_escape(alt)
+    ))
 }
 
 /// Restrict an identifier to ASCII letters, digits and the small set of

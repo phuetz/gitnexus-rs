@@ -36,7 +36,12 @@ struct PersistedChatConfig {
     reasoning_effort: String,
     /// Optional API key persisted in the file (CLI compatibility).
     /// If absent, will be loaded from environment variables.
-    #[serde(default, skip_serializing_if = "String::is_empty", alias = "api_key", alias = "apiKey")]
+    #[serde(
+        default,
+        skip_serializing_if = "String::is_empty",
+        alias = "api_key",
+        alias = "apiKey"
+    )]
     api_key: String,
 }
 
@@ -77,9 +82,7 @@ fn config_path() -> PathBuf {
 /// matched `"localhost"` and missed `127.0.0.1`, silently degrading to a
 /// graph-only response when Ollama was reachable on the loopback IP.
 pub fn is_local_llm_url(base_url: &str) -> bool {
-    base_url.contains("localhost")
-        || base_url.contains("127.0.0.1")
-        || base_url.contains("[::1]")
+    base_url.contains("localhost") || base_url.contains("127.0.0.1") || base_url.contains("[::1]")
 }
 
 /// Sanitize an LLM error response body before surfacing it in the UI.
@@ -177,14 +180,19 @@ fn save_config(config: &ChatConfig) -> Result<(), String> {
 }
 
 async fn load_config(state: &AppState) -> ChatConfig {
-    state.chat_config().await.unwrap_or_else(load_persisted_config)
+    state
+        .chat_config()
+        .await
+        .unwrap_or_else(load_persisted_config)
 }
 
 // ─── Tauri Commands ──────────────────────────────────────────────────
 
-use gitnexus_core::llm::{LlmProvider, LlmResponseChunk, Message, Role, ToolCall, ToolDefinition, FunctionDefinition};
-use gitnexus_core::llm::openai::OpenAILlmProvider;
 use futures_util::StreamExt;
+use gitnexus_core::llm::openai::OpenAILlmProvider;
+use gitnexus_core::llm::{
+    FunctionDefinition, LlmProvider, LlmResponseChunk, Message, Role, ToolCall, ToolDefinition,
+};
 
 /// Execute an agent tool call against the knowledge graph or memory store.
 async fn execute_mcp_tool(
@@ -200,7 +208,10 @@ async fn execute_mcp_tool(
     match name {
         // ── search_code ──────────────────────────────────────────
         "search_code" => {
-            let query = parsed.get("query").and_then(|q| q.as_str()).unwrap_or_default();
+            let query = parsed
+                .get("query")
+                .and_then(|q| q.as_str())
+                .unwrap_or_default();
             if query.is_empty() {
                 return "Error: missing required parameter 'query'".to_string();
             }
@@ -213,7 +224,10 @@ async fn execute_mcp_tool(
             for (i, src) in sources.iter().enumerate() {
                 out.push_str(&format!(
                     "{}. **{}** ({}) — `{}`",
-                    i + 1, src.symbol_name, src.symbol_type, src.file_path
+                    i + 1,
+                    src.symbol_name,
+                    src.symbol_type,
+                    src.file_path
                 ));
                 if let (Some(start), Some(end)) = (src.start_line, src.end_line) {
                     out.push_str(&format!(" L{}-{}", start, end));
@@ -240,16 +254,30 @@ async fn execute_mcp_tool(
                 Some(p) => p,
                 None => return "Error: missing required parameter 'path'".to_string(),
             };
-            let start = parsed.get("start_line").and_then(|v| v.as_u64()).map(|v| v as u32);
-            let end = parsed.get("end_line").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let start = parsed
+                .get("start_line")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
+            let end = parsed
+                .get("end_line")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
             match read_code_snippet(repo_path, path, start, end) {
                 Some(content) => {
                     let lang = detect_language(path);
-                    format!("File `{}` (lines {}-{}):\n```{}\n{}\n```", path,
-                        start.unwrap_or(1), end.unwrap_or(start.unwrap_or(1) + 30),
-                        lang, content)
+                    format!(
+                        "File `{}` (lines {}-{}):\n```{}\n{}\n```",
+                        path,
+                        start.unwrap_or(1),
+                        end.unwrap_or(start.unwrap_or(1) + 30),
+                        lang,
+                        content
+                    )
                 }
-                None => format!("Error: could not read file '{}' (not found or outside repo)", path),
+                None => format!(
+                    "Error: could not read file '{}' (not found or outside repo)",
+                    path
+                ),
             }
         }
 
@@ -259,15 +287,24 @@ async fn execute_mcp_tool(
                 Some(t) => t,
                 None => return "Error: missing required parameter 'target'".to_string(),
             };
-            let direction = parsed.get("direction").and_then(|d| d.as_str()).unwrap_or("both");
-            let max_depth = parsed.get("max_depth").and_then(|d| d.as_u64()).unwrap_or(3) as u32;
+            let direction = parsed
+                .get("direction")
+                .and_then(|d| d.as_str())
+                .unwrap_or("both");
+            let max_depth = parsed
+                .get("max_depth")
+                .and_then(|d| d.as_u64())
+                .unwrap_or(3) as u32;
 
             // Resolve target: try exact node ID first, then name search
             let target_id = if graph.get_node(target).is_some() {
                 target.to_string()
             } else {
                 let target_lower = target.to_lowercase();
-                match graph.iter_nodes().find(|n| n.properties.name.to_lowercase() == target_lower) {
+                match graph
+                    .iter_nodes()
+                    .find(|n| n.properties.name.to_lowercase() == target_lower)
+                {
                     Some(n) => n.id.clone(),
                     None => return format!("Error: symbol '{}' not found", target),
                 }
@@ -279,28 +316,44 @@ async fn execute_mcp_tool(
                 Vec::new()
             };
             let downstream = if direction == "downstream" || direction == "both" {
-                crate::commands::impact::bfs_impact_pub(graph, indexes, &target_id, max_depth, false)
+                crate::commands::impact::bfs_impact_pub(
+                    graph, indexes, &target_id, max_depth, false,
+                )
             } else {
                 Vec::new()
             };
 
-            let mut out = format!("Impact analysis for '{}' (depth={}, direction={}):\n\n", target, max_depth, direction);
+            let mut out = format!(
+                "Impact analysis for '{}' (depth={}, direction={}):\n\n",
+                target, max_depth, direction
+            );
             if !upstream.is_empty() {
                 out.push_str(&format!("**Upstream ({} affected):**\n", upstream.len()));
                 for n in upstream.iter().take(20) {
-                    out.push_str(&format!("  - {} ({}) at depth {} — `{}`\n",
-                        n.node.name, n.node.label, n.depth, n.node.file_path));
+                    out.push_str(&format!(
+                        "  - {} ({}) at depth {} — `{}`\n",
+                        n.node.name, n.node.label, n.depth, n.node.file_path
+                    ));
                 }
-                if upstream.len() > 20 { out.push_str(&format!("  ... and {} more\n", upstream.len() - 20)); }
+                if upstream.len() > 20 {
+                    out.push_str(&format!("  ... and {} more\n", upstream.len() - 20));
+                }
                 out.push('\n');
             }
             if !downstream.is_empty() {
-                out.push_str(&format!("**Downstream ({} affected):**\n", downstream.len()));
+                out.push_str(&format!(
+                    "**Downstream ({} affected):**\n",
+                    downstream.len()
+                ));
                 for n in downstream.iter().take(20) {
-                    out.push_str(&format!("  - {} ({}) at depth {} — `{}`\n",
-                        n.node.name, n.node.label, n.depth, n.node.file_path));
+                    out.push_str(&format!(
+                        "  - {} ({}) at depth {} — `{}`\n",
+                        n.node.name, n.node.label, n.depth, n.node.file_path
+                    ));
                 }
-                if downstream.len() > 20 { out.push_str(&format!("  ... and {} more\n", downstream.len() - 20)); }
+                if downstream.len() > 20 {
+                    out.push_str(&format!("  ... and {} more\n", downstream.len() - 20));
+                }
             }
             if upstream.is_empty() && downstream.is_empty() {
                 out.push_str("No impact found — this symbol has no causal dependencies.\n");
@@ -320,7 +373,10 @@ async fn execute_mcp_tool(
                 symbol.to_string()
             } else {
                 let sym_lower = symbol.to_lowercase();
-                match graph.iter_nodes().find(|n| n.properties.name.to_lowercase() == sym_lower) {
+                match graph
+                    .iter_nodes()
+                    .find(|n| n.properties.name.to_lowercase() == sym_lower)
+                {
                     Some(n) => n.id.clone(),
                     None => return format!("Error: symbol '{}' not found", symbol),
                 }
@@ -330,7 +386,12 @@ async fn execute_mcp_tool(
                 Some(n) => n,
                 None => return format!("Error: node '{}' not found in graph", node_id),
             };
-            let mut out = format!("**{}** ({}) — `{}`\n\n", node.properties.name, node.label.as_str(), node.properties.file_path);
+            let mut out = format!(
+                "**{}** ({}) — `{}`\n\n",
+                node.properties.name,
+                node.label.as_str(),
+                node.properties.file_path
+            );
 
             // Callers/callees via indexes
             let mut callers = Vec::new();
@@ -342,10 +403,19 @@ async fn execute_mcp_tool(
                 for (tid, rtype) in outs {
                     if let Some(t) = graph.get_node(tid) {
                         match rtype {
-                            RelationshipType::Calls => callees.push(format!("{} ({})", t.properties.name, t.label.as_str())),
+                            RelationshipType::Calls => callees.push(format!(
+                                "{} ({})",
+                                t.properties.name,
+                                t.label.as_str()
+                            )),
                             RelationshipType::Imports => imports.push(t.properties.name.clone()),
-                            RelationshipType::Inherits | RelationshipType::Extends | RelationshipType::Implements =>
-                                inherited.push(format!("{} ({})", t.properties.name, t.label.as_str())),
+                            RelationshipType::Inherits
+                            | RelationshipType::Extends
+                            | RelationshipType::Implements => inherited.push(format!(
+                                "{} ({})",
+                                t.properties.name,
+                                t.label.as_str()
+                            )),
                             _ => {}
                         }
                     }
@@ -361,10 +431,21 @@ async fn execute_mcp_tool(
                 }
             }
 
-            if !callers.is_empty() { out.push_str(&format!("**Called by:** {}\n", callers.join(", "))); }
-            if !callees.is_empty() { out.push_str(&format!("**Calls:** {}\n", callees.join(", "))); }
-            if !imports.is_empty() { out.push_str(&format!("**Imports:** {}\n", imports.join(", "))); }
-            if !inherited.is_empty() { out.push_str(&format!("**Inherits/Implements:** {}\n", inherited.join(", "))); }
+            if !callers.is_empty() {
+                out.push_str(&format!("**Called by:** {}\n", callers.join(", ")));
+            }
+            if !callees.is_empty() {
+                out.push_str(&format!("**Calls:** {}\n", callees.join(", ")));
+            }
+            if !imports.is_empty() {
+                out.push_str(&format!("**Imports:** {}\n", imports.join(", ")));
+            }
+            if !inherited.is_empty() {
+                out.push_str(&format!(
+                    "**Inherits/Implements:** {}\n",
+                    inherited.join(", ")
+                ));
+            }
 
             // Community
             if let Some(outs) = indexes.outgoing.get(&node_id) {
@@ -394,11 +475,18 @@ async fn execute_mcp_tool(
                                 "Query returned 0 results.".to_string()
                             } else {
                                 let truncated: Vec<_> = rows.iter().take(25).collect();
-                                let json = serde_json::to_string_pretty(&truncated).unwrap_or_default();
-                                format!("Cypher returned {} results{}:\n```json\n{}\n```",
+                                let json =
+                                    serde_json::to_string_pretty(&truncated).unwrap_or_default();
+                                format!(
+                                    "Cypher returned {} results{}:\n```json\n{}\n```",
                                     rows.len(),
-                                    if rows.len() > 25 { " (showing first 25)" } else { "" },
-                                    json)
+                                    if rows.len() > 25 {
+                                        " (showing first 25)"
+                                    } else {
+                                        ""
+                                    },
+                                    json
+                                )
                             }
                         }
                         Err(e) => format!("Cypher execution error: {}", e),
@@ -414,46 +502,14 @@ async fn execute_mcp_tool(
                 Some(t) => t,
                 None => return "Error: missing required parameter 'target'".to_string(),
             };
-            let target_lower = target.to_lowercase();
-            let start_node = match graph.iter_nodes().find(|n| n.properties.name.to_lowercase() == target_lower) {
-                Some(n) => n,
-                None => return format!("Error: symbol '{}' not found", target),
-            };
-
-            let node_id = &start_node.id;
-            let mut lines = vec!["graph TD".to_string()];
-            lines.push(format!("    {}[\"{}\"]", diagram_sanitize(node_id), diagram_escape(&start_node.properties.name)));
-
-            let empty: Vec<(String, RelationshipType)> = Vec::new();
-            let outgoing = indexes.outgoing.get(node_id).unwrap_or(&empty);
-            let methods: Vec<String> = outgoing.iter()
-                .filter(|(_, rt)| matches!(rt, RelationshipType::HasMethod | RelationshipType::HasAction))
-                .map(|(tid, _)| tid.clone()).collect();
-
-            for mid in &methods {
-                if let Some(m) = graph.get_node(mid) {
-                    lines.push(format!("    {} --> {}[\"{}\"]", diagram_sanitize(node_id), diagram_sanitize(mid), diagram_escape(&m.properties.name)));
-                    if let Some(m_outs) = indexes.outgoing.get(mid) {
-                        for (cid, rt) in m_outs {
-                            if matches!(rt, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
-                                if let Some(callee) = graph.get_node(cid) {
-                                    lines.push(format!("    {} --> {}[\"{}\"]", diagram_sanitize(mid), diagram_sanitize(cid), diagram_escape(&callee.properties.name)));
-                                }
-                            }
-                        }
-                    }
-                }
+            let diagram_type = parsed.get("diagram_type").and_then(|d| d.as_str());
+            match crate::commands::diagram::build_diagram(graph, indexes, target, diagram_type) {
+                Ok(diagram) => format!(
+                    "Mermaid {} diagram for '{}':\n```mermaid\n{}\n```",
+                    diagram.diagram_type, target, diagram.mermaid
+                ),
+                Err(e) => format!("Error: {}", e),
             }
-            if methods.is_empty() {
-                for (tid, rt) in outgoing {
-                    if matches!(rt, RelationshipType::Calls | RelationshipType::Imports | RelationshipType::DependsOn) {
-                        if let Some(t) = graph.get_node(tid) {
-                            lines.push(format!("    {} -->|{}| {}[\"{}\"]", diagram_sanitize(node_id), rt.as_str(), diagram_sanitize(tid), diagram_escape(&t.properties.name)));
-                        }
-                    }
-                }
-            }
-            format!("Mermaid diagram for '{}':\n```mermaid\n{}\n```", target, lines.join("\n"))
         }
 
         // ── save_memory ──────────────────────────────────────────
@@ -465,7 +521,12 @@ async fn execute_mcp_tool(
             let scope = match parsed.get("scope").and_then(|s| s.as_str()) {
                 Some("global") => gitnexus_core::memory::MemoryScope::Global,
                 Some("project") => gitnexus_core::memory::MemoryScope::Project,
-                Some(other) => return format!("Error: invalid scope '{}', expected 'global' or 'project'", other),
+                Some(other) => {
+                    return format!(
+                        "Error: invalid scope '{}', expected 'global' or 'project'",
+                        other
+                    )
+                }
                 None => return "Error: missing required parameter 'scope'".to_string(),
             };
             let mut store = gitnexus_core::memory::MemoryStore::load(scope, Some(repo_path));
@@ -478,14 +539,6 @@ async fn execute_mcp_tool(
 
         _ => format!("Error: unknown tool '{}'", name),
     }
-}
-
-fn diagram_sanitize(id: &str) -> String {
-    id.replace([':', '/', '.', ' ', '<', '>', '(', ')', '{', '}'], "_")
-}
-
-fn diagram_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// Ask a question about the codebase.
@@ -515,13 +568,25 @@ pub async fn chat_ask(
 
     // 4c. Pre-fetch tool results for the question type (deterministic, before LLM call)
     let prefetched = prefetch_for_type(
-        question_type, &request.question, &search_results,
-        &graph, &indexes, &fts_index, &repo_path,
-    ).await;
+        question_type,
+        &request.question,
+        &search_results,
+        &graph,
+        &indexes,
+        &fts_index,
+        &repo_path,
+    )
+    .await;
 
     // 5. Assemble the prompt
-    let system_prompt = build_system_prompt(&graph, &sources, &repo_path, &enriched_doc_context, &prefetched);
-    
+    let system_prompt = build_system_prompt(
+        &graph,
+        &sources,
+        &repo_path,
+        &enriched_doc_context,
+        &prefetched,
+    );
+
     // Convert history to gitnexus_core::llm::Message format
     let mut messages = vec![Message {
         role: Role::System,
@@ -650,11 +715,16 @@ pub async fn chat_ask(
             type_: "function".to_string(),
             function: FunctionDefinition {
                 name: "get_diagram".to_string(),
-                description: "Generate a Mermaid flowchart diagram showing the methods and call relationships of a class/controller.".to_string(),
+                description: "Generate a Mermaid flowchart, sequence, or class diagram for a class/controller/service.".to_string(),
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "target": { "type": "string", "description": "Symbol name (class, controller, service)" }
+                        "target": { "type": "string", "description": "Symbol name (class, controller, service, or method)" },
+                        "diagram_type": {
+                            "type": "string",
+                            "enum": ["flowchart", "sequence", "class"],
+                            "description": "Diagram style. Defaults to flowchart."
+                        }
                     },
                     "required": ["target"]
                 }),
@@ -707,7 +777,9 @@ pub async fn chat_ask(
         while let Some(chunk_result) = stream.next().await {
             // Check cancellation flag — set by chat_cancel command
             if state.cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                state.cancel_flag.store(false, std::sync::atomic::Ordering::Relaxed);
+                state
+                    .cancel_flag
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
                 let _ = app.emit("chat-stream-done", ());
                 let _ = app.emit("chat-stream-cancelled", ());
                 return Ok(ChatResponse {
@@ -738,8 +810,16 @@ pub async fn chat_ask(
         if !text_received.is_empty() || !tool_calls_received.is_empty() {
             messages.push(Message {
                 role: Role::Assistant,
-                content: if text_received.is_empty() { None } else { Some(text_received) },
-                tool_calls: if tool_calls_received.is_empty() { None } else { Some(tool_calls_received.clone()) },
+                content: if text_received.is_empty() {
+                    None
+                } else {
+                    Some(text_received)
+                },
+                tool_calls: if tool_calls_received.is_empty() {
+                    None
+                } else {
+                    Some(tool_calls_received.clone())
+                },
                 tool_call_id: None,
                 name: None,
             });
@@ -753,24 +833,46 @@ pub async fn chat_ask(
             // emits the structured tool_call payload.
             let announced_tool_intent = [
                 // French
-                "je vais rechercher", "je vais chercher", "je vais examiner",
-                "je vais regarder", "je vais analyser", "je vais inspecter",
-                "commencer par rechercher", "pour commencer", "rechercher des",
-                "mots-clés comme", "mots clés comme", "termes clés comme",
-                "identifier les symboles", "rechercher les symboles",
+                "je vais rechercher",
+                "je vais chercher",
+                "je vais examiner",
+                "je vais regarder",
+                "je vais analyser",
+                "je vais inspecter",
+                "commencer par rechercher",
+                "pour commencer",
+                "rechercher des",
+                "mots-clés comme",
+                "mots clés comme",
+                "termes clés comme",
+                "identifier les symboles",
+                "rechercher les symboles",
                 // English
-                "i'll search", "let me search", "let me check", "let me look",
-                "i will search", "i need to find", "i'll look", "i'll check",
-                "first, i'll", "first, let me", "let me start by",
-                "i'll start by", "keywords like", "search for",
-            ].iter().any(|h| text_lc.contains(h));
+                "i'll search",
+                "let me search",
+                "let me check",
+                "let me look",
+                "i will search",
+                "i need to find",
+                "i'll look",
+                "i'll check",
+                "first, i'll",
+                "first, let me",
+                "let me start by",
+                "i'll start by",
+                "keywords like",
+                "search for",
+            ]
+            .iter()
+            .any(|h| text_lc.contains(h));
 
             if announced_tool_intent && iteration == 1 {
                 // FALLBACK: auto-execute search_code on the user's question
                 // so we always make forward progress. Text nudging alone was
                 // not enough — the model would just re-announce on the next
                 // turn and stall again.
-                let user_question = messages.iter()
+                let user_question = messages
+                    .iter()
                     .rev()
                     .find(|m| matches!(m.role, Role::User))
                     .and_then(|m| m.content.clone())
@@ -779,12 +881,19 @@ pub async fn chat_ask(
                 let synthetic_id = format!("auto-search-{}", iteration);
                 let tool_args = serde_json::json!({
                     "query": user_question.trim()
-                }).to_string();
+                })
+                .to_string();
 
                 let _ = app.emit("tool_execution_start", "search_code".to_string());
                 let tool_result = execute_mcp_tool(
-                    "search_code", &tool_args, &repo_path, &graph, &indexes, &fts_index,
-                ).await;
+                    "search_code",
+                    &tool_args,
+                    &repo_path,
+                    &graph,
+                    &indexes,
+                    &fts_index,
+                )
+                .await;
                 let _ = app.emit("tool_execution_end", "search_code".to_string());
 
                 // Retrofit the assistant message we just pushed so the API
@@ -814,7 +923,8 @@ pub async fn chat_ask(
                         "Based on those search results, please provide a complete answer to my \
                          original question. Cite specific files and symbols. If you need more \
                          detail, call get_symbol_context or read_file — but do not announce it, \
-                         just call it.".to_string(),
+                         just call it."
+                            .to_string(),
                     ),
                     tool_calls: None,
                     tool_call_id: None,
@@ -827,9 +937,17 @@ pub async fn chat_ask(
 
         for tc in tool_calls_received {
             let _ = app.emit("tool_execution_start", tc.name.clone());
-            let result = execute_mcp_tool(&tc.name, &tc.arguments, &repo_path, &graph, &indexes, &fts_index).await;
+            let result = execute_mcp_tool(
+                &tc.name,
+                &tc.arguments,
+                &repo_path,
+                &graph,
+                &indexes,
+                &fts_index,
+            )
+            .await;
             let _ = app.emit("tool_execution_end", tc.name.clone());
-            
+
             messages.push(Message {
                 role: Role::Tool,
                 content: Some(result),
@@ -861,10 +979,7 @@ pub async fn chat_get_config(state: State<'_, AppState>) -> Result<ChatConfig, S
 
 /// Save chat configuration (LLM provider settings).
 #[tauri::command]
-pub async fn chat_set_config(
-    state: State<'_, AppState>,
-    config: ChatConfig,
-) -> Result<(), String> {
+pub async fn chat_set_config(state: State<'_, AppState>, config: ChatConfig) -> Result<(), String> {
     state.set_chat_config(config.clone()).await;
     save_config(&config)
 }
@@ -891,10 +1006,7 @@ pub async fn chat_test_connection(config: ChatConfig) -> Result<ChatConnectionTe
     // instead of typing the key into the form.
     let config = hydrate_api_key_from_env(config);
 
-    let url = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let body = serde_json::json!({
         "model": config.model,
         "messages": [{"role": "user", "content": "Say hello in one word."}],
@@ -988,7 +1100,8 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
     vec![
         ChatToolDescriptor {
             name: "search_code".to_string(),
-            description: "Full-text search over the knowledge graph (BM25 + exact name).".to_string(),
+            description: "Full-text search over the knowledge graph (BM25 + exact name)."
+                .to_string(),
             category: "search".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
@@ -1014,7 +1127,8 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
         },
         ChatToolDescriptor {
             name: "get_impact".to_string(),
-            description: "Upstream/downstream impact (BFS over Calls/Imports/Inherits).".to_string(),
+            description: "Upstream/downstream impact (BFS over Calls/Imports/Inherits)."
+                .to_string(),
             category: "analysis".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
@@ -1028,7 +1142,8 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
         },
         ChatToolDescriptor {
             name: "get_symbol_context".to_string(),
-            description: "360° view of a symbol: callers, callees, imports, inheritance, module.".to_string(),
+            description: "360° view of a symbol: callers, callees, imports, inheritance, module."
+                .to_string(),
             category: "analysis".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
@@ -1052,12 +1167,16 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
         },
         ChatToolDescriptor {
             name: "get_diagram".to_string(),
-            description: "Generate a Mermaid flowchart for a class/controller/service.".to_string(),
+            description: "Generate a Mermaid flowchart, sequence, or class diagram.".to_string(),
             category: "visualize".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "target": { "type": "string" }
+                    "target": { "type": "string" },
+                    "diagram_type": {
+                        "type": "string",
+                        "enum": ["flowchart", "sequence", "class"]
+                    }
                 },
                 "required": ["target"]
             }),
@@ -1247,17 +1366,25 @@ fn search_relevant_context(
     // outscore a real BM25 match in business code.
     let query_lower = query.to_lowercase();
     for node in graph.iter_nodes() {
-        if node.properties.name.to_lowercase().contains(&query_lower) && seen.insert(node.id.clone()) {
+        if node.properties.name.to_lowercase().contains(&query_lower)
+            && seen.insert(node.id.clone())
+        {
             let score = 1.0 * gitnexus_db::inmemory::fts::path_weight(&node.properties.file_path);
             results.push((node.id.clone(), score));
         }
     }
 
     // Sort by score descending, take top N
-    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or_else(|| {
-        // Handle NaN: treat NaN as less than any number
-        if a.1.is_nan() { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Less }
-    }));
+    results.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1).unwrap_or_else(|| {
+            // Handle NaN: treat NaN as less than any number
+            if a.1.is_nan() {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Less
+            }
+        })
+    });
     results.truncate(max_results);
     results
 }
@@ -1277,47 +1404,83 @@ fn classify_question(q: &str) -> QuestionType {
     let l = q.to_lowercase();
 
     // Impact patterns — highest priority (specific intent)
-    if l.contains("impact") || l.contains("dépendanc") || l.contains("dependenc")
-        || l.contains("qui appelle") || l.contains("who calls") || l.contains("blast radius")
-        || l.contains("casse") || l.contains("impacté") || l.contains("affected")
+    if l.contains("impact")
+        || l.contains("dépendanc")
+        || l.contains("dependenc")
+        || l.contains("qui appelle")
+        || l.contains("who calls")
+        || l.contains("blast radius")
+        || l.contains("casse")
+        || l.contains("impacté")
+        || l.contains("affected")
     {
         return QuestionType::Impact;
     }
 
     // Architecture / overview
-    if l.contains("architecture") || l.contains("vue d'ensemble") || l.contains("overview")
-        || l.contains("big picture") || l.contains("schéma global") || l.contains("présentation générale")
+    if l.contains("architecture")
+        || l.contains("vue d'ensemble")
+        || l.contains("overview")
+        || l.contains("big picture")
+        || l.contains("schéma global")
+        || l.contains("présentation générale")
         || l.contains("global") && (l.contains("fonctionn") || l.contains("architect"))
     {
         return QuestionType::Architecture;
     }
 
-    // Algorithm / process — "comment X est calculé/généré/traité"
+    // Algorithm / process — "comment X est calculé/généré/traité" or "how is X computed"
     if (l.contains("comment") || l.contains("how"))
-        && (l.contains("calculé") || l.contains("calculated") || l.contains("généré")
-            || l.contains("generated") || l.contains("traitement") || l.contains("traité")
-            || l.contains("construit") || l.contains("built") || l.contains("sont "))
-        || l.contains("algorithme") || l.contains("algorithm") || l.contains("étape")
+        && (l.contains("calculé")
+            || l.contains("calculated")
+            || l.contains("computed")
+            || l.contains("généré")
+            || l.contains("generated")
+            || l.contains("traitement")
+            || l.contains("traité")
+            || l.contains("construit")
+            || l.contains("built")
+            || l.contains("sont "))
+        || l.contains("algorithme")
+        || l.contains("algorithm")
+        || l.contains("étape")
         || l.contains("step by step")
+        || l.contains("describe the algorithm")
+        || l.contains("décrire l'algorithme")
     {
         return QuestionType::Algorithm;
     }
 
     // Functional explanation
-    if l.contains("comment fonctionne") || l.contains("how does") || l.contains("how do")
-        || l.contains("expliquer") || l.contains("expliqu") || l.contains("explain")
-        || l.contains("describe") || l.contains("décrire") || l.contains("présenter le module")
-        || l.contains("présente le module") || l.contains("module")
+    if l.contains("comment fonctionne")
+        || l.contains("how does")
+        || l.contains("how do")
+        || l.contains("expliquer")
+        || l.contains("expliqu")
+        || l.contains("explain")
+        || l.contains("describe")
+        || l.contains("décrire")
+        || l.contains("présenter le module")
+        || l.contains("présente le module")
+        || l.contains("module")
             && (l.contains("explique") || l.contains("décri") || l.contains("fonctionn"))
     {
         return QuestionType::Functional;
     }
 
     // Lookup — simple locate/define queries
-    if l.contains("où est") || l.contains("where is") || l.contains("where's")
-        || l.contains("défini dans") || l.contains("defined in") || l.contains("defined")
-        || l.contains("qu'est-ce que") || l.contains("c'est quoi") || l.contains("what is")
-        || l.contains("trouve") || l.contains("find") || l.contains("locate")
+    if l.contains("où est")
+        || l.contains("where is")
+        || l.contains("where's")
+        || l.contains("défini dans")
+        || l.contains("defined in")
+        || l.contains("defined")
+        || l.contains("qu'est-ce que")
+        || l.contains("c'est quoi")
+        || l.contains("what is")
+        || l.contains("trouve")
+        || l.contains("find")
+        || l.contains("locate")
     {
         return QuestionType::Lookup;
     }
@@ -1328,7 +1491,8 @@ fn classify_question(q: &str) -> QuestionType {
 
 fn canvas_instruction(qt: QuestionType) -> &'static str {
     match qt {
-        QuestionType::Lookup => "\
+        QuestionType::Lookup => {
+            "\
 [CANEVAS TYPE A — LOOKUP]\n\
 Structure ta réponse ainsi :\n\
 ## [Nom du symbole] — Définition\n\
@@ -1336,9 +1500,11 @@ Structure ta réponse ainsi :\n\
 **Localisation :** `Fichier.cs:ligne`\n\
 **Rôle :** [1 phrase]\n\
 **Appelé par :** [callers]\n\
-**Voir aussi :** [modules liés]\n",
+**Voir aussi :** [modules liés]\n"
+        }
 
-        QuestionType::Functional => "\
+        QuestionType::Functional => {
+            "\
 [CANEVAS TYPE B — FONCTIONNEL]\n\
 Structure ta réponse ainsi :\n\
 ## Vue d'ensemble\n\
@@ -1350,9 +1516,11 @@ Structure ta réponse ainsi :\n\
 ## Fichiers sources clés\n\
 [Snippets avec citations Fichier.cs:ligne]\n\
 ## Voir aussi\n\
-[cross-références]\n",
+[cross-références]\n"
+        }
 
-        QuestionType::Algorithm => "\
+        QuestionType::Algorithm => {
+            "\
 [CANEVAS TYPE D — ALGORITHME]\n\
 Structure ta réponse ainsi :\n\
 ## Algorithme : [Nom]\n\
@@ -1364,9 +1532,11 @@ Structure ta réponse ainsi :\n\
 ## Code source\n\
 [Extrait clé]\n\
 ## Flux de contrôle\n\
-[Mermaid flowchart si applicable]\n",
+[Mermaid flowchart si applicable]\n"
+        }
 
-        QuestionType::Architecture => "\
+        QuestionType::Architecture => {
+            "\
 [CANEVAS TYPE C — ARCHITECTURE]\n\
 Structure ta réponse ainsi :\n\
 ## Architecture globale\n\
@@ -1377,9 +1547,11 @@ Structure ta réponse ainsi :\n\
 ## Flux de données\n\
 [Description des flux entre modules]\n\
 ## Points d'entrée\n\
-[Controllers/Services principaux]\n",
+[Controllers/Services principaux]\n"
+        }
 
-        QuestionType::Impact => "\
+        QuestionType::Impact => {
+            "\
 [CANEVAS TYPE E — IMPACT]\n\
 Structure ta réponse ainsi :\n\
 ## Blast radius : [Symbole X]\n\
@@ -1390,7 +1562,8 @@ Structure ta réponse ainsi :\n\
 ## Risque de modification\n\
 [LOW/MEDIUM/HIGH avec justification]\n\
 ## Recommandations\n\
-[que faire si on modifie X]\n",
+[que faire si on modifie X]\n"
+        }
     }
 }
 
@@ -1415,7 +1588,8 @@ async fn prefetch_for_type(
         .unwrap_or_default();
 
     // RAG DocChunk: always try to find relevant chunks
-    let keywords: Vec<&str> = question.split_whitespace()
+    let keywords: Vec<&str> = question
+        .split_whitespace()
         .filter(|w| w.len() >= 5)
         .take(3)
         .collect();
@@ -1425,9 +1599,15 @@ async fn prefetch_for_type(
             "MATCH (n:DocChunk) WHERE n.content CONTAINS '{}' RETURN n.title, n.content LIMIT 3",
             kw.replace('\'', "\\'")
         );
-        let doc_result = execute_mcp_tool("execute_cypher",
+        let doc_result = execute_mcp_tool(
+            "execute_cypher",
             &serde_json::json!({"query": cypher}).to_string(),
-            repo_path, graph, indexes, fts_index).await;
+            repo_path,
+            graph,
+            indexes,
+            fts_index,
+        )
+        .await;
         if doc_result.len() > 50 && !doc_result.contains("[]") {
             pre.push_str("## Documentation RAG (DocChunk)\n\n");
             pre.push_str(&doc_result);
@@ -1439,9 +1619,15 @@ async fn prefetch_for_type(
         QuestionType::Functional | QuestionType::Algorithm => {
             if !top_symbol_name.is_empty() {
                 // get_symbol_context for the top symbol
-                let ctx = execute_mcp_tool("get_symbol_context",
+                let ctx = execute_mcp_tool(
+                    "get_symbol_context",
                     &serde_json::json!({"symbol": top_symbol_name}).to_string(),
-                    repo_path, graph, indexes, fts_index).await;
+                    repo_path,
+                    graph,
+                    indexes,
+                    fts_index,
+                )
+                .await;
                 if ctx.len() > 50 {
                     pre.push_str("## Contexte du symbole principal\n\n");
                     pre.push_str(&ctx);
@@ -1449,9 +1635,15 @@ async fn prefetch_for_type(
                 }
                 // get_diagram for functional questions
                 if qt == QuestionType::Functional {
-                    let diag = execute_mcp_tool("get_diagram",
+                    let diag = execute_mcp_tool(
+                        "get_diagram",
                         &serde_json::json!({"target": top_symbol_name}).to_string(),
-                        repo_path, graph, indexes, fts_index).await;
+                        repo_path,
+                        graph,
+                        indexes,
+                        fts_index,
+                    )
+                    .await;
                     if diag.len() > 30 {
                         pre.push_str("## Diagramme d'appels pré-chargé\n\n");
                         pre.push_str(&diag);
@@ -1460,16 +1652,36 @@ async fn prefetch_for_type(
                 }
                 // For algorithms: read wider file ranges
                 if qt == QuestionType::Algorithm {
-                    if let Some(node) = search_results.first().and_then(|(id, _)| graph.get_node(id)) {
+                    if let Some(node) = search_results
+                        .first()
+                        .and_then(|(id, _)| graph.get_node(id))
+                    {
                         if !node.properties.file_path.is_empty() {
-                            let start = node.properties.start_line.map(|l| l.saturating_sub(5)).unwrap_or(1);
-                            let end = node.properties.end_line.map(|l| l + 10).unwrap_or(start + 60);
+                            let start = node
+                                .properties
+                                .start_line
+                                .map(|l| l.saturating_sub(5))
+                                .unwrap_or(1);
+                            let end = node
+                                .properties
+                                .end_line
+                                .map(|l| l + 10)
+                                .unwrap_or(start + 60);
                             let read_args = serde_json::json!({
                                 "path": node.properties.file_path,
                                 "start_line": start,
                                 "end_line": end
-                            }).to_string();
-                            let code = execute_mcp_tool("read_file", &read_args, repo_path, graph, indexes, fts_index).await;
+                            })
+                            .to_string();
+                            let code = execute_mcp_tool(
+                                "read_file",
+                                &read_args,
+                                repo_path,
+                                graph,
+                                indexes,
+                                fts_index,
+                            )
+                            .await;
                             if code.len() > 50 {
                                 pre.push_str("## Code source complet (pré-chargé)\n\n");
                                 pre.push_str(&code);
@@ -1482,10 +1694,17 @@ async fn prefetch_for_type(
         }
         QuestionType::Architecture => {
             // List top communities
-            let cypher = "MATCH (n:Community) RETURN n.name, n.description, n.member_count LIMIT 15";
-            let communities = execute_mcp_tool("execute_cypher",
+            let cypher =
+                "MATCH (n:Community) RETURN n.name, n.description, n.member_count LIMIT 15";
+            let communities = execute_mcp_tool(
+                "execute_cypher",
                 &serde_json::json!({"query": cypher}).to_string(),
-                repo_path, graph, indexes, fts_index).await;
+                repo_path,
+                graph,
+                indexes,
+                fts_index,
+            )
+            .await;
             if communities.len() > 30 {
                 pre.push_str("## Modules fonctionnels (pré-chargés)\n\n");
                 pre.push_str(&communities);
@@ -1493,9 +1712,15 @@ async fn prefetch_for_type(
             }
             // Diagram of top module
             if !top_symbol_name.is_empty() {
-                let diag = execute_mcp_tool("get_diagram",
+                let diag = execute_mcp_tool(
+                    "get_diagram",
                     &serde_json::json!({"target": top_symbol_name}).to_string(),
-                    repo_path, graph, indexes, fts_index).await;
+                    repo_path,
+                    graph,
+                    indexes,
+                    fts_index,
+                )
+                .await;
                 if diag.len() > 30 {
                     pre.push_str("## Diagramme architecture pré-chargé\n\n");
                     pre.push_str(&diag);
@@ -1608,23 +1833,16 @@ fn doc_page_candidates(label: &NodeLabel, name: &str) -> Vec<String> {
             format!("aspnet-entities.md"),
             format!("aspnet-data-model.md"),
         ],
-        NodeLabel::View | NodeLabel::PartialView => vec![
-            format!("modules/views.md"),
-            format!("aspnet-views.md"),
-        ],
+        NodeLabel::View | NodeLabel::PartialView => {
+            vec![format!("modules/views.md"), format!("aspnet-views.md")]
+        }
         NodeLabel::ExternalService => vec![
             format!("modules/external-services.md"),
             format!("aspnet-external.md"),
         ],
-        NodeLabel::Community => vec![
-            format!("modules/{}.md", sanitized),
-        ],
-        NodeLabel::Process => vec![
-            format!("processes/{}.md", sanitized),
-        ],
-        _ => vec![
-            format!("modules/{}.md", sanitized),
-        ],
+        NodeLabel::Community => vec![format!("modules/{}.md", sanitized)],
+        NodeLabel::Process => vec![format!("processes/{}.md", sanitized)],
+        _ => vec![format!("modules/{}.md", sanitized)],
     }
 }
 
@@ -1661,7 +1879,12 @@ fn build_sources(
         let snippet = if node.label == NodeLabel::DocChunk {
             node.properties.content.clone()
         } else {
-            read_code_snippet(repo_path, &node.properties.file_path, node.properties.start_line, node.properties.end_line)
+            read_code_snippet(
+                repo_path,
+                &node.properties.file_path,
+                node.properties.start_line,
+                node.properties.end_line,
+            )
         };
 
         // Get relationships for context
@@ -1701,8 +1924,16 @@ fn build_sources(
             start_line: node.properties.start_line,
             end_line: node.properties.end_line,
             snippet,
-            callers: if callers.is_empty() { None } else { Some(callers) },
-            callees: if callees.is_empty() { None } else { Some(callees) },
+            callers: if callers.is_empty() {
+                None
+            } else {
+                Some(callers)
+            },
+            callees: if callees.is_empty() {
+                None
+            } else {
+                Some(callees)
+            },
             community,
             relevance_score: *score,
         });
@@ -1743,13 +1974,17 @@ fn read_code_snippet(
             let start = std::cmp::min((start.saturating_sub(1)) as usize, lines.len());
             let end = std::cmp::min(end as usize, lines.len());
             let end = std::cmp::min(end, start + 50);
-            if start >= end { return None; }
+            if start >= end {
+                return None;
+            }
             Some(lines[start..end].join("\n"))
         }
         (Some(start), None) => {
             let start = std::cmp::min((start.saturating_sub(1)) as usize, lines.len());
             let end = std::cmp::min(start + 20, lines.len());
-            if start >= end { return None; }
+            if start >= end {
+                return None;
+            }
             Some(lines[start..end].join("\n"))
         }
         _ => {
@@ -1884,7 +2119,13 @@ fn top_processes(graph: &KnowledgeGraph, limit: usize) -> Vec<ProcessSummary> {
     processes
 }
 
-fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path: &Path, enriched_doc_context: &str, prefetched: &str) -> String {
+fn build_system_prompt(
+    graph: &KnowledgeGraph,
+    sources: &[ChatSource],
+    repo_path: &Path,
+    enriched_doc_context: &str,
+    prefetched: &str,
+) -> String {
     let meta = gather_project_meta(graph, repo_path);
     let communities = top_communities(graph, 10);
     let processes = top_processes(graph, 5);
@@ -1913,7 +2154,10 @@ fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path
         prompt.push_str(&format!("- **Languages**: {}\n", langs));
     }
     if !meta.frameworks.is_empty() {
-        prompt.push_str(&format!("- **Frameworks detected**: {}\n", meta.frameworks.join(", ")));
+        prompt.push_str(&format!(
+            "- **Frameworks detected**: {}\n",
+            meta.frameworks.join(", ")
+        ));
     }
     prompt.push_str(&format!(
         "- **Graph statistics**: {} symbols, {} relationships, {} functional modules, {} business processes\n\n",
@@ -1971,7 +2215,9 @@ fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path
     if !prefetched.is_empty() {
         prompt.push_str("# Contexte pré-chargé (résultats d'outils vérifiés)\n\n");
         prompt.push_str("Ces données ont été extraites directement du graphe et du code. ");
-        prompt.push_str("Cite-les directement dans ta réponse sans re-appeler les outils correspondants.\n\n");
+        prompt.push_str(
+            "Cite-les directement dans ta réponse sans re-appeler les outils correspondants.\n\n",
+        );
         prompt.push_str(prefetched);
     }
 
@@ -1987,7 +2233,9 @@ fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path
     // ── Relevant code context ───────────────────────────────────
     if !sources.is_empty() {
         prompt.push_str("# Relevant code context\n\n");
-        prompt.push_str("These symbols are the most relevant to the user's question (ranked by FTS score):\n\n");
+        prompt.push_str(
+            "These symbols are the most relevant to the user's question (ranked by FTS score):\n\n",
+        );
 
         for (i, source) in sources.iter().enumerate() {
             prompt.push_str(&format!(
@@ -2154,8 +2402,6 @@ fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path
     prompt
 }
 
-
-
 /// Detect language from file extension.
 fn detect_language(file_path: &str) -> &str {
     match file_path.rsplit('.').next() {
@@ -2224,21 +2470,18 @@ fn build_llm_request(
     Ok((client, request))
 }
 
-
-
 /// Signal the current streaming chat request to stop.
 /// The flag is checked between each streamed chunk in `chat_ask`.
 #[tauri::command]
 pub async fn chat_cancel(state: State<'_, AppState>) -> Result<(), String> {
-    state.cancel_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    state
+        .cancel_flag
+        .store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }
 
 /// Call an OpenAI-compatible LLM API (non-streaming, for the executor module).
-async fn call_llm(
-    config: &ChatConfig,
-    messages: &[serde_json::Value],
-) -> Result<String, String> {
+async fn call_llm(config: &ChatConfig, messages: &[serde_json::Value]) -> Result<String, String> {
     let (_client, request) = build_llm_request(config, messages, false)?;
 
     let response = request
@@ -2311,7 +2554,11 @@ fn build_graph_only_response(
         }
 
         if let Some(snippet) = &source.snippet {
-            let lang = if source.symbol_type == "DocChunk" { "markdown" } else { detect_language(&source.file_path) };
+            let lang = if source.symbol_type == "DocChunk" {
+                "markdown"
+            } else {
+                detect_language(&source.file_path)
+            };
             // Show first 15 lines of snippet
             let short: String = snippet.lines().take(15).collect::<Vec<_>>().join("\n");
             answer.push_str(&format!("\n```{}\n{}\n```\n\n", lang, short));
@@ -2377,5 +2624,122 @@ mod tests {
 
         assert_eq!(hydrated.api_key, "sk-secret-value");
         std::env::remove_var("OPENAI_API_KEY");
+    }
+
+    #[test]
+    fn classify_question_matches_requested_french_examples() {
+        let cases = [
+            ("où est défini FactureDelete ?", QuestionType::Lookup),
+            (
+                "Comment fonctionne le module Courrier ?",
+                QuestionType::Functional,
+            ),
+            (
+                "Comment sont générés les courriers en masse ?",
+                QuestionType::Algorithm,
+            ),
+            (
+                "Présente l'architecture globale d'Alise v2",
+                QuestionType::Architecture,
+            ),
+            (
+                "Quel est l'impact de modifier RootController ?",
+                QuestionType::Impact,
+            ),
+            ("Explique le module Elodie", QuestionType::Functional),
+        ];
+
+        for (question, expected) in cases {
+            assert_eq!(
+                classify_question(question),
+                expected,
+                "unexpected classification for `{question}`"
+            );
+        }
+    }
+
+    #[test]
+    fn classify_question_matches_requested_english_examples() {
+        let cases = [
+            ("where is the login method defined?", QuestionType::Lookup),
+            ("How does the payment flow work?", QuestionType::Functional),
+            ("how does the payment flow work?", QuestionType::Functional),
+            ("how is the tax calculated?", QuestionType::Algorithm),
+        ];
+
+        for (question, expected) in cases {
+            assert_eq!(
+                classify_question(question),
+                expected,
+                "unexpected classification for `{question}`"
+            );
+        }
+    }
+
+    #[test]
+    fn classify_question_impact_variants() {
+        let cases = [
+            ("Quelles sont les dépendances de FactureService ?", QuestionType::Impact),
+            ("impact of changing the RootController", QuestionType::Impact),
+            ("who calls GetTauxFassAide ?", QuestionType::Impact),
+            ("blast radius of DossiersController", QuestionType::Impact),
+            ("qu'est-ce qui casse si je modifie RegleFacture ?", QuestionType::Impact),
+        ];
+        for (q, expected) in cases {
+            assert_eq!(classify_question(q), expected, "failed: `{q}`");
+        }
+    }
+
+    #[test]
+    fn classify_question_algorithm_variants() {
+        let cases = [
+            ("Comment est calculé le taux FASS ?", QuestionType::Algorithm),
+            ("comment sont traités les dossiers ?", QuestionType::Algorithm),
+            ("Décris l'algorithme de génération des courriers", QuestionType::Algorithm),
+            ("step by step: how is the invoice built?", QuestionType::Algorithm),
+            ("How is the plafond computed?", QuestionType::Algorithm),
+        ];
+        for (q, expected) in cases {
+            assert_eq!(classify_question(q), expected, "failed: `{q}`");
+        }
+    }
+
+    #[test]
+    fn classify_question_architecture_variants() {
+        let cases = [
+            ("Vue d'ensemble de l'architecture Alise", QuestionType::Architecture),
+            ("présentation générale du système", QuestionType::Architecture),
+            ("Give me an overview of the codebase architecture", QuestionType::Architecture),
+            ("Schéma global de l'application", QuestionType::Architecture),
+        ];
+        for (q, expected) in cases {
+            assert_eq!(classify_question(q), expected, "failed: `{q}`");
+        }
+    }
+
+    #[test]
+    fn classify_question_lookup_variants() {
+        let cases = [
+            ("Trouve la classe ParametrageService", QuestionType::Lookup),
+            ("What is StackLogger ?", QuestionType::Lookup),
+            ("c'est quoi un DossierOuvrantDroit ?", QuestionType::Lookup),
+            ("where is CourrierController defined?", QuestionType::Lookup),
+        ];
+        for (q, expected) in cases {
+            assert_eq!(classify_question(q), expected, "failed: `{q}`");
+        }
+    }
+
+    #[test]
+    fn classify_question_canvas_instruction_not_empty() {
+        for qt in [
+            QuestionType::Lookup, QuestionType::Functional,
+            QuestionType::Algorithm, QuestionType::Architecture,
+            QuestionType::Impact,
+        ] {
+            let canvas = canvas_instruction(qt);
+            assert!(!canvas.is_empty(), "canvas should not be empty for {:?}", qt);
+            assert!(canvas.contains("CANEVAS"), "canvas should contain CANEVAS for {:?}", qt);
+        }
     }
 }

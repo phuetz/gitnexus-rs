@@ -501,17 +501,26 @@ pub async fn chat_ask(
     let (graph, indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
     let repo_path = PathBuf::from(&repo_path_str);
 
-    // 2. Search for relevant symbols
+    // 2. Classify the question → determines canvas + pre-fetch strategy
+    let question_type = classify_question(&request.question);
+
+    // 3. Search for relevant symbols
     let search_results = search_relevant_context(&request.question, &graph, &fts_index, 10);
 
-    // 3. Read code snippets for top results
+    // 4. Read code snippets for top results
     let sources = build_sources(&search_results, &graph, &repo_path);
 
-    // 3b. Read enriched documentation pages for relevant modules (higher quality context)
+    // 4b. Read enriched documentation pages for relevant modules (higher quality context)
     let enriched_doc_context = load_enriched_doc_pages(&search_results, &graph, &repo_path);
 
-    // 4. Assemble the prompt
-    let system_prompt = build_system_prompt(&graph, &sources, &repo_path, &enriched_doc_context);
+    // 4c. Pre-fetch tool results for the question type (deterministic, before LLM call)
+    let prefetched = prefetch_for_type(
+        question_type, &request.question, &search_results,
+        &graph, &indexes, &fts_index, &repo_path,
+    ).await;
+
+    // 5. Assemble the prompt
+    let system_prompt = build_system_prompt(&graph, &sources, &repo_path, &enriched_doc_context, &prefetched);
     
     // Convert history to gitnexus_core::llm::Message format
     let mut messages = vec![Message {
@@ -537,9 +546,12 @@ pub async fn chat_ask(
         });
     }
 
+    // Append canvas instruction to the user message
+    let canvas = canvas_instruction(question_type);
+    let user_content = format!("{}\n\n{}", request.question, canvas);
     messages.push(Message {
         role: Role::User,
-        content: Some(request.question.clone()),
+        content: Some(user_content),
         tool_calls: None,
         tool_call_id: None,
         name: None,
@@ -1250,6 +1262,267 @@ fn search_relevant_context(
     results
 }
 
+// ─── Question Classification ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum QuestionType {
+    Lookup,       // "où est", "what is", "défini dans"
+    Functional,   // "comment fonctionne", "explain", "expliquer le module"
+    Algorithm,    // "comment calculé/généré", "traitement", "algorithme"
+    Architecture, // "architecture", "vue d'ensemble", "schéma global"
+    Impact,       // "impact", "dépendances", "qui appelle", "blast radius"
+}
+
+fn classify_question(q: &str) -> QuestionType {
+    let l = q.to_lowercase();
+
+    // Impact patterns — highest priority (specific intent)
+    if l.contains("impact") || l.contains("dépendanc") || l.contains("dependenc")
+        || l.contains("qui appelle") || l.contains("who calls") || l.contains("blast radius")
+        || l.contains("casse") || l.contains("impacté") || l.contains("affected")
+    {
+        return QuestionType::Impact;
+    }
+
+    // Architecture / overview
+    if l.contains("architecture") || l.contains("vue d'ensemble") || l.contains("overview")
+        || l.contains("big picture") || l.contains("schéma global") || l.contains("présentation générale")
+        || l.contains("global") && (l.contains("fonctionn") || l.contains("architect"))
+    {
+        return QuestionType::Architecture;
+    }
+
+    // Algorithm / process — "comment X est calculé/généré/traité"
+    if (l.contains("comment") || l.contains("how"))
+        && (l.contains("calculé") || l.contains("calculated") || l.contains("généré")
+            || l.contains("generated") || l.contains("traitement") || l.contains("traité")
+            || l.contains("construit") || l.contains("built") || l.contains("sont "))
+        || l.contains("algorithme") || l.contains("algorithm") || l.contains("étape")
+        || l.contains("step by step")
+    {
+        return QuestionType::Algorithm;
+    }
+
+    // Functional explanation
+    if l.contains("comment fonctionne") || l.contains("how does") || l.contains("how do")
+        || l.contains("expliquer") || l.contains("expliqu") || l.contains("explain")
+        || l.contains("describe") || l.contains("décrire") || l.contains("présenter le module")
+        || l.contains("présente le module") || l.contains("module")
+            && (l.contains("explique") || l.contains("décri") || l.contains("fonctionn"))
+    {
+        return QuestionType::Functional;
+    }
+
+    // Lookup — simple locate/define queries
+    if l.contains("où est") || l.contains("where is") || l.contains("where's")
+        || l.contains("défini dans") || l.contains("defined in") || l.contains("defined")
+        || l.contains("qu'est-ce que") || l.contains("c'est quoi") || l.contains("what is")
+        || l.contains("trouve") || l.contains("find") || l.contains("locate")
+    {
+        return QuestionType::Lookup;
+    }
+
+    // Default: treat as functional explanation
+    QuestionType::Functional
+}
+
+fn canvas_instruction(qt: QuestionType) -> &'static str {
+    match qt {
+        QuestionType::Lookup => "\
+[CANEVAS TYPE A — LOOKUP]\n\
+Structure ta réponse ainsi :\n\
+## [Nom du symbole] — Définition\n\
+**Type :** [Class/Method/Controller/Service]\n\
+**Localisation :** `Fichier.cs:ligne`\n\
+**Rôle :** [1 phrase]\n\
+**Appelé par :** [callers]\n\
+**Voir aussi :** [modules liés]\n",
+
+        QuestionType::Functional => "\
+[CANEVAS TYPE B — FONCTIONNEL]\n\
+Structure ta réponse ainsi :\n\
+## Vue d'ensemble\n\
+[2-3 phrases depuis la documentation enrichie]\n\
+## Diagramme d'appels\n\
+[Inclus le diagramme Mermaid pré-chargé]\n\
+## Fonctionnement\n\
+[Description fonctionnelle avec sections logiques]\n\
+## Fichiers sources clés\n\
+[Snippets avec citations Fichier.cs:ligne]\n\
+## Voir aussi\n\
+[cross-références]\n",
+
+        QuestionType::Algorithm => "\
+[CANEVAS TYPE D — ALGORITHME]\n\
+Structure ta réponse ainsi :\n\
+## Algorithme : [Nom]\n\
+**Entrée :** [paramètres]\n\
+**Sortie :** [type de retour]\n\
+**Effets de bord :** [BDD/logs]\n\
+**Étape 1** (`Fichier.cs:ligne`) : [description]\n\
+**Étape 2** ... (avec conditions si/sinon explicites)\n\
+## Code source\n\
+[Extrait clé]\n\
+## Flux de contrôle\n\
+[Mermaid flowchart si applicable]\n",
+
+        QuestionType::Architecture => "\
+[CANEVAS TYPE C — ARCHITECTURE]\n\
+Structure ta réponse ainsi :\n\
+## Architecture globale\n\
+[Diagramme Mermaid pré-chargé]\n\
+## Modules principaux\n\
+| Module | Rôle | Symboles |\n\
+...\n\
+## Flux de données\n\
+[Description des flux entre modules]\n\
+## Points d'entrée\n\
+[Controllers/Services principaux]\n",
+
+        QuestionType::Impact => "\
+[CANEVAS TYPE E — IMPACT]\n\
+Structure ta réponse ainsi :\n\
+## Blast radius : [Symbole X]\n\
+**Impactés en amont (qui appellent X) :**\n\
+- [liste avec fichiers]\n\
+**Impactés en aval (ce que X appelle) :**\n\
+- [liste avec fichiers]\n\
+## Risque de modification\n\
+[LOW/MEDIUM/HIGH avec justification]\n\
+## Recommandations\n\
+[que faire si on modifie X]\n",
+    }
+}
+
+/// Pre-fetch tool results for the detected question type.
+/// Returns a formatted string injected as additional system context.
+async fn prefetch_for_type(
+    qt: QuestionType,
+    question: &str,
+    search_results: &[(String, f64)],
+    graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
+    fts_index: &gitnexus_db::inmemory::fts::FtsIndex,
+    repo_path: &std::path::Path,
+) -> String {
+    let mut pre = String::new();
+
+    // Extract top symbol name for tool calls
+    let top_symbol_name = search_results
+        .first()
+        .and_then(|(id, _)| graph.get_node(id))
+        .map(|n| n.properties.name.clone())
+        .unwrap_or_default();
+
+    // RAG DocChunk: always try to find relevant chunks
+    let keywords: Vec<&str> = question.split_whitespace()
+        .filter(|w| w.len() >= 5)
+        .take(3)
+        .collect();
+    if !keywords.is_empty() {
+        let kw = &keywords[0];
+        let cypher = format!(
+            "MATCH (n:DocChunk) WHERE n.content CONTAINS '{}' RETURN n.title, n.content LIMIT 3",
+            kw.replace('\'', "\\'")
+        );
+        let doc_result = execute_mcp_tool("execute_cypher",
+            &serde_json::json!({"query": cypher}).to_string(),
+            repo_path, graph, indexes, fts_index).await;
+        if doc_result.len() > 50 && !doc_result.contains("[]") {
+            pre.push_str("## Documentation RAG (DocChunk)\n\n");
+            pre.push_str(&doc_result);
+            pre.push_str("\n\n");
+        }
+    }
+
+    match qt {
+        QuestionType::Functional | QuestionType::Algorithm => {
+            if !top_symbol_name.is_empty() {
+                // get_symbol_context for the top symbol
+                let ctx = execute_mcp_tool("get_symbol_context",
+                    &serde_json::json!({"symbol": top_symbol_name}).to_string(),
+                    repo_path, graph, indexes, fts_index).await;
+                if ctx.len() > 50 {
+                    pre.push_str("## Contexte du symbole principal\n\n");
+                    pre.push_str(&ctx);
+                    pre.push_str("\n\n");
+                }
+                // get_diagram for functional questions
+                if qt == QuestionType::Functional {
+                    let diag = execute_mcp_tool("get_diagram",
+                        &serde_json::json!({"target": top_symbol_name}).to_string(),
+                        repo_path, graph, indexes, fts_index).await;
+                    if diag.len() > 30 {
+                        pre.push_str("## Diagramme d'appels pré-chargé\n\n");
+                        pre.push_str(&diag);
+                        pre.push_str("\n\n");
+                    }
+                }
+                // For algorithms: read wider file ranges
+                if qt == QuestionType::Algorithm {
+                    if let Some(node) = search_results.first().and_then(|(id, _)| graph.get_node(id)) {
+                        if !node.properties.file_path.is_empty() {
+                            let start = node.properties.start_line.map(|l| l.saturating_sub(5)).unwrap_or(1);
+                            let end = node.properties.end_line.map(|l| l + 10).unwrap_or(start + 60);
+                            let read_args = serde_json::json!({
+                                "path": node.properties.file_path,
+                                "start_line": start,
+                                "end_line": end
+                            }).to_string();
+                            let code = execute_mcp_tool("read_file", &read_args, repo_path, graph, indexes, fts_index).await;
+                            if code.len() > 50 {
+                                pre.push_str("## Code source complet (pré-chargé)\n\n");
+                                pre.push_str(&code);
+                                pre.push_str("\n\n");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        QuestionType::Architecture => {
+            // List top communities
+            let cypher = "MATCH (n:Community) RETURN n.name, n.description, n.member_count LIMIT 15";
+            let communities = execute_mcp_tool("execute_cypher",
+                &serde_json::json!({"query": cypher}).to_string(),
+                repo_path, graph, indexes, fts_index).await;
+            if communities.len() > 30 {
+                pre.push_str("## Modules fonctionnels (pré-chargés)\n\n");
+                pre.push_str(&communities);
+                pre.push_str("\n\n");
+            }
+            // Diagram of top module
+            if !top_symbol_name.is_empty() {
+                let diag = execute_mcp_tool("get_diagram",
+                    &serde_json::json!({"target": top_symbol_name}).to_string(),
+                    repo_path, graph, indexes, fts_index).await;
+                if diag.len() > 30 {
+                    pre.push_str("## Diagramme architecture pré-chargé\n\n");
+                    pre.push_str(&diag);
+                    pre.push_str("\n\n");
+                }
+            }
+        }
+        QuestionType::Impact => {
+            if !top_symbol_name.is_empty() {
+                let impact = execute_mcp_tool("get_impact",
+                    &serde_json::json!({"target": top_symbol_name, "direction": "both", "max_depth": 4}).to_string(),
+                    repo_path, graph, indexes, fts_index).await;
+                if impact.len() > 50 {
+                    pre.push_str("## Blast radius pré-chargé\n\n");
+                    pre.push_str(&impact);
+                    pre.push_str("\n\n");
+                }
+            }
+        }
+        QuestionType::Lookup => {
+            // search_code already done via search_relevant_context
+        }
+    }
+
+    pre
+}
+
 /// Read enriched documentation pages for the nodes most relevant to the query.
 ///
 /// The enriched .md pages (in `.gitnexus/docs/`) contain LLM-generated descriptions,
@@ -1611,7 +1884,7 @@ fn top_processes(graph: &KnowledgeGraph, limit: usize) -> Vec<ProcessSummary> {
     processes
 }
 
-fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path: &Path, enriched_doc_context: &str) -> String {
+fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path: &Path, enriched_doc_context: &str, prefetched: &str) -> String {
     let meta = gather_project_meta(graph, repo_path);
     let communities = top_communities(graph, 10);
     let processes = top_processes(graph, 5);
@@ -1692,6 +1965,14 @@ fn build_system_prompt(graph: &KnowledgeGraph, sources: &[ChatSource], repo_path
         prompt.push_str("# Persistent memory\n\n");
         prompt.push_str(&memory_context);
         prompt.push_str("\n\n");
+    }
+
+    // ── Pre-fetched tool results (deterministic, before LLM call) ───
+    if !prefetched.is_empty() {
+        prompt.push_str("# Contexte pré-chargé (résultats d'outils vérifiés)\n\n");
+        prompt.push_str("Ces données ont été extraites directement du graphe et du code. ");
+        prompt.push_str("Cite-les directement dans ta réponse sans re-appeler les outils correspondants.\n\n");
+        prompt.push_str(prefetched);
     }
 
     // ── Enriched documentation pages ────────────────────────────

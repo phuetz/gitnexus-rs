@@ -4,6 +4,7 @@ mod utils;
 mod markdown;
 mod enrichment;
 mod cross_ref;
+mod inject;
 mod agents;
 mod wiki;
 mod skills;
@@ -40,6 +41,7 @@ const TARGET_OBSIDIAN: &str = "obsidian";
 const TARGET_PROCESS_DOC: &str = "process-doc";
 const TARGET_PDF: &str = "pdf";
 const TARGET_ALL: &str = "all";
+const TARGET_INJECT: &str = "inject";
 
 #[allow(clippy::too_many_arguments)]
 pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: bool, enrich_profile: &str, enrich_lang: &str, enrich_citations: bool, enrich_only: bool, retry_queue: bool, retry_at: Option<&str>, traces_dir: Option<&str>, input: Option<&str>) -> Result<()> {
@@ -199,9 +201,24 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
             }
             gitnexus_output::obsidian::generate_obsidian_vault(&graph, &docs_dir, &output_communities)?;
         }
+        TARGET_INJECT => {
+            // Inject fragments from manifest into existing .md pages, then regenerate HTML
+            let manifest_path = input
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| repo_path.join("inject.json"));
+            println!("→ Injecting fragments from {} …", manifest_path.display());
+            let count = inject::apply_inject(&docs_dir, &manifest_path)?;
+            println!("{} Injected {} fragment{}", "OK".green(), count, if count == 1 { "" } else { "s" });
+            // Regenerate HTML to reflect the new content
+            let repo_name = repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("Project");
+            html::generate_html_site(&graph, &repo_path, &docs_dir)?;
+            let html_path = docs_dir.join("index.html");
+            info!("Generated HTML documentation at {}", html_path.display());
+            println!("{} Generated HTML documentation: {}", "OK".green(), html_path.display());
+        }
         _ => {
             eprintln!(
-                "Unknown target: {}. Use: context, wiki, skills, docs, docx, pdf, html, obsidian, process-doc, all",
+                "Unknown target: {}. Use: context, wiki, skills, docs, docx, pdf, html, obsidian, process-doc, inject, all",
                 what
             );
         }

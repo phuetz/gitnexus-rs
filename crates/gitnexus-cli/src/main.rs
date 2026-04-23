@@ -128,10 +128,10 @@ enum Commands {
         path: Option<String>,
     },
     /// Generate documentation from the knowledge graph
-    #[command(after_help = "Examples:\n  gitnexus generate html --path D:\\taf\\MyProject\n  gitnexus generate pdf --input D:\\taf\\docs\\V2\n  gitnexus generate html --enrich --enrich-profile strict\n  gitnexus generate all --path D:\\taf\\MyProject")]
+    #[command(after_help = "Examples:\n  gitnexus generate html --path D:\\taf\\MyProject\n  gitnexus generate pdf --input D:\\taf\\docs\\V2\n  gitnexus generate html --enrich --enrich-profile strict\n  gitnexus generate all --path D:\\taf\\MyProject\n  gitnexus generate inject --path D:\\taf\\MyProject --input inject.json")]
     Generate {
-        /// Target: context, agents, wiki, skills, docs, docx, pdf, html, all
-        #[arg(help = "Target: context | agents | wiki | skills | docs | docx | pdf | html | all")]
+        /// Target: context | agents | wiki | skills | docs | docx | pdf | html | obsidian | process-doc | inject | all
+        #[arg(help = "Target: context | agents | wiki | skills | docs | docx | pdf | html | obsidian | process-doc | inject | all")]
         what: String,
         /// Path to the repository (defaults to current directory)
         #[arg(short, long)]

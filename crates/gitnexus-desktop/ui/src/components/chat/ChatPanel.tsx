@@ -377,8 +377,26 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     const question = input.trim();
     if (!question || askMutation.isPending) return;
 
+    // GitNexus built-in slash commands (Copilot-inspired)
+    const builtinSlash: Record<string, string> = {
+      "expliquer":    "Explique le module ou symbole suivant : ",
+      "expliquer":    "Explique le module ou symbole suivant : ",
+      "algorithme":   "Décris l'algorithme étape par étape de : ",
+      "impact":       "Analyse le blast radius et les dépendances de : ",
+      "architecture": "Présente l'architecture globale de : ",
+      "diagramme":    "Génère un diagramme Mermaid pour : ",
+      "explain":      "Explain in detail: ",
+      "algorithm":    "Describe the algorithm step by step for: ",
+    };
     const slashMatch = question.match(/^\/(\w[\w-]*)\b\s*(.*)$/);
     if (slashMatch) {
+      const builtinPrefix = builtinSlash[slashMatch[1]];
+      if (builtinPrefix) {
+        const expandedQuestion = builtinPrefix + (slashMatch[2] || "");
+        setInput("");
+        useChatStore.getState().dispatchQuestion("qa", expandedQuestion, true);
+        return;
+      }
       try {
         const resolved = await commands.userCommandResolve(slashMatch[1], slashMatch[2]);
         if (resolved) {
@@ -561,6 +579,25 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         {/* Content Area */}
         <div className="flex-1 min-h-0 overflow-auto">
           {messages.length === 0 ? (
+            {/* Slash command quick chips */}
+            <div className="flex flex-wrap gap-1.5 px-4 pb-2">
+              {[
+                { cmd: "/expliquer ", label: "/expliquer", icon: "📖" },
+                { cmd: "/algorithme ", label: "/algorithme", icon: "⚙️" },
+                { cmd: "/impact ", label: "/impact", icon: "💥" },
+                { cmd: "/architecture ", label: "/architecture", icon: "🏗️" },
+                { cmd: "/diagramme ", label: "/diagramme", icon: "📊" },
+              ].map(({ cmd, label, icon }) => (
+                <button
+                  key={cmd}
+                  onClick={() => { setInput(cmd); inputRef.current?.focus(); }}
+                  className="px-2 py-0.5 rounded-full text-[11px] transition-all hover:opacity-80"
+                  style={{ background: "var(--bg-2)", border: "1px solid var(--surface-border)", color: "var(--text-2)" }}
+                >
+                  {icon} {label}
+                </button>
+              ))}
+            </div>
             <ChatSuggestions onSelect={(q) => { setInput(q); inputRef.current?.focus(); }} />
           ) : (
             <div className="px-4 py-4 space-y-4" aria-live="polite">

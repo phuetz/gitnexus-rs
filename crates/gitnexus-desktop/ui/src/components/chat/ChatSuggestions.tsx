@@ -1,9 +1,18 @@
-import { MessageSquare, Code2, Network, Skull, Zap, Flame, Share2 } from "lucide-react";
+import { MessageSquare, Code2, Network, Skull, Zap, Flame, Share2, GitBranch, Cpu, Search } from "lucide-react";
 import { useI18n } from "../../hooks/use-i18n";
 import { StaggerContainer, StaggerItem } from "../shared/motion";
 import { useQuery } from "@tanstack/react-query";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
+
+// Slash command shortcuts shown as quick chips
+export const SLASH_COMMANDS = [
+  { cmd: "/expliquer ", label: "/expliquer", hint: "Expliquer un module", icon: "📖" },
+  { cmd: "/algorithme ", label: "/algorithme", hint: "Décrire l'algorithme", icon: "⚙️" },
+  { cmd: "/impact ", label: "/impact", hint: "Analyser le blast radius", icon: "💥" },
+  { cmd: "/architecture ", label: "/architecture", hint: "Vue d'ensemble", icon: "🏗️" },
+  { cmd: "/diagramme ", label: "/diagramme", hint: "Générer un diagramme", icon: "📊" },
+];
 
 const SUGGESTIONS = [
   {

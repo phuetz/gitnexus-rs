@@ -1,4 +1,4 @@
-import { Copy, GitBranch, RefreshCw, ChevronDown, ChevronRight, Pin, PinOff, Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Copy, GitBranch, RefreshCw, ChevronDown, ChevronRight, Pin, PinOff, Loader2, CheckCircle2, XCircle, Clock, Lightbulb, AlertTriangle, Info, AlertCircle } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import { useAppStore } from "../../stores/app-store";
 import { commands } from "../../lib/tauri-commands";
 import type { Message, ToolCall, ToolCallStatus } from "../../stores/chat-session-store";
 import { useChatSessionStore } from "../../stores/chat-session-store";
+import { useShikiHighlighter } from "../../hooks/use-shiki-highlighter";
 
 function extractTextFromChildren(children: React.ReactNode): string {
   if (typeof children === "string") return children;
@@ -213,6 +214,88 @@ function MermaidDiagram({ chart }: { chart: string }) {
   );
 }
 
+// ─── Callout detection ───────────────────────────────────────────────
+
+type CalloutType = "tip" | "warning" | "note" | "danger";
+const CALLOUT_MAP: Record<string, { type: CalloutType; label: string }> = {
+  "[!TIP]":       { type: "tip",     label: "Tip" },
+  "[!NOTE]":      { type: "note",    label: "Note" },
+  "[!INFO]":      { type: "note",    label: "Info" },
+  "[!WARNING]":   { type: "warning", label: "Warning" },
+  "[!CAUTION]":   { type: "warning", label: "Caution" },
+  "[!DANGER]":    { type: "danger",  label: "Danger" },
+  "[!IMPORTANT]": { type: "danger",  label: "Important" },
+};
+const CALLOUT_STYLES: Record<CalloutType, { bg: string; border: string }> = {
+  tip:     { bg: "rgba(34,197,94,0.08)",  border: "rgba(34,197,94,0.5)"  },
+  note:    { bg: "rgba(99,179,237,0.08)", border: "rgba(99,179,237,0.5)" },
+  warning: { bg: "rgba(251,191,36,0.08)", border: "rgba(251,191,36,0.5)" },
+  danger:  { bg: "rgba(239,68,68,0.08)",  border: "rgba(239,68,68,0.5)"  },
+};
+const CALLOUT_ICONS: Record<CalloutType, React.ReactNode> = {
+  tip:     <Lightbulb size={13} />,
+  note:    <Info size={13} />,
+  warning: <AlertTriangle size={13} />,
+  danger:  <AlertCircle size={13} />,
+};
+
+function detectCallout(children: React.ReactNode): (typeof CALLOUT_MAP)[string] | null {
+  const text = extractTextFromChildren(children).trimStart();
+  for (const [marker, meta] of Object.entries(CALLOUT_MAP)) {
+    if (text.startsWith(marker)) return meta;
+  }
+  return null;
+}
+
+// ─── Shiki code block (token-based, no innerHTML) ────────────────────
+
+function ShikiTokens({ code, langHint }: { code: string; langHint: string }) {
+  const { tokenize, ready } = useShikiHighlighter();
+  const [lines, setLines] = useState<ReturnType<typeof tokenize>>(null);
+
+  useEffect(() => {
+    if (ready) setLines(tokenize(code, langHint));
+  }, [code, langHint, tokenize, ready]);
+
+  if (!lines) return null;
+
+  return (
+    <code style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
+      {lines.map((line, li) => (
+        <span key={li} style={{ display: "block" }}>
+          {line.tokens.map((tok, ti) => (
+            <span key={ti} style={{ color: tok.color, fontStyle: tok.fontStyle === 2 ? "italic" : undefined }}>
+              {tok.content}
+            </span>
+          ))}
+        </span>
+      ))}
+    </code>
+  );
+}
+
+function ShikiCodeBlock({ code, langHint, rawChildren }: { code: string; langHint: string; rawChildren: React.ReactNode }) {
+  return (
+    <div className="relative group my-3">
+      <pre
+        className="p-4 rounded-lg overflow-x-auto text-[12px] leading-relaxed"
+        style={{ background: "#1a1b26", border: "1px solid var(--surface-border)", fontFamily: "var(--font-mono)" }}
+      >
+        <ShikiTokens code={code} langHint={langHint} />
+        {/* Fallback plain text (hidden once tokens render) */}
+        <span style={{ display: "none" }}>{rawChildren}</span>
+      </pre>
+      <button
+        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity px-2 py-1 rounded text-[11px]"
+        style={{ background: "var(--bg-3)", color: "var(--text-2)" }}
+        onClick={() => { navigator.clipboard.writeText(code).then(() => toast.success("Copied!"), () => toast.error("Failed")); }}
+      >
+        <Copy size={12} className="inline mr-1" />Copy
+      </button>
+    </div>
+  );
+}
+
 // ─── Markdown Components ─────────────────────────────────────────────
 
 const createMarkdownComponents = (
@@ -220,42 +303,15 @@ const createMarkdownComponents = (
   onFilePreview?: (file: { path: string; startLine?: number; endLine?: number }) => void,
 ): Partial<Components> => ({
   pre: ({ children }: { children?: React.ReactNode }) => {
-    // Intercept mermaid code blocks
     const child = children as React.ReactElement<{ className?: string; children?: React.ReactNode }>;
-    if (child?.props?.className === "language-mermaid") {
+    const className = child?.props?.className ?? "";
+    if (className === "language-mermaid") {
       const code = String(child.props.children ?? "").replace(/\n$/, "");
       return <MermaidDiagram chart={code} />;
     }
-
-    return (
-      <div className="relative group my-3">
-        <pre
-          className="p-4 rounded-lg overflow-x-auto text-[12px] leading-relaxed"
-          style={{
-            background: "var(--bg-0)",
-            border: "1px solid var(--surface-border)",
-            fontFamily: "var(--font-mono)",
-            borderRadius: 8,
-          }}
-        >
-          {children}
-        </pre>
-        <button
-          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity px-2 py-1 rounded text-[11px]"
-          style={{ background: "var(--bg-3)", color: "var(--text-2)" }}
-          onClick={() => {
-            const text = extractTextFromChildren(children);
-            navigator.clipboard.writeText(text).then(
-              () => toast.success("Copied!"),
-              () => toast.error("Failed to copy"),
-            );
-          }}
-        >
-          <Copy size={12} className="inline mr-1" />
-          Copy
-        </button>
-      </div>
-    );
+    const langHint = className.replace("language-", "") || "text";
+    const code = extractTextFromChildren(children);
+    return <ShikiCodeBlock code={code} langHint={langHint} rawChildren={children} />;
   },
   code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
     if (className && className !== "language-mermaid") {
@@ -299,10 +355,54 @@ const createMarkdownComponents = (
       </a>
     );
   },
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="text-lg font-bold mt-4 mb-2 pb-1" style={{ color: "var(--text-0)", borderBottom: "1px solid var(--surface-border)" }}>{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="text-base font-semibold mt-4 mb-2 pb-1" style={{ color: "var(--text-0)", borderBottom: "1px solid var(--surface-border)" }}>{children}</h2>
+  ),
   h3: ({ children }: { children?: React.ReactNode }) => (
-    <h3 className="text-sm font-semibold mt-3 mb-1" style={{ color: "var(--text-0)" }}>
-      {children}
-    </h3>
+    <h3 className="text-sm font-semibold mt-3 mb-1" style={{ color: "var(--text-0)" }}>{children}</h3>
+  ),
+  h4: ({ children }: { children?: React.ReactNode }) => (
+    <h4 className="text-sm font-medium mt-2 mb-1" style={{ color: "var(--text-1)" }}>{children}</h4>
+  ),
+  hr: () => <hr className="my-3" style={{ borderColor: "var(--surface-border)" }} />,
+  blockquote: ({ children }: { children?: React.ReactNode }) => {
+    const meta = detectCallout(children);
+    if (meta) {
+      const cs = CALLOUT_STYLES[meta.type];
+      return (
+        <div className="my-2 px-3 py-2 rounded-lg flex gap-2 text-sm" style={{ background: cs.bg, borderLeft: `3px solid ${cs.border}` }}>
+          <span className="mt-0.5 flex-shrink-0" style={{ color: cs.border }}>{CALLOUT_ICONS[meta.type]}</span>
+          <div>
+            <span className="font-semibold text-xs uppercase tracking-wide mr-2" style={{ color: cs.border }}>{meta.label}</span>
+            {children}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <blockquote className="my-2 pl-3 text-sm italic" style={{ borderLeft: "3px solid var(--accent)", color: "var(--text-2)" }}>
+        {children}
+      </blockquote>
+    );
+  },
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="my-3 overflow-x-auto rounded-lg" style={{ border: "1px solid var(--surface-border)" }}>
+      <table className="w-full text-sm border-collapse">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: { children?: React.ReactNode }) => <thead style={{ background: "var(--bg-1)" }}>{children}</thead>,
+  tbody: ({ children }: { children?: React.ReactNode }) => <tbody>{children}</tbody>,
+  tr: ({ children }: { children?: React.ReactNode }) => (
+    <tr style={{ borderBottom: "1px solid var(--surface-border)" }}>{children}</tr>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-1)" }}>{children}</th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="px-3 py-2" style={{ color: "var(--text-0)" }}>{children}</td>
   ),
 });
 

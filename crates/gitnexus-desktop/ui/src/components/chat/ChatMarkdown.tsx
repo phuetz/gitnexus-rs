@@ -251,19 +251,26 @@ function detectCallout(children: React.ReactNode): (typeof CALLOUT_MAP)[string] 
 
 function ShikiTokens({ code, langHint }: { code: string; langHint: string }) {
   const { tokenize, ready } = useShikiHighlighter();
-  const [lines, setLines] = useState<ReturnType<typeof tokenize>>(null);
+  const [lines, setLines] = useState<{ tokens: { content: string; color?: string; fontStyle?: number }[] }[] | null>(null);
 
+  // Use ready as dep only — tokenize is stable via useCallback in the hook
   useEffect(() => {
-    if (ready) setLines(tokenize(code, langHint));
-  }, [code, langHint, tokenize, ready]);
+    if (!ready) return;
+    try {
+      const result = tokenize(code, langHint);
+      setLines(result);
+    } catch {
+      setLines(null);
+    }
+  }, [ready, code, langHint, tokenize]);
 
-  if (!lines) return null;
+  if (!lines || lines.length === 0) return null;
 
   return (
     <code style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
       {lines.map((line, li) => (
         <span key={li} style={{ display: "block" }}>
-          {line.tokens.map((tok, ti) => (
+          {(line.tokens ?? []).map((tok, ti) => (
             <span key={ti} style={{ color: tok.color, fontStyle: tok.fontStyle === 2 ? "italic" : undefined }}>
               {tok.content}
             </span>
@@ -275,14 +282,15 @@ function ShikiTokens({ code, langHint }: { code: string; langHint: string }) {
 }
 
 function ShikiCodeBlock({ code, langHint, rawChildren }: { code: string; langHint: string; rawChildren: React.ReactNode }) {
+  const { ready } = useShikiHighlighter();
   return (
     <div className="relative group my-3">
       <pre
         className="p-4 rounded-lg overflow-x-auto text-[12px] leading-relaxed"
         style={{ background: "#1a1b26", border: "1px solid var(--surface-border)", fontFamily: "var(--font-mono)" }}
       >
-        <ShikiTokens code={code} langHint={langHint} />
-        {/* Fallback plain text (hidden once tokens render) */}
+        {ready ? <ShikiTokens code={code} langHint={langHint} /> : rawChildren}
+        {/* Keep rawChildren in DOM for copy button */}
         <span style={{ display: "none" }}>{rawChildren}</span>
       </pre>
       <button

@@ -548,6 +548,7 @@ pub(super) fn html_escape(text: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+        .replace('`', "&#96;")
 }
 
 /// Parse a standalone Markdown image `![alt](url)` line → `<div><img/></div>`.

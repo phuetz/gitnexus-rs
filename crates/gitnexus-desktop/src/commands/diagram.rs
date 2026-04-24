@@ -497,7 +497,7 @@ pub(crate) fn build_skeleton_flowchart(
     start_id: &str,
 ) -> String {
     let Some(start_node) = graph.get_node(start_id) else {
-        return String::new();
+        return "flowchart TD".to_string();
     };
 
     let mut lines: Vec<String> = vec!["flowchart TD".to_string()];
@@ -505,9 +505,17 @@ pub(crate) fn build_skeleton_flowchart(
     let start_san = sanitize(start_id);
     let file_ref = if !start_node.properties.file_path.is_empty() {
         if let Some(fname) = start_node.properties.file_path.split('/').last() {
-            format!("\\n{}:{}", fname, start_node.properties.start_line.unwrap_or(0))
-        } else { String::new() }
-    } else { String::new() };
+            format!(
+                "\\n{}:{}",
+                fname,
+                start_node.properties.start_line.unwrap_or(0)
+            )
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
 
     lines.push(format!(
         "    {}([\"🚀 {}{}\"])",
@@ -522,15 +530,27 @@ pub(crate) fn build_skeleton_flowchart(
     let mut node_count = 1usize;
 
     for method_id in methods.iter().take(8) {
-        if node_count >= 20 { break; }
-        let Some(method_node) = graph.get_node(method_id) else { continue; };
-        if seen.contains(method_id) { continue; }
+        if node_count >= 20 {
+            break;
+        }
+        let Some(method_node) = graph.get_node(method_id) else {
+            continue;
+        };
+        if seen.contains(method_id) {
+            continue;
+        }
         seen.insert(method_id.clone());
 
         let method_san = sanitize(method_id);
         let file_ref = if let Some(fname) = method_node.properties.file_path.split('/').last() {
-            format!("\\n{}:{}", fname, method_node.properties.start_line.unwrap_or(0))
-        } else { String::new() };
+            format!(
+                "\\n{}:{}",
+                fname,
+                method_node.properties.start_line.unwrap_or(0)
+            )
+        } else {
+            String::new()
+        };
 
         // Decision diamond for query/check methods
         let name = &method_node.properties.name;
@@ -542,7 +562,10 @@ pub(crate) fn build_skeleton_flowchart(
 
         if is_decision {
             lines.push(format!(
-                "    {}{{\"{}{}?\"}}", method_san, escape_label(name), file_ref
+                "    {}{{\"{}{}?\"}}",
+                method_san,
+                escape_label(name),
+                file_ref
             ));
         } else {
             // Check if it's a DB write
@@ -552,15 +575,18 @@ pub(crate) fn build_skeleton_flowchart(
                 || name.to_lowercase().contains("insert");
             if is_db {
                 lines.push(format!(
-                    "    {}[(\"{}{}\")] ", method_san, escape_label(name), file_ref
+                    "    {}[(\"{}{}\")] ",
+                    method_san,
+                    escape_label(name),
+                    file_ref
                 ));
             } else {
                 lines.push(format!(
-                    "    {}[\"{}{}\"]]", method_san, escape_label(name), file_ref
+                    "    {}[\"{}{}\" ]",
+                    method_san,
+                    escape_label(name),
+                    file_ref
                 ));
-                // Fix: should be [ not ]] — correct it
-                let last = lines.last_mut().unwrap();
-                *last = format!("    {}[\"{}{}\" ]", method_san, escape_label(name), file_ref);
             }
         }
         lines.push(format!("    {} --> {}", sanitize(start_id), method_san));
@@ -569,16 +595,41 @@ pub(crate) fn build_skeleton_flowchart(
         // Callees of this method
         if let Some(callees) = indexes.outgoing.get(method_id) {
             for (callee_id, rel) in callees.iter().take(3) {
-                if node_count >= 20 { break; }
-                if !matches!(rel, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) { continue; }
-                if seen.contains(callee_id) { continue; }
-                let Some(callee_node) = graph.get_node(callee_id) else { continue; };
+                if node_count >= 20 {
+                    break;
+                }
+                if !matches!(
+                    rel,
+                    RelationshipType::Calls
+                        | RelationshipType::CallsAction
+                        | RelationshipType::CallsService
+                ) {
+                    continue;
+                }
+                if seen.contains(callee_id) {
+                    continue;
+                }
+                let Some(callee_node) = graph.get_node(callee_id) else {
+                    continue;
+                };
                 seen.insert(callee_id.clone());
                 let callee_san = sanitize(callee_id);
-                let file_ref = if let Some(fname) = callee_node.properties.file_path.split('/').last() {
-                    format!("\\n{}:{}", fname, callee_node.properties.start_line.unwrap_or(0))
-                } else { String::new() };
-                lines.push(format!("    {}[\"{}{}\" ]", callee_san, escape_label(&callee_node.properties.name), file_ref));
+                let file_ref =
+                    if let Some(fname) = callee_node.properties.file_path.split('/').last() {
+                        format!(
+                            "\\n{}:{}",
+                            fname,
+                            callee_node.properties.start_line.unwrap_or(0)
+                        )
+                    } else {
+                        String::new()
+                    };
+                lines.push(format!(
+                    "    {}[\"{}{}\" ]",
+                    callee_san,
+                    escape_label(&callee_node.properties.name),
+                    file_ref
+                ));
                 lines.push(format!("    {} --> {}", method_san, callee_san));
                 node_count += 1;
             }
@@ -696,5 +747,115 @@ impl DiagramKind {
             Self::Sequence => "sequence",
             Self::Class => "class",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gitnexus_core::graph::types::{GraphRelationship, NodeProperties};
+
+    fn node(id: &str, label: NodeLabel, name: &str, file_path: &str, start_line: u32) -> GraphNode {
+        GraphNode {
+            id: id.to_string(),
+            label,
+            properties: NodeProperties {
+                name: name.to_string(),
+                file_path: file_path.to_string(),
+                start_line: Some(start_line),
+                ..Default::default()
+            },
+        }
+    }
+
+    fn rel(
+        id: &str,
+        source_id: &str,
+        target_id: &str,
+        rel_type: RelationshipType,
+    ) -> GraphRelationship {
+        GraphRelationship {
+            id: id.to_string(),
+            source_id: source_id.to_string(),
+            target_id: target_id.to_string(),
+            rel_type,
+            confidence: 1.0,
+            reason: String::new(),
+            step: None,
+        }
+    }
+
+    #[test]
+    fn build_skeleton_flowchart_returns_header_for_empty_graph() {
+        let graph = KnowledgeGraph::new();
+        let indexes = GraphIndexes::build(&graph);
+
+        let mermaid = build_skeleton_flowchart(&graph, &indexes, "missing");
+
+        assert_eq!(mermaid, "flowchart TD");
+    }
+
+    #[test]
+    fn diagram_kind_parse_sequence() {
+        assert_eq!(DiagramKind::parse(Some("sequence")), DiagramKind::Sequence);
+    }
+
+    #[test]
+    fn diagram_kind_parse_unknown_defaults_to_flowchart() {
+        assert_eq!(DiagramKind::parse(Some("unknown")), DiagramKind::Flowchart);
+    }
+
+    #[test]
+    fn build_skeleton_flowchart_generates_valid_mermaid_nodes() {
+        let class_id = "Class:src/Courrier.cs:Courrier";
+        let method_id = "Method:src/Courrier.cs:BuildMessage";
+        let callee_id = "Method:src/Courrier.cs:SaveMessage";
+
+        let mut graph = KnowledgeGraph::new();
+        graph.add_node(node(
+            class_id,
+            NodeLabel::Class,
+            "Courrier",
+            "src/Courrier.cs",
+            1,
+        ));
+        graph.add_node(node(
+            method_id,
+            NodeLabel::Method,
+            "BuildMessage",
+            "src/Courrier.cs",
+            12,
+        ));
+        graph.add_node(node(
+            callee_id,
+            NodeLabel::Method,
+            "SaveMessage",
+            "src/Courrier.cs",
+            42,
+        ));
+        graph.add_relationship(rel(
+            "rel:has-method",
+            class_id,
+            method_id,
+            RelationshipType::HasMethod,
+        ));
+        graph.add_relationship(rel(
+            "rel:calls",
+            method_id,
+            callee_id,
+            RelationshipType::Calls,
+        ));
+
+        let indexes = GraphIndexes::build(&graph);
+        let mermaid = build_skeleton_flowchart(&graph, &indexes, class_id);
+
+        assert!(mermaid.starts_with("flowchart TD"));
+        assert!(mermaid
+            .lines()
+            .any(|line| line.contains("[\"") || line.contains("([\"")));
+        assert!(mermaid.contains("Courrier"));
+        assert!(mermaid.contains("BuildMessage"));
+        assert!(mermaid.contains("SaveMessage"));
+        assert!(mermaid.contains("-->"));
     }
 }

@@ -496,6 +496,61 @@ async fn execute_mcp_tool(
             }
         }
 
+        // ── get_process_flow ─────────────────────────────────────
+        "get_process_flow" => {
+            let keyword = parsed
+                .get("keyword")
+                .or_else(|| parsed.get("query"))
+                .and_then(|k| k.as_str())
+                .unwrap_or_default()
+                .trim();
+            if keyword.is_empty() {
+                return "Error: missing required parameter 'keyword'".to_string();
+            }
+
+            let cypher = format!(
+                "MATCH (n:Process) WHERE n.name CONTAINS '{}' RETURN n.name, n.description, n.step_count LIMIT 5",
+                keyword.replace('\'', "\\'")
+            );
+            execute_cypher_query(&cypher, graph, indexes, fts_index)
+        }
+
+        // ── search_processes ─────────────────────────────────────
+        "search_processes" => {
+            let query = parsed
+                .get("query")
+                .and_then(|q| q.as_str())
+                .unwrap_or_default();
+            if query.is_empty() {
+                return "Error: missing required parameter 'query'".to_string();
+            }
+            let cypher = format!(
+                "MATCH (n:Process) WHERE n.name CONTAINS '{}' OR n.description CONTAINS '{}' \
+                 RETURN n.name, n.description, n.step_count ORDER BY n.step_count DESC LIMIT 10",
+                query.replace('\'', "\\'"),
+                query.replace('\'', "\\'")
+            );
+            match gitnexus_db::inmemory::cypher::parse(&cypher) {
+                Ok(stmt) => {
+                    match gitnexus_db::inmemory::cypher::execute(&stmt, graph, indexes, fts_index) {
+                        Ok(rows) => {
+                            if rows.is_empty() {
+                                format!("Aucun processus métier trouvé pour '{}'.", query)
+                            } else {
+                                let json = serde_json::to_string_pretty(&rows).unwrap_or_default();
+                                format!(
+                                    "Processus métier trouvés pour '{}' :\n```json\n{}\n```",
+                                    query, json
+                                )
+                            }
+                        }
+                        Err(e) => format!("Erreur d'exécution : {}", e),
+                    }
+                }
+                Err(e) => format!("Erreur de parsing : {}", e),
+            }
+        }
+
         // ── get_diagram ──────────────────────────────────────────
         "get_diagram" => {
             let target = match parsed.get("target").and_then(|t| t.as_str()) {
@@ -548,6 +603,41 @@ async fn execute_mcp_tool(
         }
 
         _ => format!("Error: unknown tool '{}'", name),
+    }
+}
+
+/// Execute a Cypher query and format a compact JSON result for prompt injection.
+fn execute_cypher_query(
+    query: &str,
+    graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
+    fts_index: &FtsIndex,
+) -> String {
+    match gitnexus_db::inmemory::cypher::parse(query) {
+        Ok(stmt) => {
+            match gitnexus_db::inmemory::cypher::execute(&stmt, graph, indexes, fts_index) {
+                Ok(rows) => {
+                    if rows.is_empty() {
+                        "Query returned 0 results.".to_string()
+                    } else {
+                        let truncated: Vec<_> = rows.iter().take(25).collect();
+                        let json = serde_json::to_string_pretty(&truncated).unwrap_or_default();
+                        format!(
+                            "Cypher returned {} results{}:\n```json\n{}\n```",
+                            rows.len(),
+                            if rows.len() > 25 {
+                                " (showing first 25)"
+                            } else {
+                                ""
+                            },
+                            json
+                        )
+                    }
+                }
+                Err(e) => format!("Cypher execution error: {}", e),
+            }
+        }
+        Err(e) => format!("Cypher parse error: {}", e),
     }
 }
 
@@ -718,6 +808,34 @@ pub async fn chat_ask(
                         "query": { "type": "string", "description": "Cypher query (e.g. MATCH (n:Class) RETURN n.name LIMIT 10)" }
                     },
                     "required": ["query"]
+                }),
+            }
+        },
+        ToolDefinition {
+            type_: "function".to_string(),
+            function: FunctionDefinition {
+                name: "search_processes".to_string(),
+                description: "Search business process flows in the graph. Use when the question involves a workflow, business process, or multi-step operation.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Search query (process name or keyword)" }
+                    },
+                    "required": ["query"]
+                }),
+            }
+        },
+        ToolDefinition {
+            type_: "function".to_string(),
+            function: FunctionDefinition {
+                name: "get_process_flow".to_string(),
+                description: "Find business Process nodes matching a keyword and return their name, description, and step count.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "keyword": { "type": "string", "description": "Business process or module keyword (e.g. Courrier, Dossier)" }
+                    },
+                    "required": ["keyword"]
                 }),
             }
         },
@@ -1192,6 +1310,30 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
             }),
         },
         ChatToolDescriptor {
+            name: "search_processes".to_string(),
+            description: "Search business process flows in the graph. Use for workflow, business process, or multi-step operation questions.".to_string(),
+            category: "search".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string" }
+                },
+                "required": ["query"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "get_process_flow".to_string(),
+            description: "Targeted business process lookup by keyword.".to_string(),
+            category: "analysis".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "keyword": { "type": "string" }
+                },
+                "required": ["keyword"]
+            }),
+        },
+        ChatToolDescriptor {
             name: "get_diagram".to_string(),
             description: "Generate a Mermaid flowchart, sequence, or class diagram.".to_string(),
             category: "visualize".to_string(),
@@ -1205,6 +1347,18 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
                     }
                 },
                 "required": ["target"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "read_method".to_string(),
+            description: "Read complete method or function source up to 250 lines.".to_string(),
+            category: "files".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string" }
+                },
+                "required": ["symbol"]
             }),
         },
         ChatToolDescriptor {
@@ -1515,6 +1669,143 @@ fn classify_question(q: &str) -> QuestionType {
     QuestionType::Functional
 }
 
+/// Extract the likely module, class, controller, service, or method target from a question.
+fn detect_target_symbol(question: &str) -> Option<String> {
+    let normalized = question
+        .replace("l'", "l' ")
+        .replace("L'", "l' ")
+        .replace("l’", "l' ")
+        .replace("L’", "l' ");
+    let tokens: Vec<String> = normalized
+        .split_whitespace()
+        .map(clean_target_token)
+        .filter(|token| !token.is_empty())
+        .collect();
+
+    for (idx, token) in tokens.iter().enumerate() {
+        if is_target_cue(token) {
+            if let Some(target) = tokens
+                .iter()
+                .skip(idx + 1)
+                .filter(|candidate| !is_target_stop_word(candidate))
+                .find(|candidate| is_target_candidate_after_cue(candidate))
+            {
+                return Some(target.clone());
+            }
+        }
+    }
+
+    tokens.into_iter().find(|token| is_symbol_like_token(token))
+}
+
+/// Normalize a possible symbol token while preserving namespace/member separators.
+fn clean_target_token(token: &str) -> String {
+    token
+        .trim_matches(|c: char| !c.is_alphanumeric() && !matches!(c, '_' | '.' | ':'))
+        .to_string()
+}
+
+/// Return whether a token announces that a target symbol likely follows.
+fn is_target_cue(token: &str) -> bool {
+    let lower = token.to_lowercase();
+    matches!(
+        lower.as_str(),
+        "module"
+            | "classe"
+            | "class"
+            | "controller"
+            | "controleur"
+            | "contrôleur"
+            | "service"
+            | "méthode"
+            | "methode"
+            | "method"
+            | "repository"
+            | "le"
+            | "la"
+            | "l"
+    )
+}
+
+/// Return whether a token is connective prose rather than a target symbol.
+fn is_target_stop_word(token: &str) -> bool {
+    let lower = token.to_lowercase();
+    matches!(
+        lower.as_str(),
+        "a" | "an"
+            | "and"
+            | "about"
+            | "comment"
+            | "de"
+            | "des"
+            | "du"
+            | "explique"
+            | "expliquer"
+            | "fonctionne"
+            | "for"
+            | "la"
+            | "le"
+            | "les"
+            | "l"
+            | "module"
+            | "of"
+            | "présente"
+            | "presente"
+            | "the"
+    )
+}
+
+/// Return whether a cue-following token looks like a concrete symbol or module name.
+fn is_target_candidate_after_cue(token: &str) -> bool {
+    starts_with_uppercase(token)
+        || has_symbol_suffix(token)
+        || token.contains("::")
+        || token.contains('.')
+}
+
+/// Return whether a standalone token looks like a symbol rather than sentence text.
+fn is_symbol_like_token(token: &str) -> bool {
+    if token.len() < 3 || is_target_stop_word(token) {
+        return false;
+    }
+
+    if has_symbol_suffix(token) {
+        return true;
+    }
+
+    if token.contains("::") || token.contains('.') || token.contains('_') {
+        return true;
+    }
+
+    starts_with_uppercase(token)
+        && token.chars().skip(1).any(|c| c.is_uppercase())
+        && token.chars().any(|c| c.is_lowercase())
+}
+
+/// Return whether a token starts with an uppercase character.
+fn starts_with_uppercase(token: &str) -> bool {
+    token.chars().next().is_some_and(|c| c.is_uppercase())
+}
+
+/// Return whether a token has a common code-symbol suffix.
+fn has_symbol_suffix(token: &str) -> bool {
+    let lower = token.to_lowercase();
+    [
+        "controller",
+        "service",
+        "repository",
+        "manager",
+        "provider",
+        "context",
+        "dbcontext",
+        "viewmodel",
+        "helper",
+        "factory",
+    ]
+    .iter()
+    .any(|suffix| lower.ends_with(suffix))
+}
+
 fn canvas_instruction(qt: QuestionType) -> &'static str {
     match qt {
         QuestionType::Lookup => {
@@ -1537,10 +1828,16 @@ Structure ta réponse ainsi :\n\
 [2-3 phrases depuis la documentation enrichie]\n\
 ## Diagramme d'appels\n\
 [Inclus le diagramme Mermaid pré-chargé]\n\
-## Fonctionnement\n\
+## Flux de traitement\n\
+[Inclus un diagramme Mermaid **sequenceDiagram** montrant les interactions entre composants]\n\
+## Méthodes clés\n\
+| Méthode | Fichier:Ligne | Rôle |\n\
+| :--- | :--- | :--- |\n\
+| ... | ... | ... |\n\
+## Fonctionnement détaillé\n\
 [Description fonctionnelle avec sections logiques]\n\
-## Fichiers sources clés\n\
-[Snippets avec citations Fichier.cs:ligne]\n\
+## Intégration avec d'autres modules\n\
+[Explique comment ce module interagit avec les autres (Injections, Events, API) basé sur les imports/dépendances]\n\
 ## Voir aussi\n\
 [cross-références]\n"
         }
@@ -1611,6 +1908,123 @@ Structure ta réponse ainsi :\n\
     }
 }
 
+/// Resolve a symbol name to the graph node best suited for prefetch targeting.
+fn resolve_symbol_node_id(symbol: &str, graph: &KnowledgeGraph) -> Option<String> {
+    let symbol_lower = symbol.to_lowercase();
+    graph
+        .iter_nodes()
+        .filter(|node| node.properties.name.to_lowercase() == symbol_lower)
+        .min_by_key(|node| prefetch_symbol_priority(node.label))
+        .map(|node| node.id.clone())
+}
+
+/// Rank duplicate symbol-name matches so module-level nodes win over members.
+fn prefetch_symbol_priority(label: NodeLabel) -> u8 {
+    match label {
+        NodeLabel::Controller => 0,
+        NodeLabel::Class => 1,
+        NodeLabel::Service => 2,
+        NodeLabel::Repository => 3,
+        NodeLabel::Method | NodeLabel::Function | NodeLabel::ControllerAction => 4,
+        _ => 5,
+    }
+}
+
+/// Collect method names to prefetch from a targeted symbol and its direct calls.
+fn collect_prefetch_method_names(
+    root_id: &str,
+    graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
+) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut seen_names = std::collections::HashSet::new();
+    let mut method_ids = Vec::new();
+
+    push_prefetch_method_id(root_id, graph, &mut method_ids);
+
+    if let Some(outgoing) = indexes.outgoing.get(root_id) {
+        for (target_id, rel_type) in outgoing {
+            if matches!(
+                rel_type,
+                RelationshipType::HasMethod | RelationshipType::HasAction
+            ) {
+                push_prefetch_method_id(target_id, graph, &mut method_ids);
+            }
+        }
+    }
+
+    for method_id in method_ids {
+        push_prefetch_method_name(&method_id, graph, &mut names, &mut seen_names);
+        if names.len() >= 5 {
+            break;
+        }
+
+        if let Some(callees) = indexes.outgoing.get(&method_id) {
+            for (callee_id, rel_type) in callees.iter().take(4) {
+                if !matches!(
+                    rel_type,
+                    RelationshipType::Calls
+                        | RelationshipType::CallsAction
+                        | RelationshipType::CallsService
+                ) {
+                    continue;
+                }
+                push_prefetch_method_name(callee_id, graph, &mut names, &mut seen_names);
+                if names.len() >= 5 {
+                    break;
+                }
+            }
+        }
+
+        if names.len() >= 5 {
+            break;
+        }
+    }
+
+    names
+}
+
+/// Append a method-like node ID if the graph node can be read as method source.
+fn push_prefetch_method_id(node_id: &str, graph: &KnowledgeGraph, method_ids: &mut Vec<String>) {
+    if graph
+        .get_node(node_id)
+        .is_some_and(|node| is_prefetch_method_label(node.label))
+    {
+        method_ids.push(node_id.to_string());
+    }
+}
+
+/// Append a unique method name for `read_full_method`.
+fn push_prefetch_method_name(
+    node_id: &str,
+    graph: &KnowledgeGraph,
+    names: &mut Vec<String>,
+    seen_names: &mut std::collections::HashSet<String>,
+) {
+    let Some(node) = graph.get_node(node_id) else {
+        return;
+    };
+    if !is_prefetch_method_label(node.label) || node.properties.name.is_empty() {
+        return;
+    }
+
+    let dedupe_key = node.properties.name.to_lowercase();
+    if seen_names.insert(dedupe_key) {
+        names.push(node.properties.name.clone());
+    }
+}
+
+/// Return whether a node label has method/function source that can be prefetched.
+fn is_prefetch_method_label(label: NodeLabel) -> bool {
+    matches!(
+        label,
+        NodeLabel::Method
+            | NodeLabel::Function
+            | NodeLabel::ControllerAction
+            | NodeLabel::Constructor
+    )
+}
+
 /// Pre-fetch tool results for the detected question type.
 /// Returns a formatted string injected as additional system context.
 async fn prefetch_for_type(
@@ -1625,9 +2039,18 @@ async fn prefetch_for_type(
     let mut pre = String::new();
 
     // Extract top symbol name for tool calls
-    let top_symbol_name = search_results
-        .first()
-        .and_then(|(id, _)| graph.get_node(id))
+    let detected_target = detect_target_symbol(question);
+    let top_symbol_id = detected_target
+        .as_deref()
+        .and_then(|target| resolve_symbol_node_id(target, graph))
+        .or_else(|| {
+            search_results
+                .first()
+                .and_then(|(id, _)| graph.get_node(id).map(|_| id.clone()))
+        });
+    let top_symbol_name = top_symbol_id
+        .as_deref()
+        .and_then(|id| graph.get_node(id))
         .map(|n| n.properties.name.clone())
         .unwrap_or_default();
 
@@ -1661,6 +2084,38 @@ async fn prefetch_for_type(
 
     match qt {
         QuestionType::Functional | QuestionType::Algorithm => {
+            if qt == QuestionType::Functional {
+                if let Some(target) = detected_target.as_deref() {
+                    let doc = load_enriched_module_doc_page(target, repo_path);
+                    if !doc.is_empty() {
+                        pre.push_str(&format!("## Documentation du module {}\n\n", target));
+                        pre.push_str(&doc);
+                        pre.push_str("\n\n");
+                    }
+                }
+
+                let process_keyword = detected_target.as_deref().unwrap_or(&top_symbol_name);
+                if !process_keyword.is_empty() {
+                    let process_flow = execute_mcp_tool(
+                        "get_process_flow",
+                        &serde_json::json!({"keyword": process_keyword}).to_string(),
+                        repo_path,
+                        graph,
+                        indexes,
+                        fts_index,
+                    )
+                    .await;
+                    if process_flow.len() > 50
+                        && !process_flow.starts_with("Error:")
+                        && !process_flow.contains("0 results")
+                    {
+                        pre.push_str("## Processus métier pré-chargés\n\n");
+                        pre.push_str(&process_flow);
+                        pre.push_str("\n\n");
+                    }
+                }
+            }
+
             if !top_symbol_name.is_empty() {
                 // get_symbol_context for the top symbol
                 let ctx = execute_mcp_tool(
@@ -1696,30 +2151,12 @@ async fn prefetch_for_type(
                 }
                 // Algorithm: read FULL call chain — top method + its callees (up to 5 total)
                 if qt == QuestionType::Algorithm {
-                    let mut methods_to_read: Vec<String> = Vec::new();
-
-                    // Start with top search result
-                    if let Some((top_id, _)) = search_results.first() {
-                        if let Some(node) = graph.get_node(top_id) {
-                            methods_to_read.push(node.properties.name.clone());
-
-                            // Add direct callees (Calls/CallsAction edges)
-                            if let Some(callees) = indexes.outgoing.get(top_id) {
-                                for (callee_id, rel) in callees.iter().take(4) {
-                                    if matches!(rel, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
-                                        if let Some(callee_node) = graph.get_node(callee_id) {
-                                            if !callee_node.properties.name.is_empty() {
-                                                methods_to_read.push(callee_node.properties.name.clone());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    let methods_to_read = top_symbol_id
+                        .as_deref()
+                        .map(|top_id| collect_prefetch_method_names(top_id, graph, indexes))
+                        .unwrap_or_default();
 
                     // Read each method in full (250 lines cap via read_full_method)
-                    methods_to_read.truncate(5);
                     if !methods_to_read.is_empty() {
                         pre.push_str("## Chaîne de traitement pré-chargée (sources complètes)\n\n");
                         for method_name in &methods_to_read {
@@ -1732,9 +2169,9 @@ async fn prefetch_for_type(
                     }
 
                     // Add skeleton flowchart (topology without conditions)
-                    if let Some((top_id, _)) = search_results.first() {
+                    if let Some(top_id) = top_symbol_id.as_deref() {
                         let skeleton = crate::commands::diagram::build_skeleton_flowchart(
-                            graph, indexes, top_id
+                            graph, indexes, top_id,
                         );
                         if !skeleton.is_empty() {
                             pre.push_str("## Squelette d'organigramme (topologie — à enrichir avec les conditions)\n\n");
@@ -1836,24 +2273,9 @@ fn load_enriched_doc_pages(
             let page_path = docs_dir.join(&candidate);
             if page_path.exists() {
                 if let Ok(text) = std::fs::read_to_string(&page_path) {
-                    // Only include pages with meaningful enrichment (> 200 chars)
-                    if text.len() > 200 {
+                    if let Some(page) = format_enriched_doc_page(&candidate, &text) {
                         seen_pages.insert(candidate.clone());
-                        // Strip HTML comments (GNX anchors) and trim to 3000 chars
-                        let clean: String = text
-                            .lines()
-                            .filter(|l| !l.trim().starts_with("<!-- GNX:"))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        let trimmed = if clean.len() > 3000 {
-                            format!("{}\n\n*[…tronqué]*", &clean[..3000])
-                        } else {
-                            clean
-                        };
-                        content.push_str(&format!(
-                            "### Documentation enrichie : `{}`\n\n{}\n\n---\n\n",
-                            candidate, trimmed
-                        ));
+                        content.push_str(&page);
                         break; // first matching page per node is enough
                     }
                 }
@@ -1864,14 +2286,86 @@ fn load_enriched_doc_pages(
     content
 }
 
-/// Return candidate doc page paths (relative to docs_dir) for a given node.
-fn doc_page_candidates(label: &NodeLabel, name: &str) -> Vec<String> {
-    let sanitized = name
-        .to_lowercase()
+/// Read a targeted enriched module documentation page by direct module filename.
+fn load_enriched_module_doc_page(module_name: &str, repo_path: &Path) -> String {
+    let modules_dir = repo_path.join(".gitnexus").join("docs").join("modules");
+    if !modules_dir.exists() {
+        return String::new();
+    }
+
+    let sanitized = sanitize_doc_segment(module_name);
+    let mut candidates = vec![
+        format!("{}.md", sanitized),
+        format!("ctrl-{}.md", sanitized),
+    ];
+    if let Some(base_name) = strip_symbol_suffix(&sanitized) {
+        candidates.push(format!("{}.md", base_name));
+        candidates.push(format!("ctrl-{}.md", base_name));
+    }
+
+    for candidate in candidates {
+        let page_path = modules_dir.join(&candidate);
+        if page_path.exists() {
+            if let Ok(text) = std::fs::read_to_string(&page_path) {
+                if let Some(page) =
+                    format_enriched_doc_page(&format!("modules/{}", candidate), &text)
+                {
+                    return page;
+                }
+            }
+        }
+    }
+
+    String::new()
+}
+
+/// Strip common code-role suffixes from a sanitized module name.
+fn strip_symbol_suffix(name: &str) -> Option<String> {
+    for suffix in ["controller", "service", "manager", "repository"] {
+        if let Some(base) = name.strip_suffix(suffix) {
+            if !base.is_empty() {
+                return Some(base.trim_end_matches('-').to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Format one enriched documentation page for injection into the chat prompt.
+fn format_enriched_doc_page(candidate: &str, text: &str) -> Option<String> {
+    // Only include pages with meaningful enrichment (> 200 chars).
+    if text.len() <= 200 {
+        return None;
+    }
+
+    let clean: String = text
+        .lines()
+        .filter(|l| !l.trim().starts_with("<!-- GNX:"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut trimmed = clean.chars().take(3000).collect::<String>();
+    if clean.chars().count() > 3000 {
+        trimmed.push_str("\n\n*[…tronqué]*");
+    }
+
+    Some(format!(
+        "### Documentation enrichie : `{}`\n\n{}\n\n---\n\n",
+        candidate, trimmed
+    ))
+}
+
+/// Convert a symbol/module name into a documentation filename segment.
+fn sanitize_doc_segment(name: &str) -> String {
+    name.to_lowercase()
         .replace(' ', "-")
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-        .collect::<String>();
+        .collect()
+}
+
+/// Return candidate doc page paths (relative to docs_dir) for a given node.
+fn doc_page_candidates(label: &NodeLabel, name: &str) -> Vec<String> {
+    let sanitized = sanitize_doc_segment(name);
 
     match label {
         NodeLabel::Controller => vec![
@@ -1998,17 +2492,16 @@ fn build_sources(
 
 /// Read the COMPLETE source of a method with line numbers — no 50-line cap (up to 250).
 /// Used for algorithm questions where the full if/else/loop structure is needed.
-async fn read_full_method(
-    symbol: &str,
-    graph: &KnowledgeGraph,
-    repo_path: &Path,
-) -> String {
+async fn read_full_method(symbol: &str, graph: &KnowledgeGraph, repo_path: &Path) -> String {
     // Find the node by name (case-insensitive)
     let node = graph.iter_nodes().find(|n| {
         n.properties.name.eq_ignore_ascii_case(symbol)
             && matches!(
                 n.label,
-                NodeLabel::Method | NodeLabel::Function | NodeLabel::ControllerAction | NodeLabel::Constructor
+                NodeLabel::Method
+                    | NodeLabel::Function
+                    | NodeLabel::ControllerAction
+                    | NodeLabel::Constructor
             )
     });
 
@@ -2026,7 +2519,9 @@ async fn read_full_method(
     }
 
     let full_path = repo_path.join(file_path);
-    let canonical_repo = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
+    let canonical_repo = repo_path
+        .canonicalize()
+        .unwrap_or_else(|_| repo_path.to_path_buf());
     match full_path.canonicalize() {
         Ok(c) if !c.starts_with(&canonical_repo) => {
             return format!("Path traversal blocked for '{}'.\n", file_path);
@@ -2041,8 +2536,14 @@ async fn read_full_method(
     };
 
     let lines: Vec<&str> = content.lines().collect();
-    let start_idx = start.map(|s| s.saturating_sub(1) as usize).unwrap_or(0).min(lines.len());
-    let end_idx = end.map(|e| e as usize).unwrap_or(start_idx + 60).min(lines.len());
+    let start_idx = start
+        .map(|s| s.saturating_sub(1) as usize)
+        .unwrap_or(0)
+        .min(lines.len());
+    let end_idx = end
+        .map(|e| e as usize)
+        .unwrap_or(start_idx + 60)
+        .min(lines.len());
     // Cap at 250 lines (vs 50 for read_file)
     let end_idx = end_idx.min(start_idx + 250);
 
@@ -2429,8 +2930,8 @@ fn build_system_prompt(
          ## When to use which tool\n\n\
          | Question shape | Tool chain | Why |\n\
          |---|---|---|\n\
-         | *\"comment fonctionne X ?\"* / *\"how does X work?\"* | `get_symbol_context` → `read_file` on the method body | 360° view, THEN read the actual body to describe the algorithm |\n\
-         | *\"comment X est calculé ?\"* / *\"comment sont …\"* | `search_code` → `get_symbol_context` → **`read_file` on ALL key methods** | Algorithm answers demand real source code, not summaries |\n\
+         | *\"comment fonctionne X ?\"* / *\"how does X work?\"* | `search_processes` → `get_process_flow` → `get_symbol_context` → `read_file` on the method body | Business process first, THEN code-level verification |\n\
+         | *\"comment X est calculé ?\"* / *\"comment sont …\"* | `search_code` → `get_symbol_context` → **`read_method` on ALL key methods** | Algorithm answers demand real source code, not summaries |\n\
          | *\"explique le module Y\"* / *\"explain module Y\"* | `execute_cypher` to list Y's symbols → `read_file` the top 2-3 methods | Exhaustive listing beats noisy RAG + algorithm detail |\n\
          | *\"où est défini X ?\"* / *\"where is X?\"* | `search_code` on \"X\" | Fast lookup |\n\
          | *\"qu'est-ce qui appelle X ?\"* / *\"what calls X?\"* | `get_impact` direction=upstream | BFS of incoming edges |\n\
@@ -2438,8 +2939,8 @@ fn build_system_prompt(
          | Architecture / sequence / flow diagram request | `get_diagram` + `read_file` on the 2-3 pivotal methods | Diagram + algorithmic captions |\n\
          | Read a specific file / more than the 50-line snippet | `read_file` | Exact code |\n\n\
          **Core heuristic for quality answers**: the 50-line snippet you see in the pre-fetched \
-         context is often TRUNCATED. For any algorithm question, call `read_file` on the method's \
-         file with a wider `startLine`/`endLine` range to see the full body, then trace the \
+         context is often TRUNCATED. For any algorithm question, call `read_method` for the \
+         key methods to see the full body, then trace the \
          control flow step-by-step.\n\n\
          ## Rules — applied from the Alise methodology\n\n\
          - **Never invent**: if a tool returns nothing, say so. Do NOT fabricate class names, \
@@ -2461,7 +2962,7 @@ fn build_system_prompt(
          - **Algorithms, not summaries** (CRITICAL): when asked *\"comment ça marche ?\"* / \
            *\"comment X est calculé ?\"* / any process / treatment / computation question, \
            you MUST describe the **actual algorithm**, not a high-level narrative. This means:\n\
-            1. `read_file` the relevant method body so you see the real control flow.\n\
+            1. `read_method` the relevant method body so you see the real control flow.\n\
             2. Break the logic into numbered steps (*Étape 1 → Étape 2 → Étape 3…*) that trace \
                the actual if/else/loop structure of the code.\n\
             3. Make every conditional explicit: *« Si `facture.Statut == DemPaiemVal` ET \
@@ -2477,7 +2978,7 @@ fn build_system_prompt(
            `p.DateDebut <= dateDebutPrestation AND p.DateFin >= datefinPresta`. Étape 3 (:76-90) : \
            exclut les unités `Pourcentage` via `p.UniteRef != EnumRefUnitePlafond.Pourcentage`. \
            Étape 4 : retourne `List<Plafond>`. »*\n\n\
-         ## Available tools (7)\n\n\
+         ## Available tools (10)\n\n\
          1. **search_code** — BM25 lexical search. Best for open-ended concept queries.\n\
          2. **read_file** — Read exact lines from a source file.\n\
          3. **get_symbol_context** — Callers, callees, imports, inheritance for one symbol.\n\
@@ -2488,8 +2989,11 @@ fn build_system_prompt(
             - `MATCH (c:Controller)-[:CALLS_SERVICE]->(s:Service) RETURN c.name, s.name` — architecture slice\n\
             - `MATCH (d:DocChunk) WHERE d.name CONTAINS '<doc>' RETURN d.content LIMIT 30` — extract a CCAS / functional doc\n\
             - `MATCH (p:Process) WHERE p.name CONTAINS '<X>' RETURN p` — find a business process\n\
-         6. **get_diagram** — Generate a Mermaid flowchart / sequence / class diagram.\n\
-         7. **save_memory** — Persist a fact across sessions (project conventions, user preferences).\n\n\
+         6. **search_processes** — Search business process flows for workflow and multi-step operation questions.\n\
+         7. **get_process_flow** — Targeted business process lookup by keyword.\n\
+         8. **get_diagram** — Generate a Mermaid flowchart / sequence / class diagram.\n\
+         9. **read_method** — Read complete method source up to 250 lines.\n\
+         10. **save_memory** — Persist a fact across sessions (project conventions, user preferences).\n\n\
          The runtime caps the loop at 5 iterations. Be deliberate — no hard limit on calls per \
          response, but each call must advance the answer.\n\n",
     );
@@ -2800,6 +3304,25 @@ mod tests {
     }
 
     #[test]
+    fn detect_target_symbol_matches_requested_examples() {
+        let cases = [
+            ("Comment fonctionne le module Courrier ?", Some("Courrier")),
+            ("Explique DossiersController", Some("DossiersController")),
+            ("Comment sont calculés les plafonds ?", None),
+            ("Présente le module Elodie", Some("Elodie")),
+            ("Explique l'Elodie", Some("Elodie")),
+        ];
+
+        for (question, expected) in cases {
+            assert_eq!(
+                detect_target_symbol(question).as_deref(),
+                expected,
+                "unexpected target symbol for `{question}`"
+            );
+        }
+    }
+
+    #[test]
     fn classify_question_matches_requested_english_examples() {
         let cases = [
             ("where is the login method defined?", QuestionType::Lookup),
@@ -2820,11 +3343,20 @@ mod tests {
     #[test]
     fn classify_question_impact_variants() {
         let cases = [
-            ("Quelles sont les dépendances de FactureService ?", QuestionType::Impact),
-            ("impact of changing the RootController", QuestionType::Impact),
+            (
+                "Quelles sont les dépendances de FactureService ?",
+                QuestionType::Impact,
+            ),
+            (
+                "impact of changing the RootController",
+                QuestionType::Impact,
+            ),
             ("who calls GetTauxFassAide ?", QuestionType::Impact),
             ("blast radius of DossiersController", QuestionType::Impact),
-            ("qu'est-ce qui casse si je modifie RegleFacture ?", QuestionType::Impact),
+            (
+                "qu'est-ce qui casse si je modifie RegleFacture ?",
+                QuestionType::Impact,
+            ),
         ];
         for (q, expected) in cases {
             assert_eq!(classify_question(q), expected, "failed: `{q}`");
@@ -2834,10 +3366,22 @@ mod tests {
     #[test]
     fn classify_question_algorithm_variants() {
         let cases = [
-            ("Comment est calculé le taux FASS ?", QuestionType::Algorithm),
-            ("comment sont traités les dossiers ?", QuestionType::Algorithm),
-            ("Décris l'algorithme de génération des courriers", QuestionType::Algorithm),
-            ("step by step: how is the invoice built?", QuestionType::Algorithm),
+            (
+                "Comment est calculé le taux FASS ?",
+                QuestionType::Algorithm,
+            ),
+            (
+                "comment sont traités les dossiers ?",
+                QuestionType::Algorithm,
+            ),
+            (
+                "Décris l'algorithme de génération des courriers",
+                QuestionType::Algorithm,
+            ),
+            (
+                "step by step: how is the invoice built?",
+                QuestionType::Algorithm,
+            ),
             ("How is the plafond computed?", QuestionType::Algorithm),
         ];
         for (q, expected) in cases {
@@ -2848,9 +3392,18 @@ mod tests {
     #[test]
     fn classify_question_architecture_variants() {
         let cases = [
-            ("Vue d'ensemble de l'architecture Alise", QuestionType::Architecture),
-            ("présentation générale du système", QuestionType::Architecture),
-            ("Give me an overview of the codebase architecture", QuestionType::Architecture),
+            (
+                "Vue d'ensemble de l'architecture Alise",
+                QuestionType::Architecture,
+            ),
+            (
+                "présentation générale du système",
+                QuestionType::Architecture,
+            ),
+            (
+                "Give me an overview of the codebase architecture",
+                QuestionType::Architecture,
+            ),
             ("Schéma global de l'application", QuestionType::Architecture),
         ];
         for (q, expected) in cases {
@@ -2874,13 +3427,23 @@ mod tests {
     #[test]
     fn classify_question_canvas_instruction_not_empty() {
         for qt in [
-            QuestionType::Lookup, QuestionType::Functional,
-            QuestionType::Algorithm, QuestionType::Architecture,
+            QuestionType::Lookup,
+            QuestionType::Functional,
+            QuestionType::Algorithm,
+            QuestionType::Architecture,
             QuestionType::Impact,
         ] {
             let canvas = canvas_instruction(qt);
-            assert!(!canvas.is_empty(), "canvas should not be empty for {:?}", qt);
-            assert!(canvas.contains("CANEVAS"), "canvas should contain CANEVAS for {:?}", qt);
+            assert!(
+                !canvas.is_empty(),
+                "canvas should not be empty for {:?}",
+                qt
+            );
+            assert!(
+                canvas.contains("CANEVAS"),
+                "canvas should contain CANEVAS for {:?}",
+                qt
+            );
         }
     }
 }

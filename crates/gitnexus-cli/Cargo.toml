@@ -19,7 +19,7 @@ kuzu-backend = ["gitnexus-db/kuzu-backend"]
 gitnexus-core.workspace = true
 gitnexus-ingest.workspace = true
 gitnexus-db.workspace = true
-gitnexus-search.workspace = true
+gitnexus-search = { workspace = true, features = ["reranker-llm"] }
 gitnexus-mcp.workspace = true
 gitnexus-git.workspace = true
 gitnexus-output.workspace = true

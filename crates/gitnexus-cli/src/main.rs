@@ -76,7 +76,7 @@ enum Commands {
     },
     /// Search the knowledge graph
     #[command(
-        after_help = "Examples:\n  gitnexus query \"authentication middleware\"\n  gitnexus query \"user service\" --limit 5"
+        after_help = "Examples:\n  gitnexus query \"authentication middleware\"\n  gitnexus query \"user service\" --limit 5\n  gitnexus query \"where is RRF fusion\" --rerank"
     )]
     Query {
         /// Natural language search query
@@ -87,6 +87,10 @@ enum Commands {
         /// Maximum number of results
         #[arg(short, long, default_value = "10")]
         limit: usize,
+        /// Post-process BM25 top-20 with an LLM reranker. Requires
+        /// ~/.gitnexus/chat-config.json. Returns only `limit` results.
+        #[arg(long, default_value = "false")]
+        rerank: bool,
     },
     /// 360-degree symbol view
     #[command(
@@ -395,8 +399,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::List => commands::list::run(),
         Commands::Status => commands::status::run(),
         Commands::Clean { force, all } => commands::clean::run(force, all),
-        Commands::Query { query, repo, limit } => {
-            commands::query_cmd::run(&query, repo.as_deref(), limit).await
+        Commands::Query { query, repo, limit, rerank } => {
+            commands::query_cmd::run(&query, repo.as_deref(), limit, rerank).await
         }
         Commands::Context { name, repo } => {
             commands::context_cmd::run(&name, repo.as_deref()).await

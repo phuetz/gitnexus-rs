@@ -14,11 +14,14 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+anyhow.workspace = true
 ort = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
 
 [features]
 default = []
 embeddings = ["ort", "ndarray"]
+reranker-llm = ["reqwest"]
 
 [dev-dependencies]

@@ -82,10 +82,17 @@ pub async fn run(
         needs_token_type_ids: !no_token_type_ids,
     };
 
-    // Collect (node_id, text) pairs from the graph.
+    // Collect (node_id, text) pairs from the graph, skipping build-artifact
+    // paths which would otherwise pollute semantic search (observed on
+    // `target-codex/` where `flag_check.c` files matched "feature flag"
+    // queries and crowded out the real gitnexus-search code).
     let mut tasks: Vec<(String, String)> = Vec::new();
     for node in graph.iter_nodes() {
         if !EMBED_LABELS.contains(&node.label) {
+            continue;
+        }
+        let fp = node.properties.file_path.as_str();
+        if is_build_artifact(fp) {
             continue;
         }
         let text = build_embedding_text(node);
@@ -206,6 +213,28 @@ fn build_embedding_text(node: &gitnexus_core::graph::types::GraphNode) -> String
         }
     }
     parts.join(" ")
+}
+
+/// Skip files under common build-artifact directories that leak into the
+/// graph when `gitnexus analyze` is run on a working copy that has been
+/// built. These paths contain generated code (tree-sitter parser tables,
+/// rustc build scripts' `flag_check.c`, etc.) whose names match natural
+/// search queries by accident ("flag", "check", "parse") and pollute
+/// semantic results. The matcher is cheap string-contains, tuned for the
+/// layouts we've actually observed; extend as needed.
+fn is_build_artifact(file_path: &str) -> bool {
+    // Normalize Windows backslashes so the matcher is OS-agnostic.
+    let lower = file_path.replace('\\', "/").to_lowercase();
+    const ARTIFACT_MARKERS: &[&str] = &[
+        "target/debug/",
+        "target/release/",
+        "target-codex/",
+        ".codex-target/",
+        "node_modules/",
+        "dist/",
+        ".gitnexus/",
+    ];
+    ARTIFACT_MARKERS.iter().any(|m| lower.contains(m))
 }
 
 fn resolve_repo_path(repo: Option<&str>) -> Result<PathBuf> {

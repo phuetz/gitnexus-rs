@@ -1,0 +1,12 @@
+comment un bénéficiaire est ajouté à un dossier
+gestion des factures fournisseurs
+calcul du barème pour une aide
+génération de courrier en masse
+validation par la commission sociale
+DbContext Entity Framework configuration
+authentification utilisateur
+where is the DossierController
+import de données administratives
+règles de traitement des dossiers
+export Excel des statistiques
+background jobs planification

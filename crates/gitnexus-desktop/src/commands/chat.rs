@@ -893,9 +893,16 @@ pub async fn chat_ask(
 
     let mut final_answer = String::new();
     let mut iteration = 0;
-    const MAX_ITERATIONS: usize = 5;
+    // Vary iteration budget by question type — Lookup rarely needs more than 2;
+    // Algorithm/Architecture need up to 8 to fully trace call chains.
+    let max_iterations: usize = match question_type {
+        QuestionType::Lookup   => 2,
+        QuestionType::Impact   => 3,
+        QuestionType::Functional => 5,
+        QuestionType::Algorithm | QuestionType::Architecture => 8,
+    };
 
-    while iteration < MAX_ITERATIONS {
+    while iteration < max_iterations {
         iteration += 1;
         let mut tool_calls_received: Vec<ToolCall> = Vec::new();
         let mut text_received = String::new();
@@ -1010,7 +1017,9 @@ pub async fn chat_ask(
             .iter()
             .any(|h| text_lc.contains(h));
 
-            if announced_tool_intent && iteration == 1 {
+            // FIX: fire on any iteration, not just 1 — Gemini often announces
+            // tool intent after receiving tool results too (turn 2, 3, etc.)
+            if announced_tool_intent && iteration < max_iterations.saturating_sub(1) {
                 // FALLBACK: auto-execute search_code on the user's question
                 // so we always make forward progress. Text nudging alone was
                 // not enough — the model would just re-announce on the next
@@ -1102,7 +1111,7 @@ pub async fn chat_ask(
         }
     }
 
-    if iteration >= MAX_ITERATIONS {
+    if iteration >= max_iterations {
         final_answer.push_str("\n\n> *Agent reached the maximum number of iterations. The response may be incomplete.*");
     }
 

@@ -3,9 +3,9 @@
 //! Each step runs a specific tool (search, context, impact, cypher, file read)
 //! and collects results that feed into subsequent steps.
 
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use once_cell::sync::Lazy;
@@ -15,10 +15,10 @@ use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_db::inmemory::fts::FtsIndex;
 
-use crate::state::AppState;
-use crate::types::*;
 use crate::commands::chat::{self};
 use crate::commands::chat_planner;
+use crate::state::AppState;
+use crate::types::*;
 
 // ─── In-Memory Plan Store ───────────────────────────────────────────
 
@@ -28,8 +28,12 @@ struct PlanStore {
     insertion_order: VecDeque<String>,
 }
 
-static ACTIVE_PLANS: Lazy<Mutex<PlanStore>> =
-    Lazy::new(|| Mutex::new(PlanStore { plans: HashMap::new(), insertion_order: VecDeque::new() }));
+static ACTIVE_PLANS: Lazy<Mutex<PlanStore>> = Lazy::new(|| {
+    Mutex::new(PlanStore {
+        plans: HashMap::new(),
+        insertion_order: VecDeque::new(),
+    })
+});
 
 fn store_plan(plan: &ResearchPlan) {
     match ACTIVE_PLANS.lock() {
@@ -61,7 +65,9 @@ fn get_plan(plan_id: &str) -> Option<ResearchPlan> {
 
 fn update_plan(plan: &ResearchPlan) {
     match ACTIVE_PLANS.lock() {
-        Ok(mut store) => { store.plans.insert(plan.id.clone(), plan.clone()); }
+        Ok(mut store) => {
+            store.plans.insert(plan.id.clone(), plan.clone());
+        }
         Err(e) => tracing::error!("Plan store mutex poisoned on update: {}", e),
     }
 }
@@ -80,7 +86,10 @@ pub async fn chat_execute_step(
 
     let mut plan = get_plan(&plan_id).ok_or_else(|| format!("Plan {} not found", plan_id))?;
 
-    let step_idx = plan.steps.iter().position(|s| s.id == step_id)
+    let step_idx = plan
+        .steps
+        .iter()
+        .position(|s| s.id == step_id)
         .ok_or_else(|| format!("Step {} not found in plan {}", step_id, plan_id))?;
 
     // Check dependencies are completed
@@ -102,7 +111,9 @@ pub async fn chat_execute_step(
     let start = Instant::now();
 
     // Collect results from dependency steps
-    let dep_results: Vec<&StepResult> = plan.steps.iter()
+    let dep_results: Vec<&StepResult> = plan
+        .steps
+        .iter()
         .filter(|s| depends.contains(&s.id))
         .filter_map(|s| s.result.as_ref())
         .collect();
@@ -153,16 +164,22 @@ pub async fn chat_execute_step(
     // even after the remaining steps all finished. Mirror the terminal check
     // already used by `chat_execute_plan` so the UI's progress indicator can
     // settle on Completed or Failed in both entry points.
-    let all_done = plan
-        .steps
-        .iter()
-        .all(|s| matches!(s.status, StepStatus::Completed | StepStatus::Failed | StepStatus::Skipped));
+    let all_done = plan.steps.iter().all(|s| {
+        matches!(
+            s.status,
+            StepStatus::Completed | StepStatus::Failed | StepStatus::Skipped
+        )
+    });
     if all_done {
         let all_failed = plan
             .steps
             .iter()
             .all(|s| matches!(s.status, StepStatus::Failed | StepStatus::Skipped));
-        plan.status = if all_failed { PlanStatus::Failed } else { PlanStatus::Completed };
+        plan.status = if all_failed {
+            PlanStatus::Failed
+        } else {
+            PlanStatus::Completed
+        };
     }
 
     update_plan(&plan);
@@ -179,7 +196,7 @@ fn execute_tool(
     repo_path: &Path,
 ) -> Result<StepResult, String> {
     match step.tool.as_str() {
-        "search_symbols" => execute_search(step, graph, fts_index, repo_path),
+        "search_symbols" => execute_search(step, graph, indexes, fts_index, repo_path),
         "get_symbol_context" => execute_context(step, dep_results, graph, indexes),
         "get_impact_analysis" => execute_impact(step, dep_results, graph, indexes),
         "read_file_content" => execute_read_file(step, dep_results, graph, repo_path),
@@ -193,6 +210,7 @@ fn execute_tool(
 fn execute_search(
     step: &ResearchStep,
     graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     fts_index: &FtsIndex,
     repo_path: &Path,
 ) -> Result<StepResult, String> {
@@ -200,7 +218,9 @@ fn execute_search(
     let limit = step.params["limit"].as_u64().unwrap_or(15) as usize;
 
     // Apply filters if present
-    let filters: Option<ChatContextFilter> = step.params.get("filters")
+    let filters: Option<ChatContextFilter> = step
+        .params
+        .get("filters")
         .and_then(|f| serde_json::from_value(f.clone()).ok());
 
     let fts_results = fts_index.search(graph, query, None, limit * 2);
@@ -216,12 +236,17 @@ fn execute_search(
         // Apply filters
         if let Some(ref f) = filters {
             if let Some(node) = graph.get_node(&fts_result.node_id) {
-                if !f.files.is_empty() && !f.files.iter().any(|fp| {
-                    node.properties.file_path == *fp || node.properties.file_path.ends_with(&format!("/{}", fp))
-                }) {
+                if !f.files.is_empty()
+                    && !f.files.iter().any(|fp| {
+                        node.properties.file_path == *fp
+                            || node.properties.file_path.ends_with(&format!("/{}", fp))
+                    })
+                {
                     continue;
                 }
-                if !f.labels.is_empty() && !f.labels.iter().any(|l| node.label.as_str() == l.as_str()) {
+                if !f.labels.is_empty()
+                    && !f.labels.iter().any(|l| node.label.as_str() == l.as_str())
+                {
                     continue;
                 }
                 if !f.languages.is_empty() {
@@ -239,7 +264,11 @@ fn execute_search(
                 // narrowing had no effect on chat search results.
                 if !f.symbols.is_empty() {
                     let name = &node.properties.name;
-                    if !f.symbols.iter().any(|s| name == s || name.contains(s.as_str())) {
+                    if !f
+                        .symbols
+                        .iter()
+                        .any(|s| name == s || name.contains(s.as_str()))
+                    {
                         continue;
                     }
                 }
@@ -278,14 +307,21 @@ fn execute_search(
     }
 
     // Build sources
-    let sources = build_sources_from_results(&results, graph, repo_path);
+    let sources = build_sources_from_results(&results, graph, indexes, repo_path);
 
     let summary = if sources.is_empty() {
         format!("No symbols found matching '{}'", query)
     } else {
-        format!("Found {} symbols matching '{}': {}",
-            sources.len(), query,
-            sources.iter().take(5).map(|s| format!("`{}`", s.symbol_name)).collect::<Vec<_>>().join(", ")
+        format!(
+            "Found {} symbols matching '{}': {}",
+            sources.len(),
+            query,
+            sources
+                .iter()
+                .take(5)
+                .map(|s| format!("`{}`", s.symbol_name))
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     };
 
@@ -306,7 +342,8 @@ fn execute_context(
     let top_n = step.params["top_n"].as_u64().unwrap_or(5) as usize;
 
     // Get node IDs from dependency results
-    let node_ids: Vec<String> = dep_results.iter()
+    let node_ids: Vec<String> = dep_results
+        .iter()
         .flat_map(|r| r.sources.iter().map(|s| s.node_id.clone()))
         .take(top_n)
         .collect();
@@ -335,7 +372,9 @@ fn execute_context(
                     if let Some(target) = graph.get_node(target_id) {
                         match rel_type {
                             RelationshipType::Calls => callees.push(target.properties.name.clone()),
-                            RelationshipType::Imports => imports.push(target.properties.name.clone()),
+                            RelationshipType::Imports => {
+                                imports.push(target.properties.name.clone())
+                            }
                             _ => {}
                         }
                     }
@@ -372,7 +411,8 @@ fn execute_context(
     );
 
     // Keep the sources from dependency steps
-    let sources: Vec<ChatSource> = dep_results.iter()
+    let sources: Vec<ChatSource> = dep_results
+        .iter()
         .flat_map(|r| r.sources.clone())
         .take(top_n)
         .collect();
@@ -395,13 +435,15 @@ fn execute_impact(
     let max_depth = step.params["max_depth"].as_u64().unwrap_or(3) as u32;
 
     // Get the first symbol from dependencies
-    let target_id = dep_results.iter()
+    let target_id = dep_results
+        .iter()
         .flat_map(|r| r.sources.iter())
         .next()
         .map(|s| s.node_id.clone())
         .ok_or_else(|| "No target symbol for impact analysis".to_string())?;
 
-    let target_node = graph.get_node(&target_id)
+    let target_node = graph
+        .get_node(&target_id)
         .ok_or_else(|| format!("Node {} not found", target_id))?;
 
     // BFS for upstream and downstream
@@ -496,9 +538,7 @@ fn execute_impact(
         affected_files.len()
     );
 
-    let sources = dep_results.iter()
-        .flat_map(|r| r.sources.clone())
-        .collect();
+    let sources = dep_results.iter().flat_map(|r| r.sources.clone()).collect();
 
     Ok(StepResult {
         summary,
@@ -522,7 +562,8 @@ fn execute_read_file(
     let max_files = step.params["max_files"].as_u64().unwrap_or(5) as usize;
 
     // Collect unique file paths from dependency sources
-    let mut file_paths: Vec<String> = dep_results.iter()
+    let mut file_paths: Vec<String> = dep_results
+        .iter()
         .flat_map(|r| r.sources.iter().map(|s| s.file_path.clone()))
         .collect();
 
@@ -532,11 +573,12 @@ fn execute_read_file(
     file_paths.truncate(max_files);
 
     let mut snippets = Vec::new();
-    let mut updated_sources: Vec<ChatSource> = dep_results.iter()
-        .flat_map(|r| r.sources.clone())
-        .collect();
+    let mut updated_sources: Vec<ChatSource> =
+        dep_results.iter().flat_map(|r| r.sources.clone()).collect();
 
-    let canonical_repo = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
+    let canonical_repo = repo_path
+        .canonicalize()
+        .unwrap_or_else(|_| repo_path.to_path_buf());
     for fp in &file_paths {
         let full_path = repo_path.join(fp);
         // Path traversal guard: ensure resolved path stays within repo
@@ -553,7 +595,8 @@ fn execute_read_file(
             let total_lines = lines.len();
 
             // Find symbols in this file from sources
-            let file_symbols: Vec<&ChatSource> = updated_sources.iter()
+            let file_symbols: Vec<&ChatSource> = updated_sources
+                .iter()
                 .filter(|s| s.file_path == *fp)
                 .collect();
 
@@ -573,7 +616,9 @@ fn execute_read_file(
                         let s = std::cmp::min((start.saturating_sub(1)) as usize, lines.len());
                         let e = std::cmp::min(end as usize, lines.len());
                         let e = std::cmp::min(e, s + 60); // Max 60 lines per snippet
-                        if s >= e { continue; }
+                        if s >= e {
+                            continue;
+                        }
                         let snippet: String = lines[s..e].join("\n");
                         snippets.push(serde_json::json!({
                             "file": fp,
@@ -601,7 +646,10 @@ fn execute_read_file(
             Err(_) => continue,
         };
         if !canonical.starts_with(&canonical_repo) {
-            tracing::warn!("Path traversal blocked in snippet pass: {}", source.file_path);
+            tracing::warn!(
+                "Path traversal blocked in snippet pass: {}",
+                source.file_path
+            );
             continue;
         }
         if let Ok(content) = std::fs::read_to_string(&canonical) {
@@ -617,7 +665,11 @@ fn execute_read_file(
         }
     }
 
-    let summary = format!("Read {} files, extracted {} code snippets", file_paths.len(), snippets.len());
+    let summary = format!(
+        "Read {} files, extracted {} code snippets",
+        file_paths.len(),
+        snippets.len()
+    );
 
     Ok(StepResult {
         summary,
@@ -633,7 +685,8 @@ fn execute_cypher_step(
     indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     fts_index: &FtsIndex,
 ) -> Result<StepResult, String> {
-    let query = step.params["query"].as_str()
+    let query = step.params["query"]
+        .as_str()
         .ok_or_else(|| "No Cypher query provided".to_string())?;
 
     // Parse the Cypher query
@@ -673,16 +726,18 @@ pub async fn chat_execute_plan(
     let repo_path = PathBuf::from(&repo_path_str);
 
     // 1. Analyze the query
-    let analysis = chat_planner::analyze_query_impl(
-        &request.question, &request.filters, &graph, &fts_index
-    )?;
+    let analysis =
+        chat_planner::analyze_query_impl(&request.question, &request.filters, &graph, &fts_index)?;
 
     // 2. For simple queries or no deep research, use the standard chat path
     if analysis.complexity == QueryComplexity::Simple && !request.deep_research {
         let search_results = crate::commands::chat::search_relevant_context_pub(
-            &request.question, &graph, &fts_index, 10
+            &request.question,
+            &graph,
+            &fts_index,
+            10,
         );
-        let sources = build_sources_from_results(&search_results, &graph, &repo_path);
+        let sources = build_sources_from_results(&search_results, &graph, &indexes, &repo_path);
 
         // Build and call LLM
         let answer = if config.api_key.is_empty() && !chat::is_local_llm_url(&config.base_url) {
@@ -703,13 +758,21 @@ pub async fn chat_execute_plan(
     }
 
     // 3. For medium/complex queries, build and execute a research plan
-    let plan_id = format!("plan-{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis());
+    let plan_id = format!(
+        "plan-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
 
     let steps = chat_planner::build_research_steps_pub(
-        &plan_id, &request.question, &analysis, &request.filters, &graph, &fts_index
+        &plan_id,
+        &request.question,
+        &analysis,
+        &request.filters,
+        &graph,
+        &fts_index,
     );
 
     let mut plan = ResearchPlan {
@@ -723,7 +786,9 @@ pub async fn chat_execute_plan(
     store_plan(&plan);
 
     // Execute steps in dependency order
-    let step_order: Vec<(usize, Vec<String>)> = plan.steps.iter()
+    let step_order: Vec<(usize, Vec<String>)> = plan
+        .steps
+        .iter()
         .enumerate()
         .map(|(i, s)| (i, s.depends_on.clone()))
         .collect();
@@ -731,7 +796,9 @@ pub async fn chat_execute_plan(
     for (idx, depends) in &step_order {
         // Check all dependencies are completed
         let deps_ok = depends.iter().all(|dep_id| {
-            plan.steps.iter().find(|s| s.id == *dep_id)
+            plan.steps
+                .iter()
+                .find(|s| s.id == *dep_id)
                 .is_some_and(|s| s.status == StepStatus::Completed)
         });
 
@@ -745,7 +812,9 @@ pub async fn chat_execute_plan(
 
         let start = Instant::now();
 
-        let dep_results: Vec<&StepResult> = plan.steps.iter()
+        let dep_results: Vec<&StepResult> = plan
+            .steps
+            .iter()
             .filter(|s| depends.contains(&s.id))
             .filter_map(|s| s.result.as_ref())
             .collect();
@@ -797,7 +866,9 @@ pub async fn chat_execute_plan(
     update_plan(&plan);
 
     // 4. Collect all sources from completed steps
-    let all_sources: Vec<ChatSource> = plan.steps.iter()
+    let all_sources: Vec<ChatSource> = plan
+        .steps
+        .iter()
         .filter(|s| s.status == StepStatus::Completed)
         .filter_map(|s| s.result.as_ref())
         .flat_map(|r| r.sources.clone())
@@ -805,21 +876,29 @@ pub async fn chat_execute_plan(
 
     // Deduplicate sources by node_id
     let mut seen = std::collections::HashSet::new();
-    let unique_sources: Vec<ChatSource> = all_sources.into_iter()
+    let unique_sources: Vec<ChatSource> = all_sources
+        .into_iter()
         .filter(|s| seen.insert(s.node_id.clone()))
         .collect();
 
     // 5. Collect step summaries for the LLM context
-    let step_summaries: Vec<String> = plan.steps.iter()
+    let step_summaries: Vec<String> = plan
+        .steps
+        .iter()
         .filter(|s| s.status == StepStatus::Completed)
-        .filter_map(|s| s.result.as_ref().map(|r| format!("- {}: {}", s.description, r.summary)))
+        .filter_map(|s| {
+            s.result
+                .as_ref()
+                .map(|r| format!("- {}: {}", s.description, r.summary))
+        })
         .collect();
 
     // 6. Generate final answer with LLM
     let answer = if config.api_key.is_empty() && !chat::is_local_llm_url(&config.base_url) {
         build_research_answer(&unique_sources, &step_summaries)
     } else {
-        let system_prompt = build_research_prompt(&request.question, &unique_sources, &step_summaries);
+        let system_prompt =
+            build_research_prompt(&request.question, &unique_sources, &step_summaries);
         let messages = build_llm_messages(&system_prompt, &request.history, &request.question);
         chat::call_llm_pub(&config, &messages).await?
     };
@@ -838,6 +917,7 @@ pub async fn chat_execute_plan(
 fn build_sources_from_results(
     results: &[(String, f64)],
     graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     repo_path: &Path,
 ) -> Vec<ChatSource> {
     let mut sources = Vec::new();
@@ -849,34 +929,52 @@ fn build_sources_from_results(
         };
 
         match node.label {
-            NodeLabel::Function | NodeLabel::Method | NodeLabel::Constructor |
-            NodeLabel::Class | NodeLabel::Struct | NodeLabel::Trait |
-            NodeLabel::Interface | NodeLabel::Enum | NodeLabel::TypeAlias => {}
+            NodeLabel::Function
+            | NodeLabel::Method
+            | NodeLabel::Constructor
+            | NodeLabel::Class
+            | NodeLabel::Struct
+            | NodeLabel::Trait
+            | NodeLabel::Interface
+            | NodeLabel::Enum
+            | NodeLabel::TypeAlias => {}
             _ => continue,
         }
 
-        let snippet = read_snippet(repo_path, &node.properties.file_path, node.properties.start_line, node.properties.end_line);
+        let snippet = read_snippet(
+            repo_path,
+            &node.properties.file_path,
+            node.properties.start_line,
+            node.properties.end_line,
+        );
 
-        let mut callers = Vec::new();
-        let mut callees = Vec::new();
-        for rel in graph.iter_relationships() {
-            if rel.rel_type == RelationshipType::Calls {
-                if rel.source_id == *node_id {
-                    if let Some(target) = graph.get_node(&rel.target_id) {
-                        callees.push(target.properties.name.clone());
-                    }
-                } else if rel.target_id == *node_id {
-                    if let Some(source) = graph.get_node(&rel.source_id) {
-                        callers.push(source.properties.name.clone());
-                    }
-                }
-            }
-        }
+        // FIX: use pre-built indexes (O(degree)) instead of iter_relationships() (O(E)).
+        // For a 20k-edge graph with 15 sources, this reduces 600k iterations to ~hundreds.
+        let callees: Vec<String> = indexes.outgoing
+            .get(node_id)
+            .map(|edges| edges.iter()
+                .filter(|(_, rel)| *rel == RelationshipType::Calls)
+                .filter_map(|(tid, _)| graph.get_node(tid).map(|n| n.properties.name.clone()))
+                .take(10)
+                .collect())
+            .unwrap_or_default();
 
-        let community = graph.iter_relationships()
-            .find(|r| r.rel_type == RelationshipType::MemberOf && r.source_id == *node_id)
-            .and_then(|r| graph.get_node(&r.target_id))
-            .map(|c| c.properties.heuristic_label.clone().unwrap_or_else(|| c.properties.name.clone()));
+        let callers: Vec<String> = indexes.incoming
+            .get(node_id)
+            .map(|edges| edges.iter()
+                .filter(|(_, rel)| *rel == RelationshipType::Calls)
+                .filter_map(|(sid, _)| graph.get_node(sid).map(|n| n.properties.name.clone()))
+                .take(10)
+                .collect())
+            .unwrap_or_default();
+
+        let community = indexes.outgoing
+            .get(node_id)
+            .and_then(|edges| edges.iter()
+                .find(|(_, rel)| *rel == RelationshipType::MemberOf)
+                .and_then(|(tid, _)| graph.get_node(tid)))
+            .map(|c| c.properties.heuristic_label.clone()
+                .unwrap_or_else(|| c.properties.name.clone()));
 
         sources.push(ChatSource {
             node_id: node_id.clone(),
@@ -886,8 +984,16 @@ fn build_sources_from_results(
             start_line: node.properties.start_line,
             end_line: node.properties.end_line,
             snippet,
-            callers: if callers.is_empty() { None } else { Some(callers) },
-            callees: if callees.is_empty() { None } else { Some(callees) },
+            callers: if callers.is_empty() {
+                None
+            } else {
+                Some(callers)
+            },
+            callees: if callees.is_empty() {
+                None
+            } else {
+                Some(callees)
+            },
             community,
             relevance_score: *score,
         });
@@ -896,10 +1002,17 @@ fn build_sources_from_results(
     sources
 }
 
-fn read_snippet(repo_path: &Path, file_path: &str, start: Option<u32>, end: Option<u32>) -> Option<String> {
+fn read_snippet(
+    repo_path: &Path,
+    file_path: &str,
+    start: Option<u32>,
+    end: Option<u32>,
+) -> Option<String> {
     let full_path = repo_path.join(file_path);
     // Path traversal guard — canonicalize both paths for consistent comparison
-    let canonical_repo = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
+    let canonical_repo = repo_path
+        .canonicalize()
+        .unwrap_or_else(|_| repo_path.to_path_buf());
     match full_path.canonicalize() {
         Ok(canonical) if !canonical.starts_with(&canonical_repo) => {
             tracing::warn!("read_snippet: path traversal blocked: {}", file_path);
@@ -916,13 +1029,17 @@ fn read_snippet(repo_path: &Path, file_path: &str, start: Option<u32>, end: Opti
             let s = std::cmp::min((s.saturating_sub(1)) as usize, lines.len());
             let e = std::cmp::min(e as usize, lines.len());
             let e = std::cmp::min(e, s + 50);
-            if s >= e { return None; }
+            if s >= e {
+                return None;
+            }
             Some(lines[s..e].join("\n"))
         }
         (Some(s), None) => {
             let s = std::cmp::min((s.saturating_sub(1)) as usize, lines.len());
             let e = std::cmp::min(s + 20, lines.len());
-            if s >= e { return None; }
+            if s >= e {
+                return None;
+            }
             Some(lines[s..e].join("\n"))
         }
         _ => {
@@ -932,16 +1049,36 @@ fn read_snippet(repo_path: &Path, file_path: &str, start: Option<u32>, end: Opti
     }
 }
 
-fn build_research_prompt(question: &str, sources: &[ChatSource], step_summaries: &[String]) -> String {
-    // Grounding the system prompt in the specific question keeps the model
-    // focused when `step_summaries` is empty (the Simple-path branch) — the
-    // user's question is otherwise only present as a trailing `user`-role
-    // message, producing generic answers for simple questions.
+fn build_research_prompt(
+    question: &str,
+    sources: &[ChatSource],
+    step_summaries: &[String],
+) -> String {
+    // FIX: add canvas templates and memory context (parity with build_system_prompt).
+    // Previously the Deep Research prompt was ~80 lines vs ~300 for the standard path,
+    // causing the premium mode to produce lower-quality structured answers.
     let mut prompt = format!(
-        "You are an expert code analyst answering this question: **{}**\n\n\
-         You have performed a multi-step research plan.\n\n",
+        "You are GitNexus, an expert code intelligence assistant answering: **{}**\n\n\
+         You have performed a multi-step research plan. Synthesize all findings.\n\n\
+         # Règle fondamentale — Organigramme en premier\n\
+         Pour toute question sur un TRAITEMENT, CALCUL ou ALGORITHME : \
+         ton premier élément doit être un `flowchart TD` Mermaid complet.\n\n\
+         # Canvas par type\n\
+         - **Lookup**: `## Symbole — Définition | Type | Localisation | Rôle | Callers | Voir aussi`\n\
+         - **Functional**: `## Vue d'ensemble | ## Diagramme | ## Fonctionnement | ## Sources | ## Voir aussi`\n\
+         - **Algorithm**: `## Organigramme [flowchart TD obligatoire] | ## Étapes | ## Points d'attention`\n\
+         - **Architecture**: `## Architecture [Mermaid] | ## Modules [table] | ## Flux | ## Points d'entrée`\n\
+         - **Impact**: `## Blast radius | Amont | Aval | ## Risque [LOW/MEDIUM/HIGH] | ## Recommandations`\n\n",
         question
     );
+
+    // Include persistent memory if available
+    let memory = gitnexus_core::memory::build_memory_context(None);
+    if !memory.trim().is_empty() {
+        prompt.push_str("# Persistent memory\n\n");
+        prompt.push_str(&memory);
+        prompt.push_str("\n\n");
+    }
 
     if !step_summaries.is_empty() {
         prompt.push_str("## Research Steps Completed\n\n");
@@ -956,7 +1093,10 @@ fn build_research_prompt(question: &str, sources: &[ChatSource], step_summaries:
     for (i, source) in sources.iter().enumerate().take(10) {
         prompt.push_str(&format!(
             "### {} — `{}` ({}) in `{}`\n",
-            i + 1, source.symbol_name, source.symbol_type, source.file_path
+            i + 1,
+            source.symbol_name,
+            source.symbol_type,
+            source.file_path
         ));
         if let Some(community) = &source.community {
             prompt.push_str(&format!("**Module**: {}\n", community));
@@ -1003,7 +1143,7 @@ fn build_research_prompt(question: &str, sources: &[ChatSource], step_summaries:
            (Besoin → Exigences → Modèle de données → Algorithmes → Diagrammes) and include a \
            Mermaid diagram when appropriate.\n\
          - **Voir aussi**: end with a `## Voir aussi` / `## See also` section listing 3-5 \
-           related symbols or docs the user might explore next.\n"
+           related symbols or docs the user might explore next.\n",
     );
 
     prompt
@@ -1035,9 +1175,13 @@ fn build_llm_messages(
 }
 
 fn build_simple_answer(sources: &[ChatSource]) -> String {
-    let mut answer = String::from("## Results\n\n*No LLM configured. Showing graph search results.*\n\n");
+    let mut answer =
+        String::from("## Results\n\n*No LLM configured. Showing graph search results.*\n\n");
     for source in sources.iter().take(10) {
-        answer.push_str(&format!("- **`{}`** ({}) in `{}`", source.symbol_name, source.symbol_type, source.file_path));
+        answer.push_str(&format!(
+            "- **`{}`** ({}) in `{}`",
+            source.symbol_name, source.symbol_type, source.file_path
+        ));
         if let Some(community) = &source.community {
             answer.push_str(&format!(" — module: {}", community));
         }
@@ -1047,7 +1191,9 @@ fn build_simple_answer(sources: &[ChatSource]) -> String {
 }
 
 fn build_research_answer(sources: &[ChatSource], step_summaries: &[String]) -> String {
-    let mut answer = String::from("## Research Results\n\n*No LLM configured. Showing research plan results.*\n\n");
+    let mut answer = String::from(
+        "## Research Results\n\n*No LLM configured. Showing research plan results.*\n\n",
+    );
 
     if !step_summaries.is_empty() {
         answer.push_str("### Steps Completed\n\n");
@@ -1060,7 +1206,10 @@ fn build_research_answer(sources: &[ChatSource], step_summaries: &[String]) -> S
 
     answer.push_str("### Relevant Symbols\n\n");
     for source in sources.iter().take(10) {
-        answer.push_str(&format!("- **`{}`** ({}) in `{}`\n", source.symbol_name, source.symbol_type, source.file_path));
+        answer.push_str(&format!(
+            "- **`{}`** ({}) in `{}`\n",
+            source.symbol_name, source.symbol_type, source.file_path
+        ));
     }
     answer
 }

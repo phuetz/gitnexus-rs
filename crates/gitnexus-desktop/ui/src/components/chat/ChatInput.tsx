@@ -1,6 +1,15 @@
-import { forwardRef, useRef, useEffect, useCallback } from "react";
+import { forwardRef, useRef, useEffect, useCallback, useState } from "react";
 import { Settings2, Send, Loader2, Microscope, Square } from "lucide-react";
 import { useI18n } from "../../hooks/use-i18n";
+
+const SLASH_COMPLETIONS = [
+  { cmd: "/expliquer ",   hint: "Expliquer un module ou symbole" },
+  { cmd: "/algorithme ",  hint: "Décrire l'algorithme étape par étape" },
+  { cmd: "/impact ",      hint: "Analyser le blast radius" },
+  { cmd: "/architecture ", hint: "Vue d'ensemble de l'architecture" },
+  { cmd: "/diagramme ",   hint: "Générer un diagramme Mermaid" },
+  { cmd: "/explain ",     hint: "Explain a module or symbol" },
+];
 
 interface ChatInputProps {
   value: string;
@@ -21,6 +30,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
   ({ value, onChange, onSend, onKeyDown, isPending, onOpenSettings, deepResearch, hasFilters, onCancel, isStreaming }, ref) => {
     const { t } = useI18n();
     const internalRef = useRef<HTMLTextAreaElement | null>(null);
+    const [slashMatches, setSlashMatches] = useState<typeof SLASH_COMPLETIONS>([]);
+    const [selectedIdx, setSelectedIdx] = useState(0);
     const placeholder = deepResearch
       ? t("chat.placeholder.deepResearch")
       : hasFilters
@@ -54,7 +65,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         style={{ borderTop: "1px solid var(--surface-border)" }}
       >
         <div
-          className="chat-input-container flex items-end gap-2 rounded-2xl px-4 py-3 transition-all"
+          className="chat-input-container relative flex items-end gap-2 rounded-2xl px-4 py-3 transition-all"
           style={{
             background: "var(--bg-2)",
             border: deepResearch
@@ -72,11 +83,58 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             />
           )}
 
+          {/* Slash command completion popup */}
+          {slashMatches.length > 0 && (
+            <div
+              className="absolute bottom-full left-0 mb-1 w-64 rounded-lg overflow-hidden shadow-lg z-50"
+              style={{ background: "var(--bg-2)", border: "1px solid var(--surface-border)" }}
+            >
+              {slashMatches.map((m, i) => (
+                <button
+                  key={m.cmd}
+                  className="w-full text-left px-3 py-2 text-[13px] flex justify-between items-center"
+                  style={{
+                    background: i === selectedIdx ? "var(--accent)" : "transparent",
+                    color: i === selectedIdx ? "#fff" : "var(--text-0)",
+                  }}
+                  onMouseDown={(e) => { e.preventDefault(); onChange(m.cmd); setSlashMatches([]); internalRef.current?.focus(); }}
+                >
+                  <span className="font-mono font-semibold">{m.cmd.trim()}</span>
+                  <span className="text-[11px] opacity-70 ml-2">{m.hint}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             ref={setRefs}
             value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onKeyDown={onKeyDown}
+            onChange={(e) => {
+              const v = e.target.value;
+              onChange(v);
+              // Slash completion: show when value starts with /
+              if (v.startsWith("/") && !v.includes(" ")) {
+                const q = v.toLowerCase();
+                setSlashMatches(SLASH_COMPLETIONS.filter(c => c.cmd.startsWith(q)));
+                setSelectedIdx(0);
+              } else {
+                setSlashMatches([]);
+              }
+            }}
+            onKeyDown={(e) => {
+              // Navigate and confirm slash completions
+              if (slashMatches.length > 0) {
+                if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIdx(i => Math.min(i + 1, slashMatches.length - 1)); return; }
+                if (e.key === "ArrowUp")   { e.preventDefault(); setSelectedIdx(i => Math.max(i - 1, 0)); return; }
+                if (e.key === "Tab" || e.key === "Enter") {
+                  e.preventDefault();
+                  onChange(slashMatches[selectedIdx].cmd);
+                  setSlashMatches([]);
+                  return;
+                }
+                if (e.key === "Escape") { setSlashMatches([]); return; }
+              }
+              onKeyDown(e);
+            }}
             placeholder={placeholder}
             aria-label={t("chat.inputLabel") || "Ask a question about the code"}
             rows={1}

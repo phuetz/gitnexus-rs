@@ -18,6 +18,20 @@ pub struct EmbeddingConfig {
     pub batch_size: usize,
     /// Path to the ONNX model file (optional; used when "embeddings" feature is enabled).
     pub model_path: Option<String>,
+    /// Path to the HuggingFace `tokenizer.json` matching the model (optional).
+    /// When absent and model_path is set, we look next to the .onnx for
+    /// `tokenizer.json`.
+    #[serde(default)]
+    pub tokenizer_path: Option<String>,
+    /// Does the ONNX graph expect `token_type_ids` as an input? True for
+    /// classical BERT-family exports (MiniLM, distilbert, BGE < v1.5). False
+    /// for DistilBERT-less models and some newer embedding models.
+    #[serde(default = "default_token_type_ids")]
+    pub needs_token_type_ids: bool,
+}
+
+fn default_token_type_ids() -> bool {
+    true
 }
 
 impl Default for EmbeddingConfig {
@@ -29,6 +43,8 @@ impl Default for EmbeddingConfig {
             normalize: true,
             batch_size: 32,
             model_path: None,
+            tokenizer_path: None,
+            needs_token_type_ids: true,
         }
     }
 }

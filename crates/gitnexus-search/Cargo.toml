@@ -18,10 +18,11 @@ anyhow.workspace = true
 ort = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
+tokenizers = { workspace = true, optional = true }
 
 [features]
 default = []
-embeddings = ["ort", "ndarray"]
+embeddings = ["ort", "ndarray", "tokenizers"]
 reranker-llm = ["reqwest"]
 
 [dev-dependencies]

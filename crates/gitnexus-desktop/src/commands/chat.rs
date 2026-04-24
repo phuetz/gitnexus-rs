@@ -512,6 +512,16 @@ async fn execute_mcp_tool(
             }
         }
 
+        // ── read_method ─────────────────────────────────────────
+        // Full method source (up to 250 lines) — for algorithm questions
+        "read_method" => {
+            let symbol = match parsed.get("symbol").and_then(|s| s.as_str()) {
+                Some(s) => s,
+                None => return "Error: missing required parameter 'symbol'".to_string(),
+            };
+            read_full_method(symbol, graph, repo_path).await
+        }
+
         // ── save_memory ──────────────────────────────────────────
         "save_memory" => {
             let fact = match parsed.get("fact").and_then(|f| f.as_str()) {
@@ -727,6 +737,22 @@ pub async fn chat_ask(
                         }
                     },
                     "required": ["target"]
+                }),
+            }
+        },
+        ToolDefinition {
+            type_: "function".to_string(),
+            function: FunctionDefinition {
+                name: "read_method".to_string(),
+                description: "Read the COMPLETE source code of a method or function (up to 250 lines, no truncation). \
+                              Use this for ALGORITHM questions where you need to see the full if/else/loop/switch structure. \
+                              Prefer this over read_file when you need a specific method body.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "symbol": { "type": "string", "description": "Exact method or function name (case-insensitive)" }
+                    },
+                    "required": ["symbol"]
                 }),
             }
         },
@@ -1521,18 +1547,36 @@ Structure ta réponse ainsi :\n\
 
         QuestionType::Algorithm => {
             "\
-[CANEVAS TYPE D — ALGORITHME]\n\
-Structure ta réponse ainsi :\n\
-## Algorithme : [Nom]\n\
-**Entrée :** [paramètres]\n\
-**Sortie :** [type de retour]\n\
-**Effets de bord :** [BDD/logs]\n\
-**Étape 1** (`Fichier.cs:ligne`) : [description]\n\
-**Étape 2** ... (avec conditions si/sinon explicites)\n\
-## Code source\n\
-[Extrait clé]\n\
-## Flux de contrôle\n\
-[Mermaid flowchart si applicable]\n"
+[CANEVAS TYPE D — ORGANIGRAMME OBLIGATOIRE]\n\
+\n\
+TON PREMIER ELEMENT doit etre un organigramme Mermaid flowchart TD complet.\n\
+Utilise le squelette et les sources pre-charges pour construire les conditions.\n\
+\n\
+## Organigramme : [Nom du traitement]\n\
+```mermaid\n\
+flowchart TD\n\
+    A([Declenchement: NomMethode\\nFichier.cs:ligne]) --> B[Etape 1\\nFichier.cs:ligne]\n\
+    B --> C{Condition en langage metier?}\n\
+    C -- Oui --> D[Traitement A\\nFichier.cs:ligne]\n\
+    C -- Non --> E([Erreur/Abandon])\n\
+    D --> F[(BDD: SaveChanges)]\n\
+    F --> G([Fin: Succes])\n\
+```\n\
+\n\
+REGLES Mermaid :\n\
+- [action] = rectangles pour les actions\n\
+- {condition?} = losanges pour if/else (en langage metier, pas code)\n\
+- [(BDD: op)] = cylindres pour base de donnees\n\
+- ([debut/fin]) = ronds pour entree et sortie\n\
+- Chaque noeud : annotation sur nouvelle ligne avec Fichier.cs:ligne\n\
+- Branches nommees : -- Oui -->, -- Non -->, -- Fournisseur -->\n\
+- Max 25 noeuds, inclure cas d'erreur\n\
+\n\
+APRES le flowchart :\n\
+## Etapes detaillees\n\
+[Numerotees, citations Fichier.cs:ligne, conditions si/sinon explicites]\n\
+## Points d'attention\n\
+[Bugs connus, cas limites, regles metier cachees]\n"
         }
 
         QuestionType::Architecture => {
@@ -1650,43 +1694,53 @@ async fn prefetch_for_type(
                         pre.push_str("\n\n");
                     }
                 }
-                // For algorithms: read wider file ranges
+                // Algorithm: read FULL call chain — top method + its callees (up to 5 total)
                 if qt == QuestionType::Algorithm {
-                    if let Some(node) = search_results
-                        .first()
-                        .and_then(|(id, _)| graph.get_node(id))
-                    {
-                        if !node.properties.file_path.is_empty() {
-                            let start = node
-                                .properties
-                                .start_line
-                                .map(|l| l.saturating_sub(5))
-                                .unwrap_or(1);
-                            let end = node
-                                .properties
-                                .end_line
-                                .map(|l| l + 10)
-                                .unwrap_or(start + 60);
-                            let read_args = serde_json::json!({
-                                "path": node.properties.file_path,
-                                "start_line": start,
-                                "end_line": end
-                            })
-                            .to_string();
-                            let code = execute_mcp_tool(
-                                "read_file",
-                                &read_args,
-                                repo_path,
-                                graph,
-                                indexes,
-                                fts_index,
-                            )
-                            .await;
-                            if code.len() > 50 {
-                                pre.push_str("## Code source complet (pré-chargé)\n\n");
+                    let mut methods_to_read: Vec<String> = Vec::new();
+
+                    // Start with top search result
+                    if let Some((top_id, _)) = search_results.first() {
+                        if let Some(node) = graph.get_node(top_id) {
+                            methods_to_read.push(node.properties.name.clone());
+
+                            // Add direct callees (Calls/CallsAction edges)
+                            if let Some(callees) = indexes.outgoing.get(top_id) {
+                                for (callee_id, rel) in callees.iter().take(4) {
+                                    if matches!(rel, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
+                                        if let Some(callee_node) = graph.get_node(callee_id) {
+                                            if !callee_node.properties.name.is_empty() {
+                                                methods_to_read.push(callee_node.properties.name.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Read each method in full (250 lines cap via read_full_method)
+                    methods_to_read.truncate(5);
+                    if !methods_to_read.is_empty() {
+                        pre.push_str("## Chaîne de traitement pré-chargée (sources complètes)\n\n");
+                        for method_name in &methods_to_read {
+                            let code = read_full_method(method_name, graph, repo_path).await;
+                            if code.len() > 80 {
                                 pre.push_str(&code);
                                 pre.push_str("\n\n");
                             }
+                        }
+                    }
+
+                    // Add skeleton flowchart (topology without conditions)
+                    if let Some((top_id, _)) = search_results.first() {
+                        let skeleton = crate::commands::diagram::build_skeleton_flowchart(
+                            graph, indexes, top_id
+                        );
+                        if !skeleton.is_empty() {
+                            pre.push_str("## Squelette d'organigramme (topologie — à enrichir avec les conditions)\n\n");
+                            pre.push_str("```mermaid\n");
+                            pre.push_str(&skeleton);
+                            pre.push_str("\n```\n\n");
                         }
                     }
                 }
@@ -1942,6 +1996,79 @@ fn build_sources(
     sources
 }
 
+/// Read the COMPLETE source of a method with line numbers — no 50-line cap (up to 250).
+/// Used for algorithm questions where the full if/else/loop structure is needed.
+async fn read_full_method(
+    symbol: &str,
+    graph: &KnowledgeGraph,
+    repo_path: &Path,
+) -> String {
+    // Find the node by name (case-insensitive)
+    let node = graph.iter_nodes().find(|n| {
+        n.properties.name.eq_ignore_ascii_case(symbol)
+            && matches!(
+                n.label,
+                NodeLabel::Method | NodeLabel::Function | NodeLabel::ControllerAction | NodeLabel::Constructor
+            )
+    });
+
+    let node = match node {
+        Some(n) => n,
+        None => return format!("Symbol '{}' not found in graph.\n", symbol),
+    };
+
+    let file_path = &node.properties.file_path;
+    let start = node.properties.start_line;
+    let end = node.properties.end_line;
+
+    if file_path.is_empty() {
+        return format!("No file path for '{}'.\n", symbol);
+    }
+
+    let full_path = repo_path.join(file_path);
+    let canonical_repo = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
+    match full_path.canonicalize() {
+        Ok(c) if !c.starts_with(&canonical_repo) => {
+            return format!("Path traversal blocked for '{}'.\n", file_path);
+        }
+        Err(_) => return format!("File not found: {}\n", file_path),
+        _ => {}
+    }
+
+    let content = match std::fs::read_to_string(&full_path) {
+        Ok(c) => c,
+        Err(e) => return format!("Cannot read {}: {}\n", file_path, e),
+    };
+
+    let lines: Vec<&str> = content.lines().collect();
+    let start_idx = start.map(|s| s.saturating_sub(1) as usize).unwrap_or(0).min(lines.len());
+    let end_idx = end.map(|e| e as usize).unwrap_or(start_idx + 60).min(lines.len());
+    // Cap at 250 lines (vs 50 for read_file)
+    let end_idx = end_idx.min(start_idx + 250);
+
+    if start_idx >= end_idx {
+        return format!("Empty range for '{}'.\n", symbol);
+    }
+
+    let lang = detect_language(file_path);
+    let numbered: String = lines[start_idx..end_idx]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| format!("{:4}: {}", start_idx + i + 1, l))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "Method: `{}` @ `{}:{}–{}`\n```{}\n{}\n```\n",
+        node.properties.name,
+        file_path,
+        start_idx + 1,
+        end_idx,
+        lang,
+        numbered
+    )
+}
+
 /// Read a code snippet from a source file.
 fn read_code_snippet(
     repo_path: &Path,
@@ -2140,6 +2267,20 @@ fn build_system_prompt(
          the **{}** codebase using a structured knowledge graph.\n\n",
         meta.repo_name
     ));
+
+    // ── Règle fondamentale : Organigramme en premier ─────────────
+    prompt.push_str(
+        "# Règle fondamentale — Organigramme en premier\n\n\
+         Pour toute question sur un **TRAITEMENT**, **CALCUL**, **GÉNÉRATION** ou **ALGORITHME** :\n\
+         **TON PREMIER ÉLÉMENT DE RÉPONSE DOIT ÊTRE UN ORGANIGRAMME MERMAID `flowchart TD`.**\n\n\
+         Le flowchart doit être autonome et complet — quelqu'un qui le lit sans le texte comprend le traitement.\n\n\
+         Sources dans l'ordre de priorité :\n\
+         1. **Code source complet** (`read_method`) → conditions réelles if/else/switch\n\
+         2. **Squelette topologique pré-chargé** → ordre correct des étapes\n\
+         3. **Documentation enrichie** (.gitnexus/docs/) → description fonctionnelle\n\
+         4. **RAG DocChunk** → specs et spécifications\n\n\
+         Pour les questions de type **Lookup/Impact** uniquement : pas d'organigramme requis.\n\n"
+    );
 
     // ── Project context ─────────────────────────────────────────
     prompt.push_str("# Project context\n\n");

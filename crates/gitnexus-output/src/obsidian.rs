@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use gitnexus_core::graph::types::{NodeLabel, RelationshipType, GraphNode};
+use gitnexus_core::graph::types::{GraphNode, NodeLabel, RelationshipType};
 use gitnexus_core::graph::KnowledgeGraph;
 
 /// Strip the Windows extended-length path prefix `\\?\` from a path, if
@@ -92,8 +92,14 @@ pub fn generate_obsidian_vault(
     let mut edge_map: HashMap<String, Vec<(String, RelationshipType)>> = HashMap::new();
     let mut incoming_map: HashMap<String, Vec<(String, RelationshipType)>> = HashMap::new();
     for rel in graph.iter_relationships() {
-        edge_map.entry(rel.source_id.clone()).or_default().push((rel.target_id.clone(), rel.rel_type));
-        incoming_map.entry(rel.target_id.clone()).or_default().push((rel.source_id.clone(), rel.rel_type));
+        edge_map
+            .entry(rel.source_id.clone())
+            .or_default()
+            .push((rel.target_id.clone(), rel.rel_type));
+        incoming_map
+            .entry(rel.target_id.clone())
+            .or_default()
+            .push((rel.source_id.clone(), rel.rel_type));
     }
 
     // 1. Generate Index.md
@@ -116,7 +122,13 @@ pub fn generate_obsidian_vault(
     }
 
     // 4. Generate Node pages
-    for node in graph.iter_nodes().filter(|n| n.label != NodeLabel::File && n.label != NodeLabel::Community && n.label != NodeLabel::Process && n.label != NodeLabel::Document && n.label != NodeLabel::DocChunk) {
+    for node in graph.iter_nodes().filter(|n| {
+        n.label != NodeLabel::File
+            && n.label != NodeLabel::Community
+            && n.label != NodeLabel::Process
+            && n.label != NodeLabel::Document
+            && n.label != NodeLabel::DocChunk
+    }) {
         generate_node_page(&nodes_dir, node, graph, &edge_map, &incoming_map)?;
     }
 
@@ -128,11 +140,16 @@ pub fn generate_obsidian_vault(
     Ok(vault_dir.to_string_lossy().to_string())
 }
 
-fn generate_index(dir: &Path, graph: &KnowledgeGraph, communities: &BTreeMap<String, CommunityInfo>) -> Result<()> {
+fn generate_index(
+    dir: &Path,
+    graph: &KnowledgeGraph,
+    communities: &BTreeMap<String, CommunityInfo>,
+) -> Result<()> {
     let out_path = dir.join("Index.md");
     let mut f = file_create_traced(&out_path)?;
 
-    let project_name = dir.parent()
+    let project_name = dir
+        .parent()
         .and_then(|p| p.file_name())
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "Project".to_string());
@@ -141,54 +158,90 @@ fn generate_index(dir: &Path, graph: &KnowledgeGraph, communities: &BTreeMap<Str
     writeln!(f)?;
     writeln!(f, "> Ce coffre-fort Obsidian contient une cartographie complète du code source, générée par GitNexus.")?;
     writeln!(f)?;
-    
+
     writeln!(f, "## 📊 Statistiques")?;
-    
+
     let mut counts = HashMap::new();
     for node in graph.iter_nodes() {
         *counts.entry(node.label).or_insert(0) += 1;
     }
 
-    writeln!(f, "- **Fichiers** : {}", counts.get(&NodeLabel::File).unwrap_or(&0))?;
-    writeln!(f, "- **Classes** : {}", counts.get(&NodeLabel::Class).unwrap_or(&0))?;
-    writeln!(f, "- **Fonctions/Méthodes** : {}", counts.get(&NodeLabel::Function).unwrap_or(&0))?;
+    writeln!(
+        f,
+        "- **Fichiers** : {}",
+        counts.get(&NodeLabel::File).unwrap_or(&0)
+    )?;
+    writeln!(
+        f,
+        "- **Classes** : {}",
+        counts.get(&NodeLabel::Class).unwrap_or(&0)
+    )?;
+    writeln!(
+        f,
+        "- **Fonctions/Méthodes** : {}",
+        counts.get(&NodeLabel::Function).unwrap_or(&0)
+    )?;
     writeln!(f, "- **Modules Fonctionnels** : {}", communities.len())?;
     writeln!(f)?;
 
     writeln!(f, "## 🧱 Modules Principaux")?;
     for info in communities.values() {
-        writeln!(f, "- [[Modules/{}|{}]]", sanitize_obsidian_filename(&info.label), info.label)?;
+        writeln!(
+            f,
+            "- [[Modules/{}|{}]]",
+            sanitize_obsidian_filename(&info.label),
+            info.label
+        )?;
     }
     writeln!(f)?;
 
     writeln!(f, "## ⚙️ Processus Métier")?;
     for node in graph.iter_nodes().filter(|n| n.label == NodeLabel::Process) {
-        writeln!(f, "- [[Processus/{}|{}]]", sanitize_obsidian_filename(&node.properties.name), node.properties.name)?;
+        writeln!(
+            f,
+            "- [[Processus/{}|{}]]",
+            sanitize_obsidian_filename(&node.properties.name),
+            node.properties.name
+        )?;
     }
     writeln!(f)?;
 
     writeln!(f, "## 🔍 Vérification du Cerveau (Lint)")?;
     writeln!(f, "> État de santé de la base de connaissances.")?;
     writeln!(f)?;
-    
+
     let mut edge_map: HashMap<String, Vec<(String, RelationshipType)>> = HashMap::new();
     let mut incoming_count: HashMap<String, usize> = HashMap::new();
     for rel in graph.iter_relationships() {
-        edge_map.entry(rel.source_id.clone()).or_default().push((rel.target_id.clone(), rel.rel_type));
+        edge_map
+            .entry(rel.source_id.clone())
+            .or_default()
+            .push((rel.target_id.clone(), rel.rel_type));
         *incoming_count.entry(rel.target_id.clone()).or_insert(0) += 1;
     }
 
-    let orphans: Vec<_> = graph.iter_nodes()
-        .filter(|n| n.label != NodeLabel::File && n.label != NodeLabel::Community && n.label != NodeLabel::Document && n.label != NodeLabel::DocChunk)
+    let orphans: Vec<_> = graph
+        .iter_nodes()
+        .filter(|n| {
+            n.label != NodeLabel::File
+                && n.label != NodeLabel::Community
+                && n.label != NodeLabel::Document
+                && n.label != NodeLabel::DocChunk
+        })
         .filter(|n| !edge_map.contains_key(&n.id) && !incoming_count.contains_key(&n.id))
         .take(5)
         .collect();
 
     if orphans.is_empty() {
-        writeln!(f, "- ✅ Aucun symbole orphelin détecté. Le graphe est bien connecté.")?;
+        writeln!(
+            f,
+            "- ✅ Aucun symbole orphelin détecté. Le graphe est bien connecté."
+        )?;
     } else {
-        writeln!(f, "- ⚠️ {} symboles isolés détectés (ex: [[Symboles/{}/{}|{}]])", 
-            orphans.len(), 
+        writeln!(
+            f,
+            "- ⚠️ {} symboles isolés détectés (ex: [[Symboles/{}/{}|{}]])",
+            orphans.len(),
             orphans[0].label.as_str(),
             sanitize_obsidian_filename(&orphans[0].properties.name),
             orphans[0].properties.name
@@ -202,9 +255,15 @@ fn generate_index(dir: &Path, graph: &KnowledgeGraph, communities: &BTreeMap<Str
 
     writeln!(f, "## 🤖 IA & Chat")?;
     writeln!(f, "Vous pouvez interroger ce cerveau numérique :")?;
-    writeln!(f, "1. **Via CLI** : Lancez `gitnexus ask \"votre question\"`.")?;
+    writeln!(
+        f,
+        "1. **Via CLI** : Lancez `gitnexus ask \"votre question\"`."
+    )?;
     writeln!(f, "2. **Via Obsidian** : Utilisez les extensions *Claude Code* ou *Smart Connections* sur ce dossier.")?;
-    writeln!(f, "3. **Via le Wiki HTML** : Lancez `gitnexus serve` et utilisez le widget de chat intégré.")?;
+    writeln!(
+        f,
+        "3. **Via le Wiki HTML** : Lancez `gitnexus serve` et utilisez le widget de chat intégré."
+    )?;
 
     Ok(())
 }
@@ -217,17 +276,28 @@ fn generate_log(dir: &Path, graph: &KnowledgeGraph) -> Result<()> {
     writeln!(f)?;
     writeln!(f, "| Date | Événement | Détails |")?;
     writeln!(f, "|------|-----------|---------|")?;
-    
+
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
-    writeln!(f, "| {} | Génération initiale | Export complet du graphe GitNexus |", now)?;
-    
-    let files: Vec<_> = graph.iter_nodes()
+    writeln!(
+        f,
+        "| {} | Génération initiale | Export complet du graphe GitNexus |",
+        now
+    )?;
+
+    let files: Vec<_> = graph
+        .iter_nodes()
         .filter(|n| n.label == NodeLabel::File)
         .take(10)
         .collect();
-        
+
     for node in files {
-        writeln!(f, "| {} | Indexation | Fichier [[Fichiers/{}|{}]] traité |", now, sanitize_obsidian_filename(&node.properties.name), node.properties.name)?;
+        writeln!(
+            f,
+            "| {} | Indexation | Fichier [[Fichiers/{}|{}]] traité |",
+            now,
+            sanitize_obsidian_filename(&node.properties.name),
+            node.properties.name
+        )?;
     }
 
     Ok(())
@@ -237,26 +307,53 @@ fn generate_claudecode_instructions(dir: &Path) -> Result<()> {
     let out_path = dir.join(".claudecode");
     let mut f = file_create_traced(&out_path)?;
 
-    writeln!(f, "You are an AI expert assistant working inside an Obsidian Vault generated by GitNexus.")?;
-    writeln!(f, "This vault represents the 'Digital Brain' of a software project.")?;
+    writeln!(
+        f,
+        "You are an AI expert assistant working inside an Obsidian Vault generated by GitNexus."
+    )?;
+    writeln!(
+        f,
+        "This vault represents the 'Digital Brain' of a software project."
+    )?;
     writeln!(f)?;
     writeln!(f, "Structure:")?;
     writeln!(f, "- Modules/: High-level functional areas")?;
     writeln!(f, "- Processus/: Business processes and workflows")?;
-    writeln!(f, "- Symboles/: Classes, Functions, Methods organized by type")?;
+    writeln!(
+        f,
+        "- Symboles/: Classes, Functions, Methods organized by type"
+    )?;
     writeln!(f, "- Fichiers/: Source code files mapping")?;
     writeln!(f)?;
     writeln!(f, "Guidelines:")?;
-    writeln!(f, "1. Always check 'Index.md' first to understand the project structure.")?;
-    writeln!(f, "2. Use wikilinks [[Path/To/Note]] to navigate between entities.")?;
-    writeln!(f, "3. When asked about a feature, look into 'Modules/' or 'Processus/'.")?;
-    writeln!(f, "4. When asked about implementation, look into 'Symboles/'.")?;
+    writeln!(
+        f,
+        "1. Always check 'Index.md' first to understand the project structure."
+    )?;
+    writeln!(
+        f,
+        "2. Use wikilinks [[Path/To/Note]] to navigate between entities."
+    )?;
+    writeln!(
+        f,
+        "3. When asked about a feature, look into 'Modules/' or 'Processus/'."
+    )?;
+    writeln!(
+        f,
+        "4. When asked about implementation, look into 'Symboles/'."
+    )?;
     writeln!(f, "5. If you find a broken link or orphan info, notify the user so they can run 'gitnexus analyze'.")?;
 
     Ok(())
 }
 
-fn generate_node_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge_map: &HashMap<String, Vec<(String, RelationshipType)>>, incoming_map: &HashMap<String, Vec<(String, RelationshipType)>>) -> Result<()> {
+fn generate_node_page(
+    dir: &Path,
+    node: &GraphNode,
+    graph: &KnowledgeGraph,
+    edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+    incoming_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+) -> Result<()> {
     // Use a sanitized label string for the subdir so labels like
     // DocChunk / Document — if the upstream filter ever misses them —
     // still yield a valid path component.
@@ -274,14 +371,21 @@ fn generate_node_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge
     writeln!(f, "type: {:?}", node.label)?;
     writeln!(f, "name: \"{}\"", node.properties.name)?;
     writeln!(f, "file: \"{}\"", node.properties.file_path)?;
-    if let Some(s) = node.properties.start_line { writeln!(f, "start_line: {s}")?; }
+    if let Some(s) = node.properties.start_line {
+        writeln!(f, "start_line: {s}")?;
+    }
     writeln!(f, "---")?;
     writeln!(f)?;
 
     writeln!(f, "# {}", node.properties.name)?;
     writeln!(f)?;
     writeln!(f, "Type: **{:?}**", node.label)?;
-    writeln!(f, "Fichier: [[Fichiers/{}|{}]]", sanitize_obsidian_filename(&node.properties.file_path), node.properties.file_path)?;
+    writeln!(
+        f,
+        "Fichier: [[Fichiers/{}|{}]]",
+        sanitize_obsidian_filename(&node.properties.file_path),
+        node.properties.file_path
+    )?;
     writeln!(f)?;
 
     // Outgoing
@@ -290,17 +394,27 @@ fn generate_node_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge
         for (target_id, rel) in edges {
             if let Some(target) = graph.get_node(target_id) {
                 let rel_str = format!("{:?}", rel);
-                let folder = if target.label == NodeLabel::File { "Fichiers" } 
-                            else if target.label == NodeLabel::Community { "Modules" }
-                            else { "Symboles" };
-                
-                let subfolder = if folder == "Symboles" { format!("{}/", target.label.as_str()) } else { "".to_string() };
+                let folder = if target.label == NodeLabel::File {
+                    "Fichiers"
+                } else if target.label == NodeLabel::Community {
+                    "Modules"
+                } else {
+                    "Symboles"
+                };
 
-                writeln!(f, "- {}: [[{}/{}{}|{}]]", 
-                    rel_str, 
-                    folder, 
+                let subfolder = if folder == "Symboles" {
+                    format!("{}/", target.label.as_str())
+                } else {
+                    "".to_string()
+                };
+
+                writeln!(
+                    f,
+                    "- {}: [[{}/{}{}|{}]]",
+                    rel_str,
+                    folder,
                     subfolder,
-                    sanitize_obsidian_filename(&target.properties.name), 
+                    sanitize_obsidian_filename(&target.properties.name),
                     target.properties.name
                 )?;
             }
@@ -313,12 +427,22 @@ fn generate_node_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge
     if let Some(incoming) = incoming_map.get(&node.id) {
         for (src_id, rel) in incoming {
             if let Some(src) = graph.get_node(src_id) {
-                let folder = if src.label == NodeLabel::File { "Fichiers" }
-                            else if src.label == NodeLabel::Community { "Modules" }
-                            else { "Symboles" };
-                let subfolder = if folder == "Symboles" { format!("{}/", src.label.as_str()) } else { "".to_string() };
+                let folder = if src.label == NodeLabel::File {
+                    "Fichiers"
+                } else if src.label == NodeLabel::Community {
+                    "Modules"
+                } else {
+                    "Symboles"
+                };
+                let subfolder = if folder == "Symboles" {
+                    format!("{}/", src.label.as_str())
+                } else {
+                    "".to_string()
+                };
 
-                writeln!(f, "- [[{}/{}{}|{}]] ({:?})",
+                writeln!(
+                    f,
+                    "- [[{}/{}{}|{}]] ({:?})",
                     folder,
                     subfolder,
                     sanitize_obsidian_filename(&src.properties.name),
@@ -332,7 +456,12 @@ fn generate_node_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge
     Ok(())
 }
 
-fn generate_file_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge_map: &HashMap<String, Vec<(String, RelationshipType)>>) -> Result<()> {
+fn generate_file_page(
+    dir: &Path,
+    node: &GraphNode,
+    graph: &KnowledgeGraph,
+    edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+) -> Result<()> {
     let filename = format!("{}.md", sanitize_obsidian_filename(&node.properties.name));
     let out_path = dir.join(&filename);
     let mut f = file_create_traced(&out_path)?;
@@ -340,7 +469,9 @@ fn generate_file_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge
     writeln!(f, "---")?;
     writeln!(f, "type: File")?;
     writeln!(f, "path: \"{}\"", node.properties.file_path)?;
-    if let Some(l) = &node.properties.language { writeln!(f, "language: {:?}", l)?; }
+    if let Some(l) = &node.properties.language {
+        writeln!(f, "language: {:?}", l)?;
+    }
     writeln!(f, "---")?;
     writeln!(f)?;
 
@@ -352,7 +483,13 @@ fn generate_file_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge
         for (target_id, rel) in edges {
             if *rel == RelationshipType::Defines {
                 if let Some(target) = graph.get_node(target_id) {
-                    writeln!(f, "- [[Symboles/{}/{}|{}]]", target.label.as_str(), sanitize_obsidian_filename(&target.properties.name), target.properties.name)?;
+                    writeln!(
+                        f,
+                        "- [[Symboles/{}/{}|{}]]",
+                        target.label.as_str(),
+                        sanitize_obsidian_filename(&target.properties.name),
+                        target.properties.name
+                    )?;
                 }
             }
         }
@@ -361,7 +498,13 @@ fn generate_file_page(dir: &Path, node: &GraphNode, graph: &KnowledgeGraph, edge
     Ok(())
 }
 
-fn generate_community_page(dir: &Path, _id: &str, info: &CommunityInfo, graph: &KnowledgeGraph, _edge_map: &HashMap<String, Vec<(String, RelationshipType)>>) -> Result<()> {
+fn generate_community_page(
+    dir: &Path,
+    _id: &str,
+    info: &CommunityInfo,
+    graph: &KnowledgeGraph,
+    _edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+) -> Result<()> {
     let filename = format!("{}.md", sanitize_obsidian_filename(&info.label));
     let out_path = dir.join(&filename);
     let mut f = file_create_traced(&out_path)?;
@@ -381,16 +524,36 @@ fn generate_community_page(dir: &Path, _id: &str, info: &CommunityInfo, graph: &
     writeln!(f, "## 👥 Membres")?;
     for mid in &info.member_ids {
         if let Some(m) = graph.get_node(mid) {
-            let folder = if m.label == NodeLabel::File { "Fichiers" } else { "Symboles" };
-            let subfolder = if folder == "Symboles" { format!("{}/", m.label.as_str()) } else { "".to_string() };
-            writeln!(f, "- [[{}/{}{}|{}]]", folder, subfolder, sanitize_obsidian_filename(&m.properties.name), m.properties.name)?;
+            let folder = if m.label == NodeLabel::File {
+                "Fichiers"
+            } else {
+                "Symboles"
+            };
+            let subfolder = if folder == "Symboles" {
+                format!("{}/", m.label.as_str())
+            } else {
+                "".to_string()
+            };
+            writeln!(
+                f,
+                "- [[{}/{}{}|{}]]",
+                folder,
+                subfolder,
+                sanitize_obsidian_filename(&m.properties.name),
+                m.properties.name
+            )?;
         }
     }
 
     Ok(())
 }
 
-fn generate_process_page(dir: &Path, node: &GraphNode, _graph: &KnowledgeGraph, _edge_map: &HashMap<String, Vec<(String, RelationshipType)>>) -> Result<()> {
+fn generate_process_page(
+    dir: &Path,
+    node: &GraphNode,
+    _graph: &KnowledgeGraph,
+    _edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+) -> Result<()> {
     let filename = format!("{}.md", sanitize_obsidian_filename(&node.properties.name));
     let out_path = dir.join(&filename);
     let mut f = file_create_traced(&out_path)?;
@@ -410,7 +573,12 @@ fn generate_process_page(dir: &Path, node: &GraphNode, _graph: &KnowledgeGraph, 
 
     // Sequence/Flow
     if let Some(entry_id) = &node.properties.entry_point_id {
-        writeln!(f, "Point d'entrée: [[Symboles/Function/{}|{}]]", sanitize_obsidian_filename(entry_id), entry_id)?;
+        writeln!(
+            f,
+            "Point d'entrée: [[Symboles/Function/{}|{}]]",
+            sanitize_obsidian_filename(entry_id),
+            entry_id
+        )?;
     }
 
     Ok(())
@@ -451,8 +619,10 @@ fn sanitize_obsidian_filename(name: &str) -> String {
         let replacement = if (c as u32) < 0x20 || c == '\x7f' {
             // Drop control chars entirely.
             None
-        } else if matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
-                             | '#' | '^' | '[' | ']') {
+        } else if matches!(
+            c,
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' | '#' | '^' | '[' | ']'
+        ) {
             Some('_')
         } else {
             Some(c)
@@ -513,11 +683,28 @@ fn is_windows_reserved(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
     matches!(
         stem.as_str(),
-        "CON" | "PRN" | "AUX" | "NUL"
-        | "COM1" | "COM2" | "COM3" | "COM4" | "COM5"
-        | "COM6" | "COM7" | "COM8" | "COM9"
-        | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5"
-        | "LPT6" | "LPT7" | "LPT8" | "LPT9"
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
     )
 }
 
@@ -535,12 +722,18 @@ mod tests {
     #[test]
     fn generics_get_underscored() {
         assert_eq!(sanitize_obsidian_filename("List<T>"), "List_T");
-        assert_eq!(sanitize_obsidian_filename("Dictionary<K, V>"), "Dictionary_K, V");
+        assert_eq!(
+            sanitize_obsidian_filename("Dictionary<K, V>"),
+            "Dictionary_K, V"
+        );
     }
 
     #[test]
     fn windows_reserved_chars_replaced() {
-        assert_eq!(sanitize_obsidian_filename("foo/bar\\baz:qux"), "foo_bar_baz_qux");
+        assert_eq!(
+            sanitize_obsidian_filename("foo/bar\\baz:qux"),
+            "foo_bar_baz_qux"
+        );
         assert_eq!(sanitize_obsidian_filename("a|b*c?d\"e"), "a_b_c_d_e");
     }
 
@@ -605,7 +798,11 @@ mod tests {
     fn long_names_truncated() {
         let input = "a".repeat(300);
         let out = sanitize_obsidian_filename(&input);
-        assert!(out.len() <= MAX_FILENAME_LEN, "truncation failed: len={}", out.len());
+        assert!(
+            out.len() <= MAX_FILENAME_LEN,
+            "truncation failed: len={}",
+            out.len()
+        );
         assert!(out.chars().all(|c| c == 'a'));
     }
 
@@ -664,9 +861,6 @@ mod tests {
         );
         // Plain path → untouched.
         let p = PathBuf::from(r"D:\normal\path");
-        assert_eq!(
-            strip_verbatim_prefix(&p),
-            PathBuf::from(r"D:\normal\path")
-        );
+        assert_eq!(strip_verbatim_prefix(&p), PathBuf::from(r"D:\normal\path"));
     }
 }

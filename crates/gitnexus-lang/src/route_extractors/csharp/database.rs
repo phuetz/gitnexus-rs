@@ -13,9 +13,11 @@ pub fn extract_db_contexts(source: &str) -> Vec<DbContextInfo> {
     let mut i = 0;
     while i < lines.len() {
         if let Some(class_match) = find_class_declaration(&lines, i) {
-            if class_match.base_classes.iter().any(|b| {
-                b == "DbContext" || b == "IdentityDbContext" || b == "ObjectContext"
-            }) {
+            if class_match
+                .base_classes
+                .iter()
+                .any(|b| b == "DbContext" || b == "IdentityDbContext" || b == "ObjectContext")
+            {
                 let mut ctx = DbContextInfo {
                     class_name: class_match.name.clone(),
                     connection_string_name: None,
@@ -40,7 +42,10 @@ pub fn extract_db_contexts(source: &str) -> Vec<DbContextInfo> {
                 contexts.push(ctx);
             }
 
-            i = class_match.body_end_line.unwrap_or(class_match.body_start_line) + 1;
+            i = class_match
+                .body_end_line
+                .unwrap_or(class_match.body_start_line)
+                + 1;
         } else {
             i += 1;
         }
@@ -84,7 +89,10 @@ pub fn extract_entities(source: &str, known_entity_types: &[String]) -> Vec<Enti
                 entities.push(entity);
             }
 
-            i = class_match.body_end_line.unwrap_or(class_match.body_start_line) + 1;
+            i = class_match
+                .body_end_line
+                .unwrap_or(class_match.body_start_line)
+                + 1;
         } else {
             i += 1;
         }
@@ -127,9 +135,16 @@ fn extract_entity_properties(
         }
 
         // Check for property declaration
-        if trimmed.starts_with("public ") && (trimmed.contains("{ get;") || trimmed.contains("{ get ")) {
+        if trimmed.starts_with("public ")
+            && (trimmed.contains("{ get;") || trimmed.contains("{ get "))
+        {
             // Extract property name
-            let parts: Vec<&str> = trimmed.split('{').next().unwrap_or("").split_whitespace().collect();
+            let parts: Vec<&str> = trimmed
+                .split('{')
+                .next()
+                .unwrap_or("")
+                .split_whitespace()
+                .collect();
             if parts.len() >= 3 {
                 let prop_name = parts.last().unwrap_or(&"").to_string();
                 let prop_type = parts[parts.len() - 2];
@@ -147,7 +162,11 @@ fn extract_entity_properties(
                     // Extract target type from generic
                     if let Some(start) = prop_type.find('<') {
                         if let Some(end) = prop_type.find('>') {
-                            let target = prop_type.get(start + 1..end).unwrap_or_default().trim().to_string();
+                            let target = prop_type
+                                .get(start + 1..end)
+                                .unwrap_or_default()
+                                .trim()
+                                .to_string();
                             entity.navigation_properties.push(NavigationProperty {
                                 name: prop_name,
                                 target_type: target,
@@ -180,7 +199,7 @@ fn extract_entity_properties(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::route_extractors::csharp::helpers::{extract_dbset, extract_connection_string};
+    use crate::route_extractors::csharp::helpers::{extract_connection_string, extract_dbset};
 
     #[test]
     fn test_extract_db_context() {
@@ -202,7 +221,10 @@ public class ApplicationDbContext : DbContext
 
         let ctx = &contexts[0];
         assert_eq!(ctx.class_name, "ApplicationDbContext");
-        assert_eq!(ctx.connection_string_name.as_deref(), Some("DefaultConnection"));
+        assert_eq!(
+            ctx.connection_string_name.as_deref(),
+            Some("DefaultConnection")
+        );
         assert_eq!(ctx.entity_sets.len(), 3);
         assert!(ctx.entity_sets.iter().any(|es| es.entity_type == "Product"));
     }

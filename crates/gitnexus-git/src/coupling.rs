@@ -32,11 +32,7 @@ pub fn analyze_coupling(
 ) -> Result<Vec<ChangeCoupling>, CouplingError> {
     // Get commit hashes with associated files
     let mut cmd = Command::new("git");
-    cmd.args([
-        "log",
-        "--pretty=format:COMMIT:%H",
-        "--name-only",
-    ]);
+    cmd.args(["log", "--pretty=format:COMMIT:%H", "--name-only"]);
     if let Some(days) = since_days {
         cmd.arg(format!("--since={} days ago", days));
     }
@@ -156,7 +152,11 @@ mod tests {
         }
 
         let result = analyze_coupling(repo, 2, Some(180));
-        assert!(result.is_ok(), "analyze_coupling should not error: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "analyze_coupling should not error: {:?}",
+            result.err()
+        );
 
         let couplings = result.unwrap();
         for c in &couplings {

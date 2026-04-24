@@ -81,8 +81,7 @@ impl ConnectionPool {
                             // Drop the vacant entry guard before sleeping so
                             // other threads aren't blocked during backoff.
                             drop(vacant);
-                            let backoff =
-                                Duration::from_millis(BASE_BACKOFF_MS * attempt as u64);
+                            let backoff = Duration::from_millis(BASE_BACKOFF_MS * attempt as u64);
                             warn!(
                                 "Database busy at {}, attempt {}/{}, backing off {:?}",
                                 canonical.display(),

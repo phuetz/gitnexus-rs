@@ -1,10 +1,10 @@
 //! Local backend: resolves repos from the registry and dispatches tool calls
 //! to the appropriate handler.
 
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use serde_json::{json, Value};
 use std::time::Instant;
 use tracing::info;
 
@@ -119,7 +119,12 @@ impl LocalBackend {
     }
 
     /// Read a source file with path-traversal protection.
-    fn read_code_snippet(repo_path: &std::path::Path, file_path: &str, start: Option<u32>, end: Option<u32>) -> Option<String> {
+    fn read_code_snippet(
+        repo_path: &std::path::Path,
+        file_path: &str,
+        start: Option<u32>,
+        end: Option<u32>,
+    ) -> Option<String> {
         let full_path = repo_path.join(file_path);
         let canonical_repo = repo_path.canonicalize().ok()?;
         let canonical_file = full_path.canonicalize().ok()?;
@@ -136,7 +141,10 @@ impl LocalBackend {
     /// Initialize the backend: load the global registry and discover repos.
     pub fn init(&mut self) -> Result<()> {
         self.registry = repo_manager::read_registry().map_err(McpError::Core)?;
-        info!("LocalBackend: loaded {} repos from registry", self.registry.len());
+        info!(
+            "LocalBackend: loaded {} repos from registry",
+            self.registry.len()
+        );
         Ok(())
     }
 
@@ -259,13 +267,12 @@ impl LocalBackend {
     }
 
     async fn tool_query(&mut self, args: &Value) -> Result<Value> {
-        let query_text = args
-            .get("query")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| McpError::InvalidArguments {
+        let query_text = args.get("query").and_then(|v| v.as_str()).ok_or_else(|| {
+            McpError::InvalidArguments {
                 tool: "query".into(),
                 reason: "Missing required 'query' parameter".into(),
-            })?;
+            }
+        })?;
 
         let repo_name = args.get("repo").and_then(|v| v.as_str());
         let limit = clamp_limit(
@@ -289,8 +296,7 @@ impl LocalBackend {
 
         let results = {
             let adapter = self.pool.get_or_open(&db_path).map_err(McpError::Db)?;
-            gitnexus_search::search(&adapter, query_text, limit)
-                .map_err(McpError::Db)?
+            gitnexus_search::search(&adapter, query_text, limit).map_err(McpError::Db)?
         };
 
         // Opt-out path: flat results, matches pre-grouped behavior byte-for-byte.
@@ -402,13 +408,12 @@ impl LocalBackend {
     }
 
     async fn tool_context(&mut self, args: &Value) -> Result<Value> {
-        let name = args
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| McpError::InvalidArguments {
+        let name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
+            McpError::InvalidArguments {
                 tool: "context".into(),
                 reason: "Missing required 'name' parameter".into(),
-            })?;
+            }
+        })?;
 
         let repo_name = args.get("repo").and_then(|v| v.as_str());
         let uid = args.get("uid").and_then(|v| v.as_str());
@@ -436,8 +441,8 @@ impl LocalBackend {
             graph
                 .iter_nodes()
                 .find(|n| {
-                    let name_match = n.properties.name == name
-                        || n.properties.name.to_lowercase() == name_lower;
+                    let name_match =
+                        n.properties.name == name || n.properties.name.to_lowercase() == name_lower;
                     let file_match = match file_filter {
                         Some(f) => n.properties.file_path == f,
                         None => true,
@@ -484,9 +489,7 @@ impl LocalBackend {
                     }));
                 }
             }
-            if rel.target_id == node_id
-                && incoming_seen.insert((rel_type, rel.source_id.clone()))
-            {
+            if rel.target_id == node_id && incoming_seen.insert((rel_type, rel.source_id.clone())) {
                 let source_name = graph
                     .get_node(&rel.source_id)
                     .map(|n| n.properties.name.clone())
@@ -559,13 +562,12 @@ impl LocalBackend {
     }
 
     async fn tool_impact(&mut self, args: &Value) -> Result<Value> {
-        let target = args
-            .get("target")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| McpError::InvalidArguments {
+        let target = args.get("target").and_then(|v| v.as_str()).ok_or_else(|| {
+            McpError::InvalidArguments {
                 tool: "impact".into(),
                 reason: "Missing required 'target' parameter".into(),
-            })?;
+            }
+        })?;
 
         let repo_name = args.get("repo").and_then(|v| v.as_str());
         let direction = args
@@ -660,7 +662,8 @@ impl LocalBackend {
         // themselves are excluded from the result so callers don't show up
         // as their own impact.
         let bfs = |adjacency: &HashMap<String, Vec<String>>| -> Vec<(String, usize)> {
-            let mut visited: std::collections::HashSet<String> = target_ids.iter().cloned().collect();
+            let mut visited: std::collections::HashSet<String> =
+                target_ids.iter().cloned().collect();
             let mut queue: std::collections::VecDeque<(String, usize)> =
                 target_ids.iter().map(|id| (id.clone(), 0usize)).collect();
             let mut out: Vec<(String, usize)> = Vec::new();
@@ -754,8 +757,7 @@ impl LocalBackend {
         // Parse `git diff --unified=0 HEAD` to get file + line-range hunks.
         let diff_hunks = collect_git_diff_hunks(&repo_path);
         let untracked_files = collect_git_untracked(&repo_path);
-        let changed_files: Vec<String> =
-            diff_hunks.iter().map(|(p, _)| p.clone()).collect();
+        let changed_files: Vec<String> = diff_hunks.iter().map(|(p, _)| p.clone()).collect();
 
         // Load graph; if absent, degrade gracefully to a file-list response.
         let graph = match self.load_cached_snapshot(&snap_path) {
@@ -790,9 +792,13 @@ impl LocalBackend {
             std::collections::HashSet::new();
 
         for (file_path, ranges) in &diff_hunks {
-            let Some(node_ids) = graph.nodes_by_file(file_path) else { continue };
+            let Some(node_ids) = graph.nodes_by_file(file_path) else {
+                continue;
+            };
             for nid in node_ids {
-                let Some(node) = graph.get_node(nid) else { continue };
+                let Some(node) = graph.get_node(nid) else {
+                    continue;
+                };
                 let ns = node.properties.start_line.unwrap_or(0);
                 let ne = node.properties.end_line.unwrap_or(u32::MAX);
                 if ranges
@@ -833,8 +839,7 @@ impl LocalBackend {
             )
         };
         let mut reverse: HashMap<String, Vec<String>> = HashMap::new();
-        let mut step_in_process: HashMap<String, Vec<(String, Option<u32>)>> =
-            HashMap::new();
+        let mut step_in_process: HashMap<String, Vec<(String, Option<u32>)>> = HashMap::new();
         for rel in graph.iter_relationships() {
             if want_rel(rel.rel_type) {
                 reverse
@@ -895,7 +900,11 @@ impl LocalBackend {
         // Sample the top-N non-direct affected nodes so agents see concrete
         // examples of the blast radius without exploding response size.
         let mut affected_sample: Vec<Value> = Vec::new();
-        for nid in affected.iter().filter(|id| !changed_node_ids.contains(*id)).take(25) {
+        for nid in affected
+            .iter()
+            .filter(|id| !changed_node_ids.contains(*id))
+            .take(25)
+        {
             if let Some(n) = graph.get_node(nid) {
                 affected_sample.push(json!({
                     "id": nid,
@@ -942,13 +951,12 @@ impl LocalBackend {
     }
 
     async fn tool_rename(&mut self, args: &Value) -> Result<Value> {
-        let target = args
-            .get("target")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| McpError::InvalidArguments {
+        let target = args.get("target").and_then(|v| v.as_str()).ok_or_else(|| {
+            McpError::InvalidArguments {
                 tool: "rename".into(),
                 reason: "Missing required 'target' parameter".into(),
-            })?;
+            }
+        })?;
 
         let new_name = args
             .get("new_name")
@@ -981,9 +989,7 @@ impl LocalBackend {
         let target_lower = target.to_lowercase();
         let target_ids: std::collections::HashSet<String> = graph
             .iter_nodes()
-            .filter(|n| {
-                n.id == target || n.properties.name.to_lowercase() == target_lower
-            })
+            .filter(|n| n.id == target || n.properties.name.to_lowercase() == target_lower)
             .map(|n| n.id.clone())
             .collect();
 
@@ -1021,8 +1027,7 @@ impl LocalBackend {
         let mut covered: std::collections::HashSet<(String, u32)> =
             std::collections::HashSet::new();
 
-        let word_re =
-            regex::Regex::new(&format!(r"\b{}\b", regex::escape(target))).ok();
+        let word_re = regex::Regex::new(&format!(r"\b{}\b", regex::escape(target))).ok();
 
         // 1) Definition sites.
         for tid in &target_ids {
@@ -1030,7 +1035,10 @@ impl LocalBackend {
                 if let Some(re) = word_re.as_ref() {
                     for edit in scan_node_occurrences(&repo_path, tn, re, new_name) {
                         let key = (
-                            edit.get("file").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            edit.get("file")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                             edit.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                         );
                         if covered.insert(key) {
@@ -1050,11 +1058,16 @@ impl LocalBackend {
             if !seen_sources.insert(src_id.clone()) {
                 continue;
             }
-            let Some(src) = graph.get_node(src_id) else { continue };
+            let Some(src) = graph.get_node(src_id) else {
+                continue;
+            };
             if let Some(re) = word_re.as_ref() {
                 for edit in scan_node_occurrences(&repo_path, src, re, new_name) {
                     let key = (
-                        edit.get("file").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        edit.get("file")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         edit.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                     );
                     if covered.insert(key) {
@@ -1131,13 +1144,12 @@ impl LocalBackend {
     }
 
     async fn tool_cypher(&self, args: &Value) -> Result<Value> {
-        let cypher = args
-            .get("query")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| McpError::InvalidArguments {
+        let cypher = args.get("query").and_then(|v| v.as_str()).ok_or_else(|| {
+            McpError::InvalidArguments {
                 tool: "cypher".into(),
                 reason: "Missing required 'query' parameter".into(),
-            })?;
+            }
+        })?;
 
         // Reject write queries
         if query::is_write_query(cypher) {
@@ -1193,9 +1205,7 @@ impl LocalBackend {
             .get("since_days")
             .and_then(|v| v.as_u64())
             .unwrap_or(90) as u32;
-        let limit = args
-            .get("limit")
-            .and_then(|v| v.as_u64());
+        let limit = args.get("limit").and_then(|v| v.as_u64());
         let limit = clamp_limit(limit, 20, MAX_ANALYTICS_LIMIT);
 
         let entry = self.resolve_repo(repo_name)?;
@@ -1226,20 +1236,16 @@ impl LocalBackend {
 
     async fn tool_coupling(&self, args: &Value) -> Result<Value> {
         let repo_name = args.get("repo").and_then(|v| v.as_str());
-        let min_shared = args
-            .get("min_shared")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(3) as u32;
-        let limit = args
-            .get("limit")
-            .and_then(|v| v.as_u64());
+        let min_shared = args.get("min_shared").and_then(|v| v.as_u64()).unwrap_or(3) as u32;
+        let limit = args.get("limit").and_then(|v| v.as_u64());
         let limit = clamp_limit(limit, 20, MAX_ANALYTICS_LIMIT);
 
         let entry = self.resolve_repo(repo_name)?;
         let repo_path = std::path::Path::new(&entry.path);
 
-        let mut couplings = gitnexus_git::coupling::analyze_coupling(repo_path, min_shared, Some(180))
-            .map_err(|e| McpError::Internal(e.to_string()))?;
+        let mut couplings =
+            gitnexus_git::coupling::analyze_coupling(repo_path, min_shared, Some(180))
+                .map_err(|e| McpError::Internal(e.to_string()))?;
 
         couplings.truncate(limit);
 
@@ -1263,9 +1269,7 @@ impl LocalBackend {
 
     async fn tool_ownership(&self, args: &Value) -> Result<Value> {
         let repo_name = args.get("repo").and_then(|v| v.as_str());
-        let limit = args
-            .get("limit")
-            .and_then(|v| v.as_u64());
+        let limit = args.get("limit").and_then(|v| v.as_u64());
         let limit = clamp_limit(limit, 20, MAX_ANALYTICS_LIMIT);
 
         let entry = self.resolve_repo(repo_name)?;
@@ -1322,24 +1326,36 @@ impl LocalBackend {
             let target_lower = target_name.to_lowercase();
             let class_node = graph.iter_nodes().find(|n| {
                 n.properties.name.to_lowercase() == target_lower
-                    && matches!(n.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller)
+                    && matches!(
+                        n.label,
+                        NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller
+                    )
             });
 
             if let Some(cn) = class_node {
                 let methods = class_methods.get(&cn.id).cloned().unwrap_or_default();
                 let total = methods.len();
-                let traced = methods.iter().filter(|mid| {
-                    graph.get_node(mid).is_some_and(|n| n.properties.is_traced == Some(true))
-                }).count();
+                let traced = methods
+                    .iter()
+                    .filter(|mid| {
+                        graph
+                            .get_node(mid)
+                            .is_some_and(|n| n.properties.is_traced == Some(true))
+                    })
+                    .count();
                 // Use the `is_dead_candidate` property computed by the dead-code phase,
                 // which correctly excludes entry points, tests, interface methods,
                 // view scripts, and ControllerAction-paired methods. Recomputing
                 // dead-status here from incoming_calls alone overcounts dead methods.
-                let dead = methods.iter().filter(|mid| {
-                    graph.get_node(mid)
-                        .and_then(|n| n.properties.is_dead_candidate)
-                        .unwrap_or(false)
-                }).count();
+                let dead = methods
+                    .iter()
+                    .filter(|mid| {
+                        graph
+                            .get_node(mid)
+                            .and_then(|n| n.properties.is_dead_candidate)
+                            .unwrap_or(false)
+                    })
+                    .count();
 
                 json!({
                     "class": cn.properties.name,
@@ -1353,14 +1369,21 @@ impl LocalBackend {
             }
         } else {
             // Global coverage
-            let all_methods: Vec<_> = graph.iter_nodes()
+            let all_methods: Vec<_> = graph
+                .iter_nodes()
                 .filter(|n| n.label == NodeLabel::Method || n.label == NodeLabel::Function)
                 .collect();
             let total = all_methods.len();
-            let traced = all_methods.iter().filter(|n| n.properties.is_traced == Some(true)).count();
+            let traced = all_methods
+                .iter()
+                .filter(|n| n.properties.is_traced == Some(true))
+                .count();
             // Same fix as the per-class branch: use is_dead_candidate from the
             // dead-code phase, which respects entry-point/test/interface exclusions.
-            let dead = all_methods.iter().filter(|n| n.properties.is_dead_candidate == Some(true)).count();
+            let dead = all_methods
+                .iter()
+                .filter(|n| n.properties.is_dead_candidate == Some(true))
+                .count();
 
             json!({
                 "totalMethods": total,
@@ -1382,16 +1405,18 @@ impl LocalBackend {
     }
 
     async fn tool_diagram(&mut self, args: &Value) -> Result<Value> {
-        let target = args
-            .get("target")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| McpError::InvalidArguments {
+        let target = args.get("target").and_then(|v| v.as_str()).ok_or_else(|| {
+            McpError::InvalidArguments {
                 tool: "diagram".into(),
                 reason: "Missing required 'target' parameter".into(),
-            })?;
+            }
+        })?;
 
         let repo_name = args.get("repo").and_then(|v| v.as_str());
-        let diagram_type = args.get("type").and_then(|v| v.as_str()).unwrap_or("flowchart");
+        let diagram_type = args
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("flowchart");
 
         // The MCP diagram tool currently only emits Mermaid `graph TD` flowcharts.
         // Reject other types up front instead of silently ignoring them — the
@@ -1416,7 +1441,8 @@ impl LocalBackend {
 
         // Find the target symbol
         let target_lower = target.to_lowercase();
-        let mut candidates: Vec<_> = graph.iter_nodes()
+        let mut candidates: Vec<_> = graph
+            .iter_nodes()
             .filter(|n| n.properties.name.to_lowercase() == target_lower)
             .collect();
         candidates.sort_by_key(|n| match n.label {
@@ -1427,9 +1453,9 @@ impl LocalBackend {
             _ => 10,
         });
 
-        let start_node = candidates.first().ok_or_else(|| {
-            McpError::Internal(format!("Symbol '{}' not found", target))
-        })?;
+        let start_node = candidates
+            .first()
+            .ok_or_else(|| McpError::Internal(format!("Symbol '{}' not found", target)))?;
 
         // Generate simple flowchart showing calls from this symbol's methods
         let mut lines = Vec::new();
@@ -1444,34 +1470,49 @@ impl LocalBackend {
         ));
 
         // Pre-build set of child IDs to avoid O(E^2) inner loop
-        let child_ids: std::collections::HashSet<&str> = graph.iter_relationships()
-            .filter(|r| r.source_id == *node_id && matches!(r.rel_type, RelationshipType::HasMethod | RelationshipType::HasAction))
+        let child_ids: std::collections::HashSet<&str> = graph
+            .iter_relationships()
+            .filter(|r| {
+                r.source_id == *node_id
+                    && matches!(
+                        r.rel_type,
+                        RelationshipType::HasMethod | RelationshipType::HasAction
+                    )
+            })
             .map(|r| r.target_id.as_str())
             .collect();
 
         // Find methods and their calls
         for rel in graph.iter_relationships() {
             if (&rel.source_id == node_id || child_ids.contains(rel.source_id.as_str()))
-                && matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
-                    if let Some(target_node) = graph.get_node(&rel.target_id) {
-                        let src_name = graph.get_node(&rel.source_id)
-                            .map(|n| n.properties.name.as_str())
-                            .unwrap_or("?");
-                        lines.push(format!(
-                            "    {}[\"{}\"] --> {}[\"{}\"]",
-                            sanitize_mermaid_id(&rel.source_id),
-                            escape_mermaid_label(src_name),
-                            sanitize_mermaid_id(&rel.target_id),
-                            escape_mermaid_label(&target_node.properties.name),
-                        ));
-                    }
+                && matches!(
+                    rel.rel_type,
+                    RelationshipType::Calls
+                        | RelationshipType::CallsAction
+                        | RelationshipType::CallsService
+                )
+            {
+                if let Some(target_node) = graph.get_node(&rel.target_id) {
+                    let src_name = graph
+                        .get_node(&rel.source_id)
+                        .map(|n| n.properties.name.as_str())
+                        .unwrap_or("?");
+                    lines.push(format!(
+                        "    {}[\"{}\"] --> {}[\"{}\"]",
+                        sanitize_mermaid_id(&rel.source_id),
+                        escape_mermaid_label(src_name),
+                        sanitize_mermaid_id(&rel.target_id),
+                        escape_mermaid_label(&target_node.properties.name),
+                    ));
                 }
+            }
         }
 
         if lines.len() == 2 {
             // No calls found, show class members instead
             for rel in graph.iter_relationships() {
-                if &rel.source_id == node_id && matches!(rel.rel_type, RelationshipType::HasMethod) {
+                if &rel.source_id == node_id && matches!(rel.rel_type, RelationshipType::HasMethod)
+                {
                     if let Some(member) = graph.get_node(&rel.target_id) {
                         lines.push(format!(
                             "    {} --> {}[\"{}\"]",
@@ -1514,21 +1555,30 @@ impl LocalBackend {
 
         let node_count = graph.iter_nodes().count();
         let edge_count = graph.iter_relationships().count();
-        let file_count = graph.iter_nodes()
+        let file_count = graph
+            .iter_nodes()
             .filter(|n| n.label == NodeLabel::File)
             .count();
-        let density = if node_count > 0 { edge_count as f64 / node_count as f64 } else { 0.0 };
+        let density = if node_count > 0 {
+            edge_count as f64 / node_count as f64
+        } else {
+            0.0
+        };
 
         // Git analytics
         let hotspots = gitnexus_git::hotspots::analyze_hotspots(repo_path, 90).unwrap_or_default();
-        let couplings = gitnexus_git::coupling::analyze_coupling(repo_path, 3, Some(180)).unwrap_or_default();
+        let couplings =
+            gitnexus_git::coupling::analyze_coupling(repo_path, 3, Some(180)).unwrap_or_default();
         let ownerships = gitnexus_git::ownership::analyze_ownership(repo_path).unwrap_or_default();
 
         // Compute health score (0-100); healthy projects score ~85-95
         let mut score: f64 = 100.0;
         let hot_files = hotspots.iter().filter(|h| h.score > 0.7).count();
         score -= (hot_files as f64) * 3.0;
-        let strong_couples = couplings.iter().filter(|c| c.coupling_strength > 0.7).count();
+        let strong_couples = couplings
+            .iter()
+            .filter(|c| c.coupling_strength > 0.7)
+            .count();
         score -= (strong_couples as f64) * 2.0;
         let orphan_files = ownerships.iter().filter(|o| o.ownership_pct < 50.0).count();
         score -= (orphan_files as f64) * 0.5;
@@ -1598,7 +1648,7 @@ impl LocalBackend {
             })?;
 
         let repo_name = args.get("repo").and_then(|v| v.as_str());
-        
+
         let (repo_path, snap_path) = {
             let entry = self.resolve_repo(repo_name)?;
             (
@@ -1618,12 +1668,12 @@ impl LocalBackend {
         } else {
             repo_path.join(trace_file)
         };
-        let canonical_trace = candidate.canonicalize().map_err(|_| {
-            McpError::Internal(format!("Trace file not found: {}", trace_file))
-        })?;
-        let canonical_repo = repo_path.canonicalize().map_err(|e| {
-            McpError::Internal(format!("Failed to canonicalize repo path: {}", e))
-        })?;
+        let canonical_trace = candidate
+            .canonicalize()
+            .map_err(|_| McpError::Internal(format!("Trace file not found: {}", trace_file)))?;
+        let canonical_repo = repo_path
+            .canonicalize()
+            .map_err(|e| McpError::Internal(format!("Failed to canonicalize repo path: {}", e)))?;
         if !canonical_trace.starts_with(&canonical_repo) {
             return Err(McpError::Internal(
                 "trace_file must be a path inside the repository".to_string(),
@@ -1643,15 +1693,25 @@ impl LocalBackend {
 
         for step in steps {
             let mut enriched_step = step.clone();
-            let method_name_opt = step.get("method").or(step.get("name")).and_then(|v| v.as_str());
+            let method_name_opt = step
+                .get("method")
+                .or(step.get("name"))
+                .and_then(|v| v.as_str());
 
             if let Some(full_method_name) = method_name_opt {
-                if let Some(node_id) = gitnexus_core::trace::resolve_method_node(&graph, &name_to_ids, full_method_name) {
+                if let Some(node_id) = gitnexus_core::trace::resolve_method_node(
+                    &graph,
+                    &name_to_ids,
+                    full_method_name,
+                ) {
                     if let Some(node) = graph.get_node(&node_id) {
                         matched += 1;
                         if let Some(obj) = enriched_step.as_object_mut() {
                             obj.insert("nodeId".to_string(), json!(node_id));
-                            obj.insert("filePath".to_string(), json!(node.properties.file_path.clone()));
+                            obj.insert(
+                                "filePath".to_string(),
+                                json!(node.properties.file_path.clone()),
+                            );
                             obj.insert("startLine".to_string(), json!(node.properties.start_line));
                             obj.insert("endLine".to_string(), json!(node.properties.end_line));
 
@@ -1669,8 +1729,12 @@ impl LocalBackend {
                                 _ => false,
                             };
                             if source_safe {
-                                if let (Some(start), Some(end)) = (node.properties.start_line, node.properties.end_line) {
-                                    if let Some(source) = gitnexus_core::trace::extract_source_lines(&full_path, start, end) {
+                                if let (Some(start), Some(end)) =
+                                    (node.properties.start_line, node.properties.end_line)
+                                {
+                                    if let Some(source) = gitnexus_core::trace::extract_source_lines(
+                                        &full_path, start, end,
+                                    ) {
                                         obj.insert("sourceCode".to_string(), json!(source));
                                     }
                                 }
@@ -1711,10 +1775,18 @@ impl LocalBackend {
         let mut processes = Vec::new();
 
         // Check for specific Alise business patterns in the graph
-        let has_courriers = graph.iter_nodes().any(|n| n.properties.name.contains("Courrier"));
-        let has_paiements = graph.iter_nodes().any(|n| n.properties.name.contains("Reglement") || n.properties.name.contains("Facture"));
-        let has_baremes = graph.iter_nodes().any(|n| n.properties.name.contains("Bareme"));
-        let has_fournisseurs = graph.iter_nodes().any(|n| n.properties.name.contains("Fournisseur"));
+        let has_courriers = graph
+            .iter_nodes()
+            .any(|n| n.properties.name.contains("Courrier"));
+        let has_paiements = graph.iter_nodes().any(|n| {
+            n.properties.name.contains("Reglement") || n.properties.name.contains("Facture")
+        });
+        let has_baremes = graph
+            .iter_nodes()
+            .any(|n| n.properties.name.contains("Bareme"));
+        let has_fournisseurs = graph
+            .iter_nodes()
+            .any(|n| n.properties.name.contains("Fournisseur"));
 
         if has_courriers {
             processes.push(json!({
@@ -1775,7 +1847,7 @@ impl LocalBackend {
                 _ => json!({
                     "error": format!("Processus '{}' non trouvé ou non applicable à ce projet.", filter),
                     "available_processes": processes
-                })
+                }),
             }
         } else {
             json!({
@@ -1801,15 +1873,17 @@ impl LocalBackend {
         let start = Instant::now();
         let query_str = args["query"]
             .as_str()
-            .ok_or_else(|| McpError::InvalidArguments { tool: "search_code".into(), reason: "Missing required 'query' parameter".into() })?;
+            .ok_or_else(|| McpError::InvalidArguments {
+                tool: "search_code".into(),
+                reason: "Missing required 'query' parameter".into(),
+            })?;
         let repo_name = args["repo"].as_str();
         let limit = clamp_limit(args["limit"].as_u64(), 8, 20);
 
         let entry = self.resolve_repo(repo_name)?;
         let repo_path = std::path::PathBuf::from(&entry.path);
-        let snap_path = gitnexus_db::snapshot::snapshot_path(
-            &std::path::PathBuf::from(&entry.storage_path),
-        );
+        let snap_path =
+            gitnexus_db::snapshot::snapshot_path(&std::path::PathBuf::from(&entry.storage_path));
         let (graph, indexes, fts) = self.load_cached_indexes(&snap_path)?;
 
         // FTS search
@@ -1833,7 +1907,9 @@ impl LocalBackend {
                     &repo_path,
                     &node.properties.file_path,
                     node.properties.start_line,
-                    node.properties.end_line.or(node.properties.start_line.map(|s| s + 50)),
+                    node.properties
+                        .end_line
+                        .or(node.properties.start_line.map(|s| s + 50)),
                 );
 
                 let callers = Self::collect_neighbors(&graph, &indexes.incoming, &hit.node_id, 5);
@@ -1870,7 +1946,9 @@ impl LocalBackend {
                         &repo_path,
                         &node.properties.file_path,
                         node.properties.start_line,
-                        node.properties.end_line.or(node.properties.start_line.map(|s| s + 50)),
+                        node.properties
+                            .end_line
+                            .or(node.properties.start_line.map(|s| s + 50)),
                     );
                     results.push(json!({
                         "nodeId": node.id,
@@ -1905,7 +1983,10 @@ impl LocalBackend {
         let start = Instant::now();
         let file_path = args["path"]
             .as_str()
-            .ok_or_else(|| McpError::InvalidArguments { tool: "read_file".into(), reason: "Missing required 'path' parameter".into() })?;
+            .ok_or_else(|| McpError::InvalidArguments {
+                tool: "read_file".into(),
+                reason: "Missing required 'path' parameter".into(),
+            })?;
         let repo_name = args["repo"].as_str();
         let start_line = args["start_line"].as_u64().map(|v| v as u32);
         let end_line = args["end_line"].as_u64().map(|v| v as u32);
@@ -1918,9 +1999,8 @@ impl LocalBackend {
             .ok_or_else(|| McpError::Internal(format!("Cannot read file: {file_path}")))?;
 
         // Load graph for symbol annotations
-        let snap_path = gitnexus_db::snapshot::snapshot_path(
-            &std::path::PathBuf::from(&entry.storage_path),
-        );
+        let snap_path =
+            gitnexus_db::snapshot::snapshot_path(&std::path::PathBuf::from(&entry.storage_path));
         let graph = self.load_cached_snapshot(&snap_path)?;
 
         // Find symbols defined in this file
@@ -1981,13 +2061,15 @@ impl LocalBackend {
         let start = Instant::now();
         let symbol = args["symbol"]
             .as_str()
-            .ok_or_else(|| McpError::InvalidArguments { tool: "get_insights".into(), reason: "Missing required 'symbol' parameter".into() })?;
+            .ok_or_else(|| McpError::InvalidArguments {
+                tool: "get_insights".into(),
+                reason: "Missing required 'symbol' parameter".into(),
+            })?;
         let repo_name = args["repo"].as_str();
 
         let entry = self.resolve_repo(repo_name)?;
-        let snap_path = gitnexus_db::snapshot::snapshot_path(
-            &std::path::PathBuf::from(&entry.storage_path),
-        );
+        let snap_path =
+            gitnexus_db::snapshot::snapshot_path(&std::path::PathBuf::from(&entry.storage_path));
         let (graph, indexes, _fts) = self.load_cached_indexes(&snap_path)?;
 
         // Try exact node ID first, then name match
@@ -2024,7 +2106,9 @@ impl LocalBackend {
             .outgoing
             .get(&node_id)
             .and_then(|edges| {
-                edges.iter().find(|(_, rt)| matches!(rt, RelationshipType::MemberOf))
+                edges
+                    .iter()
+                    .find(|(_, rt)| matches!(rt, RelationshipType::MemberOf))
             })
             .and_then(|(comm_id, _)| graph.get_node(comm_id))
             .map(|comm| {
@@ -2063,7 +2147,10 @@ impl LocalBackend {
     async fn tool_save_memory(&mut self, args: &Value) -> Result<Value> {
         let fact = args["fact"]
             .as_str()
-            .ok_or_else(|| McpError::InvalidArguments { tool: "save_memory".into(), reason: "Missing required 'fact' parameter".into() })?;
+            .ok_or_else(|| McpError::InvalidArguments {
+                tool: "save_memory".into(),
+                reason: "Missing required 'fact' parameter".into(),
+            })?;
         const MAX_FACT_BYTES: usize = 64 * 1024;
         if fact.len() > MAX_FACT_BYTES {
             return Err(McpError::InvalidArguments {
@@ -2080,7 +2167,9 @@ impl LocalBackend {
             let home = std::env::var("USERPROFILE")
                 .or_else(|_| std::env::var("HOME"))
                 .map_err(|_| McpError::Internal("Cannot determine home directory".into()))?;
-            std::path::PathBuf::from(home).join(".gitnexus").join("memory")
+            std::path::PathBuf::from(home)
+                .join(".gitnexus")
+                .join("memory")
         } else {
             // Project memory: .gitnexus/memory/
             let entry = self.resolve_repo(repo_name)?;
@@ -2116,12 +2205,19 @@ impl LocalBackend {
     async fn tool_find_cycles(&mut self, args: &Value) -> Result<Value> {
         use gitnexus_db::analytics::cycles::{find_cycles, CycleScope};
         let repo_name = args.get("repo").and_then(|v| v.as_str());
-        let scope_str = args.get("scope").and_then(|v| v.as_str()).unwrap_or("imports");
+        let scope_str = args
+            .get("scope")
+            .and_then(|v| v.as_str())
+            .unwrap_or("imports");
         let scope = CycleScope::parse(scope_str).ok_or_else(|| McpError::InvalidArguments {
             tool: "find_cycles".into(),
             reason: format!("Invalid scope '{scope_str}' (expected 'imports' or 'calls')"),
         })?;
-        let limit = clamp_limit(args.get("limit").and_then(|v| v.as_u64()), 50, MAX_ANALYTICS_LIMIT);
+        let limit = clamp_limit(
+            args.get("limit").and_then(|v| v.as_u64()),
+            50,
+            MAX_ANALYTICS_LIMIT,
+        );
 
         let snap_path = {
             let entry = self.resolve_repo(repo_name)?;
@@ -2160,7 +2256,11 @@ impl LocalBackend {
             .get("threshold")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.9);
-        let limit = clamp_limit(args.get("limit").and_then(|v| v.as_u64()), 50, MAX_ANALYTICS_LIMIT);
+        let limit = clamp_limit(
+            args.get("limit").and_then(|v| v.as_u64()),
+            50,
+            MAX_ANALYTICS_LIMIT,
+        );
 
         let (repo_path, snap_path) = {
             let entry = self.resolve_repo(repo_name)?;
@@ -2266,13 +2366,7 @@ impl LocalBackend {
         };
         let graph = self.load_cached_snapshot(&snap_path)?;
 
-        let report = get_complexity(
-            &graph,
-            ComplexityOptions {
-                threshold,
-                top_n,
-            },
-        );
+        let report = get_complexity(&graph, ComplexityOptions { threshold, top_n });
         let body = serde_json::to_value(&report).unwrap_or_default();
 
         Ok(json!({
@@ -2518,8 +2612,7 @@ impl LocalBackend {
         let handler_id = graph
             .iter_relationships()
             .find(|r| {
-                matches!(r.rel_type, RelationshipType::HandledBy)
-                    && r.source_id == endpoint.id
+                matches!(r.rel_type, RelationshipType::HandledBy) && r.source_id == endpoint.id
             })
             .map(|r| r.target_id.clone())
             .or_else(|| endpoint.properties.handler_id.clone());
@@ -2603,7 +2696,18 @@ impl LocalBackend {
             .map(|edges| {
                 edges
                     .iter()
-                    .filter(|(_, rt)| matches!(rt, RelationshipType::Calls | RelationshipType::Uses | RelationshipType::Imports | RelationshipType::DependsOn | RelationshipType::HasMethod | RelationshipType::HasAction | RelationshipType::CallsService))
+                    .filter(|(_, rt)| {
+                        matches!(
+                            rt,
+                            RelationshipType::Calls
+                                | RelationshipType::Uses
+                                | RelationshipType::Imports
+                                | RelationshipType::DependsOn
+                                | RelationshipType::HasMethod
+                                | RelationshipType::HasAction
+                                | RelationshipType::CallsService
+                        )
+                    })
                     .take(limit)
                     .filter_map(|(nid, rt)| {
                         graph.get_node(nid).map(|n| {
@@ -2697,12 +2801,12 @@ fn parse_diff_hunks(text: &str) -> Vec<(String, Vec<(u32, u32)>)> {
             }
         } else if let Some(rest) = line.strip_prefix("@@ ") {
             // "@@ -20,3 +25,4 @@ …"  →  parse the +25,4 part.
-            let Some(file) = current_file.as_ref() else { continue };
+            let Some(file) = current_file.as_ref() else {
+                continue;
+            };
             if let Some(plus) = rest.split_whitespace().find(|t| t.starts_with('+')) {
                 let spec = &plus[1..]; // strip leading '+'
-                let (start_str, count_str) = spec
-                    .split_once(',')
-                    .unwrap_or((spec, "1"));
+                let (start_str, count_str) = spec.split_once(',').unwrap_or((spec, "1"));
                 let start: u32 = start_str.parse().unwrap_or(0);
                 let count: u32 = count_str.parse().unwrap_or(1);
                 if count == 0 {
@@ -2753,12 +2857,18 @@ fn scan_node_occurrences(
         return Vec::new();
     }
     let full = repo_path.join(file_path);
-    let Ok(canonical_repo) = repo_path.canonicalize() else { return Vec::new() };
-    let Ok(canonical_file) = full.canonicalize() else { return Vec::new() };
+    let Ok(canonical_repo) = repo_path.canonicalize() else {
+        return Vec::new();
+    };
+    let Ok(canonical_file) = full.canonicalize() else {
+        return Vec::new();
+    };
     if !canonical_file.starts_with(&canonical_repo) {
         return Vec::new();
     }
-    let Ok(content) = std::fs::read_to_string(&canonical_file) else { return Vec::new() };
+    let Ok(content) = std::fs::read_to_string(&canonical_file) else {
+        return Vec::new();
+    };
 
     let start = node.properties.start_line.unwrap_or(1).saturating_sub(1) as usize;
     let end = match node.properties.end_line {
@@ -2807,15 +2917,39 @@ fn scan_repo_for_identifier(
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             if matches!(
                 ext,
-                "png" | "jpg" | "jpeg" | "gif" | "ico" | "pdf" | "zip"
-                    | "tar" | "gz" | "bin" | "exe" | "dll" | "so" | "dylib"
-                    | "jar" | "class" | "o" | "a" | "lib" | "wasm" | "mp4"
-                    | "mp3" | "woff" | "woff2" | "ttf" | "eot"
+                "png"
+                    | "jpg"
+                    | "jpeg"
+                    | "gif"
+                    | "ico"
+                    | "pdf"
+                    | "zip"
+                    | "tar"
+                    | "gz"
+                    | "bin"
+                    | "exe"
+                    | "dll"
+                    | "so"
+                    | "dylib"
+                    | "jar"
+                    | "class"
+                    | "o"
+                    | "a"
+                    | "lib"
+                    | "wasm"
+                    | "mp4"
+                    | "mp3"
+                    | "woff"
+                    | "woff2"
+                    | "ttf"
+                    | "eot"
             ) {
                 continue;
             }
         }
-        let Ok(content) = std::fs::read_to_string(path) else { continue };
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue;
+        };
         let rel = match path.strip_prefix(repo_path) {
             Ok(p) => p.to_string_lossy().replace('\\', "/"),
             Err(_) => continue,
@@ -2849,7 +2983,8 @@ fn truncate_snippet(s: &str, max: usize) -> String {
         t.to_string()
     } else {
         // Find the largest char boundary <= max to avoid panicking on multi-byte UTF-8
-        let end = t.char_indices()
+        let end = t
+            .char_indices()
             .take_while(|(i, _)| *i < max)
             .last()
             .map(|(i, c)| i + c.len_utf8())
@@ -2860,23 +2995,32 @@ fn truncate_snippet(s: &str, max: usize) -> String {
 
 /// Apply graph_edits (high-confidence) to disk. Reads each file once,
 /// patches all edits for it, then writes back. Returns per-file counts.
-fn apply_edits_to_disk(
-    repo_path: &std::path::Path,
-    edits: &[Value],
-) -> std::io::Result<Value> {
+fn apply_edits_to_disk(repo_path: &std::path::Path, edits: &[Value]) -> std::io::Result<Value> {
     use std::collections::BTreeMap;
     // Group by file; sort edits bottom-up so offsets stay valid as we patch.
     let mut by_file: BTreeMap<String, Vec<(u32, u32, String, String)>> = BTreeMap::new();
     for e in edits {
-        let Some(file) = e.get("file").and_then(|v| v.as_str()) else { continue };
-        let Some(line) = e.get("line").and_then(|v| v.as_u64()) else { continue };
-        let Some(col) = e.get("col").and_then(|v| v.as_u64()) else { continue };
-        let Some(old) = e.get("old_text").and_then(|v| v.as_str()) else { continue };
-        let Some(new) = e.get("new_text").and_then(|v| v.as_str()) else { continue };
-        by_file
-            .entry(file.to_string())
-            .or_default()
-            .push((line as u32, col as u32, old.to_string(), new.to_string()));
+        let Some(file) = e.get("file").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(line) = e.get("line").and_then(|v| v.as_u64()) else {
+            continue;
+        };
+        let Some(col) = e.get("col").and_then(|v| v.as_u64()) else {
+            continue;
+        };
+        let Some(old) = e.get("old_text").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(new) = e.get("new_text").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        by_file.entry(file.to_string()).or_default().push((
+            line as u32,
+            col as u32,
+            old.to_string(),
+            new.to_string(),
+        ));
     }
 
     let mut applied_per_file: Vec<Value> = Vec::new();
@@ -3017,7 +3161,10 @@ index 1111111..2222222 100644
 @@ -5,3 +5,0 @@
 ";
         let parsed = parse_diff_hunks(diff);
-        assert!(parsed.is_empty(), "pure-deletion hunk should not produce a range");
+        assert!(
+            parsed.is_empty(),
+            "pure-deletion hunk should not produce a range"
+        );
     }
 
     #[test]

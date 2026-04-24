@@ -1,12 +1,12 @@
 pub mod config;
-pub mod memory;
 pub mod error;
 pub mod graph;
 pub mod id;
+pub mod llm;
+pub mod memory;
 pub mod pipeline;
+pub mod process_doc;
 pub mod resolution;
 pub mod storage;
 pub mod symbol;
-pub mod process_doc;
 pub mod trace;
-pub mod llm;

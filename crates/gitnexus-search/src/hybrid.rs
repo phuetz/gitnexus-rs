@@ -164,10 +164,7 @@ mod tests {
 
     #[test]
     fn test_rrf_merge_basic() {
-        let bm25 = vec![
-            make_bm25("a.ts", 5.0, 1),
-            make_bm25("b.ts", 3.0, 2),
-        ];
+        let bm25 = vec![make_bm25("a.ts", 5.0, 1), make_bm25("b.ts", 3.0, 2)];
         let semantic = vec![
             make_semantic("b.ts", 0.95, 1),
             make_semantic("c.ts", 0.90, 2),

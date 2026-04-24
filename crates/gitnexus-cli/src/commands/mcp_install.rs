@@ -78,13 +78,7 @@ mod tests {
         let config = build_mcp_config("gitnexus.exe", &PathBuf::from("/nonexistent/.mcp.json"))
             .expect("should build config");
         let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
-        assert_eq!(
-            parsed["mcpServers"]["gitnexus"]["command"],
-            "gitnexus.exe"
-        );
-        assert_eq!(
-            parsed["mcpServers"]["gitnexus"]["args"][0],
-            "mcp"
-        );
+        assert_eq!(parsed["mcpServers"]["gitnexus"]["command"], "gitnexus.exe");
+        assert_eq!(parsed["mcpServers"]["gitnexus"]["args"][0], "mcp");
     }
 }

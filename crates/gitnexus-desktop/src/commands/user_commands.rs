@@ -68,9 +68,7 @@ fn sanitize_name(s: &str) -> String {
 }
 
 #[tauri::command]
-pub async fn user_commands_list(
-    state: State<'_, AppState>,
-) -> Result<Vec<UserCommand>, String> {
+pub async fn user_commands_list(state: State<'_, AppState>) -> Result<Vec<UserCommand>, String> {
     let storage = state.active_storage_path().await?;
     Ok(load(&commands_path(&storage)).commands)
 }
@@ -93,7 +91,8 @@ pub async fn user_commands_save(
     }
     cmd.updated_at = chrono::Utc::now().timestamp_millis();
     // Upsert by name (case-insensitive); replaces same-name entry.
-    file.commands.retain(|c| c.name != cmd.name && c.id != cmd.id);
+    file.commands
+        .retain(|c| c.name != cmd.name && c.id != cmd.id);
     file.commands.push(cmd);
     file.commands.sort_by(|a, b| a.name.cmp(&b.name));
     save(&path, &file)?;
@@ -168,10 +167,8 @@ mod tests {
 
     #[test]
     fn test_save_load_roundtrip() {
-        let dir = std::env::temp_dir().join(format!(
-            "gitnexus-user-cmds-test-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("gitnexus-user-cmds-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("user_commands.json");
         let file = UserCommandsFile {

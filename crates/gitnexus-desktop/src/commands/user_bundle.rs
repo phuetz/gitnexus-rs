@@ -95,11 +95,15 @@ pub async fn user_bundle_export(
     }
     // Containment: out_path must resolve under storage
     let canonical_storage = storage_path.canonicalize().map_err(|e| e.to_string())?;
-    let canonical_out = out_path.canonicalize()
-        .or_else(|_| out_path.parent()
-            .and_then(|p| p.canonicalize().ok())
-            .map(|p| p.join(out_path.file_name().unwrap_or_default()))
-            .ok_or_else(|| std::io::Error::other("invalid path")))
+    let canonical_out = out_path
+        .canonicalize()
+        .or_else(|_| {
+            out_path
+                .parent()
+                .and_then(|p| p.canonicalize().ok())
+                .map(|p| p.join(out_path.file_name().unwrap_or_default()))
+                .ok_or_else(|| std::io::Error::other("invalid path"))
+        })
         .map_err(|e| format!("Invalid out_path: {e}"))?;
     if !canonical_out.starts_with(&canonical_storage) {
         return Err("out_path must be inside the storage directory".to_string());
@@ -120,7 +124,8 @@ pub async fn user_bundle_export(
             continue;
         }
         let bytes = std::fs::read(&src).map_err(|e| e.to_string())?;
-        zip.start_file::<_, ()>(*rel, options).map_err(|e| e.to_string())?;
+        zip.start_file::<_, ()>(*rel, options)
+            .map_err(|e| e.to_string())?;
         zip.write_all(&bytes).map_err(|e| e.to_string())?;
         entries.push((*rel).to_string());
         file_count += 1;
@@ -147,7 +152,8 @@ pub async fn user_bundle_export(
                 .ok_or_else(|| "Invalid filename".to_string())?;
             let rel = format!("{dir}/{file_name}");
             let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-            zip.start_file::<_, ()>(&rel, options).map_err(|e| e.to_string())?;
+            zip.start_file::<_, ()>(&rel, options)
+                .map_err(|e| e.to_string())?;
             zip.write_all(&bytes).map_err(|e| e.to_string())?;
             entries.push(rel);
             file_count += 1;
@@ -155,7 +161,10 @@ pub async fn user_bundle_export(
     }
 
     // Manifest so future importers can detect format.
-    let repo_name = state.active_repo_name().await.unwrap_or_else(|| "(unknown)".into());
+    let repo_name = state
+        .active_repo_name()
+        .await
+        .unwrap_or_else(|| "(unknown)".into());
     let manifest = BundleManifest {
         format_version: 1,
         created_at: ts,
@@ -211,7 +220,10 @@ pub async fn user_bundle_import(
             continue;
         }
         let is_allowed = allowed.contains(&name)
-            || name.split_once('/').map(|(d, _)| allowed_dirs.contains(d)).unwrap_or(false);
+            || name
+                .split_once('/')
+                .map(|(d, _)| allowed_dirs.contains(d))
+                .unwrap_or(false);
         if !is_allowed {
             skipped += 1;
             continue;
@@ -231,7 +243,7 @@ pub async fn user_bundle_import(
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         const MAX_ENTRY_BYTES: u64 = 32 * 1024 * 1024; // 32 MB
-        // Cap actual decompressed read — entry.size() is self-reported and untrusted
+                                                       // Cap actual decompressed read — entry.size() is self-reported and untrusted
         let mut contents = Vec::new();
         std::io::Read::take(&mut entry, MAX_ENTRY_BYTES + 1)
             .read_to_end(&mut contents)

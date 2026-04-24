@@ -52,7 +52,10 @@ pub async fn repos_overview(_state: State<'_, AppState>) -> Result<Vec<RepoOverv
     let mut out: Vec<RepoOverview> = Vec::new();
 
     for entry in registry {
-        let storage = entry.storage_path.strip_prefix(r"\\?\").unwrap_or(&entry.storage_path);
+        let storage = entry
+            .storage_path
+            .strip_prefix(r"\\?\")
+            .unwrap_or(&entry.storage_path);
         let snap = gitnexus_db::snapshot::snapshot_path(std::path::Path::new(storage));
         match gitnexus_db::snapshot::load_snapshot(&snap) {
             Ok(graph) => {

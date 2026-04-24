@@ -1,8 +1,8 @@
 //! The `coverage` command: tracing coverage analysis and dead code detection.
 
-use std::collections::HashMap;
 use anyhow::Result;
 use colored::Colorize;
+use std::collections::HashMap;
 
 use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_db::snapshot;
@@ -15,9 +15,13 @@ pub fn run(target: Option<&str>, path: Option<&str>, json: bool, trace: bool) ->
     };
 
     let storage = gitnexus_core::storage::repo_manager::get_storage_paths(&repo_path);
-    let snap_path = gitnexus_db::snapshot::snapshot_path(std::path::Path::new(&storage.storage_path));
+    let snap_path =
+        gitnexus_db::snapshot::snapshot_path(std::path::Path::new(&storage.storage_path));
     if !snap_path.exists() {
-        println!("{} No index found. Run 'gitnexus analyze' first.", "ERROR".red());
+        println!(
+            "{} No index found. Run 'gitnexus analyze' first.",
+            "ERROR".red()
+        );
         return Ok(());
     }
 
@@ -56,7 +60,14 @@ pub fn run(target: Option<&str>, path: Option<&str>, json: bool, trace: bool) ->
             run_flow_trace(&graph, target_name, &class_methods, &method_class)
         } else {
             // Single class mode
-            run_single_class(&graph, target_name, &incoming_calls, &class_methods, &method_class, json)
+            run_single_class(
+                &graph,
+                target_name,
+                &incoming_calls,
+                &class_methods,
+                &method_class,
+                json,
+            )
         }
     } else {
         // Global mode
@@ -79,7 +90,10 @@ fn run_single_class(
         .iter_nodes()
         .filter(|n| {
             n.properties.name.to_lowercase() == target_lower
-                && matches!(n.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller)
+                && matches!(
+                    n.label,
+                    NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller
+                )
         })
         .collect();
     candidates.sort_by_key(|n| match n.label {
@@ -100,7 +114,11 @@ fn run_single_class(
     let method_ids = match class_methods.get(&class_node.id) {
         Some(ids) => ids,
         None => {
-            println!("{} No methods found for '{}'.", "WARN".yellow(), target_name);
+            println!(
+                "{} No methods found for '{}'.",
+                "WARN".yellow(),
+                target_name
+            );
             return Ok(());
         }
     };
@@ -173,7 +191,10 @@ fn run_global(
         };
 
         // Only show Classes/Services (not interfaces, enums, etc.)
-        if !matches!(class_node.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller) {
+        if !matches!(
+            class_node.label,
+            NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller
+        ) {
             continue;
         }
 
@@ -211,8 +232,16 @@ fn run_global(
     }
 
     class_stats.sort_by(|a, b| {
-        let pct_a = if a.method_count > 0 { a.traced_count as f64 / a.method_count as f64 } else { 0.0 };
-        let pct_b = if b.method_count > 0 { b.traced_count as f64 / b.method_count as f64 } else { 0.0 };
+        let pct_a = if a.method_count > 0 {
+            a.traced_count as f64 / a.method_count as f64
+        } else {
+            0.0
+        };
+        let pct_b = if b.method_count > 0 {
+            b.traced_count as f64 / b.method_count as f64
+        } else {
+            0.0
+        };
         pct_a.total_cmp(&pct_b)
     });
 
@@ -250,9 +279,15 @@ fn run_global(
         println!();
 
         // Show classes with worst coverage first (those with methods but 0% traced)
-        let worst: Vec<_> = class_stats.iter().filter(|c| c.traced_count == 0 && c.method_count > 3).collect();
+        let worst: Vec<_> = class_stats
+            .iter()
+            .filter(|c| c.traced_count == 0 && c.method_count > 3)
+            .collect();
         if !worst.is_empty() {
-            println!("  {} Classes with 0% trace coverage (>3 methods):", "!!".red());
+            println!(
+                "  {} Classes with 0% trace coverage (>3 methods):",
+                "!!".red()
+            );
             for c in worst.iter().take(15) {
                 println!(
                     "    {} ({} methods, {} dead)",
@@ -407,7 +442,7 @@ fn run_flow_trace(
     _class_methods: &HashMap<String, Vec<String>>,
     method_class: &HashMap<String, String>,
 ) -> Result<()> {
-    use std::collections::{HashSet, VecDeque, BTreeMap};
+    use std::collections::{BTreeMap, HashSet, VecDeque};
 
     let target_lower = target_name.to_lowercase();
 
@@ -416,7 +451,10 @@ fn run_flow_trace(
         .iter_nodes()
         .filter(|n| {
             n.properties.name.to_lowercase() == target_lower
-                && matches!(n.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller)
+                && matches!(
+                    n.label,
+                    NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller
+                )
         })
         .collect();
     candidates.sort_by_key(|n| match n.label {
@@ -457,11 +495,14 @@ fn run_flow_trace(
         if seed_source_ids.contains(&rel.source_id)
             && matches!(
                 rel.rel_type,
-                RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction
+                RelationshipType::HasMethod
+                    | RelationshipType::HasProperty
+                    | RelationshipType::HasAction
             )
-            && visited.insert(rel.target_id.clone()) {
-                queue.push_back((rel.target_id.clone(), 0usize));
-            }
+            && visited.insert(rel.target_id.clone())
+        {
+            queue.push_back((rel.target_id.clone(), 0usize));
+        }
     }
 
     // BFS following Calls edges, collecting all traversed methods
@@ -471,14 +512,22 @@ fn run_flow_trace(
     // Add seed methods
     for mid in visited.iter() {
         if let Some(node) = graph.get_node(mid) {
-            if matches!(node.label, NodeLabel::Method | NodeLabel::Constructor | NodeLabel::ControllerAction) {
+            if matches!(
+                node.label,
+                NodeLabel::Method | NodeLabel::Constructor | NodeLabel::ControllerAction
+            ) {
                 let parent_class = method_class
                     .get(mid)
                     .and_then(|cid| graph.get_node(cid))
                     .map(|n| n.properties.name.clone())
                     .unwrap_or_else(|| {
-                        node.properties.file_path.rsplit('/').next().unwrap_or("?")
-                            .trim_end_matches(".cs").to_string()
+                        node.properties
+                            .file_path
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or("?")
+                            .trim_end_matches(".cs")
+                            .to_string()
                     });
                 flow_methods.push((mid.clone(), parent_class));
             }
@@ -488,8 +537,16 @@ fn run_flow_trace(
     // Pre-build outgoing adjacency map for O(1) lookups instead of O(E) per BFS step
     let mut outgoing_calls: HashMap<String, Vec<(String, RelationshipType)>> = HashMap::new();
     for rel in graph.iter_relationships() {
-        if matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService) {
-            outgoing_calls.entry(rel.source_id.clone()).or_default().push((rel.target_id.clone(), rel.rel_type));
+        if matches!(
+            rel.rel_type,
+            RelationshipType::Calls
+                | RelationshipType::CallsAction
+                | RelationshipType::CallsService
+        ) {
+            outgoing_calls
+                .entry(rel.source_id.clone())
+                .or_default()
+                .push((rel.target_id.clone(), rel.rel_type));
         }
     }
 
@@ -500,7 +557,10 @@ fn run_flow_trace(
         for (target_id, _rel_type) in outgoing_calls.get(&node_id).unwrap_or(&Vec::new()) {
             if visited.insert(target_id.clone()) {
                 if let Some(target) = graph.get_node(target_id) {
-                    if matches!(target.label, NodeLabel::Method | NodeLabel::Constructor | NodeLabel::ControllerAction) {
+                    if matches!(
+                        target.label,
+                        NodeLabel::Method | NodeLabel::Constructor | NodeLabel::ControllerAction
+                    ) {
                         if target.properties.file_path.contains("StackLogger") {
                             continue;
                         }
@@ -509,8 +569,14 @@ fn run_flow_trace(
                             .and_then(|cid| graph.get_node(cid))
                             .map(|n| n.properties.name.clone())
                             .unwrap_or_else(|| {
-                                target.properties.file_path.rsplit('/').next().unwrap_or("?")
-                                    .trim_end_matches(".cs").to_string()
+                                target
+                                    .properties
+                                    .file_path
+                                    .rsplit('/')
+                                    .next()
+                                    .unwrap_or("?")
+                                    .trim_end_matches(".cs")
+                                    .to_string()
                             });
                         flow_methods.push((target_id.clone(), parent_class));
                         queue.push_back((target_id.clone(), depth + 1));
@@ -527,10 +593,12 @@ fn run_flow_trace(
         if let Some(node) = graph.get_node(method_id) {
             let is_traced = node.properties.is_traced.unwrap_or(false);
             let is_dead = node.properties.is_dead_candidate.unwrap_or(false);
-            grouped
-                .entry(parent_class.clone())
-                .or_default()
-                .push((node.properties.name.clone(), is_traced, is_dead, node.properties.start_line));
+            grouped.entry(parent_class.clone()).or_default().push((
+                node.properties.name.clone(),
+                is_traced,
+                is_dead,
+                node.properties.start_line,
+            ));
         }
     }
 
@@ -556,7 +624,11 @@ fn run_flow_trace(
         total_traced += traced;
         total_dead += dead;
 
-        let pct = if count > 0 { (traced as f64 / count as f64) * 100.0 } else { 0.0 };
+        let pct = if count > 0 {
+            (traced as f64 / count as f64) * 100.0
+        } else {
+            0.0
+        };
         println!();
         println!(
             "  {} ({}/{} traced, {:.0}%)",
@@ -571,9 +643,19 @@ fn run_flow_trace(
             } else {
                 "X".red().to_string()
             };
-            let dead_marker = if *is_dead { " [dead]".dimmed().to_string() } else { String::new() };
+            let dead_marker = if *is_dead {
+                " [dead]".dimmed().to_string()
+            } else {
+                String::new()
+            };
             let line_info = line.map(|l| format!(":{}", l)).unwrap_or_default();
-            println!("    {} {}{}{}", marker, name, line_info.dimmed(), dead_marker);
+            println!(
+                "    {} {}{}{}",
+                marker,
+                name,
+                line_info.dimmed(),
+                dead_marker
+            );
         }
     }
 

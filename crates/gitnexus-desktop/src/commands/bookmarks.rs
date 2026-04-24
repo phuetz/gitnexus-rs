@@ -104,7 +104,8 @@ mod tests {
 
     #[test]
     fn test_save_and_load_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("gitnexus-bookmarks-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("gitnexus-bookmarks-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("bookmarks.json");
         let file = BookmarksFile {

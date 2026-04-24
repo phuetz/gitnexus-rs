@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::graph::types::NodeLabel;
+use gitnexus_core::graph::KnowledgeGraph;
 
 /// BM25 tuning constants.
 const BM25_K1: f64 = 1.2;
@@ -148,7 +148,9 @@ impl FtsIndex {
         for token in &query_tokens {
             if let Some(postings) = self.inverted.get(token.as_str()) {
                 let df = postings.len() as f64;
-                let idf = ((self.doc_count as f64 - df + 0.5) / (df + 0.5) + 1.0).ln().max(0.0);
+                let idf = ((self.doc_count as f64 - df + 0.5) / (df + 0.5) + 1.0)
+                    .ln()
+                    .max(0.0);
 
                 for (doc_id, tf) in postings {
                     let doc_len = *self.doc_lengths.get(doc_id.as_str()).unwrap_or(&1) as f64;
@@ -176,9 +178,8 @@ impl FtsIndex {
                         return None;
                     }
                 }
-                let weighted_score = score
-                    * path_weight(&node.properties.file_path)
-                    * label_weight(node.label);
+                let weighted_score =
+                    score * path_weight(&node.properties.file_path) * label_weight(node.label);
                 Some((node_id, weighted_score, node))
             })
             .collect();
@@ -215,15 +216,28 @@ pub fn path_weight(file_path: &str) -> f64 {
     // markers and fragment matches.
     const SUBSTRING_PENALIZE: &[&str] = &[
         // Minified assets
-        ".min.js", ".min.css", ".min.map", "-min.js", "-min.css",
+        ".min.js",
+        ".min.css",
+        ".min.map",
+        "-min.js",
+        "-min.css",
         // Visual Studio doc-comment stubs
-        "-vsdoc.js", ".vsdoc.js",
+        "-vsdoc.js",
+        ".vsdoc.js",
         // Generated sources (EF6, designer, XAML-gen)
-        ".designer.cs", ".g.cs", ".g.i.cs",
+        ".designer.cs",
+        ".g.cs",
+        ".g.i.cs",
         // Common third-party script bundles (match both fragments and prefix dirs)
-        "scripts/jquery", "scripts/knockout", "scripts/kendo",
-        "scripts/telerik", "scripts/angular", "scripts/bootstrap",
-        "scripts/modernizr", "scripts/moment", "scripts/history",
+        "scripts/jquery",
+        "scripts/knockout",
+        "scripts/kendo",
+        "scripts/telerik",
+        "scripts/angular",
+        "scripts/bootstrap",
+        "scripts/modernizr",
+        "scripts/moment",
+        "scripts/history",
     ];
     if SUBSTRING_PENALIZE.iter().any(|p| lc.contains(p)) {
         return 0.1;
@@ -232,7 +246,12 @@ pub fn path_weight(file_path: &str) -> f64 {
     // Directory-name patterns — must match a full path component (split on
     // `/` or `\`), so `mypackages/` doesn't trigger the `packages` rule.
     const DIR_PENALIZE: &[&str] = &[
-        "packages", "node_modules", "bower_components", "vendor", "obj", "bin",
+        "packages",
+        "node_modules",
+        "bower_components",
+        "vendor",
+        "obj",
+        "bin",
     ];
     let is_sep = |c: char| c == '/' || c == '\\';
     if lc.split(is_sep).any(|comp| DIR_PENALIZE.contains(&comp)) {
@@ -289,7 +308,9 @@ fn tokenize(text: &str) -> Vec<String> {
 
 /// Extract a table/label filter from FTS table names like `"fts_Function"`.
 pub fn parse_fts_table_filter(table_name: &str) -> Option<String> {
-    table_name.strip_prefix("fts_").map(|stripped| stripped.to_string())
+    table_name
+        .strip_prefix("fts_")
+        .map(|stripped| stripped.to_string())
 }
 
 /// Convert an `FtsResult` to a `serde_json::Value` row.
@@ -302,14 +323,23 @@ pub fn parse_fts_table_filter(table_name: &str) -> Option<String> {
 /// node lookups and the RRF hybrid merge keying.
 pub fn fts_result_to_json(r: &FtsResult) -> serde_json::Value {
     let mut map = serde_json::Map::new();
-    map.insert("nodeId".to_string(), serde_json::Value::String(r.node_id.clone()));
+    map.insert(
+        "nodeId".to_string(),
+        serde_json::Value::String(r.node_id.clone()),
+    );
     map.insert("score".to_string(), serde_json::json!(r.score));
-    map.insert("name".to_string(), serde_json::Value::String(r.name.clone()));
+    map.insert(
+        "name".to_string(),
+        serde_json::Value::String(r.name.clone()),
+    );
     map.insert(
         "filePath".to_string(),
         serde_json::Value::String(r.file_path.clone()),
     );
-    map.insert("label".to_string(), serde_json::Value::String(r.label.clone()));
+    map.insert(
+        "label".to_string(),
+        serde_json::Value::String(r.label.clone()),
+    );
     if let Some(sl) = r.start_line {
         map.insert("startLine".to_string(), serde_json::json!(sl));
     }
@@ -393,8 +423,14 @@ mod tests {
 
     #[test]
     fn test_parse_fts_table_filter() {
-        assert_eq!(parse_fts_table_filter("fts_Function"), Some("Function".to_string()));
-        assert_eq!(parse_fts_table_filter("fts_Class"), Some("Class".to_string()));
+        assert_eq!(
+            parse_fts_table_filter("fts_Function"),
+            Some("Function".to_string())
+        );
+        assert_eq!(
+            parse_fts_table_filter("fts_Class"),
+            Some("Class".to_string())
+        );
         assert_eq!(parse_fts_table_filter("other"), None);
     }
 
@@ -419,8 +455,14 @@ mod tests {
 
     #[test]
     fn test_path_weight_penalizes_minified() {
-        assert_eq!(path_weight("CCAS.Alise.ihm/Scripts/jquery-1.7.1.min.js"), 0.1);
-        assert_eq!(path_weight("packages/jQuery.1.7.1.1/Content/Scripts/jquery-1.7.1.js"), 0.1);
+        assert_eq!(
+            path_weight("CCAS.Alise.ihm/Scripts/jquery-1.7.1.min.js"),
+            0.1
+        );
+        assert_eq!(
+            path_weight("packages/jQuery.1.7.1.1/Content/Scripts/jquery-1.7.1.js"),
+            0.1
+        );
         assert_eq!(path_weight("node_modules/react/index.js"), 0.1);
         assert_eq!(path_weight("CCAS.Alise.BAL/Facture/FactureService.cs"), 1.0);
         assert_eq!(path_weight("src/main.rs"), 1.0);
@@ -461,6 +503,9 @@ mod tests {
         let idx = FtsIndex::build(&g);
         let results = idx.search(&g, "Paiement", None, 10);
         assert!(!results.is_empty());
-        assert_eq!(results[0].label, "Method", "business code must outrank minified");
+        assert_eq!(
+            results[0].label, "Method",
+            "business code must outrank minified"
+        );
     }
 }

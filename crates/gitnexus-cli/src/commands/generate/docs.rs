@@ -12,14 +12,18 @@ use tracing::{info, warn};
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 
-use super::utils::*;
-use super::functional::{generate_functional_guide, describe_project_fr};
-use super::health::generate_project_health;
-use super::deployment::{generate_deployment_guide, describe_service_fr};
 use super::analytics::generate_git_analytics_pages;
 use super::business::generate_business_docs;
+use super::deployment::{describe_service_fr, generate_deployment_guide};
+use super::functional::{describe_project_fr, generate_functional_guide};
+use super::health::generate_project_health;
+use super::utils::*;
 
-pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: &Path) -> Result<()> {
+pub(super) fn generate_docs(
+    graph: &KnowledgeGraph,
+    repo_path: &Path,
+    docs_dir: &Path,
+) -> Result<()> {
     // Clean old generated files to avoid stale duplicates. Propagate the
     // remove error so callers know the directory wasn't actually cleared
     // (otherwise stale files mix with newly generated ones, producing a
@@ -86,13 +90,8 @@ pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: 
     generate_docs_getting_started(docs_dir, repo_name, &communities, graph)?;
 
     // 4. Generate per-module files
-    let module_page_count = generate_docs_modules(
-        &modules_dir,
-        &communities,
-        graph,
-        &edge_map,
-        repo_path,
-    )?;
+    let module_page_count =
+        generate_docs_modules(&modules_dir, &communities, graph, &edge_map, repo_path)?;
 
     // 5b. Generate deployment guide
     generate_deployment_guide(docs_dir, repo_name, graph)?;
@@ -120,7 +119,8 @@ pub(super) fn generate_docs(graph: &KnowledgeGraph, repo_path: &Path, docs_dir: 
     };
 
     // Total page count: static pages (overview, architecture, getting-started, deployment, functional-guide, project-health) + git analytics + module pages + ASP.NET pages + business pages
-    let total_pages = 6 + git_analytics_count + module_page_count + aspnet_pages.len() + business_page_count;
+    let total_pages =
+        6 + git_analytics_count + module_page_count + aspnet_pages.len() + business_page_count;
     info!("Documentation generated: {} pages total", total_pages);
 
     // 6. Generate _index.json LAST so it includes ASP.NET pages
@@ -197,7 +197,9 @@ fn generate_docs_index(
     if has_business {
         let processes_dir = docs_dir.join("processes");
         if processes_dir.exists() {
-            let mut entries: Vec<_> = std::fs::read_dir(&processes_dir)?.filter_map(|e| e.ok()).collect();
+            let mut entries: Vec<_> = std::fs::read_dir(&processes_dir)?
+                .filter_map(|e| e.ok())
+                .collect();
             entries.sort_by_key(|e| e.path());
             for entry in entries {
                 let path = entry.path();
@@ -232,7 +234,9 @@ fn generate_docs_index(
         ("aspnet-data-model", "database"),
         ("aspnet-seq-http", "arrow-right-left"),
         ("aspnet-seq-data", "hard-drive"),
-    ].into_iter().collect();
+    ]
+    .into_iter()
+    .collect();
 
     let mut pages_array = vec![
         json!({
@@ -369,12 +373,21 @@ fn generate_docs_overview(
     let mut f = std::fs::File::create(&out_path)?;
 
     let label_counts = count_nodes_by_label(graph);
-    let controller_count = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0);
+    let controller_count = label_counts
+        .get(&NodeLabel::Controller)
+        .copied()
+        .unwrap_or(0);
     let view_count = label_counts.get(&NodeLabel::View).copied().unwrap_or(0);
     let entity_count = label_counts.get(&NodeLabel::DbEntity).copied().unwrap_or(0);
     let service_count = label_counts.get(&NodeLabel::Service).copied().unwrap_or(0)
-        + label_counts.get(&NodeLabel::Repository).copied().unwrap_or(0);
-    let ui_count = label_counts.get(&NodeLabel::UiComponent).copied().unwrap_or(0);
+        + label_counts
+            .get(&NodeLabel::Repository)
+            .copied()
+            .unwrap_or(0);
+    let ui_count = label_counts
+        .get(&NodeLabel::UiComponent)
+        .copied()
+        .unwrap_or(0);
 
     // Title
     writeln!(f, "# {}", repo_name)?;
@@ -387,41 +400,71 @@ fn generate_docs_overview(
     write!(f, "{}", source_files_section(&top_files_refs))?;
 
     // Business description — specific to the project type
-    let (_languages, _frameworks, _ui_libs, _auto_desc) = detect_technology_stack(graph, lang_stats);
-    let has_aspnet = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0) > 0;
-    let has_ef = label_counts.get(&NodeLabel::DbContext).copied().unwrap_or(0) > 0;
-    let has_telerik = label_counts.get(&NodeLabel::UiComponent).copied().unwrap_or(0) > 0;
+    let (_languages, _frameworks, _ui_libs, _auto_desc) =
+        detect_technology_stack(graph, lang_stats);
+    let has_aspnet = label_counts
+        .get(&NodeLabel::Controller)
+        .copied()
+        .unwrap_or(0)
+        > 0;
+    let has_ef = label_counts
+        .get(&NodeLabel::DbContext)
+        .copied()
+        .unwrap_or(0)
+        > 0;
+    let has_telerik = label_counts
+        .get(&NodeLabel::UiComponent)
+        .copied()
+        .unwrap_or(0)
+        > 0;
 
     if has_aspnet && has_ef {
         writeln!(f, "> **{}** est une application de gestion métier construite en ASP.NET MVC 5 avec Entity Framework 6.", repo_name)?;
         if has_telerik {
             writeln!(f, "> L'interface utilise des grilles Telerik pour l'affichage et la saisie des données.")?;
         }
-        let ext_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
+        let ext_count = label_counts
+            .get(&NodeLabel::ExternalService)
+            .copied()
+            .unwrap_or(0);
         if ext_count > 0 {
-            writeln!(f, "> Le système s'intègre avec {} services externes (WebAPI, WCF, LDAP).", ext_count)?;
+            writeln!(
+                f,
+                "> Le système s'intègre avec {} services externes (WebAPI, WCF, LDAP).",
+                ext_count
+            )?;
         }
     } else {
         writeln!(f, "> {}", _auto_desc)?;
     }
     // Tracing / dead-code extra sentence (conditionnel)
     {
-        let dead_count = graph.iter_nodes()
+        let dead_count = graph
+            .iter_nodes()
             .filter(|n| n.properties.is_dead_candidate.unwrap_or(false))
             .count();
-        let traced_count = graph.iter_nodes()
+        let traced_count = graph
+            .iter_nodes()
             .filter(|n| n.properties.is_traced.unwrap_or(false))
             .count();
         if traced_count > 0 || dead_count > 0 {
             let mut extra = String::new();
             if traced_count > 0 {
-                extra.push_str(&format!("{} méthodes instrumentées avec StackLogger.", traced_count));
+                extra.push_str(&format!(
+                    "{} méthodes instrumentées avec StackLogger.",
+                    traced_count
+                ));
             }
             if dead_count > 0 {
-                if !extra.is_empty() { extra.push(' '); }
-                extra.push_str(&format!("{} méthode{} candidate{} au code mort.",
-                    dead_count, if dead_count > 1 { "s" } else { "" },
-                    if dead_count > 1 { "s" } else { "" }));
+                if !extra.is_empty() {
+                    extra.push(' ');
+                }
+                extra.push_str(&format!(
+                    "{} méthode{} candidate{} au code mort.",
+                    dead_count,
+                    if dead_count > 1 { "s" } else { "" },
+                    if dead_count > 1 { "s" } else { "" }
+                ));
             }
             writeln!(f, "> {}", extra)?;
         }
@@ -463,13 +506,27 @@ fn generate_docs_overview(
     if !ui_libs.is_empty() {
         writeln!(f, "| **UI Components** | {} |", ui_libs.join(", "))?;
     }
-    let ctx_count = label_counts.get(&NodeLabel::DbContext).copied().unwrap_or(0);
+    let ctx_count = label_counts
+        .get(&NodeLabel::DbContext)
+        .copied()
+        .unwrap_or(0);
     if ctx_count > 0 {
-        writeln!(f, "| **ORM** | Entity Framework 6 ({} DbContexts) |", ctx_count)?;
+        writeln!(
+            f,
+            "| **ORM** | Entity Framework 6 ({} DbContexts) |",
+            ctx_count
+        )?;
     }
-    let ext_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
+    let ext_count = label_counts
+        .get(&NodeLabel::ExternalService)
+        .copied()
+        .unwrap_or(0);
     if ext_count > 0 {
-        writeln!(f, "| **Integrations** | {} external services (WebAPI, WCF) |", ext_count)?;
+        writeln!(
+            f,
+            "| **Integrations** | {} external services (WebAPI, WCF) |",
+            ext_count
+        )?;
     }
     writeln!(f)?;
 
@@ -486,18 +543,21 @@ fn generate_docs_overview(
                 .member_ids
                 .iter()
                 .filter_map(|mid| graph.get_node(mid))
-                .filter(|n| n.properties.entry_point_score.map(|s| s > 0.3).unwrap_or(false))
+                .filter(|n| {
+                    n.properties
+                        .entry_point_score
+                        .map(|s| s > 0.3)
+                        .unwrap_or(false)
+                })
                 .count();
             let desc = info
                 .description
                 .as_deref()
-                .unwrap_or(
-                    if !info.keywords.is_empty() {
-                        ""
-                    } else {
-                        "Module"
-                    }
-                );
+                .unwrap_or(if !info.keywords.is_empty() {
+                    ""
+                } else {
+                    "Module"
+                });
             let desc_str = if desc.is_empty() {
                 info.keywords.join(", ")
             } else {
@@ -521,7 +581,8 @@ fn generate_docs_overview(
             0.0
         };
 
-        let total_files = graph.iter_nodes()
+        let total_files = graph
+            .iter_nodes()
             .filter(|n| n.label == NodeLabel::File)
             .count();
         // Restrict the numerator to File nodes — `is_traced` is also set on
@@ -531,7 +592,8 @@ fn generate_docs_overview(
         // below (which only fires when `traced_pct < 10.0`). The sibling
         // `project-health.md` generator applies the same filter for the same
         // reason — keep the two in sync.
-        let traced_files = graph.iter_nodes()
+        let traced_files = graph
+            .iter_nodes()
             .filter(|n| n.label == NodeLabel::File && n.properties.is_traced == Some(true))
             .count();
         let traced_pct = if total_files > 0 {
@@ -539,20 +601,29 @@ fn generate_docs_overview(
         } else {
             0.0
         };
-        let ext_svc_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
+        let ext_svc_count = label_counts
+            .get(&NodeLabel::ExternalService)
+            .copied()
+            .unwrap_or(0);
 
         // Dead code stats
-        let dead_count = graph.iter_nodes()
+        let dead_count = graph
+            .iter_nodes()
             .filter(|n| n.properties.is_dead_candidate == Some(true))
             .count();
 
         let mut has_alerts = false;
 
         if dead_count > 0 {
-            let total_m = graph.iter_nodes()
+            let total_m = graph
+                .iter_nodes()
                 .filter(|n| matches!(n.label, NodeLabel::Method | NodeLabel::Function))
                 .count();
-            let dead_pct = if total_m > 0 { (dead_count as f64 / total_m as f64) * 100.0 } else { 0.0 };
+            let dead_pct = if total_m > 0 {
+                (dead_count as f64 / total_m as f64) * 100.0
+            } else {
+                0.0
+            };
             if !has_alerts {
                 writeln!(f, "## Signaux d'Alerte")?;
                 writeln!(f)?;
@@ -565,8 +636,15 @@ fn generate_docs_overview(
             } else {
                 writeln!(f, "> [!NOTE]")?;
             }
-            writeln!(f, "> **{} méthodes** ({:.1}%) détectées comme code mort potentiel (aucun appelant).", dead_count, dead_pct)?;
-            writeln!(f, "> Voir la page [Santé du Projet](project-health.md) pour le détail.")?;
+            writeln!(
+                f,
+                "> **{} méthodes** ({:.1}%) détectées comme code mort potentiel (aucun appelant).",
+                dead_count, dead_pct
+            )?;
+            writeln!(
+                f,
+                "> Voir la page [Santé du Projet](project-health.md) pour le détail."
+            )?;
             writeln!(f)?;
         }
 
@@ -577,8 +655,15 @@ fn generate_docs_overview(
                 has_alerts = true;
             }
             writeln!(f, "> [!WARNING]")?;
-            writeln!(f, "> Seulement {:.0}% des fichiers ont une traçabilité StackLogger.", traced_pct)?;
-            writeln!(f, "> Les modules non tracés seront difficiles à déboguer en production.")?;
+            writeln!(
+                f,
+                "> Seulement {:.0}% des fichiers ont une traçabilité StackLogger.",
+                traced_pct
+            )?;
+            writeln!(
+                f,
+                "> Les modules non tracés seront difficiles à déboguer en production."
+            )?;
             writeln!(f)?;
         }
 
@@ -589,8 +674,15 @@ fn generate_docs_overview(
                 has_alerts = true;
             }
             writeln!(f, "> [!DANGER]")?;
-            writeln!(f, "> Densité de couplage élevée ({:.1}). Le système est fortement interconnecté.", density)?;
-            writeln!(f, "> Tout changement peut avoir des effets de bord importants.")?;
+            writeln!(
+                f,
+                "> Densité de couplage élevée ({:.1}). Le système est fortement interconnecté.",
+                density
+            )?;
+            writeln!(
+                f,
+                "> Tout changement peut avoir des effets de bord importants."
+            )?;
             writeln!(f)?;
         }
 
@@ -599,11 +691,20 @@ fn generate_docs_overview(
                 writeln!(f, "## Signaux d'Alerte")?;
                 writeln!(f)?;
                 #[allow(unused_assignments)]
-                { has_alerts = true; }
+                {
+                    has_alerts = true;
+                }
             }
             writeln!(f, "> [!NOTE]")?;
-            writeln!(f, "> {} services externes détectés. Chaque intégration est un point de", ext_svc_count)?;
-            writeln!(f, "> fragilité potentiel (timeout, indisponibilité, changement d'API).")?;
+            writeln!(
+                f,
+                "> {} services externes détectés. Chaque intégration est un point de",
+                ext_svc_count
+            )?;
+            writeln!(
+                f,
+                "> fragilité potentiel (timeout, indisponibilité, changement d'API)."
+            )?;
             writeln!(f)?;
         }
     }
@@ -613,11 +714,19 @@ fn generate_docs_overview(
 
     // Summary
     let ctrl_pages = controller_count;
-    let data_pages = label_counts.get(&NodeLabel::DbContext).copied().unwrap_or(0);
+    let data_pages = label_counts
+        .get(&NodeLabel::DbContext)
+        .copied()
+        .unwrap_or(0);
     let svc_page = if service_count > 0 { 1 } else { 0 };
     let ui_page = if ui_count > 0 { 1 } else { 0 };
-    let ajax_page = if label_counts.get(&NodeLabel::AjaxCall).copied().unwrap_or(0) > 0 { 1 } else { 0 };
-    let total_pages = 4 + communities.len() + ctrl_pages + data_pages + svc_page + ui_page + ajax_page;
+    let ajax_page = if label_counts.get(&NodeLabel::AjaxCall).copied().unwrap_or(0) > 0 {
+        1
+    } else {
+        0
+    };
+    let total_pages =
+        4 + communities.len() + ctrl_pages + data_pages + svc_page + ui_page + ajax_page;
 
     writeln!(f, "## Summary")?;
     writeln!(f)?;
@@ -626,7 +735,10 @@ fn generate_docs_overview(
         "This documentation covers {} pages organized into sections:",
         total_pages
     )?;
-    writeln!(f, "Overview, Architecture, Getting Started, Déploiement, Modules")?;
+    writeln!(
+        f,
+        "Overview, Architecture, Getting Started, Déploiement, Modules"
+    )?;
     if controller_count > 0 {
         write!(f, ", Controllers")?;
     }
@@ -642,7 +754,10 @@ fn generate_docs_overview(
     writeln!(f, ".")?;
     writeln!(f)?;
 
-    writeln!(f, "**See also:** [Architecture](./architecture.md) · [Getting Started](./getting-started.md)")?;
+    writeln!(
+        f,
+        "**See also:** [Architecture](./architecture.md) · [Getting Started](./getting-started.md)"
+    )?;
     writeln!(f)?;
     writeln!(f, "---")?;
     writeln!(f, "[Next: Architecture ->](./architecture.md)")?;
@@ -665,21 +780,49 @@ fn generate_docs_architecture(
     let mut f = std::fs::File::create(&out_path)?;
 
     let label_counts = count_nodes_by_label(graph);
-    let ctrl_count = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0);
+    let ctrl_count = label_counts
+        .get(&NodeLabel::Controller)
+        .copied()
+        .unwrap_or(0);
     let view_count = label_counts.get(&NodeLabel::View).copied().unwrap_or(0);
     let svc_count = label_counts.get(&NodeLabel::Service).copied().unwrap_or(0)
-        + label_counts.get(&NodeLabel::Repository).copied().unwrap_or(0);
-    let ctx_count = label_counts.get(&NodeLabel::DbContext).copied().unwrap_or(0);
+        + label_counts
+            .get(&NodeLabel::Repository)
+            .copied()
+            .unwrap_or(0);
+    let ctx_count = label_counts
+        .get(&NodeLabel::DbContext)
+        .copied()
+        .unwrap_or(0);
     let entity_count = label_counts.get(&NodeLabel::DbEntity).copied().unwrap_or(0);
-    let ext_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
-    let action_count = label_counts.get(&NodeLabel::ControllerAction).copied().unwrap_or(0);
-    let ui_count = label_counts.get(&NodeLabel::UiComponent).copied().unwrap_or(0);
-    let edmx_count: usize = graph.iter_nodes()
+    let ext_count = label_counts
+        .get(&NodeLabel::ExternalService)
+        .copied()
+        .unwrap_or(0);
+    let action_count = label_counts
+        .get(&NodeLabel::ControllerAction)
+        .copied()
+        .unwrap_or(0);
+    let ui_count = label_counts
+        .get(&NodeLabel::UiComponent)
+        .copied()
+        .unwrap_or(0);
+    let edmx_count: usize = graph
+        .iter_nodes()
         .filter(|n| n.label == NodeLabel::File && n.properties.file_path.ends_with(".edmx"))
         .count();
 
-    let arch_files: Vec<String> = graph.iter_nodes()
-        .filter(|n| matches!(n.label, NodeLabel::Controller | NodeLabel::Service | NodeLabel::DbContext | NodeLabel::Repository))
+    let arch_files: Vec<String> = graph
+        .iter_nodes()
+        .filter(|n| {
+            matches!(
+                n.label,
+                NodeLabel::Controller
+                    | NodeLabel::Service
+                    | NodeLabel::DbContext
+                    | NodeLabel::Repository
+            )
+        })
         .map(|n| n.properties.file_path.clone())
         .collect::<BTreeSet<String>>()
         .into_iter()
@@ -700,7 +843,9 @@ fn generate_docs_architecture(
         writeln!(
             f,
             "System architecture with **{}** modules, **{}** nodes, and **{}** relationships.",
-            communities.len(), node_count, edge_count
+            communities.len(),
+            node_count,
+            edge_count
         )?;
     }
     writeln!(f)?;
@@ -742,25 +887,46 @@ fn generate_docs_architecture(
             writeln!(f, "    end")?;
         }
 
-        let has_ctrl_to_svc = svc_count > 0 && graph.iter_relationships().any(|r| {
-            matches!(r.rel_type, RelationshipType::DependsOn | RelationshipType::Calls)
-                && graph.get_node(&r.source_id).map(|n| n.label == NodeLabel::Controller).unwrap_or(false)
-                && graph.get_node(&r.target_id).map(|n| matches!(n.label, NodeLabel::Service | NodeLabel::Repository)).unwrap_or(false)
-        });
-        let has_svc_to_db = ctx_count > 0 && graph.iter_relationships().any(|r| {
-            matches!(r.rel_type, RelationshipType::DependsOn | RelationshipType::Calls | RelationshipType::Uses)
-                && graph.get_node(&r.source_id).map(|n| matches!(n.label, NodeLabel::Service | NodeLabel::Repository)).unwrap_or(false)
-                && graph.get_node(&r.target_id).map(|n| n.label == NodeLabel::DbContext).unwrap_or(false)
-        });
-        let has_db_to_entity = entity_count > 0 && graph.iter_relationships().any(|r| {
-            r.rel_type == RelationshipType::MapsToEntity
-        });
-        let has_ctrl_to_view = view_count > 0 && graph.iter_relationships().any(|r| {
-            r.rel_type == RelationshipType::RendersView
-        });
-        let has_svc_to_ext = ext_count > 0 && graph.iter_relationships().any(|r| {
-            r.rel_type == RelationshipType::CallsService
-        });
+        let has_ctrl_to_svc = svc_count > 0
+            && graph.iter_relationships().any(|r| {
+                matches!(
+                    r.rel_type,
+                    RelationshipType::DependsOn | RelationshipType::Calls
+                ) && graph
+                    .get_node(&r.source_id)
+                    .map(|n| n.label == NodeLabel::Controller)
+                    .unwrap_or(false)
+                    && graph
+                        .get_node(&r.target_id)
+                        .map(|n| matches!(n.label, NodeLabel::Service | NodeLabel::Repository))
+                        .unwrap_or(false)
+            });
+        let has_svc_to_db = ctx_count > 0
+            && graph.iter_relationships().any(|r| {
+                matches!(
+                    r.rel_type,
+                    RelationshipType::DependsOn | RelationshipType::Calls | RelationshipType::Uses
+                ) && graph
+                    .get_node(&r.source_id)
+                    .map(|n| matches!(n.label, NodeLabel::Service | NodeLabel::Repository))
+                    .unwrap_or(false)
+                    && graph
+                        .get_node(&r.target_id)
+                        .map(|n| n.label == NodeLabel::DbContext)
+                        .unwrap_or(false)
+            });
+        let has_db_to_entity = entity_count > 0
+            && graph
+                .iter_relationships()
+                .any(|r| r.rel_type == RelationshipType::MapsToEntity);
+        let has_ctrl_to_view = view_count > 0
+            && graph
+                .iter_relationships()
+                .any(|r| r.rel_type == RelationshipType::RendersView);
+        let has_svc_to_ext = ext_count > 0
+            && graph
+                .iter_relationships()
+                .any(|r| r.rel_type == RelationshipType::CallsService);
 
         if has_ctrl_to_svc || svc_count > 0 {
             writeln!(f, "    C --> S")?;
@@ -780,7 +946,12 @@ fn generate_docs_architecture(
     } else {
         for info in communities.values() {
             let safe_id = sanitize_filename(&info.label).replace('-', "_");
-            writeln!(f, "    {}[\"{}\"]", safe_id, escape_mermaid_label(&info.label))?;
+            writeln!(
+                f,
+                "    {}[\"{}\"]",
+                safe_id,
+                escape_mermaid_label(&info.label)
+            )?;
         }
 
         let mut member_to_community: HashMap<String, String> = HashMap::new();
@@ -797,7 +968,10 @@ fn generate_docs_architecture(
                     member_to_community.get(&rel.target_id),
                 ) {
                     if src_comm != tgt_comm {
-                        cross_deps.entry(src_comm.clone()).or_default().insert(tgt_comm.clone());
+                        cross_deps
+                            .entry(src_comm.clone())
+                            .or_default()
+                            .insert(tgt_comm.clone());
                     }
                 }
             }
@@ -818,20 +992,37 @@ fn generate_docs_architecture(
     writeln!(f, "<!-- GNX:INTRO:violations -->")?;
     writeln!(f)?;
     {
-        let violations: Vec<(&GraphNode, &GraphNode)> = graph.iter_relationships()
-            .filter(|r| matches!(r.rel_type, RelationshipType::DependsOn | RelationshipType::Calls))
+        let violations: Vec<(&GraphNode, &GraphNode)> = graph
+            .iter_relationships()
+            .filter(|r| {
+                matches!(
+                    r.rel_type,
+                    RelationshipType::DependsOn | RelationshipType::Calls
+                )
+            })
             .filter_map(|r| {
                 let src = graph.get_node(&r.source_id)?;
                 let tgt = graph.get_node(&r.target_id)?;
                 if matches!(src.label, NodeLabel::Controller)
-                    && matches!(tgt.label, NodeLabel::DbContext | NodeLabel::DbEntity | NodeLabel::Repository)
-                { Some((src, tgt)) } else { None }
+                    && matches!(
+                        tgt.label,
+                        NodeLabel::DbContext | NodeLabel::DbEntity | NodeLabel::Repository
+                    )
+                {
+                    Some((src, tgt))
+                } else {
+                    None
+                }
             })
             .collect();
         if violations.is_empty() {
             writeln!(f, "> Aucune violation de couche détectée.")?;
         } else {
-            writeln!(f, "> **{} violation(s)** — Controllers accédant directement à la couche données.", violations.len())?;
+            writeln!(
+                f,
+                "> **{} violation(s)** — Controllers accédant directement à la couche données.",
+                violations.len()
+            )?;
             writeln!(f)?;
             writeln!(f, "```mermaid")?;
             writeln!(f, "graph LR")?;
@@ -840,8 +1031,11 @@ fn generate_docs_architecture(
                 let sid = sanitize_mermaid_id(&src.properties.name);
                 let tid = sanitize_mermaid_id(&tgt.properties.name);
                 if shown.insert(format!("{}->{}", sid, tid)) {
-                    writeln!(f, "    {}[\"{}\"] -->|bypass| {}[\"{}\"]",
-                        sid, src.properties.name, tid, tgt.properties.name)?;
+                    writeln!(
+                        f,
+                        "    {}[\"{}\"] -->|bypass| {}[\"{}\"]",
+                        sid, src.properties.name, tid, tgt.properties.name
+                    )?;
                 }
             }
             writeln!(f, "```")?;
@@ -849,8 +1043,13 @@ fn generate_docs_architecture(
             writeln!(f, "| Controller | Accès direct à | Type |")?;
             writeln!(f, "|-----------|----------------|------|")?;
             for (src, tgt) in violations.iter().take(30) {
-                writeln!(f, "| `{}` | `{}` | {} |",
-                    src.properties.name, tgt.properties.name, tgt.label.as_str())?;
+                writeln!(
+                    f,
+                    "| `{}` | `{}` | {} |",
+                    src.properties.name,
+                    tgt.properties.name,
+                    tgt.label.as_str()
+                )?;
             }
         }
         writeln!(f)?;
@@ -862,7 +1061,11 @@ fn generate_docs_architecture(
 
     if ctrl_count > 0 {
         writeln!(f, "### Presentation Layer")?;
-        writeln!(f, "{} controllers with {} actions serving {} views.", ctrl_count, action_count, view_count)?;
+        writeln!(
+            f,
+            "{} controllers with {} actions serving {} views.",
+            ctrl_count, action_count, view_count
+        )?;
         if ui_count > 0 {
             writeln!(f, "{} Telerik/Kendo UI components detected.", ui_count)?;
         }
@@ -871,13 +1074,21 @@ fn generate_docs_architecture(
 
     if svc_count > 0 {
         writeln!(f, "### Business Logic Layer")?;
-        writeln!(f, "{} services handling business rules and data processing.", svc_count)?;
+        writeln!(
+            f,
+            "{} services handling business rules and data processing.",
+            svc_count
+        )?;
         writeln!(f)?;
     }
 
     if ctx_count > 0 || entity_count > 0 {
         writeln!(f, "### Data Access Layer")?;
-        writeln!(f, "{} Entity Framework DbContext classes managing {} entities", ctx_count, entity_count)?;
+        writeln!(
+            f,
+            "{} Entity Framework DbContext classes managing {} entities",
+            ctx_count, entity_count
+        )?;
         if edmx_count > 0 {
             writeln!(f, "across {} EDMX data models.", edmx_count)?;
         } else {
@@ -888,10 +1099,15 @@ fn generate_docs_architecture(
 
     if ext_count > 0 {
         writeln!(f, "### External Integrations")?;
-        writeln!(f, "{} external service connections detected (WebAPI, WCF, LDAP).", ext_count)?;
+        writeln!(
+            f,
+            "{} external service connections detected (WebAPI, WCF, LDAP).",
+            ext_count
+        )?;
         writeln!(f)?;
 
-        let ext_services: Vec<&GraphNode> = graph.iter_nodes()
+        let ext_services: Vec<&GraphNode> = graph
+            .iter_nodes()
             .filter(|n| n.label == NodeLabel::ExternalService)
             .collect();
         if !ext_services.is_empty() {
@@ -909,10 +1125,17 @@ fn generate_docs_architecture(
     if has_tiered {
         writeln!(f, "The application follows a layered architecture with clear separation of concerns between presentation, business logic, and data access.")?;
     } else {
-        writeln!(f, "The codebase is organized into {} interconnected modules.", communities.len())?;
+        writeln!(
+            f,
+            "The codebase is organized into {} interconnected modules.",
+            communities.len()
+        )?;
     }
     writeln!(f)?;
-    writeln!(f, "**See also:** [Overview](./overview.md) · [Getting Started](./getting-started.md)")?;
+    writeln!(
+        f,
+        "**See also:** [Overview](./overview.md) · [Getting Started](./getting-started.md)"
+    )?;
     writeln!(f)?;
     writeln!(f, "---")?;
     // Mirror the static page order built in `generate_docs_modules`
@@ -940,7 +1163,12 @@ fn generate_docs_getting_started(
 
     let mut ep_files: Vec<String> = graph
         .iter_nodes()
-        .filter(|n| n.properties.entry_point_score.map(|s| s > 0.3).unwrap_or(false))
+        .filter(|n| {
+            n.properties
+                .entry_point_score
+                .map(|s| s > 0.3)
+                .unwrap_or(false)
+        })
         .map(|n| n.properties.file_path.clone())
         .collect::<BTreeSet<String>>()
         .into_iter()
@@ -969,7 +1197,11 @@ fn generate_docs_getting_started(
     }
 
     if !project_files.is_empty() {
-        writeln!(f, "La solution contient **{} projets** :", project_files.len())?;
+        writeln!(
+            f,
+            "La solution contient **{} projets** :",
+            project_files.len()
+        )?;
         writeln!(f)?;
         writeln!(f, "| Projet | Fichiers | Rôle |")?;
         writeln!(f, "|--------|----------|------|")?;
@@ -999,7 +1231,11 @@ fn generate_docs_getting_started(
         writeln!(f, "Commencez l'exploration par ces points d'entrée :")?;
         writeln!(f)?;
         for (node, _score) in entry_points.iter().take(10) {
-            writeln!(f, "- `{}` in `{}`", node.properties.name, node.properties.file_path)?;
+            writeln!(
+                f,
+                "- `{}` in `{}`",
+                node.properties.name, node.properties.file_path
+            )?;
         }
         writeln!(f)?;
     }
@@ -1009,15 +1245,27 @@ fn generate_docs_getting_started(
         writeln!(f, "## Prérequis & Setup local")?;
         writeln!(f, "<!-- GNX:INTRO:setup-local -->")?;
         writeln!(f)?;
-        writeln!(f, "Ce projet est une application **ASP.NET MVC 5** (.NET Framework).")?;
+        writeln!(
+            f,
+            "Ce projet est une application **ASP.NET MVC 5** (.NET Framework)."
+        )?;
         writeln!(f)?;
         writeln!(f, "### Prérequis")?;
         writeln!(f)?;
         writeln!(f, "| Outil | Version | Notes |")?;
         writeln!(f, "|-------|---------|-------|")?;
-        writeln!(f, "| Visual Studio | 2019+ | Avec le workload \"Développement web ASP.NET\" |")?;
-        writeln!(f, "| .NET Framework | 4.6.1+ | Vérifier dans `web.config` \u{2192} `targetFramework` |")?;
-        writeln!(f, "| SQL Server | 2016+ | Base de données locale ou distante |")?;
+        writeln!(
+            f,
+            "| Visual Studio | 2019+ | Avec le workload \"Développement web ASP.NET\" |"
+        )?;
+        writeln!(
+            f,
+            "| .NET Framework | 4.6.1+ | Vérifier dans `web.config` \u{2192} `targetFramework` |"
+        )?;
+        writeln!(
+            f,
+            "| SQL Server | 2016+ | Base de données locale ou distante |"
+        )?;
         writeln!(f, "| IIS Express | intégré à VS | Pour le debug local |")?;
         writeln!(f)?;
         writeln!(f, "### Étapes de démarrage")?;
@@ -1052,13 +1300,28 @@ fn generate_docs_getting_started(
 
     writeln!(f, "## Pour aller plus loin")?;
     writeln!(f)?;
-    writeln!(f, "- Consultez l'**Architecture** pour comprendre les couches du système")?;
-    writeln!(f, "- Explorez les **Controllers** pour voir les fonctionnalités par écran")?;
-    writeln!(f, "- Le **Guide Fonctionnel** décrit chaque module du point de vue métier")?;
-    writeln!(f, "- Les **Services Externes** détaillent les intégrations (Erable, WCF)")?;
+    writeln!(
+        f,
+        "- Consultez l'**Architecture** pour comprendre les couches du système"
+    )?;
+    writeln!(
+        f,
+        "- Explorez les **Controllers** pour voir les fonctionnalités par écran"
+    )?;
+    writeln!(
+        f,
+        "- Le **Guide Fonctionnel** décrit chaque module du point de vue métier"
+    )?;
+    writeln!(
+        f,
+        "- Les **Services Externes** détaillent les intégrations (Erable, WCF)"
+    )?;
     writeln!(f)?;
 
-    writeln!(f, "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)")?;
+    writeln!(
+        f,
+        "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)"
+    )?;
     writeln!(f)?;
     writeln!(f, "---")?;
     // Point Next at `deployment.md` (a real file at docs root) rather than
@@ -1067,7 +1330,10 @@ fn generate_docs_getting_started(
     // page. Deployment is the actual next page in the static doc order
     // (overview -> project-health -> architecture -> getting-started ->
     // deployment -> modules).
-    writeln!(f, "[<- Previous: Architecture](./architecture.md) | [Next: Déploiement ->](./deployment.md)")?;
+    writeln!(
+        f,
+        "[<- Previous: Architecture](./architecture.md) | [Next: Déploiement ->](./deployment.md)"
+    )?;
 
     println!("  {} getting-started.md", "OK".green());
     Ok(())
@@ -1095,20 +1361,28 @@ fn generate_docs_modules(
 
     let mut page_order: Vec<(String, String)> = vec![
         ("../overview".to_string(), "Overview".to_string()),
-        ("../project-health".to_string(), "Santé du Projet".to_string()),
+        (
+            "../project-health".to_string(),
+            "Santé du Projet".to_string(),
+        ),
         ("../architecture".to_string(), "Architecture".to_string()),
-        ("../getting-started".to_string(), "Getting Started".to_string()),
+        (
+            "../getting-started".to_string(),
+            "Getting Started".to_string(),
+        ),
     ];
 
     let mut merged_communities: BTreeMap<String, CommunityInfo> = BTreeMap::new();
     for info in communities.values() {
         let base = sanitize_filename(&info.label);
-        let entry = merged_communities.entry(base).or_insert_with(|| CommunityInfo {
-            label: info.label.clone(),
-            description: info.description.clone(),
-            member_ids: Vec::new(),
-            keywords: Vec::new(),
-        });
+        let entry = merged_communities
+            .entry(base)
+            .or_insert_with(|| CommunityInfo {
+                label: info.label.clone(),
+                description: info.description.clone(),
+                member_ids: Vec::new(),
+                keywords: Vec::new(),
+            });
         for mid in &info.member_ids {
             if !entry.member_ids.contains(mid) {
                 entry.member_ids.push(mid.clone());
@@ -1136,13 +1410,22 @@ fn generate_docs_modules(
     let mut action_counts: HashMap<String, usize> = HashMap::new();
     for n in graph.iter_nodes() {
         if n.label == NodeLabel::ControllerAction {
-            *action_counts.entry(n.properties.file_path.clone()).or_insert(0) += 1;
+            *action_counts
+                .entry(n.properties.file_path.clone())
+                .or_insert(0) += 1;
         }
     }
 
-    let mut controllers: Vec<&GraphNode> = graph.iter_nodes()
+    let mut controllers: Vec<&GraphNode> = graph
+        .iter_nodes()
         .filter(|n| n.label == NodeLabel::Controller)
-        .filter(|c| action_counts.get(&c.properties.file_path).copied().unwrap_or(0) >= 3)
+        .filter(|c| {
+            action_counts
+                .get(&c.properties.file_path)
+                .copied()
+                .unwrap_or(0)
+                >= 3
+        })
         .collect();
     controllers.sort_by(|a, b| a.properties.name.cmp(&b.properties.name));
 
@@ -1165,7 +1448,8 @@ fn generate_docs_modules(
     // controller's lower-cased name. Enrichment trims the trailing `-N`
     // before matching so the duplicates still resolve to the same node set.
     let mut used_filenames: HashSet<String> = HashSet::new();
-    let ctrl_filenames: Vec<(String, String)> = controllers.iter()
+    let ctrl_filenames: Vec<(String, String)> = controllers
+        .iter()
         .map(|c| {
             let base = format!("ctrl-{}", sanitize_filename(&c.properties.name));
             let mut fname = base.clone();
@@ -1181,10 +1465,12 @@ fn generate_docs_modules(
         page_order.push((fname.clone(), title.clone()));
     }
 
-    let db_contexts: Vec<&GraphNode> = graph.iter_nodes()
+    let db_contexts: Vec<&GraphNode> = graph
+        .iter_nodes()
         .filter(|n| n.label == NodeLabel::DbContext)
         .collect();
-    let data_filenames: Vec<(String, String)> = db_contexts.iter()
+    let data_filenames: Vec<(String, String)> = db_contexts
+        .iter()
         .map(|c| {
             let fname = format!("data-{}", sanitize_filename(&c.properties.name));
             (fname, format!("Data Model: {}", c.properties.name))
@@ -1194,32 +1480,39 @@ fn generate_docs_modules(
         page_order.push((fname.clone(), title.clone()));
     }
 
-    let services: Vec<&GraphNode> = graph.iter_nodes()
+    let services: Vec<&GraphNode> = graph
+        .iter_nodes()
         .filter(|n| n.label == NodeLabel::Service || n.label == NodeLabel::Repository)
         .collect();
     if !services.is_empty() {
         page_order.push(("services".to_string(), "Service Layer".to_string()));
     }
 
-    let ui_components: Vec<&GraphNode> = graph.iter_nodes()
+    let ui_components: Vec<&GraphNode> = graph
+        .iter_nodes()
         .filter(|n| n.label == NodeLabel::UiComponent)
         .collect();
     if !ui_components.is_empty() {
         page_order.push(("ui-components".to_string(), "UI Components".to_string()));
     }
 
-    let ajax_calls: Vec<&GraphNode> = graph.iter_nodes()
+    let ajax_calls: Vec<&GraphNode> = graph
+        .iter_nodes()
         .filter(|n| n.label == NodeLabel::AjaxCall)
         .collect();
     if !ajax_calls.is_empty() {
         page_order.push(("ajax-endpoints".to_string(), "AJAX Endpoints".to_string()));
     }
 
-    let ext_services: Vec<&GraphNode> = graph.iter_nodes()
+    let ext_services: Vec<&GraphNode> = graph
+        .iter_nodes()
         .filter(|n| n.label == NodeLabel::ExternalService)
         .collect();
     if !ext_services.is_empty() {
-        page_order.push(("external-services".to_string(), "External Services".to_string()));
+        page_order.push((
+            "external-services".to_string(),
+            "External Services".to_string(),
+        ));
     }
 
     fn nav_footer(page_order: &[(String, String)], current_filename: &str) -> String {
@@ -1228,7 +1521,10 @@ fn generate_docs_modules(
         if let Some(i) = idx {
             if i > 0 {
                 let (prev_file, prev_title) = &page_order[i - 1];
-                footer.push_str(&format!("[<- Previous: {}](./{}.md)", prev_title, prev_file));
+                footer.push_str(&format!(
+                    "[<- Previous: {}](./{}.md)",
+                    prev_title, prev_file
+                ));
             }
             if i > 0 && i + 1 < page_order.len() {
                 footer.push_str(" | ");
@@ -1282,9 +1578,17 @@ fn generate_docs_modules(
         for mid in &info.member_ids {
             if let Some(edges) = edge_map.get(mid.as_str()) {
                 for (target_id, rel_type) in edges {
-                    if *rel_type == RelationshipType::Calls && member_set.contains(target_id.as_str()) {
-                        let src_name = graph.get_node(mid).map(|n| n.properties.name.as_str()).unwrap_or("?");
-                        let tgt_name = graph.get_node(target_id).map(|n| n.properties.name.as_str()).unwrap_or("?");
+                    if *rel_type == RelationshipType::Calls
+                        && member_set.contains(target_id.as_str())
+                    {
+                        let src_name = graph
+                            .get_node(mid)
+                            .map(|n| n.properties.name.as_str())
+                            .unwrap_or("?");
+                        let tgt_name = graph
+                            .get_node(target_id)
+                            .map(|n| n.properties.name.as_str())
+                            .unwrap_or("?");
                         internal_calls.push((src_name.to_string(), tgt_name.to_string()));
                     }
                 }
@@ -1333,19 +1637,28 @@ fn generate_docs_modules(
             for node in members {
                 let lines = match (node.properties.start_line, node.properties.end_line) {
                     (Some(s), Some(e)) => format!("{}-{}", s, e),
-                    (Some(s), None)    => s.to_string(),
-                    _                  => "-".to_string(),
+                    (Some(s), None) => s.to_string(),
+                    _ => "-".to_string(),
                 };
-                writeln!(f, "| `{}` | `{}` | {} |",
-                    node.properties.name, node.properties.file_path, lines)?;
+                writeln!(
+                    f,
+                    "| `{}` | `{}` | {} |",
+                    node.properties.name, node.properties.file_path, lines
+                )?;
             }
             writeln!(f)?;
         }
 
         let mut entry_points: Vec<&GraphNode> = info
-            .member_ids.iter()
+            .member_ids
+            .iter()
             .filter_map(|mid| graph.get_node(mid))
-            .filter(|n| n.properties.entry_point_score.map(|s| s > 0.3).unwrap_or(false))
+            .filter(|n| {
+                n.properties
+                    .entry_point_score
+                    .map(|s| s > 0.3)
+                    .unwrap_or(false)
+            })
             .collect();
         entry_points.sort_by(|a, b| {
             let sa = a.properties.entry_point_score.unwrap_or(0.0);
@@ -1358,7 +1671,11 @@ fn generate_docs_modules(
             writeln!(f)?;
             for node in entry_points.iter().take(10) {
                 let score = node.properties.entry_point_score.unwrap_or(0.0);
-                writeln!(f, "- `{}` (score: {:.2}) in `{}`", node.properties.name, score, node.properties.file_path)?;
+                writeln!(
+                    f,
+                    "- `{}` (score: {:.2}) in `{}`",
+                    node.properties.name, score, node.properties.file_path
+                )?;
             }
             writeln!(f)?;
         }
@@ -1376,7 +1693,9 @@ fn generate_docs_modules(
         for mid in &info.member_ids {
             if let Some(edges) = edge_map.get(mid.as_str()) {
                 for (target_id, rel_type) in edges {
-                    if *rel_type == RelationshipType::Calls && !member_set.contains(target_id.as_str()) {
+                    if *rel_type == RelationshipType::Calls
+                        && !member_set.contains(target_id.as_str())
+                    {
                         if let Some(target_comm) = member_to_community.get(target_id) {
                             *external_deps.entry(target_comm.clone()).or_insert(0) += 1;
                         }
@@ -1392,7 +1711,11 @@ fn generate_docs_modules(
             sorted.sort_by(|a, b| b.1.cmp(&a.1));
             for (target_comm, count) in sorted {
                 let target_filename = sanitize_filename(&target_comm);
-                writeln!(f, "- [**{}**]({}.md) - {} call(s)", target_comm, target_filename, count)?;
+                writeln!(
+                    f,
+                    "- [**{}**]({}.md) - {} call(s)",
+                    target_comm, target_filename, count
+                )?;
             }
             writeln!(f)?;
         }
@@ -1442,75 +1765,162 @@ fn generate_docs_modules(
         let (filename, _) = &ctrl_filenames[ctrl_idx];
         let out_path = modules_dir.join(format!("{filename}.md"));
 
-        let mut actions: Vec<&GraphNode> = graph.iter_nodes()
-            .filter(|n| n.label == NodeLabel::ControllerAction && n.properties.file_path == ctrl.properties.file_path)
+        let mut actions: Vec<&GraphNode> = graph
+            .iter_nodes()
+            .filter(|n| {
+                n.label == NodeLabel::ControllerAction
+                    && n.properties.file_path == ctrl.properties.file_path
+            })
             .collect();
-        actions.sort_by(|a, b| a.properties.start_line.unwrap_or(0).cmp(&b.properties.start_line.unwrap_or(0)));
+        actions.sort_by(|a, b| {
+            a.properties
+                .start_line
+                .unwrap_or(0)
+                .cmp(&b.properties.start_line.unwrap_or(0))
+        });
 
         // Controllers with fewer than 3 actions were already filtered out
         // upstream when building `controllers` so they don't pollute
         // `page_order` with dangling nav links.
 
         let action_ids: HashSet<String> = actions.iter().map(|a| a.id.clone()).collect();
-        let caller_rels: Vec<&GraphRelationship> = graph.iter_relationships()
-            .filter(|r| action_ids.contains(&r.target_id) && (r.rel_type == RelationshipType::CallsAction || r.rel_type == RelationshipType::Calls))
+        let caller_rels: Vec<&GraphRelationship> = graph
+            .iter_relationships()
+            .filter(|r| {
+                action_ids.contains(&r.target_id)
+                    && (r.rel_type == RelationshipType::CallsAction
+                        || r.rel_type == RelationshipType::Calls)
+            })
             .collect();
 
         let mut action_callers: HashMap<String, Vec<(String, String)>> = HashMap::new();
         for r in &caller_rels {
             let short_name = if let Some(src_node) = graph.get_node(&r.source_id) {
                 let label_str = match src_node.label {
-                    NodeLabel::View | NodeLabel::PartialView => src_node.properties.file_path.rsplit(['/', '\\']).next().unwrap_or(&src_node.properties.name).to_string(),
+                    NodeLabel::View | NodeLabel::PartialView => src_node
+                        .properties
+                        .file_path
+                        .rsplit(['/', '\\'])
+                        .next()
+                        .unwrap_or(&src_node.properties.name)
+                        .to_string(),
                     NodeLabel::UiComponent => {
-                        let file = src_node.properties.file_path.rsplit(['/', '\\']).next().unwrap_or("vue");
+                        let file = src_node
+                            .properties
+                            .file_path
+                            .rsplit(['/', '\\'])
+                            .next()
+                            .unwrap_or("vue");
                         let model = src_node.properties.bound_model.as_deref().unwrap_or("");
                         let cols = src_node.properties.description.as_deref().unwrap_or("");
                         if !model.is_empty() && !cols.is_empty() {
                             let short_cols: String = cols.chars().take(30).collect();
                             format!("{} Grid<{}> [{}]", file, model, short_cols)
-                        } else if !model.is_empty() { format!("{} Grid<{}>", file, model) }
-                        else { format!("{} (Grille)", file) }
+                        } else if !model.is_empty() {
+                            format!("{} Grid<{}>", file, model)
+                        } else {
+                            format!("{} (Grille)", file)
+                        }
                     }
-                    NodeLabel::AjaxCall | NodeLabel::ScriptFile => src_node.properties.file_path.rsplit(['/', '\\']).next().unwrap_or(&src_node.properties.name).to_string(),
+                    NodeLabel::AjaxCall | NodeLabel::ScriptFile => src_node
+                        .properties
+                        .file_path
+                        .rsplit(['/', '\\'])
+                        .next()
+                        .unwrap_or(&src_node.properties.name)
+                        .to_string(),
                     _ => src_node.properties.name.clone(),
                 };
                 let type_str = match src_node.label {
                     NodeLabel::View => "Vue".to_string(),
                     NodeLabel::PartialView => "Partielle".to_string(),
                     NodeLabel::UiComponent => "Grille".to_string(),
-                    NodeLabel::AjaxCall => { let m = src_node.properties.ajax_method.as_deref().unwrap_or("AJAX"); format!("AJAX {}", m) }
+                    NodeLabel::AjaxCall => {
+                        let m = src_node.properties.ajax_method.as_deref().unwrap_or("AJAX");
+                        format!("AJAX {}", m)
+                    }
                     NodeLabel::ScriptFile => "Script".to_string(),
                     _ => format!("{:?}", src_node.label),
                 };
                 (label_str, type_str)
             } else {
-                let short = r.source_id.rsplit(':').next().unwrap_or(&r.source_id).to_string();
+                let short = r
+                    .source_id
+                    .rsplit(':')
+                    .next()
+                    .unwrap_or(&r.source_id)
+                    .to_string();
                 (short, "Unknown".to_string())
             };
             let entry = action_callers.entry(r.target_id.clone()).or_default();
-            if !entry.iter().any(|(n, _)| *n == short_name.0) { entry.push(short_name); }
+            if !entry.iter().any(|(n, _)| *n == short_name.0) {
+                entry.push(short_name);
+            }
         }
 
-        let view_targets: Vec<String> = graph.iter_relationships()
-            .filter(|r| r.rel_type == RelationshipType::RendersView && (r.source_id.contains(ctrl_name.as_str()) || graph.get_node(&r.source_id).map(|n| n.properties.file_path == ctrl.properties.file_path).unwrap_or(false)))
-            .map(|r| r.target_id.clone()).collect();
-        let mut view_files: Vec<String> = view_targets.iter()
+        let view_targets: Vec<String> = graph
+            .iter_relationships()
+            .filter(|r| {
+                r.rel_type == RelationshipType::RendersView
+                    && (r.source_id.contains(ctrl_name.as_str())
+                        || graph
+                            .get_node(&r.source_id)
+                            .map(|n| n.properties.file_path == ctrl.properties.file_path)
+                            .unwrap_or(false))
+            })
+            .map(|r| r.target_id.clone())
+            .collect();
+        let mut view_files: Vec<String> = view_targets
+            .iter()
             .filter_map(|vid| graph.get_node(vid).map(|n| n.properties.file_path.clone()))
-            .collect::<BTreeSet<String>>().into_iter().collect();
-        if view_files.is_empty() { view_files = view_targets.iter().cloned().collect::<BTreeSet<String>>().into_iter().collect(); }
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+        if view_files.is_empty() {
+            view_files = view_targets
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<String>>()
+                .into_iter()
+                .collect();
+        }
 
-        let dependencies: Vec<String> = graph.iter_relationships()
-            .filter(|r| r.rel_type == RelationshipType::DependsOn && (r.source_id.contains(ctrl_name.as_str()) || graph.get_node(&r.source_id).map(|n| n.properties.file_path == ctrl.properties.file_path && n.label == NodeLabel::Controller).unwrap_or(false)))
-            .filter_map(|r| graph.get_node(&r.target_id).map(|n| n.properties.name.clone()))
-            .collect::<BTreeSet<String>>().into_iter().collect();
+        let dependencies: Vec<String> = graph
+            .iter_relationships()
+            .filter(|r| {
+                r.rel_type == RelationshipType::DependsOn
+                    && (r.source_id.contains(ctrl_name.as_str())
+                        || graph
+                            .get_node(&r.source_id)
+                            .map(|n| {
+                                n.properties.file_path == ctrl.properties.file_path
+                                    && n.label == NodeLabel::Controller
+                            })
+                            .unwrap_or(false))
+            })
+            .filter_map(|r| {
+                graph
+                    .get_node(&r.target_id)
+                    .map(|n| n.properties.name.clone())
+            })
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
 
         let mut src_files: Vec<String> = vec![ctrl.properties.file_path.clone()];
         src_files.extend(view_files.iter().cloned());
         let src_file_refs: Vec<&str> = src_files.iter().take(15).map(|s| s.as_str()).collect();
 
-        let known_types: HashSet<String> = graph.iter_nodes()
-            .filter(|n| matches!(n.label, NodeLabel::DbEntity | NodeLabel::ViewModel | NodeLabel::Class))
-            .map(|n| n.properties.name.clone()).collect();
+        let known_types: HashSet<String> = graph
+            .iter_nodes()
+            .filter(|n| {
+                matches!(
+                    n.label,
+                    NodeLabel::DbEntity | NodeLabel::ViewModel | NodeLabel::Class
+                )
+            })
+            .map(|n| n.properties.name.clone())
+            .collect();
 
         let mut content = format!("# {}\n\n", ctrl_name);
         content.push_str("<!-- GNX:LEAD -->\n");
@@ -1520,37 +1930,66 @@ fn generate_docs_modules(
         let action_count = actions.len();
 
         // Verb distribution from already-collected actions
-        let mut get_n = 0usize; let mut post_n = 0usize; let mut other_n = 0usize;
+        let mut get_n = 0usize;
+        let mut post_n = 0usize;
+        let mut other_n = 0usize;
         for a in &actions {
             match a.properties.http_method.as_deref().unwrap_or("GET") {
-                "GET" => get_n += 1, "POST" => post_n += 1, _ => other_n += 1,
+                "GET" => get_n += 1,
+                "POST" => post_n += 1,
+                _ => other_n += 1,
             }
         }
-        let view_count_lead = graph.iter_relationships()
+        let view_count_lead = graph
+            .iter_relationships()
             .filter(|r| r.source_id == ctrl.id && r.rel_type == RelationshipType::RendersView)
             .count();
-        let svc_count_lead = graph.iter_relationships()
+        let svc_count_lead = graph
+            .iter_relationships()
             .filter(|r| r.source_id == ctrl.id && r.rel_type == RelationshipType::DependsOn)
             .count();
 
-        let lead = if let Some(d) = ctrl.properties.description.as_deref().filter(|d| !d.is_empty()) {
+        let lead = if let Some(d) = ctrl
+            .properties
+            .description
+            .as_deref()
+            .filter(|d| !d.is_empty())
+        {
             format!("> {}\n\n", d)
         } else {
-            let mut s = format!("> **{}** expose **{}** action{}",
-                base_name, action_count, if action_count > 1 { "s" } else { "" });
+            let mut s = format!(
+                "> **{}** expose **{}** action{}",
+                base_name,
+                action_count,
+                if action_count > 1 { "s" } else { "" }
+            );
             let mut verbs = Vec::new();
-            if get_n > 0 { verbs.push(format!("{} GET", get_n)); }
-            if post_n > 0 { verbs.push(format!("{} POST", post_n)); }
-            if other_n > 0 { verbs.push(format!("{} autres", other_n)); }
-            if !verbs.is_empty() { s.push_str(&format!(" ({})", verbs.join(", "))); }
+            if get_n > 0 {
+                verbs.push(format!("{} GET", get_n));
+            }
+            if post_n > 0 {
+                verbs.push(format!("{} POST", post_n));
+            }
+            if other_n > 0 {
+                verbs.push(format!("{} autres", other_n));
+            }
+            if !verbs.is_empty() {
+                s.push_str(&format!(" ({})", verbs.join(", ")));
+            }
             s.push('.');
             if svc_count_lead > 0 {
-                s.push_str(&format!(" Appelle **{}** service{}.", svc_count_lead,
-                    if svc_count_lead > 1 { "s" } else { "" }));
+                s.push_str(&format!(
+                    " Appelle **{}** service{}.",
+                    svc_count_lead,
+                    if svc_count_lead > 1 { "s" } else { "" }
+                ));
             }
             if view_count_lead > 0 {
-                s.push_str(&format!(" Rend **{}** vue{}.", view_count_lead,
-                    if view_count_lead > 1 { "s" } else { "" }));
+                s.push_str(&format!(
+                    " Rend **{}** vue{}.",
+                    view_count_lead,
+                    if view_count_lead > 1 { "s" } else { "" }
+                ));
             }
             format!("{}\n\n", s)
         };
@@ -1561,16 +2000,43 @@ fn generate_docs_modules(
         content.push_str("|---|--------|--------|-------|-----------|--------|------------|\n");
         for (i, action) in actions.iter().enumerate() {
             let method = action.properties.http_method.as_deref().unwrap_or("GET");
-            let route = action.properties.route_template.as_deref()
+            let route = action
+                .properties
+                .route_template
+                .as_deref()
                 .filter(|r| !r.is_empty())
                 .map(|r| format!("`{}`", r))
                 .unwrap_or_else(|| "-".to_string());
-            let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");
-            let params = extract_params_linked(action.properties.description.as_deref().unwrap_or(""), &known_types);
-            let called_by = action_callers.get(&action.id)
-                .map(|callers| callers.iter().take(3).map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", "))
+            let ret = action
+                .properties
+                .return_type
+                .as_deref()
+                .unwrap_or("ActionResult");
+            let params = extract_params_linked(
+                action.properties.description.as_deref().unwrap_or(""),
+                &known_types,
+            );
+            let called_by = action_callers
+                .get(&action.id)
+                .map(|callers| {
+                    callers
+                        .iter()
+                        .take(3)
+                        .map(|(name, _)| name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
                 .unwrap_or_else(|| "-".to_string());
-            content.push_str(&format!("| {} | **{}** | {} | {} | {} | {} | {} |\n", i + 1, action.properties.name, method, route, params, ret, called_by));
+            content.push_str(&format!(
+                "| {} | **{}** | {} | {} | {} | {} | {} |\n",
+                i + 1,
+                action.properties.name,
+                method,
+                route,
+                params,
+                ret,
+                called_by
+            ));
         }
         content.push('\n');
         content.push_str("<!-- GNX:TIP:actions -->\n");
@@ -1580,24 +2046,76 @@ fn generate_docs_modules(
             let mut action_impacts: Vec<(String, Vec<String>, Vec<String>)> = Vec::new();
             for action in &actions {
                 let action_name = action.properties.name.clone();
-                let callees: Vec<String> = graph.iter_relationships()
-                    .filter(|r| r.source_id == action.id && matches!(r.rel_type, RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::DependsOn | RelationshipType::CallsService))
-                    .filter_map(|r| graph.get_node(&r.target_id).map(|n| n.properties.name.clone()))
-                    .collect::<BTreeSet<String>>().into_iter().collect();
-                let callers: Vec<String> = graph.iter_relationships()
-                    .filter(|r| r.target_id == action.id && matches!(r.rel_type, RelationshipType::Calls | RelationshipType::CallsAction))
-                    .filter_map(|r| graph.get_node(&r.source_id).map(|n| n.properties.name.clone()))
-                    .collect::<BTreeSet<String>>().into_iter().collect();
-                if callees.len() + callers.len() > 0 { action_impacts.push((action_name, callees, callers)); }
+                let callees: Vec<String> = graph
+                    .iter_relationships()
+                    .filter(|r| {
+                        r.source_id == action.id
+                            && matches!(
+                                r.rel_type,
+                                RelationshipType::Calls
+                                    | RelationshipType::CallsAction
+                                    | RelationshipType::DependsOn
+                                    | RelationshipType::CallsService
+                            )
+                    })
+                    .filter_map(|r| {
+                        graph
+                            .get_node(&r.target_id)
+                            .map(|n| n.properties.name.clone())
+                    })
+                    .collect::<BTreeSet<String>>()
+                    .into_iter()
+                    .collect();
+                let callers: Vec<String> = graph
+                    .iter_relationships()
+                    .filter(|r| {
+                        r.target_id == action.id
+                            && matches!(
+                                r.rel_type,
+                                RelationshipType::Calls | RelationshipType::CallsAction
+                            )
+                    })
+                    .filter_map(|r| {
+                        graph
+                            .get_node(&r.source_id)
+                            .map(|n| n.properties.name.clone())
+                    })
+                    .collect::<BTreeSet<String>>()
+                    .into_iter()
+                    .collect();
+                if callees.len() + callers.len() > 0 {
+                    action_impacts.push((action_name, callees, callers));
+                }
             }
             action_impacts.sort_by(|a, b| (b.1.len() + b.2.len()).cmp(&(a.1.len() + a.2.len())));
             if !action_impacts.is_empty() {
                 content.push_str("## Analyse d'Impact\n\n> Si une action de ce controller est modifiée, voici les composants potentiellement impactés.\n\n");
                 content.push_str("| Action modifiée | Impact aval (callees) | Impact amont (callers) |\n|----------------|----------------------|----------------------|\n");
                 for (action_name, callees, callers) in action_impacts.iter().take(5) {
-                    let callees_str = if callees.is_empty() { "-".to_string() } else { callees.iter().take(5).map(|s| format!("`{}`", s)).collect::<Vec<_>>().join(", ") };
-                    let callers_str = if callers.is_empty() { "-".to_string() } else { callers.iter().take(5).map(|s| format!("`{}`", s)).collect::<Vec<_>>().join(", ") };
-                    content.push_str(&format!("| **{}** | {} | {} |\n", action_name, callees_str, callers_str));
+                    let callees_str = if callees.is_empty() {
+                        "-".to_string()
+                    } else {
+                        callees
+                            .iter()
+                            .take(5)
+                            .map(|s| format!("`{}`", s))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+                    let callers_str = if callers.is_empty() {
+                        "-".to_string()
+                    } else {
+                        callers
+                            .iter()
+                            .take(5)
+                            .map(|s| format!("`{}`", s))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+                    content.push_str(&format!(
+                        "| **{}** | {} | {} |\n",
+                        action_name, callees_str, callers_str
+                    ));
                 }
                 content.push('\n');
             }
@@ -1608,61 +2126,165 @@ fn generate_docs_modules(
             let mut caller_rows: Vec<(String, String, String, String)> = Vec::new();
             let mut seen_callers: HashSet<(String, String)> = HashSet::new();
             for r in &caller_rels {
-                let (source_name, source_type) = if let Some(src_node) = graph.get_node(&r.source_id) {
-                    let name = match src_node.label { NodeLabel::View | NodeLabel::PartialView => src_node.properties.file_path.rsplit(['/', '\\']).next().unwrap_or(&src_node.properties.name).to_string(), _ => src_node.properties.name.clone() };
-                    let stype = match src_node.label {
-                        NodeLabel::View => { if r.reason.contains("form") || r.reason.contains("Form") { "View (Form)".to_string() } else { "View".to_string() } }
-                        NodeLabel::PartialView => "Partial View".to_string(),
-                        NodeLabel::AjaxCall => { let ajax_type = src_node.properties.ajax_method.as_deref().unwrap_or("AJAX"); if src_node.properties.ajax_url.as_deref().map(|u| u.contains("getJSON")).unwrap_or(false) { "Script ($.getJSON)".to_string() } else { format!("Script ({})", ajax_type) } }
-                        _ => format!("{:?}", src_node.label),
+                let (source_name, source_type) =
+                    if let Some(src_node) = graph.get_node(&r.source_id) {
+                        let name = match src_node.label {
+                            NodeLabel::View | NodeLabel::PartialView => src_node
+                                .properties
+                                .file_path
+                                .rsplit(['/', '\\'])
+                                .next()
+                                .unwrap_or(&src_node.properties.name)
+                                .to_string(),
+                            _ => src_node.properties.name.clone(),
+                        };
+                        let stype = match src_node.label {
+                            NodeLabel::View => {
+                                if r.reason.contains("form") || r.reason.contains("Form") {
+                                    "View (Form)".to_string()
+                                } else {
+                                    "View".to_string()
+                                }
+                            }
+                            NodeLabel::PartialView => "Partial View".to_string(),
+                            NodeLabel::AjaxCall => {
+                                let ajax_type =
+                                    src_node.properties.ajax_method.as_deref().unwrap_or("AJAX");
+                                if src_node
+                                    .properties
+                                    .ajax_url
+                                    .as_deref()
+                                    .map(|u| u.contains("getJSON"))
+                                    .unwrap_or(false)
+                                {
+                                    "Script ($.getJSON)".to_string()
+                                } else {
+                                    format!("Script ({})", ajax_type)
+                                }
+                            }
+                            _ => format!("{:?}", src_node.label),
+                        };
+                        (name, stype)
+                    } else {
+                        let short = r
+                            .source_id
+                            .rsplit(':')
+                            .next()
+                            .unwrap_or(&r.source_id)
+                            .to_string();
+                        (short, "Unknown".to_string())
                     };
-                    (name, stype)
-                } else { let short = r.source_id.rsplit(':').next().unwrap_or(&r.source_id).to_string(); (short, "Unknown".to_string()) };
-                let target_action = graph.get_node(&r.target_id).map(|n| n.properties.name.clone()).unwrap_or_else(|| r.target_id.rsplit(':').next().unwrap_or(&r.target_id).to_string());
-                let method = graph.get_node(&r.target_id).and_then(|n| n.properties.http_method.as_ref()).cloned().unwrap_or_else(|| "-".to_string());
+                let target_action = graph
+                    .get_node(&r.target_id)
+                    .map(|n| n.properties.name.clone())
+                    .unwrap_or_else(|| {
+                        r.target_id
+                            .rsplit(':')
+                            .next()
+                            .unwrap_or(&r.target_id)
+                            .to_string()
+                    });
+                let method = graph
+                    .get_node(&r.target_id)
+                    .and_then(|n| n.properties.http_method.as_ref())
+                    .cloned()
+                    .unwrap_or_else(|| "-".to_string());
                 let key = (source_name.clone(), target_action.clone());
-                if seen_callers.insert(key) { caller_rows.push((source_name, source_type, target_action, method)); }
+                if seen_callers.insert(key) {
+                    caller_rows.push((source_name, source_type, target_action, method));
+                }
             }
             if !caller_rows.is_empty() {
                 content.push_str("## Callers\n\nThis controller is called from:\n\n| Source | Type | Action | Method |\n|--------|------|--------|--------|\n");
                 for (source, stype, action, method) in &caller_rows {
-                    content.push_str(&format!("| {} | {} | {} | {} |\n", source, stype, action, method));
+                    content.push_str(&format!(
+                        "| {} | {} | {} | {} |\n",
+                        source, stype, action, method
+                    ));
                 }
                 content.push('\n');
             }
         }
 
-        if !view_files.is_empty() { content.push_str("## Associated Views\n\n"); for v in &view_files { content.push_str(&format!("- `{}`\n", v)); } content.push('\n'); }
-        if !dependencies.is_empty() { content.push_str("## Dependencies\n\n"); for dep in &dependencies { content.push_str(&format!("- `{}`\n", dep)); } content.push('\n'); }
+        if !view_files.is_empty() {
+            content.push_str("## Associated Views\n\n");
+            for v in &view_files {
+                content.push_str(&format!("- `{}`\n", v));
+            }
+            content.push('\n');
+        }
+        if !dependencies.is_empty() {
+            content.push_str("## Dependencies\n\n");
+            for dep in &dependencies {
+                content.push_str(&format!("- `{}`\n", dep));
+            }
+            content.push('\n');
+        }
 
         // Action Details
         if !actions.is_empty() {
             content.push_str("## Action Details\n\n");
             for action in &actions {
                 let method = action.properties.http_method.as_deref().unwrap_or("GET");
-                let params_short = extract_params_from_content(action.properties.description.as_deref().unwrap_or(""), &action.properties.name);
-                content.push_str(&format!("<details>\n<summary><strong>{}</strong> ({}) — {}</summary>\n\n", action.properties.name, method, if params_short == "-" { "aucun paramètre".to_string() } else { params_short.clone() }));
+                let params_short = extract_params_from_content(
+                    action.properties.description.as_deref().unwrap_or(""),
+                    &action.properties.name,
+                );
+                content.push_str(&format!(
+                    "<details>\n<summary><strong>{}</strong> ({}) — {}</summary>\n\n",
+                    action.properties.name,
+                    method,
+                    if params_short == "-" {
+                        "aucun paramètre".to_string()
+                    } else {
+                        params_short.clone()
+                    }
+                ));
                 content.push_str(&format!("**Fichier :** `{}`", ctrl.properties.file_path));
-                if let Some(line) = action.properties.start_line { content.push_str(&format!(" (ligne {})", line)); }
+                if let Some(line) = action.properties.start_line {
+                    content.push_str(&format!(" (ligne {})", line));
+                }
                 content.push('\n');
-                if let Some(rt) = &action.properties.route_template { if !rt.is_empty() { content.push_str(&format!("**Route :** `{}`\n", rt)); } }
-                if params_short != "-" { content.push_str(&format!("**Paramètres :** {}\n", params_short)); }
-                let ret = action.properties.return_type.as_deref().unwrap_or("ActionResult");
+                if let Some(rt) = &action.properties.route_template {
+                    if !rt.is_empty() {
+                        content.push_str(&format!("**Route :** `{}`\n", rt));
+                    }
+                }
+                if params_short != "-" {
+                    content.push_str(&format!("**Paramètres :** {}\n", params_short));
+                }
+                let ret = action
+                    .properties
+                    .return_type
+                    .as_deref()
+                    .unwrap_or("ActionResult");
                 content.push_str(&format!("**Returns:** {}\n", ret));
                 if let Some(callers) = action_callers.get(&action.id) {
-                    let caller_strs: Vec<String> = callers.iter().map(|(name, stype)| format!("{} ({})", name, stype)).collect();
-                    if !caller_strs.is_empty() { content.push_str(&format!("**Appelé par :** {}\n", caller_strs.join(", "))); }
+                    let caller_strs: Vec<String> = callers
+                        .iter()
+                        .map(|(name, stype)| format!("{} ({})", name, stype))
+                        .collect();
+                    if !caller_strs.is_empty() {
+                        content.push_str(&format!("**Appelé par :** {}\n", caller_strs.join(", ")));
+                    }
                 }
                 if let Some(keys) = &action.properties.response_keys {
-                    if !keys.is_empty() { content.push_str(&format!("**Réponse :** `{}`\n", keys.join("`, `"))); }
+                    if !keys.is_empty() {
+                        content.push_str(&format!("**Réponse :** `{}`\n", keys.join("`, `")));
+                    }
                 }
                 if let Some(keys) = &action.properties.error_keys {
-                    if !keys.is_empty() { content.push_str(&format!("**Erreurs :** `{}`\n", keys.join("`, `"))); }
+                    if !keys.is_empty() {
+                        content.push_str(&format!("**Erreurs :** `{}`\n", keys.join("`, `")));
+                    }
                 }
                 write_llm_badge(&mut content, &action.properties);
                 if let Some(source) = read_repo_source(&ctrl.properties.file_path) {
-                    if let Some(snippet) = extract_method_body(&source, &action.properties.name, 50) {
-                        content.push_str("\n```csharp\n"); content.push_str(&snippet); content.push_str("```\n");
+                    if let Some(snippet) = extract_method_body(&source, &action.properties.name, 50)
+                    {
+                        content.push_str("\n```csharp\n");
+                        content.push_str(&snippet);
+                        content.push_str("```\n");
                     }
                 }
                 content.push_str("\n</details>\n\n");
@@ -1670,8 +2292,13 @@ fn generate_docs_modules(
         }
 
         content.push_str("<!-- GNX:CLOSING -->\n");
-        content.push_str(&format!("## Summary\n\n**{}** provides {} actions.\n\n", ctrl_name, action_count));
-        content.push_str("**See also:** [Architecture](../architecture.md) · [Services](./services.md)\n");
+        content.push_str(&format!(
+            "## Summary\n\n**{}** provides {} actions.\n\n",
+            ctrl_name, action_count
+        ));
+        content.push_str(
+            "**See also:** [Architecture](../architecture.md) · [Services](./services.md)\n",
+        );
         content.push_str(&nav_footer(&page_order, filename));
 
         std::fs::write(&out_path, &content)?;
@@ -1684,15 +2311,34 @@ fn generate_docs_modules(
         let ctx_name = &ctx.properties.name;
         let (filename, _) = &data_filenames[ctx_idx];
         let out_path = modules_dir.join(format!("{filename}.md"));
-        let entities: Vec<&GraphNode> = graph.iter_nodes().filter(|n| n.label == NodeLabel::DbEntity).collect();
+        let entities: Vec<&GraphNode> = graph
+            .iter_nodes()
+            .filter(|n| n.label == NodeLabel::DbEntity)
+            .collect();
         let mut src_files: Vec<String> = vec![ctx.properties.file_path.clone()];
-        for e in &entities { if !e.properties.file_path.is_empty() { src_files.push(e.properties.file_path.clone()); } }
-        let src_files_dedup: Vec<String> = src_files.into_iter().collect::<BTreeSet<String>>().into_iter().collect();
-        let src_file_refs: Vec<&str> = src_files_dedup.iter().take(15).map(|s| s.as_str()).collect();
+        for e in &entities {
+            if !e.properties.file_path.is_empty() {
+                src_files.push(e.properties.file_path.clone());
+            }
+        }
+        let src_files_dedup: Vec<String> = src_files
+            .into_iter()
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+        let src_file_refs: Vec<&str> = src_files_dedup
+            .iter()
+            .take(15)
+            .map(|s| s.as_str())
+            .collect();
 
         let mut content = format!("# Data Model: {}\n\n<!-- GNX:LEAD -->\n", ctx_name);
         content.push_str(&source_files_section(&src_file_refs));
-        content.push_str(&format!("**File:** `{}`\n\n**Entities:** {}\n\n", ctx.properties.file_path, entities.len()));
+        content.push_str(&format!(
+            "**File:** `{}`\n\n**Entities:** {}\n\n",
+            ctx.properties.file_path,
+            entities.len()
+        ));
 
         // Auto-prose: column stats via HasColumn relationships
         {
@@ -1701,35 +2347,63 @@ fn generate_docs_modules(
             let mut nullable_count = 0usize;
             let mut traced_entities = 0usize;
             for entity in &entities {
-                if entity.properties.is_traced.unwrap_or(false) { traced_entities += 1; }
+                if entity.properties.is_traced.unwrap_or(false) {
+                    traced_entities += 1;
+                }
                 for rel in graph.iter_relationships() {
                     if rel.source_id == entity.id && rel.rel_type == RelationshipType::HasColumn {
                         if let Some(col) = graph.get_node(&rel.target_id) {
                             total_columns += 1;
-                            if col.properties.is_primary_key.unwrap_or(false) { pk_count += 1; }
-                            if col.properties.is_nullable.unwrap_or(false) { nullable_count += 1; }
+                            if col.properties.is_primary_key.unwrap_or(false) {
+                                pk_count += 1;
+                            }
+                            if col.properties.is_nullable.unwrap_or(false) {
+                                nullable_count += 1;
+                            }
                         }
                     }
                 }
             }
             if !entities.is_empty() {
-                let mut para = format!("> Ce modèle de données définit **{}** entité{}",
-                    entities.len(), if entities.len() > 1 { "s" } else { "" });
+                let mut para = format!(
+                    "> Ce modèle de données définit **{}** entité{}",
+                    entities.len(),
+                    if entities.len() > 1 { "s" } else { "" }
+                );
                 if total_columns > 0 {
-                    para.push_str(&format!(" réparties sur **{}** colonne{}",
-                        total_columns, if total_columns > 1 { "s" } else { "" }));
+                    para.push_str(&format!(
+                        " réparties sur **{}** colonne{}",
+                        total_columns,
+                        if total_columns > 1 { "s" } else { "" }
+                    ));
                     let mut details = Vec::new();
-                    if pk_count > 0 { details.push(format!("{} clé{} primaire{}", pk_count,
-                        if pk_count > 1 { "s" } else { "" }, if pk_count > 1 { "s" } else { "" })); }
-                    if nullable_count > 0 { details.push(format!("{} nullable{}", nullable_count,
-                        if nullable_count > 1 { "s" } else { "" })); }
-                    if !details.is_empty() { para.push_str(&format!(" ({})", details.join(", "))); }
+                    if pk_count > 0 {
+                        details.push(format!(
+                            "{} clé{} primaire{}",
+                            pk_count,
+                            if pk_count > 1 { "s" } else { "" },
+                            if pk_count > 1 { "s" } else { "" }
+                        ));
+                    }
+                    if nullable_count > 0 {
+                        details.push(format!(
+                            "{} nullable{}",
+                            nullable_count,
+                            if nullable_count > 1 { "s" } else { "" }
+                        ));
+                    }
+                    if !details.is_empty() {
+                        para.push_str(&format!(" ({})", details.join(", ")));
+                    }
                 }
                 para.push('.');
                 if traced_entities > 0 {
-                    para.push_str(&format!(" {} entité{} tracée{}.", traced_entities,
+                    para.push_str(&format!(
+                        " {} entité{} tracée{}.",
+                        traced_entities,
                         if traced_entities > 1 { "s" } else { "" },
-                        if traced_entities > 1 { "s" } else { "" }));
+                        if traced_entities > 1 { "s" } else { "" }
+                    ));
                 }
                 para.push_str("\n\n");
                 content.push_str(&para);
@@ -1739,11 +2413,35 @@ fn generate_docs_modules(
         let mut entity_rels: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
         for rel in graph.iter_relationships() {
             if rel.rel_type == RelationshipType::AssociatesWith {
-                let src = rel.source_id.rsplit(':').next().unwrap_or(&rel.source_id).to_string();
-                let tgt = rel.target_id.rsplit(':').next().unwrap_or(&rel.target_id).to_string();
-                let card = if rel.reason.contains("1:*") { "||--o{" } else if rel.reason.contains("*:1") { "}o--||" } else if rel.reason.contains("*:*") { "}o--o{" } else { "||--||" };
-                entity_rels.entry(src.clone()).or_default().push((tgt.clone(), card.to_string()));
-                entity_rels.entry(tgt).or_default().push((src, card.to_string()));
+                let src = rel
+                    .source_id
+                    .rsplit(':')
+                    .next()
+                    .unwrap_or(&rel.source_id)
+                    .to_string();
+                let tgt = rel
+                    .target_id
+                    .rsplit(':')
+                    .next()
+                    .unwrap_or(&rel.target_id)
+                    .to_string();
+                let card = if rel.reason.contains("1:*") {
+                    "||--o{"
+                } else if rel.reason.contains("*:1") {
+                    "}o--||"
+                } else if rel.reason.contains("*:*") {
+                    "}o--o{"
+                } else {
+                    "||--||"
+                };
+                entity_rels
+                    .entry(src.clone())
+                    .or_default()
+                    .push((tgt.clone(), card.to_string()));
+                entity_rels
+                    .entry(tgt)
+                    .or_default()
+                    .push((src, card.to_string()));
             }
         }
 
@@ -1757,15 +2455,27 @@ fn generate_docs_modules(
                 if let Some(rels) = rels {
                     content.push_str("```mermaid\ngraph LR\n");
                     let eid = sanitize_mermaid_id(ename);
-                    content.push_str(&format!("    {}[\"{}\"]\n    style {} fill:#4a85e0,color:#fff,stroke:#3a73cc\n", eid, ename, eid));
+                    content.push_str(&format!(
+                        "    {}[\"{}\"]\n    style {} fill:#4a85e0,color:#fff,stroke:#3a73cc\n",
+                        eid, ename, eid
+                    ));
                     let mut seen: HashSet<String> = HashSet::new();
                     for (target, _) in rels.iter().take(8) {
                         if seen.insert(target.clone()) {
                             let tid = sanitize_mermaid_id(target);
-                            content.push_str(&format!("    {}[\"{}\"]\n    {} --- {}\n", tid, target, eid, tid));
+                            content.push_str(&format!(
+                                "    {}[\"{}\"]\n    {} --- {}\n",
+                                tid, target, eid, tid
+                            ));
                         }
                     }
-                    if rels.len() > 8 { content.push_str(&format!("    more((\"...+{}\"))\n    {} -.- more\n", rels.len() - 8, eid)); }
+                    if rels.len() > 8 {
+                        content.push_str(&format!(
+                            "    more((\"...+{}\"))\n    {} -.- more\n",
+                            rels.len() - 8,
+                            eid
+                        ));
+                    }
                     content.push_str("```\n\n");
                     // Relations as text table
                     content.push_str("**Relations :**\n\n| Entité liée | Cardinalité |\n|-------------|-------------|\n");
@@ -1783,21 +2493,36 @@ fn generate_docs_modules(
                     }
                     content.push('\n');
                 }
-            } else { content.push_str("*Aucune relation détectée dans le modèle.*\n\n"); }
+            } else {
+                content.push_str("*Aucune relation détectée dans le modèle.*\n\n");
+            }
             // Column listing from DbColumn nodes
-            let columns: Vec<&GraphNode> = graph.iter_nodes()
-                .filter(|n| n.label == NodeLabel::DbColumn
-                    && n.properties.declared_in.as_deref() == Some(ename.as_str()))
+            let columns: Vec<&GraphNode> = graph
+                .iter_nodes()
+                .filter(|n| {
+                    n.label == NodeLabel::DbColumn
+                        && n.properties.declared_in.as_deref() == Some(ename.as_str())
+                })
                 .collect();
             if !columns.is_empty() {
                 content.push_str("**Colonnes :**\n\n| Colonne | Type | PK | Nullable |\n");
                 content.push_str("|---------|------|----|---------|\n");
                 for col in &columns {
                     let col_type = col.properties.column_type.as_deref().unwrap_or("-");
-                    let pk   = if col.properties.is_primary_key.unwrap_or(false) { "oui" } else { "-" };
-                    let null = if col.properties.is_nullable.unwrap_or(true) { "oui" } else { "-" };
-                    content.push_str(&format!("| {} | `{}` | {} | {} |\n",
-                        col.properties.name, col_type, pk, null));
+                    let pk = if col.properties.is_primary_key.unwrap_or(false) {
+                        "oui"
+                    } else {
+                        "-"
+                    };
+                    let null = if col.properties.is_nullable.unwrap_or(true) {
+                        "oui"
+                    } else {
+                        "-"
+                    };
+                    content.push_str(&format!(
+                        "| {} | `{}` | {} | {} |\n",
+                        col.properties.name, col_type, pk, null
+                    ));
                 }
                 content.push('\n');
             }
@@ -1812,45 +2537,87 @@ fn generate_docs_modules(
     // ─── Service Layer page ────────────────────────────────────────────
     if !services.is_empty() {
         let out_path = modules_dir.join("services.md");
-        let svc_files: Vec<String> = services.iter().map(|s| s.properties.file_path.clone()).collect::<BTreeSet<String>>().into_iter().collect();
+        let svc_files: Vec<String> = services
+            .iter()
+            .map(|s| s.properties.file_path.clone())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
         let svc_file_refs: Vec<&str> = svc_files.iter().take(15).map(|s| s.as_str()).collect();
         let mut content = String::from("# Service Layer\n\n<!-- GNX:LEAD -->\n");
         content.push_str(&source_files_section(&svc_file_refs));
         let mut service_used_by: HashMap<String, Vec<String>> = HashMap::new();
         for svc in &services {
-            let users: Vec<String> = graph.iter_relationships().filter(|r| r.rel_type == RelationshipType::DependsOn && r.target_id == svc.id).filter_map(|r| graph.get_node(&r.source_id).filter(|n| n.label == NodeLabel::Controller).map(|n| n.properties.name.clone())).collect::<BTreeSet<String>>().into_iter().collect();
+            let users: Vec<String> = graph
+                .iter_relationships()
+                .filter(|r| r.rel_type == RelationshipType::DependsOn && r.target_id == svc.id)
+                .filter_map(|r| {
+                    graph
+                        .get_node(&r.source_id)
+                        .filter(|n| n.label == NodeLabel::Controller)
+                        .map(|n| n.properties.name.clone())
+                })
+                .collect::<BTreeSet<String>>()
+                .into_iter()
+                .collect();
             service_used_by.insert(svc.id.clone(), users);
         }
         // Auto-prose lead for service layer
         {
-            let total_method_count: usize = services.iter().map(|svc|
-                graph.iter_relationships()
-                    .filter(|r| r.rel_type == RelationshipType::HasMethod && r.source_id == svc.id)
-                    .count()
-            ).sum();
-            let top_caller = service_used_by.iter()
+            let total_method_count: usize = services
+                .iter()
+                .map(|svc| {
+                    graph
+                        .iter_relationships()
+                        .filter(|r| {
+                            r.rel_type == RelationshipType::HasMethod && r.source_id == svc.id
+                        })
+                        .count()
+                })
+                .sum();
+            let top_caller = service_used_by
+                .iter()
                 .filter_map(|(id, callers)| {
-                    if callers.is_empty() { return None; }
-                    graph.get_node(id).map(|n| (n.properties.name.clone(), callers.len()))
+                    if callers.is_empty() {
+                        return None;
+                    }
+                    graph
+                        .get_node(id)
+                        .map(|n| (n.properties.name.clone(), callers.len()))
                 })
                 .max_by_key(|(_, c)| *c);
-            let iface_count = services.iter()
-                .filter(|s| s.properties.implements_interface.as_deref()
-                    .filter(|i| !i.is_empty() && *i != "-").is_some())
+            let iface_count = services
+                .iter()
+                .filter(|s| {
+                    s.properties
+                        .implements_interface
+                        .as_deref()
+                        .filter(|i| !i.is_empty() && *i != "-")
+                        .is_some()
+                })
                 .count();
             let mut lead_svc = format!(
                 "> La couche service expose **{}** méthode{} dans **{}** classe{}.",
-                total_method_count, if total_method_count > 1 { "s" } else { "" },
-                services.len(), if services.len() > 1 { "s" } else { "" }
+                total_method_count,
+                if total_method_count > 1 { "s" } else { "" },
+                services.len(),
+                if services.len() > 1 { "s" } else { "" }
             );
             if let Some((name, callers)) = top_caller {
-                lead_svc.push_str(&format!(" Service le plus sollicité : **{}** ({} appelant{}).",
-                    name, callers, if callers > 1 { "s" } else { "" }));
+                lead_svc.push_str(&format!(
+                    " Service le plus sollicité : **{}** ({} appelant{}).",
+                    name,
+                    callers,
+                    if callers > 1 { "s" } else { "" }
+                ));
             }
             if iface_count > 0 {
-                lead_svc.push_str(&format!(" {} service{} implémente{} une interface.",
-                    iface_count, if iface_count > 1 { "s" } else { "" },
-                    if iface_count > 1 { "nt" } else { "" }));
+                lead_svc.push_str(&format!(
+                    " {} service{} implémente{} une interface.",
+                    iface_count,
+                    if iface_count > 1 { "s" } else { "" },
+                    if iface_count > 1 { "nt" } else { "" }
+                ));
             }
             lead_svc.push_str("\n\n");
             content.push_str(&lead_svc);
@@ -1858,17 +2625,35 @@ fn generate_docs_modules(
         content.push_str("## Services\n\n| Service | Type | Interface | Used By | Purpose | File |\n|---------|------|-----------|---------|---------|------|\n");
         for svc in &services {
             let layer = svc.properties.layer_type.as_deref().unwrap_or("Service");
-            let iface = svc.properties.implements_interface.as_deref().unwrap_or("-");
-            let used_by = service_used_by.get(&svc.id).map(|users| if users.is_empty() { "-".to_string() } else { users.iter().take(3).cloned().collect::<Vec<_>>().join(", ") }).unwrap_or_else(|| "-".to_string());
+            let iface = svc
+                .properties
+                .implements_interface
+                .as_deref()
+                .unwrap_or("-");
+            let used_by = service_used_by
+                .get(&svc.id)
+                .map(|users| {
+                    if users.is_empty() {
+                        "-".to_string()
+                    } else {
+                        users.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                    }
+                })
+                .unwrap_or_else(|| "-".to_string());
             let purpose = describe_service_fr(&svc.properties.name);
-            content.push_str(&format!("| {} | {} | {} | {} | {} | `{}` |\n", svc.properties.name, layer, iface, used_by, purpose, svc.properties.file_path));
+            content.push_str(&format!(
+                "| {} | {} | {} | {} | {} | `{}` |\n",
+                svc.properties.name, layer, iface, used_by, purpose, svc.properties.file_path
+            ));
         }
         content.push('\n');
 
         // Per-service method detail blocks
-        let svcs_with_methods: Vec<(&&GraphNode, Vec<&GraphNode>)> = services.iter()
+        let svcs_with_methods: Vec<(&&GraphNode, Vec<&GraphNode>)> = services
+            .iter()
             .map(|svc| {
-                let mut methods: Vec<&GraphNode> = graph.iter_relationships()
+                let mut methods: Vec<&GraphNode> = graph
+                    .iter_relationships()
                     .filter(|r| r.rel_type == RelationshipType::HasMethod && r.source_id == svc.id)
                     .filter_map(|r| graph.get_node(&r.target_id))
                     .filter(|n| n.label == NodeLabel::Method)
@@ -1881,18 +2666,29 @@ fn generate_docs_modules(
         if !svcs_with_methods.is_empty() {
             content.push_str("## Détails des méthodes\n\n");
             for (svc, methods) in &svcs_with_methods {
-                let deps: Vec<String> = graph.iter_relationships()
+                let deps: Vec<String> = graph
+                    .iter_relationships()
                     .filter(|r| r.rel_type == RelationshipType::DependsOn && r.source_id == svc.id)
                     .filter_map(|r| graph.get_node(&r.target_id))
                     .map(|n| n.properties.name.clone())
-                    .collect::<BTreeSet<_>>().into_iter().collect();
-                content.push_str(&format!("<details>\n<summary><strong>{}</strong> — {} méthodes</summary>\n\n", svc.properties.name, methods.len()));
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                content.push_str(&format!(
+                    "<details>\n<summary><strong>{}</strong> — {} méthodes</summary>\n\n",
+                    svc.properties.name,
+                    methods.len()
+                ));
                 if !deps.is_empty() {
                     content.push_str(&format!("**Dépendances :** {}\n\n", deps.join(", ")));
                 }
                 content.push_str("| Méthode | Ligne |\n|---------|-------|\n");
                 for method in methods.iter().take(40) {
-                    let line = method.properties.start_line.map(|l| l.to_string()).unwrap_or_else(|| "-".to_string());
+                    let line = method
+                        .properties
+                        .start_line
+                        .map(|l| l.to_string())
+                        .unwrap_or_else(|| "-".to_string());
                     content.push_str(&format!("| `{}` | {} |\n", method.properties.name, line));
                 }
                 if methods.len() > 40 {
@@ -1902,9 +2698,16 @@ fn generate_docs_modules(
             }
         }
 
-        let smelly_svcs: Vec<&&GraphNode> = services.iter()
-            .filter(|s| s.properties.llm_risk_score.is_some()
-                || s.properties.llm_smells.as_ref().map(|v| !v.is_empty()).unwrap_or(false))
+        let smelly_svcs: Vec<&&GraphNode> = services
+            .iter()
+            .filter(|s| {
+                s.properties.llm_risk_score.is_some()
+                    || s.properties
+                        .llm_smells
+                        .as_ref()
+                        .map(|v| !v.is_empty())
+                        .unwrap_or(false)
+            })
             .collect();
         if !smelly_svcs.is_empty() {
             content.push_str("## Qualité LLM — Services\n\n");
@@ -1922,18 +2725,29 @@ fn generate_docs_modules(
     // ─── UI Components page ────────────────────────────────────────────
     if !ui_components.is_empty() {
         let out_path = modules_dir.join("ui-components.md");
-        let ui_files: Vec<String> = ui_components.iter().map(|c| c.properties.file_path.clone()).collect::<BTreeSet<String>>().into_iter().collect();
+        let ui_files: Vec<String> = ui_components
+            .iter()
+            .map(|c| c.properties.file_path.clone())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
         let ui_file_refs: Vec<&str> = ui_files.iter().take(15).map(|s| s.as_str()).collect();
         let mut content = String::from("# UI Components (Telerik/Kendo)\n\n");
         content.push_str(&source_files_section(&ui_file_refs));
-        content.push_str(&format!("**Total components:** {}\n\n", ui_components.len()));
+        content.push_str(&format!(
+            "**Total components:** {}\n\n",
+            ui_components.len()
+        ));
         content.push_str("| Component | Type | Model | Columns | File |\n|-----------|------|-------|---------|------|\n");
         for comp in &ui_components {
             let comp_type = comp.properties.component_type.as_deref().unwrap_or("-");
             let model = comp.properties.bound_model.as_deref().unwrap_or("-");
             let cols = comp.properties.description.as_deref().unwrap_or("-");
             let cols_short: String = cols.chars().take(40).collect();
-            content.push_str(&format!("| {} | {} | {} | {} | `{}` |\n", comp.properties.name, comp_type, model, cols_short, comp.properties.file_path));
+            content.push_str(&format!(
+                "| {} | {} | {} | {} | `{}` |\n",
+                comp.properties.name, comp_type, model, cols_short, comp.properties.file_path
+            ));
         }
         content.push('\n');
         content.push_str(&nav_footer(&page_order, "ui-components"));
@@ -1945,7 +2759,12 @@ fn generate_docs_modules(
     // ─── AJAX Endpoints page ───────────────────────────────────────────
     if !ajax_calls.is_empty() {
         let out_path = modules_dir.join("ajax-endpoints.md");
-        let ajax_files: Vec<String> = ajax_calls.iter().map(|c| c.properties.file_path.clone()).collect::<BTreeSet<String>>().into_iter().collect();
+        let ajax_files: Vec<String> = ajax_calls
+            .iter()
+            .map(|c| c.properties.file_path.clone())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
         let ajax_file_refs: Vec<&str> = ajax_files.iter().take(15).map(|s| s.as_str()).collect();
         let mut content = String::from("# AJAX Endpoints\n\n");
         content.push_str(&source_files_section(&ajax_file_refs));
@@ -1954,8 +2773,15 @@ fn generate_docs_modules(
         for call in ajax_calls.iter().take(100) {
             let method = call.properties.ajax_method.as_deref().unwrap_or("GET");
             let url = call.properties.ajax_url.as_deref().unwrap_or("-");
-            let line = call.properties.start_line.map(|l| l.to_string()).unwrap_or_default();
-            content.push_str(&format!("| {} | {} | `{}` | {} |\n", method, url, call.properties.file_path, line));
+            let line = call
+                .properties
+                .start_line
+                .map(|l| l.to_string())
+                .unwrap_or_default();
+            content.push_str(&format!(
+                "| {} | {} | `{}` | {} |\n",
+                method, url, call.properties.file_path, line
+            ));
         }
         content.push('\n');
         content.push_str(&nav_footer(&page_order, "ajax-endpoints"));
@@ -1967,10 +2793,31 @@ fn generate_docs_modules(
     // ─── External Services page ────────────────────────────────────────
     if !ext_services.is_empty() {
         let out_path = modules_dir.join("external-services.md");
-        let ext_files: Vec<String> = ext_services.iter().map(|s| s.properties.file_path.clone()).collect::<BTreeSet<String>>().into_iter().collect();
+        let ext_files: Vec<String> = ext_services
+            .iter()
+            .map(|s| s.properties.file_path.clone())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
         let mut calling_files: BTreeSet<String> = BTreeSet::new();
-        for svc in &ext_services { for r in graph.iter_relationships() { if r.rel_type == RelationshipType::CallsService && r.target_id == svc.id { if let Some(src) = graph.get_node(&r.source_id) { if !src.properties.file_path.is_empty() { calling_files.insert(src.properties.file_path.clone()); } } } } }
-        let mut all_src_files: Vec<String> = ext_files.iter().cloned().chain(calling_files.iter().cloned()).collect::<BTreeSet<String>>().into_iter().collect();
+        for svc in &ext_services {
+            for r in graph.iter_relationships() {
+                if r.rel_type == RelationshipType::CallsService && r.target_id == svc.id {
+                    if let Some(src) = graph.get_node(&r.source_id) {
+                        if !src.properties.file_path.is_empty() {
+                            calling_files.insert(src.properties.file_path.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let mut all_src_files: Vec<String> = ext_files
+            .iter()
+            .cloned()
+            .chain(calling_files.iter().cloned())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
         all_src_files.truncate(15);
         let src_file_refs: Vec<&str> = all_src_files.iter().map(|s| s.as_str()).collect();
 
@@ -1978,60 +2825,214 @@ fn generate_docs_modules(
         content.push_str(&source_files_section(&src_file_refs));
         content.push_str(&format!("> This project integrates with {} external services via WebAPI (REST) and WCF (SOAP).\n\n", ext_services.len()));
 
-        let webapi_services: Vec<&&GraphNode> = ext_services.iter().filter(|s| { let st = s.properties.service_type.as_deref().unwrap_or("").to_lowercase(); st == "webapi" || st == "rest" || st == "http" }).collect();
-        let wcf_services: Vec<&&GraphNode> = ext_services.iter().filter(|s| { let st = s.properties.service_type.as_deref().unwrap_or("").to_lowercase(); st == "wcf" || st == "soap" }).collect();
-        let other_services: Vec<&&GraphNode> = ext_services.iter().filter(|s| { let st = s.properties.service_type.as_deref().unwrap_or("").to_lowercase(); !["webapi","rest","http","wcf","soap"].contains(&st.as_str()) }).collect();
+        let webapi_services: Vec<&&GraphNode> = ext_services
+            .iter()
+            .filter(|s| {
+                let st = s
+                    .properties
+                    .service_type
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_lowercase();
+                st == "webapi" || st == "rest" || st == "http"
+            })
+            .collect();
+        let wcf_services: Vec<&&GraphNode> = ext_services
+            .iter()
+            .filter(|s| {
+                let st = s
+                    .properties
+                    .service_type
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_lowercase();
+                st == "wcf" || st == "soap"
+            })
+            .collect();
+        let other_services: Vec<&&GraphNode> = ext_services
+            .iter()
+            .filter(|s| {
+                let st = s
+                    .properties
+                    .service_type
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_lowercase();
+                !["webapi", "rest", "http", "wcf", "soap"].contains(&st.as_str())
+            })
+            .collect();
 
-        let find_callers = |svc: &GraphNode| -> Vec<String> { graph.iter_relationships().filter(|r| r.rel_type == RelationshipType::CallsService && r.target_id == svc.id).filter_map(|r| graph.get_node(&r.source_id).map(|n| n.properties.name.clone())).collect::<BTreeSet<String>>().into_iter().collect() };
-        let _find_methods = |svc: &GraphNode| -> Vec<&GraphNode> { let svc_name = &svc.properties.name; graph.iter_nodes().filter(|n| n.label == NodeLabel::Method && (n.properties.file_path.contains("WebAPI") || n.properties.file_path.contains("WebApi") || n.properties.file_path.contains(svc_name)) && n.properties.name.ends_with("Async") && !n.properties.name.starts_with("PrepareRequest") && !n.properties.name.starts_with("ProcessResponse") && !n.properties.name.starts_with("ReadObject")).collect() };
+        let find_callers = |svc: &GraphNode| -> Vec<String> {
+            graph
+                .iter_relationships()
+                .filter(|r| r.rel_type == RelationshipType::CallsService && r.target_id == svc.id)
+                .filter_map(|r| {
+                    graph
+                        .get_node(&r.source_id)
+                        .map(|n| n.properties.name.clone())
+                })
+                .collect::<BTreeSet<String>>()
+                .into_iter()
+                .collect()
+        };
+        let _find_methods = |svc: &GraphNode| -> Vec<&GraphNode> {
+            let svc_name = &svc.properties.name;
+            graph
+                .iter_nodes()
+                .filter(|n| {
+                    n.label == NodeLabel::Method
+                        && (n.properties.file_path.contains("WebAPI")
+                            || n.properties.file_path.contains("WebApi")
+                            || n.properties.file_path.contains(svc_name))
+                        && n.properties.name.ends_with("Async")
+                        && !n.properties.name.starts_with("PrepareRequest")
+                        && !n.properties.name.starts_with("ProcessResponse")
+                        && !n.properties.name.starts_with("ReadObject")
+                })
+                .collect()
+        };
 
         if !webapi_services.is_empty() {
             content.push_str(&format!("## WebAPI Services ({})\n\n| Client | Type | Called From | Purpose | Docs |\n|--------|------|------------|---------|------|\n", webapi_services.len()));
             for svc in &webapi_services {
                 let stype = svc.properties.service_type.as_deref().unwrap_or("WebAPI");
-                let callers = find_callers(svc); let called_from = if callers.is_empty() { "-".to_string() } else { callers.join(", ") };
+                let callers = find_callers(svc);
+                let called_from = if callers.is_empty() {
+                    "-".to_string()
+                } else {
+                    callers.join(", ")
+                };
                 let purpose = svc.properties.description.as_deref().unwrap_or("-");
-                let docs = svc.properties.source_url.as_deref().filter(|u| !u.is_empty())
-                    .map(|u| format!("[docs]({})", u)).unwrap_or_else(|| "-".to_string());
-                content.push_str(&format!("| {} | {} | {} | {} | {} |\n", svc.properties.name, stype, called_from, purpose, docs));
+                let docs = svc
+                    .properties
+                    .source_url
+                    .as_deref()
+                    .filter(|u| !u.is_empty())
+                    .map(|u| format!("[docs]({})", u))
+                    .unwrap_or_else(|| "-".to_string());
+                content.push_str(&format!(
+                    "| {} | {} | {} | {} | {} |\n",
+                    svc.properties.name, stype, called_from, purpose, docs
+                ));
             }
             content.push('\n');
 
-            let all_api_methods: Vec<&GraphNode> = graph.iter_nodes().filter(|n| n.label == NodeLabel::Method && (n.properties.file_path.contains("WebAPI") || n.properties.file_path.contains("WebApi")) && !n.properties.file_path.contains("Tests") && n.properties.name.ends_with("Async") && !n.properties.name.starts_with("PrepareRequest") && !n.properties.name.starts_with("ProcessResponse") && !n.properties.name.starts_with("ReadObject")).collect();
+            let all_api_methods: Vec<&GraphNode> = graph
+                .iter_nodes()
+                .filter(|n| {
+                    n.label == NodeLabel::Method
+                        && (n.properties.file_path.contains("WebAPI")
+                            || n.properties.file_path.contains("WebApi"))
+                        && !n.properties.file_path.contains("Tests")
+                        && n.properties.name.ends_with("Async")
+                        && !n.properties.name.starts_with("PrepareRequest")
+                        && !n.properties.name.starts_with("ProcessResponse")
+                        && !n.properties.name.starts_with("ReadObject")
+                })
+                .collect();
             if !all_api_methods.is_empty() {
                 content.push_str("### API Erable — Méthodes détaillées\n\n> Point d'accès unique aux données bénéficiaires via l'API REST Erable.\n> Authentification : HTTP Basic. Toutes les méthodes sont asynchrones.\n\n");
                 let mut methods_by_file: BTreeMap<String, Vec<&&GraphNode>> = BTreeMap::new();
-                for m in &all_api_methods { methods_by_file.entry(m.properties.file_path.clone()).or_default().push(m); }
+                for m in &all_api_methods {
+                    methods_by_file
+                        .entry(m.properties.file_path.clone())
+                        .or_default()
+                        .push(m);
+                }
                 for (file, methods) in &methods_by_file {
                     let file_short = file.rsplit(['/', '\\']).next().unwrap_or(file);
-                    if file_short.contains("Ldap") { continue; }
+                    if file_short.contains("Ldap") {
+                        continue;
+                    }
                     content.push_str(&format!("**Fichier : `{}`**\n\n| Méthode | Paramètres | Retour |\n|---------|-----------|--------|\n", file_short));
                     let source_content = read_repo_source(file).unwrap_or_default();
                     for method in methods {
                         let method_name = &method.properties.name;
-                        let signatures = if !source_content.is_empty() { extract_all_method_signatures(&source_content, method_name) } else { vec![("-".to_string(), "-".to_string())] };
+                        let signatures = if !source_content.is_empty() {
+                            extract_all_method_signatures(&source_content, method_name)
+                        } else {
+                            vec![("-".to_string(), "-".to_string())]
+                        };
                         for (idx, (params_str, ret_str)) in signatures.iter().enumerate() {
-                            if idx == 0 { content.push_str(&format!("| **{}** | {} | `{}` |\n", method_name, params_str, ret_str)); }
-                            else { content.push_str(&format!("| \u{21b3} *surcharge* | {} | `{}` |\n", params_str, ret_str)); }
+                            if idx == 0 {
+                                content.push_str(&format!(
+                                    "| **{}** | {} | `{}` |\n",
+                                    method_name, params_str, ret_str
+                                ));
+                            } else {
+                                content.push_str(&format!(
+                                    "| \u{21b3} *surcharge* | {} | `{}` |\n",
+                                    params_str, ret_str
+                                ));
+                            }
                         }
                     }
                     content.push('\n');
                 }
                 content.push_str("**Services appelants :**\n\n");
-                for svc in &webapi_services { let callers = find_callers(svc); if !callers.is_empty() { content.push_str(&format!("- **{}** \u{2190} {}\n", svc.properties.name, callers.join(", "))); } }
+                for svc in &webapi_services {
+                    let callers = find_callers(svc);
+                    if !callers.is_empty() {
+                        content.push_str(&format!(
+                            "- **{}** \u{2190} {}\n",
+                            svc.properties.name,
+                            callers.join(", ")
+                        ));
+                    }
+                }
                 content.push('\n');
             }
         }
 
         if !wcf_services.is_empty() {
             content.push_str(&format!("## WCF Services (SOAP) ({})\n\n| Client | Type | Called From | Purpose | Docs |\n|--------|------|------------|---------|------|\n", wcf_services.len()));
-            for svc in &wcf_services { let stype = svc.properties.service_type.as_deref().unwrap_or("WCF"); let callers = find_callers(svc); let called_from = if callers.is_empty() { "-".to_string() } else { callers.join(", ") }; let purpose = svc.properties.description.as_deref().unwrap_or("-"); let docs = svc.properties.source_url.as_deref().filter(|u| !u.is_empty()).map(|u| format!("[docs]({})", u)).unwrap_or_else(|| "-".to_string()); content.push_str(&format!("| {} | {} | {} | {} | {} |\n", svc.properties.name, stype, called_from, purpose, docs)); }
+            for svc in &wcf_services {
+                let stype = svc.properties.service_type.as_deref().unwrap_or("WCF");
+                let callers = find_callers(svc);
+                let called_from = if callers.is_empty() {
+                    "-".to_string()
+                } else {
+                    callers.join(", ")
+                };
+                let purpose = svc.properties.description.as_deref().unwrap_or("-");
+                let docs = svc
+                    .properties
+                    .source_url
+                    .as_deref()
+                    .filter(|u| !u.is_empty())
+                    .map(|u| format!("[docs]({})", u))
+                    .unwrap_or_else(|| "-".to_string());
+                content.push_str(&format!(
+                    "| {} | {} | {} | {} | {} |\n",
+                    svc.properties.name, stype, called_from, purpose, docs
+                ));
+            }
             content.push('\n');
         }
 
         if !other_services.is_empty() {
             content.push_str(&format!("## Other Services ({})\n\n| Client | Type | Called From | Purpose | Docs |\n|--------|------|------------|---------|------|\n", other_services.len()));
-            for svc in &other_services { let stype = svc.properties.service_type.as_deref().unwrap_or("External"); let callers = find_callers(svc); let called_from = if callers.is_empty() { "-".to_string() } else { callers.join(", ") }; let purpose = svc.properties.description.as_deref().unwrap_or("-"); let docs = svc.properties.source_url.as_deref().filter(|u| !u.is_empty()).map(|u| format!("[docs]({})", u)).unwrap_or_else(|| "-".to_string()); content.push_str(&format!("| {} | {} | {} | {} | {} |\n", svc.properties.name, stype, called_from, purpose, docs)); }
+            for svc in &other_services {
+                let stype = svc.properties.service_type.as_deref().unwrap_or("External");
+                let callers = find_callers(svc);
+                let called_from = if callers.is_empty() {
+                    "-".to_string()
+                } else {
+                    callers.join(", ")
+                };
+                let purpose = svc.properties.description.as_deref().unwrap_or("-");
+                let docs = svc
+                    .properties
+                    .source_url
+                    .as_deref()
+                    .filter(|u| !u.is_empty())
+                    .map(|u| format!("[docs]({})", u))
+                    .unwrap_or_else(|| "-".to_string());
+                content.push_str(&format!(
+                    "| {} | {} | {} | {} | {} |\n",
+                    svc.properties.name, stype, called_from, purpose, docs
+                ));
+            }
             content.push('\n');
         }
 
@@ -2040,20 +3041,46 @@ fn generate_docs_modules(
         let mut mermaid_nodes: BTreeMap<String, (String, &str)> = BTreeMap::new();
         for ext_svc in &ext_services {
             let ext_short = sanitize_mermaid_id(&ext_svc.properties.name);
-            mermaid_nodes.insert(ext_short.clone(), (ext_svc.properties.name.clone(), "External"));
+            mermaid_nodes.insert(
+                ext_short.clone(),
+                (ext_svc.properties.name.clone(), "External"),
+            );
             for r in graph.iter_relationships() {
                 if r.rel_type == RelationshipType::CallsService && r.target_id == ext_svc.id {
                     if let Some(caller) = graph.get_node(&r.source_id) {
-                        if caller.properties.file_path.contains("Test") || caller.properties.file_path.contains("test") { continue; }
-                        let subgraph = match caller.label { NodeLabel::Controller => "Controllers", NodeLabel::Service | NodeLabel::Repository => "Services", _ => continue };
+                        if caller.properties.file_path.contains("Test")
+                            || caller.properties.file_path.contains("test")
+                        {
+                            continue;
+                        }
+                        let subgraph = match caller.label {
+                            NodeLabel::Controller => "Controllers",
+                            NodeLabel::Service | NodeLabel::Repository => "Services",
+                            _ => continue,
+                        };
                         let caller_short = sanitize_mermaid_id(&caller.properties.name);
-                        mermaid_nodes.insert(caller_short.clone(), (caller.properties.name.clone(), subgraph));
+                        mermaid_nodes.insert(
+                            caller_short.clone(),
+                            (caller.properties.name.clone(), subgraph),
+                        );
                         mermaid_edges.push((caller_short.clone(), ext_short.clone()));
-                        if caller.label == NodeLabel::Service || caller.label == NodeLabel::Repository {
+                        if caller.label == NodeLabel::Service
+                            || caller.label == NodeLabel::Repository
+                        {
                             for r2 in graph.iter_relationships() {
-                                if r2.rel_type == RelationshipType::DependsOn && r2.target_id == caller.id {
+                                if r2.rel_type == RelationshipType::DependsOn
+                                    && r2.target_id == caller.id
+                                {
                                     if let Some(ctrl) = graph.get_node(&r2.source_id) {
-                                        if ctrl.label == NodeLabel::Controller { let ctrl_short = sanitize_mermaid_id(&ctrl.properties.name); mermaid_nodes.insert(ctrl_short.clone(), (ctrl.properties.name.clone(), "Controllers")); mermaid_edges.push((ctrl_short, caller_short.clone())); }
+                                        if ctrl.label == NodeLabel::Controller {
+                                            let ctrl_short =
+                                                sanitize_mermaid_id(&ctrl.properties.name);
+                                            mermaid_nodes.insert(
+                                                ctrl_short.clone(),
+                                                (ctrl.properties.name.clone(), "Controllers"),
+                                            );
+                                            mermaid_edges.push((ctrl_short, caller_short.clone()));
+                                        }
                                     }
                                 }
                             }
@@ -2065,14 +3092,27 @@ fn generate_docs_modules(
         if !mermaid_edges.is_empty() {
             content.push_str("## Service Call Flow\n\n```mermaid\ngraph LR\n");
             let mut subgraphs: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
-            for (id, (label, sg)) in &mermaid_nodes { subgraphs.entry(sg).or_default().push((id.clone(), label.clone())); }
+            for (id, (label, sg)) in &mermaid_nodes {
+                subgraphs
+                    .entry(sg)
+                    .or_default()
+                    .push((id.clone(), label.clone()));
+            }
             for (sg_name, nodes) in &subgraphs {
-                content.push_str(&format!("    subgraph {}[\"{}\"]\n", sanitize_mermaid_id(sg_name), sg_name));
-                for (id, label) in nodes { content.push_str(&format!("        {}[\"{}\"]\n", id, label)); }
+                content.push_str(&format!(
+                    "    subgraph {}[\"{}\"]\n",
+                    sanitize_mermaid_id(sg_name),
+                    sg_name
+                ));
+                for (id, label) in nodes {
+                    content.push_str(&format!("        {}[\"{}\"]\n", id, label));
+                }
                 content.push_str("    end\n");
             }
             let unique_edges: BTreeSet<(String, String)> = mermaid_edges.into_iter().collect();
-            for (from, to) in &unique_edges { content.push_str(&format!("    {} --> {}\n", from, to)); }
+            for (from, to) in &unique_edges {
+                content.push_str(&format!("    {} --> {}\n", from, to));
+            }
             content.push_str("```\n\n");
         }
 
@@ -2084,7 +3124,8 @@ fn generate_docs_modules(
 
     // ─── Views & Partials page ────────────────────────────────────────
     {
-        let views: Vec<&GraphNode> = graph.iter_nodes()
+        let views: Vec<&GraphNode> = graph
+            .iter_nodes()
             .filter(|n| matches!(n.label, NodeLabel::View | NodeLabel::PartialView))
             .collect();
         if !views.is_empty() {
@@ -2095,16 +3136,23 @@ fn generate_docs_modules(
             content.push_str("| Vue | Type | Modèle | Layout | Contrôleur |\n");
             content.push_str("|-----|------|--------|--------|------------|\n");
             for view in &views {
-                let vtype  = if view.label == NodeLabel::PartialView { "Partial" } else { "View" };
-                let model  = view.properties.model_type.as_deref().unwrap_or("-");
+                let vtype = if view.label == NodeLabel::PartialView {
+                    "Partial"
+                } else {
+                    "View"
+                };
+                let model = view.properties.model_type.as_deref().unwrap_or("-");
                 let layout = view.properties.layout_path.as_deref().unwrap_or("-");
-                let ctrl_name = graph.iter_relationships()
+                let ctrl_name = graph
+                    .iter_relationships()
                     .find(|r| r.rel_type == RelationshipType::RendersView && r.target_id == view.id)
                     .and_then(|r| graph.get_node(&r.source_id))
                     .map(|n| n.properties.name.clone())
                     .unwrap_or_else(|| "-".to_string());
-                content.push_str(&format!("| `{}` | {} | {} | {} | {} |\n",
-                    view.properties.file_path, vtype, model, layout, ctrl_name));
+                content.push_str(&format!(
+                    "| `{}` | {} | {} | {} | {} |\n",
+                    view.properties.file_path, vtype, model, layout, ctrl_name
+                ));
             }
             content.push('\n');
             content.push_str(&nav_footer(&page_order, "views"));
@@ -2121,22 +3169,36 @@ fn write_llm_badge(content: &mut String, props: &NodeProperties) {
     let risk = props.llm_risk_score;
     let smells = props.llm_smells.as_ref().map(|v| v.len()).unwrap_or(0);
     let patterns = props.llm_patterns.as_ref().map(|v| v.len()).unwrap_or(0);
-    if risk.is_none() && smells == 0 && patterns == 0 { return; }
+    if risk.is_none() && smells == 0 && patterns == 0 {
+        return;
+    }
 
     content.push_str("\n> **Qualité LLM**");
     if let Some(r) = risk {
-        let label = if r >= 70 { "Risque élevé" } else if r >= 40 { "Risque modéré" } else { "Risque faible" };
+        let label = if r >= 70 {
+            "Risque élevé"
+        } else if r >= 40 {
+            "Risque modéré"
+        } else {
+            "Risque faible"
+        };
         content.push_str(&format!(" — {} ({}/100)", label, r));
     }
     content.push('\n');
     if let Some(list) = &props.llm_smells {
-        if !list.is_empty() { content.push_str(&format!("> *Smells :* {}  \n", list.join(", "))); }
+        if !list.is_empty() {
+            content.push_str(&format!("> *Smells :* {}  \n", list.join(", ")));
+        }
     }
     if let Some(list) = &props.llm_patterns {
-        if !list.is_empty() { content.push_str(&format!("> *Patterns :* {}  \n", list.join(", "))); }
+        if !list.is_empty() {
+            content.push_str(&format!("> *Patterns :* {}  \n", list.join(", ")));
+        }
     }
     if let Some(hint) = &props.llm_refactoring {
-        if !hint.is_empty() { content.push_str(&format!("> *Refactoring :* {}  \n", hint)); }
+        if !hint.is_empty() {
+            content.push_str(&format!("> *Refactoring :* {}  \n", hint));
+        }
     }
     content.push('\n');
 }

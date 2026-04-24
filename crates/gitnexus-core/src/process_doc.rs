@@ -167,12 +167,17 @@ fn find_parent_class(graph: &KnowledgeGraph, method_id: &str) -> Option<String> 
 /// Collect DB entities accessed by any step in the process.
 pub fn collect_process_entities(graph: &KnowledgeGraph, steps: &[ProcessStep]) -> Vec<EntityInfo> {
     let step_ids: HashSet<&str> = steps.iter().map(|s| s.node_id.as_str()).collect();
-    let step_map: HashMap<&str, u32> = steps.iter().map(|s| (s.node_id.as_str(), s.step_number)).collect();
+    let step_map: HashMap<&str, u32> = steps
+        .iter()
+        .map(|s| (s.node_id.as_str(), s.step_number))
+        .collect();
     let mut entities = Vec::new();
     let mut seen = HashSet::new();
 
     for rel in graph.iter_relationships() {
-        if rel.rel_type == RelationshipType::MapsToEntity || rel.rel_type == RelationshipType::Accesses {
+        if rel.rel_type == RelationshipType::MapsToEntity
+            || rel.rel_type == RelationshipType::Accesses
+        {
             // Check if source is one of our steps, or if source's parent class is
             let is_step = step_ids.contains(rel.source_id.as_str());
             if !is_step {
@@ -180,14 +185,17 @@ pub fn collect_process_entities(graph: &KnowledgeGraph, steps: &[ProcessStep]) -
             }
 
             if let Some(entity_node) = graph.get_node(&rel.target_id) {
-                if matches!(entity_node.label, NodeLabel::DbEntity | NodeLabel::DbContext)
-                    && seen.insert(rel.target_id.clone())
+                if matches!(
+                    entity_node.label,
+                    NodeLabel::DbEntity | NodeLabel::DbContext
+                ) && seen.insert(rel.target_id.clone())
                 {
                     // Order matters: the ReadWrite branch must run BEFORE the
                     // Write branch, otherwise a reason like "read+write" would
                     // hit the Write arm (because it contains "write") and the
                     // ReadWrite variant would be unreachable dead code.
-                    let access_type = if rel.reason.contains("read") && rel.reason.contains("write") {
+                    let access_type = if rel.reason.contains("read") && rel.reason.contains("write")
+                    {
                         EntityAccessType::ReadWrite
                     } else if rel.reason.contains("write")
                         || rel.reason.contains("insert")
@@ -217,7 +225,10 @@ pub fn collect_process_entities(graph: &KnowledgeGraph, steps: &[ProcessStep]) -
 // ─── Component collection ───────────────────────────────────────────────
 
 /// Collect components (classes/services) that own the process steps.
-pub fn collect_process_components(graph: &KnowledgeGraph, steps: &[ProcessStep]) -> Vec<ComponentInfo> {
+pub fn collect_process_components(
+    graph: &KnowledgeGraph,
+    steps: &[ProcessStep],
+) -> Vec<ComponentInfo> {
     let mut comp_map: HashMap<String, (String, NodeLabel, String, usize)> = HashMap::new();
 
     for step in steps {
@@ -226,9 +237,18 @@ pub fn collect_process_components(graph: &KnowledgeGraph, steps: &[ProcessStep])
                 // Find the class node
                 let (label, file_path) = graph
                     .iter_nodes()
-                    .find(|n| n.properties.name == *class_name && matches!(n.label,
-                        NodeLabel::Class | NodeLabel::Service | NodeLabel::Controller
-                        | NodeLabel::Repository | NodeLabel::Interface | NodeLabel::Struct))
+                    .find(|n| {
+                        n.properties.name == *class_name
+                            && matches!(
+                                n.label,
+                                NodeLabel::Class
+                                    | NodeLabel::Service
+                                    | NodeLabel::Controller
+                                    | NodeLabel::Repository
+                                    | NodeLabel::Interface
+                                    | NodeLabel::Struct
+                            )
+                    })
                     .map(|n| (n.label, n.properties.file_path.clone()))
                     .unwrap_or((NodeLabel::Class, step.file_path.clone()));
                 (class_name.clone(), label, file_path, 0)
@@ -245,11 +265,16 @@ pub fn collect_process_components(graph: &KnowledgeGraph, steps: &[ProcessStep])
                 .iter_relationships()
                 .filter(|r| r.rel_type == RelationshipType::DependsOn)
                 .filter(|r| {
-                    graph.get_node(&r.source_id)
+                    graph
+                        .get_node(&r.source_id)
                         .map(|n| n.properties.name == name)
                         .unwrap_or(false)
                 })
-                .filter_map(|r| graph.get_node(&r.target_id).map(|n| n.properties.name.clone()))
+                .filter_map(|r| {
+                    graph
+                        .get_node(&r.target_id)
+                        .map(|n| n.properties.name.clone())
+                })
                 .collect();
 
             ComponentInfo {
@@ -279,10 +304,7 @@ pub fn collect_code_evidence(step: &ProcessStep, repo_path: &Path) -> Vec<Eviden
         // crafted), and we must not let them escape the repo root and
         // exfiltrate arbitrary files into the generated documentation.
         let full_path = repo_path.join(&step.file_path);
-        let source_safe = match (
-            full_path.canonicalize().ok(),
-            repo_path.canonicalize().ok(),
-        ) {
+        let source_safe = match (full_path.canonicalize().ok(), repo_path.canonicalize().ok()) {
             (Some(canon), Some(root)) => canon.starts_with(&root),
             _ => false,
         };
@@ -364,7 +386,9 @@ pub fn collect_full_evidence(
     repo_path: &Path,
 ) -> ProcessEvidence {
     let process_node = graph.get_node(process_id);
-    let process_name = process_node.map(|n| n.properties.name.clone()).unwrap_or_default();
+    let process_name = process_node
+        .map(|n| n.properties.name.clone())
+        .unwrap_or_default();
     let process_type = process_node.and_then(|n| n.properties.process_type);
     let communities = process_node
         .and_then(|n| n.properties.communities.clone())
@@ -419,7 +443,8 @@ pub fn collect_full_evidence(
     let dead_code_candidates: Vec<String> = steps
         .iter()
         .filter(|s| {
-            graph.get_node(&s.node_id)
+            graph
+                .get_node(&s.node_id)
                 .and_then(|n| n.properties.is_dead_candidate)
                 .unwrap_or(false)
         })
@@ -665,56 +690,80 @@ mod tests {
 
         // HasMethod edges
         g.add_relationship(GraphRelationship {
-            id: "hm1".into(), source_id: "Class:Controller".into(),
+            id: "hm1".into(),
+            source_id: "Class:Controller".into(),
             target_id: "Method:Controller.Handle".into(),
-            rel_type: RelationshipType::HasMethod, confidence: 1.0,
-            reason: "".into(), step: None,
+            rel_type: RelationshipType::HasMethod,
+            confidence: 1.0,
+            reason: "".into(),
+            step: None,
         });
         g.add_relationship(GraphRelationship {
-            id: "hm2".into(), source_id: "Class:Service".into(),
+            id: "hm2".into(),
+            source_id: "Class:Service".into(),
             target_id: "Method:Service.Process".into(),
-            rel_type: RelationshipType::HasMethod, confidence: 1.0,
-            reason: "".into(), step: None,
+            rel_type: RelationshipType::HasMethod,
+            confidence: 1.0,
+            reason: "".into(),
+            step: None,
         });
         g.add_relationship(GraphRelationship {
-            id: "hm3".into(), source_id: "Class:Repo".into(),
+            id: "hm3".into(),
+            source_id: "Class:Repo".into(),
             target_id: "Method:Repo.Save".into(),
-            rel_type: RelationshipType::HasMethod, confidence: 1.0,
-            reason: "".into(), step: None,
+            rel_type: RelationshipType::HasMethod,
+            confidence: 1.0,
+            reason: "".into(),
+            step: None,
         });
 
         // StepInProcess edges
         g.add_relationship(GraphRelationship {
-            id: "sp1".into(), source_id: "Method:Controller.Handle".into(),
+            id: "sp1".into(),
+            source_id: "Method:Controller.Handle".into(),
             target_id: "Process:HandleRequest".into(),
-            rel_type: RelationshipType::StepInProcess, confidence: 1.0,
-            reason: "".into(), step: Some(1),
+            rel_type: RelationshipType::StepInProcess,
+            confidence: 1.0,
+            reason: "".into(),
+            step: Some(1),
         });
         g.add_relationship(GraphRelationship {
-            id: "sp2".into(), source_id: "Method:Service.Process".into(),
+            id: "sp2".into(),
+            source_id: "Method:Service.Process".into(),
             target_id: "Process:HandleRequest".into(),
-            rel_type: RelationshipType::StepInProcess, confidence: 1.0,
-            reason: "".into(), step: Some(2),
+            rel_type: RelationshipType::StepInProcess,
+            confidence: 1.0,
+            reason: "".into(),
+            step: Some(2),
         });
         g.add_relationship(GraphRelationship {
-            id: "sp3".into(), source_id: "Method:Repo.Save".into(),
+            id: "sp3".into(),
+            source_id: "Method:Repo.Save".into(),
             target_id: "Process:HandleRequest".into(),
-            rel_type: RelationshipType::StepInProcess, confidence: 1.0,
-            reason: "".into(), step: Some(3),
+            rel_type: RelationshipType::StepInProcess,
+            confidence: 1.0,
+            reason: "".into(),
+            step: Some(3),
         });
 
         // DependsOn
         g.add_relationship(GraphRelationship {
-            id: "dep1".into(), source_id: "Class:Controller".into(),
+            id: "dep1".into(),
+            source_id: "Class:Controller".into(),
             target_id: "Class:Service".into(),
-            rel_type: RelationshipType::DependsOn, confidence: 1.0,
-            reason: "".into(), step: None,
+            rel_type: RelationshipType::DependsOn,
+            confidence: 1.0,
+            reason: "".into(),
+            step: None,
         });
         g.add_relationship(GraphRelationship {
-            id: "dep2".into(), source_id: "Class:Service".into(),
+            id: "dep2".into(),
+            source_id: "Class:Service".into(),
             target_id: "Class:Repo".into(),
-            rel_type: RelationshipType::DependsOn, confidence: 1.0,
-            reason: "".into(), step: None,
+            rel_type: RelationshipType::DependsOn,
+            confidence: 1.0,
+            reason: "".into(),
+            step: None,
         });
 
         g

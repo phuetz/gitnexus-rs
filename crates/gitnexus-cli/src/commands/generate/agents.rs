@@ -96,11 +96,7 @@ pub(super) fn generate_agents_md(graph: &KnowledgeGraph, repo_path: &Path) -> Re
         writeln!(f, "## Entry Points")?;
         writeln!(f)?;
         for (node, score) in entry_points.iter().take(15) {
-            let reason = node
-                .properties
-                .entry_point_reason
-                .as_deref()
-                .unwrap_or("");
+            let reason = node.properties.entry_point_reason.as_deref().unwrap_or("");
             writeln!(
                 f,
                 "- `{}` in `{}` (score: {:.2}) {}",
@@ -178,10 +174,6 @@ pub(super) fn generate_agents_md(graph: &KnowledgeGraph, repo_path: &Path) -> Re
     }
 
     info!("Documentation generated: 1 page");
-    println!(
-        "{} Generated {}",
-        "OK".green(),
-        out_path.display()
-    );
+    println!("{} Generated {}", "OK".green(), out_path.display());
     Ok(())
 }

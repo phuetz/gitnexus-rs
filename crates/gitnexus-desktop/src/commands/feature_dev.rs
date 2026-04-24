@@ -56,7 +56,13 @@ pub async fn feature_dev_run(
     };
 
     // ── Phase 1: Explorer ──────────────────────────────────────────
-    emit_phase(&app, &artifact_id, FeatureDevPhase::Explorer, PhaseStatus::Running, None);
+    emit_phase(
+        &app,
+        &artifact_id,
+        FeatureDevPhase::Explorer,
+        PhaseStatus::Running,
+        None,
+    );
     let t0 = Instant::now();
     let surface = match run_explorer(&feature, &graph, &indexes, &fts_index) {
         Ok(s) => s,
@@ -83,7 +89,13 @@ pub async fn feature_dev_run(
         duration_ms: t0.elapsed().as_millis() as u64,
     };
     emit_section(&app, &artifact_id, &explorer_section);
-    emit_phase(&app, &artifact_id, FeatureDevPhase::Explorer, PhaseStatus::Completed, None);
+    emit_phase(
+        &app,
+        &artifact_id,
+        FeatureDevPhase::Explorer,
+        PhaseStatus::Completed,
+        None,
+    );
     artifact.sections.push(explorer_section);
 
     if request.explorer_only {
@@ -92,24 +104,29 @@ pub async fn feature_dev_run(
     }
 
     // ── Phase 2: Architect ─────────────────────────────────────────
-    emit_phase(&app, &artifact_id, FeatureDevPhase::Architect, PhaseStatus::Running, None);
+    emit_phase(
+        &app,
+        &artifact_id,
+        FeatureDevPhase::Architect,
+        PhaseStatus::Running,
+        None,
+    );
     let t1 = Instant::now();
     let config = chat::load_config_pub(&state).await;
-    let blueprint_md =
-        match run_architect(&feature, &surface, &graph, &repo_path, &config).await {
-            Ok(md) => md,
-            Err(e) => {
-                emit_phase(
-                    &app,
-                    &artifact_id,
-                    FeatureDevPhase::Architect,
-                    PhaseStatus::Failed,
-                    Some(e.clone()),
-                );
-                artifact.status = PlanStatus::Failed;
-                return Err(e);
-            }
-        };
+    let blueprint_md = match run_architect(&feature, &surface, &graph, &repo_path, &config).await {
+        Ok(md) => md,
+        Err(e) => {
+            emit_phase(
+                &app,
+                &artifact_id,
+                FeatureDevPhase::Architect,
+                PhaseStatus::Failed,
+                Some(e.clone()),
+            );
+            artifact.status = PlanStatus::Failed;
+            return Err(e);
+        }
+    };
     let blueprint = parse_blueprint_from_markdown(&blueprint_md);
     let architect_section = FeatureDevSection {
         phase: FeatureDevPhase::Architect,
@@ -121,28 +138,39 @@ pub async fn feature_dev_run(
         duration_ms: t1.elapsed().as_millis() as u64,
     };
     emit_section(&app, &artifact_id, &architect_section);
-    emit_phase(&app, &artifact_id, FeatureDevPhase::Architect, PhaseStatus::Completed, None);
+    emit_phase(
+        &app,
+        &artifact_id,
+        FeatureDevPhase::Architect,
+        PhaseStatus::Completed,
+        None,
+    );
     artifact.sections.push(architect_section);
 
     // ── Phase 3: Reviewer ──────────────────────────────────────────
-    emit_phase(&app, &artifact_id, FeatureDevPhase::Reviewer, PhaseStatus::Running, None);
+    emit_phase(
+        &app,
+        &artifact_id,
+        FeatureDevPhase::Reviewer,
+        PhaseStatus::Running,
+        None,
+    );
     let t2 = Instant::now();
-    let review_md = match run_reviewer(&feature, &surface, &blueprint, &graph, &indexes, &config)
-        .await
-    {
-        Ok(md) => md,
-        Err(e) => {
-            emit_phase(
-                &app,
-                &artifact_id,
-                FeatureDevPhase::Reviewer,
-                PhaseStatus::Failed,
-                Some(e.clone()),
-            );
-            artifact.status = PlanStatus::Failed;
-            return Err(e);
-        }
-    };
+    let review_md =
+        match run_reviewer(&feature, &surface, &blueprint, &graph, &indexes, &config).await {
+            Ok(md) => md,
+            Err(e) => {
+                emit_phase(
+                    &app,
+                    &artifact_id,
+                    FeatureDevPhase::Reviewer,
+                    PhaseStatus::Failed,
+                    Some(e.clone()),
+                );
+                artifact.status = PlanStatus::Failed;
+                return Err(e);
+            }
+        };
     let review = parse_review_from_markdown(&review_md);
     let reviewer_section = FeatureDevSection {
         phase: FeatureDevPhase::Reviewer,
@@ -154,7 +182,13 @@ pub async fn feature_dev_run(
         duration_ms: t2.elapsed().as_millis() as u64,
     };
     emit_section(&app, &artifact_id, &reviewer_section);
-    emit_phase(&app, &artifact_id, FeatureDevPhase::Reviewer, PhaseStatus::Completed, None);
+    emit_phase(
+        &app,
+        &artifact_id,
+        FeatureDevPhase::Reviewer,
+        PhaseStatus::Completed,
+        None,
+    );
     artifact.sections.push(reviewer_section);
 
     artifact.status = PlanStatus::Completed;
@@ -183,7 +217,9 @@ fn run_explorer(
     let mut entry_points: Vec<String> = Vec::new();
 
     for hit in &raw_hits {
-        let Some(node) = graph.get_node(&hit.node_id) else { continue };
+        let Some(node) = graph.get_node(&hit.node_id) else {
+            continue;
+        };
 
         // Aggregate file paths.
         let fp = &node.properties.file_path;
@@ -325,7 +361,8 @@ async fn run_architect(
     call_role_llm(config, system, &user).await
 }
 
-const ARCHITECT_SYSTEM_PROMPT: &str = "You are the code-architect role in a three-stage feature development pipeline. \
+const ARCHITECT_SYSTEM_PROMPT: &str =
+    "You are the code-architect role in a three-stage feature development pipeline. \
 Your job: design an implementation blueprint that respects the existing \
 codebase's conventions.\n\n\
 Rules:\n\
@@ -379,9 +416,9 @@ async fn run_reviewer(
     // Coverage: do the files_to_modify have tracing/tests today?
     let mut untraced_modified: Vec<String> = Vec::new();
     for fp in &blueprint.files_to_modify {
-        let has_trace = graph.iter_nodes().any(|n| {
-            n.properties.file_path == fp.path && n.properties.is_traced.unwrap_or(false)
-        });
+        let has_trace = graph
+            .iter_nodes()
+            .any(|n| n.properties.file_path == fp.path && n.properties.is_traced.unwrap_or(false));
         if !has_trace {
             untraced_modified.push(fp.path.clone());
         }
@@ -425,7 +462,8 @@ async fn run_reviewer(
     call_role_llm(config, system, &user).await
 }
 
-const REVIEWER_SYSTEM_PROMPT: &str = "You are the code-reviewer role in a three-stage feature development pipeline. \
+const REVIEWER_SYSTEM_PROMPT: &str =
+    "You are the code-reviewer role in a three-stage feature development pipeline. \
 You review a blueprint BEFORE code is written.\n\n\
 Rules:\n\
 - Report only HIGH-CONFIDENCE issues (confidence ≥ 0.8).\n\
@@ -436,11 +474,7 @@ Rules:\n\
 
 // ─── LLM plumbing ───────────────────────────────────────────────────
 
-async fn call_role_llm(
-    config: &ChatConfig,
-    system: &str,
-    user: &str,
-) -> Result<String, String> {
+async fn call_role_llm(config: &ChatConfig, system: &str, user: &str) -> Result<String, String> {
     let messages = vec![
         serde_json::json!({"role": "system", "content": system}),
         serde_json::json!({"role": "user", "content": user}),
@@ -479,7 +513,10 @@ fn parse_blueprint_from_markdown(md: &str) -> Blueprint {
 
         match current {
             Some("create") | Some("modify") => {
-                if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+                if let Some(rest) = trimmed
+                    .strip_prefix("- ")
+                    .or_else(|| trimmed.strip_prefix("* "))
+                {
                     let (path, purpose) = split_path_purpose(rest);
                     let plan = FilePlan { path, purpose };
                     if current == Some("create") {
@@ -499,7 +536,9 @@ fn parse_blueprint_from_markdown(md: &str) -> Blueprint {
             Some("seq") => {
                 if trimmed.starts_with(|c: char| c.is_ascii_digit()) || trimmed.starts_with("- ") {
                     let cleaned = trimmed
-                        .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ' || c == '-')
+                        .trim_start_matches(|c: char| {
+                            c.is_ascii_digit() || c == '.' || c == ' ' || c == '-'
+                        })
                         .to_string();
                     if !cleaned.is_empty() {
                         bp.build_sequence.push(cleaned);
@@ -530,7 +569,10 @@ fn split_path_purpose(s: &str) -> (String, String) {
     // Fallback: split on " — ", " - ", or ": ".
     for sep in [" — ", " - ", ": "] {
         if let Some((p, rest)) = s.split_once(sep) {
-            return (p.trim().trim_matches('`').to_string(), rest.trim().to_string());
+            return (
+                p.trim().trim_matches('`').to_string(),
+                rest.trim().to_string(),
+            );
         }
     }
     (s.to_string(), String::new())
@@ -542,7 +584,10 @@ pub fn parse_review_from_markdown_pub(md: &str) -> Review {
 }
 
 fn parse_review_from_markdown(md: &str) -> Review {
-    let mut review = Review { verdict: "ready".to_string(), ..Default::default() };
+    let mut review = Review {
+        verdict: "ready".to_string(),
+        ..Default::default()
+    };
     let mut current: Option<&str> = None;
     let mut impact_buf = String::new();
 
@@ -605,8 +650,8 @@ fn parse_review_from_markdown(md: &str) -> Review {
 fn parse_issue_line(line: &str) -> Option<ReviewIssue> {
     // Strip only list-marker characters — NOT `*`, which would eat the
     // `**bold**` delimiter we rely on to extract the severity.
-    let line = line
-        .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ' || c == '-');
+    let line =
+        line.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ' || c == '-');
     // Bullet starting with `- ` leaves a leading space; clean it up.
     let line = line.trim_start();
     // Extract the first bolded chunk as "severity/confidence".
@@ -683,7 +728,12 @@ fn detect_name_collisions(feature: &str, graph: &KnowledgeGraph) -> Vec<String> 
     let candidates: HashSet<String> = feature
         .split(|c: char| !c.is_alphanumeric() && c != '_')
         .filter(|t| t.len() >= 3)
-        .filter(|t| t.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false))
+        .filter(|t| {
+            t.chars()
+                .next()
+                .map(|c| c.is_ascii_uppercase())
+                .unwrap_or(false)
+        })
         .map(|t| t.to_string())
         .collect();
     if candidates.is_empty() {
@@ -749,10 +799,9 @@ mod tests {
 
     #[test]
     fn test_parse_issue_line_high_confidence() {
-        let issue = parse_issue_line(
-            "1. **high/0.9**: Missing validation — The input isn't sanitized",
-        )
-        .unwrap();
+        let issue =
+            parse_issue_line("1. **high/0.9**: Missing validation — The input isn't sanitized")
+                .unwrap();
         assert_eq!(issue.severity, "high");
         assert!(issue.confidence >= 0.85);
         assert_eq!(issue.title, "Missing validation");

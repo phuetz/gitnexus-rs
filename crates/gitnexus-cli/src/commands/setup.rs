@@ -47,7 +47,8 @@ fn print_mcp_config() {
     // Escape backslashes and quotes for valid JSON output
     let escaped = exe_path.replace('\\', "\\\\").replace('"', "\\\"");
 
-    println!(r#"{{
+    println!(
+        r#"{{
   "mcpServers": {{
     "gitnexus": {{
       "command": "{escaped}",
@@ -55,7 +56,8 @@ fn print_mcp_config() {
       "env": {{}}
     }}
   }}
-}}"#);
+}}"#
+    );
 }
 
 fn detect_editors() -> Vec<(&'static str, PathBuf)> {
@@ -64,8 +66,10 @@ fn detect_editors() -> Vec<(&'static str, PathBuf)> {
     #[cfg(target_os = "windows")]
     {
         if let Ok(appdata) = std::env::var("APPDATA") {
-            let vscode_path =
-                PathBuf::from(&appdata).join("Code").join("User").join("settings.json");
+            let vscode_path = PathBuf::from(&appdata)
+                .join("Code")
+                .join("User")
+                .join("settings.json");
             if vscode_path.parent().map(|p| p.exists()).unwrap_or(false) {
                 editors.push(("VS Code", vscode_path));
             }

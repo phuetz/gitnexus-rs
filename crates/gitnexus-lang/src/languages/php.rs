@@ -4,7 +4,7 @@ use gitnexus_core::graph::types::NodeLabel;
 use crate::export_detection;
 use crate::import_resolvers::php as php_resolver;
 use crate::import_resolvers::types::{ImportResult, ResolveCtx};
-use crate::named_bindings::{types::NamedBinding, php as php_bindings};
+use crate::named_bindings::{php as php_bindings, types::NamedBinding};
 use crate::provider::{ImportSemantics, LanguageProvider, MroStrategy};
 use crate::queries;
 
@@ -27,7 +27,12 @@ impl LanguageProvider for PhpProvider {
         export_detection::check_php_export(node_text, node_type, ancestors)
     }
 
-    fn resolve_import<'a>(&self, raw_path: &str, file_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult {
+    fn resolve_import<'a>(
+        &self,
+        raw_path: &str,
+        file_path: &str,
+        ctx: &ResolveCtx<'a>,
+    ) -> ImportResult {
         php_resolver::resolve(raw_path, file_path, ctx)
     }
 
@@ -68,8 +73,14 @@ fn extract_php_description(label: NodeLabel, _name: &str, node_text: &str) -> Op
 
     // Detect Eloquent relationship methods
     const RELATIONS: &[&str] = &[
-        "hasMany", "hasOne", "belongsTo", "belongsToMany",
-        "morphMany", "morphOne", "morphTo", "morphToMany",
+        "hasMany",
+        "hasOne",
+        "belongsTo",
+        "belongsToMany",
+        "morphMany",
+        "morphOne",
+        "morphTo",
+        "morphToMany",
     ];
     for rel in RELATIONS {
         if node_text.contains(rel) {

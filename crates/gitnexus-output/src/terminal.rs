@@ -144,7 +144,11 @@ impl OutputFormatter for TerminalFormatter {
         out.push_str(&format!("\n  {}\n", title.bold().cyan()));
         out.push_str(&format!("  {}\n", "\u{2500}".repeat(40).dimmed()));
 
-        let max_key_len = items.iter().map(|(k, _)| display_width(k)).max().unwrap_or(0);
+        let max_key_len = items
+            .iter()
+            .map(|(k, _)| display_width(k))
+            .max()
+            .unwrap_or(0);
 
         for (key, value) in items {
             let padded = pad_right(key, max_key_len);
@@ -198,7 +202,11 @@ impl OutputFormatter for TerminalFormatter {
         }
 
         let max_count = items.iter().map(|(_, c)| *c).max().unwrap_or(1);
-        let max_label_len = items.iter().map(|(l, _)| display_width(l)).max().unwrap_or(0);
+        let max_label_len = items
+            .iter()
+            .map(|(l, _)| display_width(l))
+            .max()
+            .unwrap_or(0);
         let bar_max_width = 25;
 
         for (item_label, count) in items {
@@ -293,9 +301,21 @@ mod tests {
         let fmt = TerminalFormatter::new();
 
         let items = vec![
-            TreeItem { label: "root".to_string(), depth: 0, is_last: false },
-            TreeItem { label: "child1".to_string(), depth: 1, is_last: false },
-            TreeItem { label: "child2".to_string(), depth: 1, is_last: true },
+            TreeItem {
+                label: "root".to_string(),
+                depth: 0,
+                is_last: false,
+            },
+            TreeItem {
+                label: "child1".to_string(),
+                depth: 1,
+                is_last: false,
+            },
+            TreeItem {
+                label: "child2".to_string(),
+                depth: 1,
+                is_last: true,
+            },
         ];
 
         let output = fmt.format_tree(&items);

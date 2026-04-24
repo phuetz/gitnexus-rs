@@ -30,10 +30,8 @@ pub struct TodoStats {
 /// Scan every parsed source file for TODO/FIXME/HACK/XXX markers.
 pub fn scan_todos(graph: &mut KnowledgeGraph, files: &[FileEntry]) -> TodoStats {
     // Parallel scan: one thread per file produces its own (nodes, edges) list.
-    let per_file: Vec<(Vec<GraphNode>, Vec<GraphRelationship>)> = files
-        .par_iter()
-        .map(|f| scan_single_file(f))
-        .collect();
+    let per_file: Vec<(Vec<GraphNode>, Vec<GraphRelationship>)> =
+        files.par_iter().map(|f| scan_single_file(f)).collect();
 
     let mut markers = 0usize;
     for (nodes, rels) in per_file {
@@ -60,7 +58,9 @@ fn scan_single_file(file: &FileEntry) -> (Vec<GraphNode>, Vec<GraphRelationship>
     let file_node_id = generate_id("File", &file.path);
 
     for (line_idx, line) in file.content.lines().enumerate() {
-        let Some((kind, text)) = find_marker(line) else { continue };
+        let Some((kind, text)) = find_marker(line) else {
+            continue;
+        };
 
         let line_num = (line_idx + 1) as u32;
         // Stable ID: File path + line + kind so re-running is idempotent.
@@ -136,11 +136,10 @@ fn find_marker(line: &str) -> Option<(&'static str, &str)> {
             let after = &head[kind.len()..];
             // Next char must be a non-alphanumeric separator so `TODOS` or
             // `FIXMEish` don't trigger.
-            if after.is_empty()
-                || after.starts_with(|c: char| !c.is_alphanumeric() && c != '_')
-            {
+            if after.is_empty() || after.starts_with(|c: char| !c.is_alphanumeric() && c != '_') {
                 // Strip leading `:` and spaces.
-                let text = after.trim_start_matches(|c: char| c == ':' || c == '(' || c.is_whitespace());
+                let text =
+                    after.trim_start_matches(|c: char| c == ':' || c == '(' || c.is_whitespace());
                 // Cap to keep snapshot JSON small.
                 let trimmed_text = if text.len() > 500 { &text[..500] } else { text };
                 return Some((kind, trimmed_text.trim_end()));
@@ -166,10 +165,7 @@ mod tests {
 
     #[test]
     fn test_find_marker_todo() {
-        assert_eq!(
-            find_marker("// TODO: fix this"),
-            Some(("TODO", "fix this"))
-        );
+        assert_eq!(find_marker("// TODO: fix this"), Some(("TODO", "fix this")));
     }
 
     #[test]

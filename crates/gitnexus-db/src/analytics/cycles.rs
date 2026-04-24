@@ -137,7 +137,10 @@ fn build_scoped_adjacency(
         if keep_node(node) {
             info.insert(
                 node.id.clone(),
-                (node.properties.name.clone(), node.properties.file_path.clone()),
+                (
+                    node.properties.name.clone(),
+                    node.properties.file_path.clone(),
+                ),
             );
             adj.entry(node.id.clone()).or_default();
         }
@@ -187,11 +190,7 @@ fn tarjan_scc(adj: &HashMap<String, Vec<String>>) -> Vec<Vec<String>> {
     state.result
 }
 
-fn strongconnect(
-    root: &str,
-    adj: &HashMap<String, Vec<String>>,
-    state: &mut TarjanState,
-) {
+fn strongconnect(root: &str, adj: &HashMap<String, Vec<String>>, state: &mut TarjanState) {
     // Iterative DFS with explicit work items.
     enum Work {
         Enter(String),

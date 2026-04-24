@@ -244,15 +244,16 @@ fn render_page(
     let mut functions: BTreeMap<String, String> = BTreeMap::new();
 
     for mid in member_ids {
-        let Some(node) = graph.get_node(mid) else { continue };
+        let Some(node) = graph.get_node(mid) else {
+            continue;
+        };
         if !node.properties.file_path.is_empty() {
             files.insert(node.properties.file_path.clone());
         }
         if node.properties.entry_point_score.unwrap_or(0.0) > 0.5 {
             entry_points.push(format!(
                 "{} ({})",
-                node.properties.name,
-                node.properties.file_path
+                node.properties.name, node.properties.file_path
             ));
         }
         match node.label {
@@ -356,7 +357,9 @@ fn build_module_prompt(
     let mut classes: Vec<String> = Vec::new();
     let mut functions: Vec<String> = Vec::new();
     for mid in member_ids.iter().take(40) {
-        let Some(node) = graph.get_node(mid) else { continue };
+        let Some(node) = graph.get_node(mid) else {
+            continue;
+        };
         if !node.properties.file_path.is_empty() {
             files.insert(node.properties.file_path.clone());
         }
@@ -394,13 +397,23 @@ fn build_module_prompt(
     if !classes.is_empty() {
         p.push_str(&format!(
             "\nKey types: {}\n",
-            classes.iter().take(10).cloned().collect::<Vec<_>>().join(", ")
+            classes
+                .iter()
+                .take(10)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     if !functions.is_empty() {
         p.push_str(&format!(
             "\nKey functions: {}\n",
-            functions.iter().take(10).cloned().collect::<Vec<_>>().join(", ")
+            functions
+                .iter()
+                .take(10)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     p.push_str("\nWrite the overview paragraph now.");
@@ -460,5 +473,4 @@ mod tests {
         let pay_pos = md.find("Payment").unwrap();
         assert!(auth_pos < pay_pos);
     }
-
 }

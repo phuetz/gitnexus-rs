@@ -10,12 +10,24 @@ fn gitnexus() -> Command {
 
 #[test]
 fn cli_help_shows_usage() {
-    let output = gitnexus().arg("--help").output().expect("failed to run gitnexus");
+    let output = gitnexus()
+        .arg("--help")
+        .output()
+        .expect("failed to run gitnexus");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("analyze"), "help should mention analyze command");
-    assert!(stdout.contains("generate"), "help should mention generate command");
-    assert!(stdout.contains("report"), "help should mention report command");
+    assert!(
+        stdout.contains("analyze"),
+        "help should mention analyze command"
+    );
+    assert!(
+        stdout.contains("generate"),
+        "help should mention generate command"
+    );
+    assert!(
+        stdout.contains("report"),
+        "help should mention report command"
+    );
 }
 
 #[test]
@@ -26,7 +38,10 @@ fn cli_analyze_help() {
         .expect("failed to run gitnexus analyze --help");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("--force"), "analyze help should mention --force");
+    assert!(
+        stdout.contains("--force"),
+        "analyze help should mention --force"
+    );
 }
 
 #[test]
@@ -37,7 +52,10 @@ fn cli_report_help() {
         .expect("failed to run gitnexus report --help");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("--json"), "report help should mention --json");
+    assert!(
+        stdout.contains("--json"),
+        "report help should mention --json"
+    );
 }
 
 #[test]
@@ -82,7 +100,10 @@ fn cli_hotspots_on_self() {
         .args(["hotspots", "--path", repo.to_str().unwrap()])
         .output()
         .expect("failed to run gitnexus hotspots");
-    assert!(output.status.success(), "hotspots should succeed on a git repo");
+    assert!(
+        output.status.success(),
+        "hotspots should succeed on a git repo"
+    );
 }
 
 #[test]
@@ -97,7 +118,10 @@ fn cli_coupling_on_self() {
         .args(["coupling", "--path", repo.to_str().unwrap()])
         .output()
         .expect("failed to run gitnexus coupling");
-    assert!(output.status.success(), "coupling should succeed on a git repo");
+    assert!(
+        output.status.success(),
+        "coupling should succeed on a git repo"
+    );
 }
 
 #[test]
@@ -112,7 +136,10 @@ fn cli_ownership_on_self() {
         .args(["ownership", "--path", repo.to_str().unwrap()])
         .output()
         .expect("failed to run gitnexus ownership");
-    assert!(output.status.success(), "ownership should succeed on a git repo");
+    assert!(
+        output.status.success(),
+        "ownership should succeed on a git repo"
+    );
 }
 
 #[test]

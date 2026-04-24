@@ -1,9 +1,9 @@
-pub mod schema;
-pub mod csv_generator;
 pub mod adapter;
-pub mod pool;
-pub mod error;
-pub mod query;
-pub mod snapshot;
-pub mod inmemory;
 pub mod analytics;
+pub mod csv_generator;
+pub mod error;
+pub mod inmemory;
+pub mod pool;
+pub mod query;
+pub mod schema;
+pub mod snapshot;

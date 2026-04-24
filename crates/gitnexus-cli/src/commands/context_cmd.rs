@@ -11,7 +11,9 @@ pub async fn run(name: &str, repo: Option<&str>) -> anyhow::Result<()> {
     let snap = gitnexus_db::snapshot::snapshot_path(&storage.storage_path);
 
     if !snap.exists() {
-        return Err(anyhow::anyhow!("No graph snapshot found. Run 'gitnexus analyze' first."));
+        return Err(anyhow::anyhow!(
+            "No graph snapshot found. Run 'gitnexus analyze' first."
+        ));
     }
 
     let graph = gitnexus_db::snapshot::load_snapshot(&snap)?;
@@ -40,15 +42,18 @@ pub async fn run(name: &str, repo: Option<&str>) -> anyhow::Result<()> {
 
     // Sort by priority: Controller > Class > Service > Interface > Method > others
     matches.sort_by_key(|id| {
-        graph.get_node(id).map(|n| match n.label {
-            NodeLabel::Controller => 0,
-            NodeLabel::Class => 1,
-            NodeLabel::Service => 2,
-            NodeLabel::Interface => 3,
-            NodeLabel::Method => 5,
-            NodeLabel::File => 8,
-            _ => 10,
-        }).unwrap_or(10)
+        graph
+            .get_node(id)
+            .map(|n| match n.label {
+                NodeLabel::Controller => 0,
+                NodeLabel::Class => 1,
+                NodeLabel::Service => 2,
+                NodeLabel::Interface => 3,
+                NodeLabel::Method => 5,
+                NodeLabel::File => 8,
+                _ => 10,
+            })
+            .unwrap_or(10)
     });
 
     let node_id = &matches[0];
@@ -103,7 +108,12 @@ pub async fn run(name: &str, repo: Option<&str>) -> anyhow::Result<()> {
         println!("\nIncoming relationships:");
         for (sid, rtype) in &other_in {
             if let Some(s) = graph.get_node(sid) {
-                println!("  <--[{}]-- {} {}", rtype.as_str(), s.label.as_str(), s.properties.name);
+                println!(
+                    "  <--[{}]-- {} {}",
+                    rtype.as_str(),
+                    s.label.as_str(),
+                    s.properties.name
+                );
             }
         }
     }
@@ -112,13 +122,21 @@ pub async fn run(name: &str, repo: Option<&str>) -> anyhow::Result<()> {
         println!("\nOutgoing relationships:");
         for (tid, rtype) in &other_out {
             if let Some(t) = graph.get_node(tid) {
-                println!("  --[{}]--> {} {}", rtype.as_str(), t.label.as_str(), t.properties.name);
+                println!(
+                    "  --[{}]--> {} {}",
+                    rtype.as_str(),
+                    t.label.as_str(),
+                    t.properties.name
+                );
             }
         }
     }
 
     if matches.len() > 1 {
-        println!("\nNote: {} other symbols also match this name.", matches.len() - 1);
+        println!(
+            "\nNote: {} other symbols also match this name.",
+            matches.len() - 1
+        );
     }
 
     Ok(())

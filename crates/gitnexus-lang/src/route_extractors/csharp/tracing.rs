@@ -6,9 +6,8 @@ use regex::Regex;
 use super::types::TracingInfo;
 
 /// StackLogger.BeginMethodScope() -- marks a fully traced method
-static RE_STACKLOGGER_SCOPE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"StackLogger\.BeginMethodScope\s*\("#).expect("regex")
-});
+static RE_STACKLOGGER_SCOPE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"StackLogger\.BeginMethodScope\s*\("#).expect("regex"));
 
 /// StackLogger.Info/Error/Warning/TraceMethod/LogVariables/PrintParam/Log/DumpStackTrace
 static RE_STACKLOGGER_CALL: Lazy<Regex> = Lazy::new(|| {
@@ -37,7 +36,10 @@ pub fn extract_tracing_info(source: &str) -> TracingInfo {
         // Count StackLogger.Info/Error/Warning/etc. calls
         for cap in RE_STACKLOGGER_CALL.captures_iter(line) {
             call_count += 1;
-            let level = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let level = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             if seen_levels.insert(level.clone()) {
                 log_levels.push(level);
             }
@@ -49,7 +51,10 @@ pub fn extract_tracing_info(source: &str) -> TracingInfo {
             let search_start = line_idx.saturating_sub(15);
             for j in (search_start..line_idx).rev() {
                 if let Some(cap) = RE_METHOD_DECL.captures(lines[j]) {
-                    let method_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    let method_name = cap
+                        .get(1)
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default();
                     if !method_name.is_empty() && !traced_methods.contains(&method_name) {
                         traced_methods.push(method_name);
                     }

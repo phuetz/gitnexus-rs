@@ -40,7 +40,8 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
 
     // Git analytics
     let hotspots = gitnexus_git::hotspots::analyze_hotspots(&repo_path, 90).unwrap_or_default();
-    let couplings = gitnexus_git::coupling::analyze_coupling(&repo_path, 3, Some(180)).unwrap_or_default();
+    let couplings =
+        gitnexus_git::coupling::analyze_coupling(&repo_path, 3, Some(180)).unwrap_or_default();
     let ownerships = gitnexus_git::ownership::analyze_ownership(&repo_path).unwrap_or_default();
 
     // Compute score (0-100); healthy projects score ~85-95
@@ -51,7 +52,10 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
     score -= (hot_files as f64) * 3.0;
 
     // Penalize for strong coupling
-    let strong_couples = couplings.iter().filter(|c| c.coupling_strength > 0.7).count();
+    let strong_couples = couplings
+        .iter()
+        .filter(|c| c.coupling_strength > 0.7)
+        .count();
     score -= (strong_couples as f64) * 2.0;
 
     // Penalize for low ownership
@@ -117,9 +121,15 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
 
     // Text output
     println!();
-    println!("{}", "═══════════════════════════════════════════════════════════".cyan());
+    println!(
+        "{}",
+        "═══════════════════════════════════════════════════════════".cyan()
+    );
     println!("  \u{1f4ca} Code Health Report");
-    println!("{}", "═══════════════════════════════════════════════════════════".cyan());
+    println!(
+        "{}",
+        "═══════════════════════════════════════════════════════════".cyan()
+    );
     println!();
 
     let grade_colored = match grade {
@@ -134,8 +144,10 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
 
     // Graph stats
     println!("  {} Graph", "─".repeat(20).dimmed());
-    println!("    Nodes: {}  |  Edges: {}  |  Files: {}  |  Density: {:.1}",
-        node_count, edge_count, file_count, density);
+    println!(
+        "    Nodes: {}  |  Edges: {}  |  Files: {}  |  Density: {:.1}",
+        node_count, edge_count, file_count, density
+    );
     println!();
 
     // Hotspots
@@ -143,12 +155,21 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
     if hotspots.is_empty() {
         println!("    No git history available");
     } else {
-        println!("    {} files analyzed, {} high-risk files (score > 70%)",
-            hotspots.len(), hot_files);
+        println!(
+            "    {} files analyzed, {} high-risk files (score > 70%)",
+            hotspots.len(),
+            hot_files
+        );
         for h in hotspots.iter().take(5) {
             let bar = "█".repeat((h.score * 10.0) as usize);
-            println!("    {} {:.0}%  {} ({} commits, churn {})",
-                bar, h.score * 100.0, h.path.replace('\\', "/"), h.commit_count, h.churn);
+            println!(
+                "    {} {:.0}%  {} ({} commits, churn {})",
+                bar,
+                h.score * 100.0,
+                h.path.replace('\\', "/"),
+                h.commit_count,
+                h.churn
+            );
         }
     }
     println!();
@@ -158,13 +179,18 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
     if couplings.is_empty() {
         println!("    No coupling data available");
     } else {
-        println!("    {} pairs detected, {} highly coupled (>70%)",
-            couplings.len(), strong_couples);
+        println!(
+            "    {} pairs detected, {} highly coupled (>70%)",
+            couplings.len(),
+            strong_couples
+        );
         for c in couplings.iter().take(5) {
-            println!("    {:.0}%  {} <-> {}",
+            println!(
+                "    {:.0}%  {} <-> {}",
                 c.coupling_strength * 100.0,
                 c.file_a.replace('\\', "/"),
-                c.file_b.replace('\\', "/"));
+                c.file_b.replace('\\', "/")
+            );
         }
     }
     println!();
@@ -174,20 +200,35 @@ pub fn run(path: Option<&str>, json: bool) -> Result<()> {
     if ownerships.is_empty() {
         println!("    No ownership data available");
     } else {
-        println!("    {} files analyzed, {} without clear ownership (<50%)",
-            ownerships.len(), orphan_files);
+        println!(
+            "    {} files analyzed, {} without clear ownership (<50%)",
+            ownerships.len(),
+            orphan_files
+        );
         // Show top orphans
-        let mut orphans: Vec<_> = ownerships.iter()
+        let mut orphans: Vec<_> = ownerships
+            .iter()
             .filter(|o| o.ownership_pct < 50.0)
             .collect();
-        orphans.sort_by(|a, b| a.ownership_pct.partial_cmp(&b.ownership_pct).unwrap_or(std::cmp::Ordering::Equal));
+        orphans.sort_by(|a, b| {
+            a.ownership_pct
+                .partial_cmp(&b.ownership_pct)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         for o in orphans.iter().take(5) {
-            println!("    {:.0}%  {} ({})",
-                o.ownership_pct, o.path.replace('\\', "/"), o.primary_author);
+            println!(
+                "    {:.0}%  {} ({})",
+                o.ownership_pct,
+                o.path.replace('\\', "/"),
+                o.primary_author
+            );
         }
     }
     println!();
-    println!("{}", "═══════════════════════════════════════════════════════════".cyan());
+    println!(
+        "{}",
+        "═══════════════════════════════════════════════════════════".cyan()
+    );
 
     Ok(())
 }

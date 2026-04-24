@@ -134,10 +134,7 @@ pub fn score_name(name: &str) -> Option<EntryPointScore> {
 }
 
 /// Score a symbol with language-specific patterns applied on top of the universal ones.
-pub fn score_name_for_language(
-    name: &str,
-    language: SupportedLanguage,
-) -> Option<EntryPointScore> {
+pub fn score_name_for_language(name: &str, language: SupportedLanguage) -> Option<EntryPointScore> {
     // Try language-specific patterns first
     let lang_score = match language {
         SupportedLanguage::Python => score_python_name(name),

@@ -1,6 +1,6 @@
-use std::pin::Pin;
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
+use std::pin::Pin;
 
 pub mod openai;
 

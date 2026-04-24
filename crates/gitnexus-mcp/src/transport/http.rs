@@ -36,9 +36,7 @@ fn http_auth_token() -> Option<Arc<String>> {
 
 fn expose_repo_paths() -> bool {
     matches!(
-        std::env::var("GITNEXUS_EXPOSE_REPO_PATHS")
-            .ok()
-            .as_deref(),
+        std::env::var("GITNEXUS_EXPOSE_REPO_PATHS").ok().as_deref(),
         Some("1" | "true" | "TRUE" | "yes" | "YES")
     )
 }
@@ -112,10 +110,7 @@ pub fn mcp_http_router() -> Router<SharedBackend> {
 /// error) / -32600 (invalid request) response with HTTP 200, not axum's
 /// default 422 plain-text response. MCP clients only know how to handle
 /// JSON-RPC envelopes — a 422 leaves them in an undefined state.
-async fn mcp_handler(
-    State(backend): State<SharedBackend>,
-    body: Bytes,
-) -> impl IntoResponse {
+async fn mcp_handler(State(backend): State<SharedBackend>, body: Bytes) -> impl IntoResponse {
     // Try to extract the request id up front so any error response can echo it
     // back per JSON-RPC spec; fall back to null if parsing fails entirely.
     let raw_json: Result<Value, _> = serde_json::from_slice(&body);
@@ -168,9 +163,7 @@ async fn health_handler() -> impl IntoResponse {
 }
 
 /// GET /api/repos — List indexed repositories
-async fn repos_handler(
-    State(backend): State<SharedBackend>,
-) -> impl IntoResponse {
+async fn repos_handler(State(backend): State<SharedBackend>) -> impl IntoResponse {
     let backend_guard = backend.lock().await;
     let expose_paths = expose_repo_paths();
     let repos: Vec<Value> = backend_guard

@@ -63,7 +63,11 @@ impl OpenAILlmProvider {
         // Convention: `max_tokens == 0` or `reasoning_effort.is_empty()` means
         // "not set", so we fall back to the family default.
         let (default_max, default_effort) = defaults_for(&model);
-        let max_tokens = if max_tokens == 0 { default_max } else { max_tokens };
+        let max_tokens = if max_tokens == 0 {
+            default_max
+        } else {
+            max_tokens
+        };
         let reasoning_effort = if reasoning_effort.trim().is_empty() {
             default_effort.to_string()
         } else {
@@ -114,8 +118,8 @@ impl LlmProvider for OpenAILlmProvider {
         // triggers on Gemini Flash where it's known to be counter-productive.
         let start_effort = {
             let raw = self.reasoning_effort.trim().to_ascii_lowercase();
-            let is_gemini_flash = self.is_gemini()
-                && self.model.to_ascii_lowercase().contains("flash");
+            let is_gemini_flash =
+                self.is_gemini() && self.model.to_ascii_lowercase().contains("flash");
             if is_gemini_flash && raw == "high" {
                 tracing::debug!(
                     "Clamping reasoning_effort high → medium for Gemini Flash model {}",
@@ -141,7 +145,9 @@ impl LlmProvider for OpenAILlmProvider {
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                 tracing::warn!(
                     "LLM stream retry attempt {} (effort={}, model={})",
-                    attempt + 1, effort, self.model
+                    attempt + 1,
+                    effort,
+                    self.model
                 );
             }
             match self.try_stream_once(messages, tools, effort).await {
@@ -222,7 +228,11 @@ impl OpenAILlmProvider {
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(format!("LLM API error ({}): {}", status, error_text.chars().take(300).collect::<String>()));
+            return Err(format!(
+                "LLM API error ({}): {}",
+                status,
+                error_text.chars().take(300).collect::<String>()
+            ));
         }
 
         // Drain the SSE stream eagerly so we can detect an empty response
@@ -257,7 +267,9 @@ impl OpenAILlmProvider {
                 }
                 let line = String::from_utf8_lossy(&line_bytes[..end]);
 
-                let Some(data) = line.strip_prefix("data: ") else { continue };
+                let Some(data) = line.strip_prefix("data: ") else {
+                    continue;
+                };
                 let data = data.trim();
                 if data == "[DONE]" {
                     continue;
@@ -273,8 +285,12 @@ impl OpenAILlmProvider {
                         continue;
                     }
                 };
-                let Some(choices) = json["choices"].as_array() else { continue };
-                let Some(choice) = choices.first() else { continue };
+                let Some(choices) = json["choices"].as_array() else {
+                    continue;
+                };
+                let Some(choice) = choices.first() else {
+                    continue;
+                };
                 let delta = &choice["delta"];
 
                 // P4 — skip thought-only chunks. Gemini 3.x emits chunks
@@ -313,11 +329,17 @@ impl OpenAILlmProvider {
                             let idx = index as usize;
 
                             if let Some(id) = tc["id"].as_str() {
-                                active_tool_calls.insert(idx, ToolCall {
-                                    id: id.to_string(),
-                                    name: tc["function"]["name"].as_str().unwrap_or_default().to_string(),
-                                    arguments: String::new(),
-                                });
+                                active_tool_calls.insert(
+                                    idx,
+                                    ToolCall {
+                                        id: id.to_string(),
+                                        name: tc["function"]["name"]
+                                            .as_str()
+                                            .unwrap_or_default()
+                                            .to_string(),
+                                        arguments: String::new(),
+                                    },
+                                );
                             }
 
                             if let Some(active_tc) = active_tool_calls.get_mut(&idx) {
@@ -376,7 +398,10 @@ mod tests {
 
     #[test]
     fn defaults_for_gemini_flash_tier() {
-        assert_eq!(defaults_for("gemini-3.1-flash-lite-preview"), (32768, "low"));
+        assert_eq!(
+            defaults_for("gemini-3.1-flash-lite-preview"),
+            (32768, "low")
+        );
         assert_eq!(defaults_for("gemini-3-flash-preview"), (32768, "low"));
         assert_eq!(defaults_for("gemini-2.5-flash"), (8192, "medium"));
     }

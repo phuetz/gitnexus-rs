@@ -106,11 +106,9 @@ pub(super) fn generate_wiki(graph: &KnowledgeGraph, repo_path: &Path) -> Result<
                             .unwrap_or("?");
 
                         if member_set.contains(target_id.as_str()) {
-                            internal_calls
-                                .push((src_name.to_string(), tgt_name.to_string()));
+                            internal_calls.push((src_name.to_string(), tgt_name.to_string()));
                         } else {
-                            external_deps
-                                .push((src_name.to_string(), tgt_name.to_string()));
+                            external_deps.push((src_name.to_string(), tgt_name.to_string()));
                         }
                     }
                 }
@@ -145,10 +143,7 @@ pub(super) fn generate_wiki(graph: &KnowledgeGraph, repo_path: &Path) -> Result<
             writeln!(f)?;
         }
 
-        println!(
-            "  {} wiki/{filename}.md",
-            "OK".green(),
-        );
+        println!("  {} wiki/{filename}.md", "OK".green(),);
     }
 
     info!("Documentation generated: {} pages", communities.len());

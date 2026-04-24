@@ -52,7 +52,11 @@ mod tests {
         for lang in SupportedLanguage::all() {
             let ts_lang = get_language(*lang);
             // All languages should have at least some node kinds
-            assert!(ts_lang.node_kind_count() > 0, "Language {:?} has no node kinds", lang);
+            assert!(
+                ts_lang.node_kind_count() > 0,
+                "Language {:?} has no node kinds",
+                lang
+            );
         }
     }
 
@@ -79,7 +83,9 @@ mod tests {
     fn test_parser_can_use_language() {
         let lang = get_language(SupportedLanguage::JavaScript);
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&lang).expect("Failed to set JavaScript language");
+        parser
+            .set_language(&lang)
+            .expect("Failed to set JavaScript language");
 
         let tree = parser.parse("function hello() {}", None).unwrap();
         assert!(!tree.root_node().has_error());

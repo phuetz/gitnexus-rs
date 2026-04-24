@@ -1,9 +1,9 @@
 //! The `trace-doc` command: generate documentation from an execution trace using LLM.
 
-use std::path::PathBuf;
 use anyhow::Result;
 use colored::Colorize;
 use serde_json::Value;
+use std::path::PathBuf;
 
 use gitnexus_core::trace;
 use gitnexus_db::snapshot;
@@ -28,7 +28,9 @@ pub async fn run(trace_file: &str, output_file: Option<&str>, path: Option<&str>
             println!("  {{");
             println!("    \"provider\": \"gemini\",");
             println!("    \"api_key\": \"YOUR_API_KEY\",");
-            println!("    \"base_url\": \"https://generativelanguage.googleapis.com/v1beta/openai\",");
+            println!(
+                "    \"base_url\": \"https://generativelanguage.googleapis.com/v1beta/openai\","
+            );
             println!("    \"model\": \"gemini-2.5-flash\",");
             println!("    \"max_tokens\": 8192,");
             println!("    \"reasoning_effort\": \"high\"");
@@ -39,7 +41,10 @@ pub async fn run(trace_file: &str, output_file: Option<&str>, path: Option<&str>
 
     let snap_path = repo_path.join(".gitnexus").join("graph.bin");
     if !snap_path.exists() {
-        println!("{} No index found. Run 'gitnexus analyze' first.", "ERROR".red());
+        println!(
+            "{} No index found. Run 'gitnexus analyze' first.",
+            "ERROR".red()
+        );
         return Ok(());
     }
 
@@ -69,7 +74,10 @@ pub async fn run(trace_file: &str, output_file: Option<&str>, path: Option<&str>
     let mut context_blocks = Vec::new();
 
     for (i, step) in steps.iter().enumerate() {
-        let method_name_opt = step.get("method").or(step.get("name")).and_then(|v| v.as_str());
+        let method_name_opt = step
+            .get("method")
+            .or(step.get("name"))
+            .and_then(|v| v.as_str());
 
         let mut context_block = format!(
             "### Step {}: {}\n",
@@ -82,7 +90,9 @@ pub async fn run(trace_file: &str, output_file: Option<&str>, path: Option<&str>
         ));
 
         if let Some(full_method_name) = method_name_opt {
-            if let Some(node_id) = trace::resolve_method_node(&graph, &name_to_ids, full_method_name) {
+            if let Some(node_id) =
+                trace::resolve_method_node(&graph, &name_to_ids, full_method_name)
+            {
                 if let Some(node) = graph.get_node(&node_id) {
                     matched_steps += 1;
                     // Path traversal guard: the graph node's file_path comes
@@ -91,16 +101,18 @@ pub async fn run(trace_file: &str, output_file: Option<&str>, path: Option<&str>
                     // escape the repo root and exfiltrate arbitrary files
                     // into the LLM prompt.
                     let full_path = repo_path.join(&node.properties.file_path);
-                    let source_safe = match (
-                        full_path.canonicalize().ok(),
-                        repo_path.canonicalize().ok(),
-                    ) {
-                        (Some(canon), Some(root)) => canon.starts_with(&root),
-                        _ => false,
-                    };
+                    let source_safe =
+                        match (full_path.canonicalize().ok(), repo_path.canonicalize().ok()) {
+                            (Some(canon), Some(root)) => canon.starts_with(&root),
+                            _ => false,
+                        };
                     if source_safe {
-                        if let (Some(start), Some(end)) = (node.properties.start_line, node.properties.end_line) {
-                            if let Some(source) = trace::extract_source_lines(&full_path, start, end) {
+                        if let (Some(start), Some(end)) =
+                            (node.properties.start_line, node.properties.end_line)
+                        {
+                            if let Some(source) =
+                                trace::extract_source_lines(&full_path, start, end)
+                            {
                                 context_block.push_str(&format!(
                                     "Source code (`{}`):\n```\n{}\n```\n",
                                     node.properties.file_path, source
@@ -114,8 +126,16 @@ pub async fn run(trace_file: &str, output_file: Option<&str>, path: Option<&str>
         context_blocks.push(context_block);
     }
 
-    println!("  Found {} steps, matched {} with source code", steps.len(), matched_steps);
-    println!("{} Generating documentation with LLM ({})...", "->".cyan(), config.model);
+    println!(
+        "  Found {} steps, matched {} with source code",
+        steps.len(),
+        matched_steps
+    );
+    println!(
+        "{} Generating documentation with LLM ({})...",
+        "->".cyan(),
+        config.model
+    );
 
     let system_prompt = "You are an expert technical writer and software architect. \
         Your task is to write a comprehensive business process documentation based on an execution trace. \

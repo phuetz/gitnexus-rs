@@ -11,7 +11,10 @@ mod tests {
 
     #[test]
     fn test_generate_id() {
-        assert_eq!(generate_id("Function", "src/main.ts:handleLogin"), "Function:src/main.ts:handleLogin");
+        assert_eq!(
+            generate_id("Function", "src/main.ts:handleLogin"),
+            "Function:src/main.ts:handleLogin"
+        );
         assert_eq!(generate_id("File", "src/index.ts"), "File:src/index.ts");
     }
 }

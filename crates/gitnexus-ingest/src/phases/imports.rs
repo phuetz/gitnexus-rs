@@ -6,7 +6,9 @@ use gitnexus_core::id::generate_id;
 use gitnexus_core::resolution::types::*;
 use gitnexus_core::symbol::SymbolTable;
 
-use gitnexus_lang::import_resolvers::types::{ImportConfigs, ImportResult, ResolveCtx, SuffixIndex};
+use gitnexus_lang::import_resolvers::types::{
+    ImportConfigs, ImportResult, ResolveCtx, SuffixIndex,
+};
 use gitnexus_lang::registry::get_provider;
 
 use crate::phases::parsing::ExtractedData;

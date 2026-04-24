@@ -112,12 +112,25 @@ pub fn schema_queries() -> Vec<String> {
 /// Generate FTS index creation queries for the 5 searchable tables.
 pub fn fts_queries() -> Vec<String> {
     let fts_tables = [
-        "File", "Function", "Class", "Method", "Interface",
-        "Controller", "ControllerAction", "ApiEndpoint", "View",
-        "ViewModel", "DbEntity", "DbContext",
-        "ScriptFile", "UiComponent", "Service", "Repository",
+        "File",
+        "Function",
+        "Class",
+        "Method",
+        "Interface",
+        "Controller",
+        "ControllerAction",
+        "ApiEndpoint",
+        "View",
+        "ViewModel",
+        "DbEntity",
+        "DbContext",
+        "ScriptFile",
+        "UiComponent",
+        "Service",
+        "Repository",
         "ExternalService",
-        "Document", "DocChunk",
+        "Document",
+        "DocChunk",
     ];
     fts_tables
         .iter()
@@ -224,11 +237,7 @@ fn extra_columns_for(label: &str) -> String {
         ]
         .join(", "),
         "ViewModel" => "dataAnnotations STRING".to_string(),
-        "DbEntity" => [
-            "dbTableName STRING",
-            "dataAnnotations STRING",
-        ]
-        .join(", "),
+        "DbEntity" => ["dbTableName STRING", "dataAnnotations STRING"].join(", "),
         "DbContext" => "connectionStringName STRING".to_string(),
         "Area" => "areaName STRING".to_string(),
         "AjaxCall" => "ajaxMethod STRING, ajaxUrl STRING".to_string(),

@@ -66,9 +66,7 @@ pub fn resolve(raw_path: &str, _file_path: &str, ctx: &ResolveCtx<'_>) -> Import
     if let Some(files) = ctx.suffix_index.get_files_in_dir(&as_path) {
         let relevant_files: Vec<String> = files
             .iter()
-            .filter(|f| {
-                f.ends_with(".cs") || f.ends_with(".cshtml") || f.ends_with(".razor")
-            })
+            .filter(|f| f.ends_with(".cs") || f.ends_with(".cshtml") || f.ends_with(".razor"))
             .cloned()
             .collect();
         if !relevant_files.is_empty() {
@@ -84,8 +82,8 @@ pub fn resolve(raw_path: &str, _file_path: &str, ctx: &ResolveCtx<'_>) -> Import
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{ImportConfigs, SuffixIndex};
+    use super::*;
     use std::collections::HashSet;
 
     fn make_ctx<'a>(
@@ -138,7 +136,11 @@ mod tests {
         let ctx = make_ctx(&files, &index, &configs);
 
         // @inject IMyService MyService → should resolve the type "Services.IMyService"
-        match resolve("@inject Services.IMyService MyService", "Pages/Index.razor", &ctx) {
+        match resolve(
+            "@inject Services.IMyService MyService",
+            "Pages/Index.razor",
+            &ctx,
+        ) {
             ImportResult::Files(f) => assert_eq!(f, vec!["Services/IMyService.cs"]),
             other => panic!("Expected Files, got {:?}", other),
         }

@@ -41,8 +41,14 @@ pub fn detect_circular_dependencies(graph: &KnowledgeGraph) -> Vec<CircularDepen
     let mut adj: HashMap<String, HashSet<String>> = HashMap::new();
 
     for rel in graph.iter_relationships() {
-        if matches!(rel.rel_type, RelationshipType::Imports | RelationshipType::DependsOn) {
-            if let (Some(src), Some(dst)) = (graph.get_node(&rel.source_id), graph.get_node(&rel.target_id)) {
+        if matches!(
+            rel.rel_type,
+            RelationshipType::Imports | RelationshipType::DependsOn
+        ) {
+            if let (Some(src), Some(dst)) = (
+                graph.get_node(&rel.source_id),
+                graph.get_node(&rel.target_id),
+            ) {
                 if src.label == NodeLabel::File && dst.label == NodeLabel::File {
                     adj.entry(src.properties.file_path.clone())
                         .or_default()
@@ -59,7 +65,15 @@ pub fn detect_circular_dependencies(graph: &KnowledgeGraph) -> Vec<CircularDepen
 
     for file in adj.keys() {
         if !visited.contains(file) {
-            dfs_find_cycles(file, &adj, &mut visited, &mut rec_stack, &mut path, &mut cycles, 0);
+            dfs_find_cycles(
+                file,
+                &adj,
+                &mut visited,
+                &mut rec_stack,
+                &mut path,
+                &mut cycles,
+                0,
+            );
         }
     }
 
@@ -132,9 +146,16 @@ fn classify_layer(label: NodeLabel, file_path: &str) -> Option<&'static str> {
             // Heuristic: classify by path
             if lower.contains("controller") || lower.contains("/views/") {
                 Some("Presentation")
-            } else if lower.contains("service") || lower.contains("/bal/") || lower.contains("/bll/") {
+            } else if lower.contains("service")
+                || lower.contains("/bal/")
+                || lower.contains("/bll/")
+            {
                 Some("Business")
-            } else if lower.contains("repository") || lower.contains("/dal/") || lower.contains("entities") || lower.contains("dbcontext") {
+            } else if lower.contains("repository")
+                || lower.contains("/dal/")
+                || lower.contains("entities")
+                || lower.contains("dbcontext")
+            {
                 Some("Data")
             } else {
                 None
@@ -167,7 +188,10 @@ pub fn detect_layer_violations(graph: &KnowledgeGraph) -> Vec<LayerViolation> {
 
     // Check Calls edges for layer skipping
     for rel in graph.iter_relationships() {
-        if !matches!(rel.rel_type, RelationshipType::Calls | RelationshipType::CallsService) {
+        if !matches!(
+            rel.rel_type,
+            RelationshipType::Calls | RelationshipType::CallsService
+        ) {
             continue;
         }
 
@@ -220,9 +244,18 @@ mod tests {
 
     #[test]
     fn test_layer_classification() {
-        assert_eq!(classify_layer(NodeLabel::Controller, "Controllers/HomeController.cs"), Some("Presentation"));
-        assert_eq!(classify_layer(NodeLabel::Service, "Services/UserService.cs"), Some("Business"));
-        assert_eq!(classify_layer(NodeLabel::DbContext, "Data/AppDbContext.cs"), Some("Data"));
+        assert_eq!(
+            classify_layer(NodeLabel::Controller, "Controllers/HomeController.cs"),
+            Some("Presentation")
+        );
+        assert_eq!(
+            classify_layer(NodeLabel::Service, "Services/UserService.cs"),
+            Some("Business")
+        );
+        assert_eq!(
+            classify_layer(NodeLabel::DbContext, "Data/AppDbContext.cs"),
+            Some("Data")
+        );
         assert_eq!(classify_layer(NodeLabel::Function, "Utils/Helper.cs"), None);
     }
 

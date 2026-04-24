@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use tauri::State;
 
+use crate::commands::shared::node_to_cyto;
 use crate::state::AppState;
 use crate::types::*;
-use crate::commands::shared::node_to_cyto;
 
 /// Blast radius analysis via BFS traversal.
 #[tauri::command]
@@ -210,4 +210,3 @@ fn bfs_impact(
 
     results
 }
-

@@ -16,19 +16,31 @@ pub fn extract_controllers(source: &str) -> Vec<ControllerInfo> {
             if is_controller_class(&class_match.base_classes) {
                 // Determine custom base controller: if the base class is not
                 // one of the standard ones, record it for inheritance tracking
-                let base_controller = class_match.base_classes.iter().find(|b| {
-                    // Must look like a controller (ends with "Controller") but not be standard
-                    !CONTROLLER_BASE_CLASSES.iter().any(|cb| *b == *cb)
-                        && (b.ends_with("Controller") || b.ends_with("ControllerBase"))
-                }).cloned();
+                let base_controller = class_match
+                    .base_classes
+                    .iter()
+                    .find(|b| {
+                        // Must look like a controller (ends with "Controller") but not be standard
+                        !CONTROLLER_BASE_CLASSES.iter().any(|cb| *b == *cb)
+                            && (b.ends_with("Controller") || b.ends_with("ControllerBase"))
+                    })
+                    .cloned();
 
                 let mut controller = ControllerInfo {
                     class_name: class_match.name.clone(),
                     area_name: extract_attribute_value(&class_match.attributes, "Area"),
                     route_prefix: extract_attribute_value(&class_match.attributes, "Route")
-                        .or_else(|| extract_attribute_value(&class_match.attributes, "RoutePrefix")),
-                    is_api_controller: class_match.base_classes.iter().any(|b| b == "ApiController")
-                        || class_match.attributes.iter().any(|a| a.starts_with("ApiController")),
+                        .or_else(|| {
+                            extract_attribute_value(&class_match.attributes, "RoutePrefix")
+                        }),
+                    is_api_controller: class_match
+                        .base_classes
+                        .iter()
+                        .any(|b| b == "ApiController")
+                        || class_match
+                            .attributes
+                            .iter()
+                            .any(|a| a.starts_with("ApiController")),
                     authorize: extract_attribute_value(&class_match.attributes, "Authorize"),
                     actions: Vec::new(),
                     base_controller,
@@ -47,7 +59,10 @@ pub fn extract_controllers(source: &str) -> Vec<ControllerInfo> {
                 controllers.push(controller);
             }
 
-            i = class_match.body_end_line.unwrap_or(class_match.body_start_line) + 1;
+            i = class_match
+                .body_end_line
+                .unwrap_or(class_match.body_start_line)
+                + 1;
         } else {
             i += 1;
         }
@@ -73,16 +88,17 @@ fn extract_actions(
         let mut method_attrs = Vec::new();
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
             method_attrs.push(
-                trimmed.get(1..trimmed.len() - 1).unwrap_or_default().to_string(),
+                trimmed
+                    .get(1..trimmed.len() - 1)
+                    .unwrap_or_default()
+                    .to_string(),
             );
             i += 1;
             // Collect multiple attribute lines
             while i <= body_end && i < lines.len() {
                 let next = lines[i].trim();
                 if next.starts_with('[') && next.ends_with(']') {
-                    method_attrs.push(
-                        next.get(1..next.len() - 1).unwrap_or_default().to_string(),
-                    );
+                    method_attrs.push(next.get(1..next.len() - 1).unwrap_or_default().to_string());
                     i += 1;
                 } else {
                     break;
@@ -167,7 +183,10 @@ fn parse_action_method(
             || rt.starts_with("Json")
             || rt.starts_with("View")
     }) || attributes.iter().any(|a| {
-        a.starts_with("Http") || a.starts_with("Route") || a.starts_with("Action") || a.starts_with("GridAction")
+        a.starts_with("Http")
+            || a.starts_with("Route")
+            || a.starts_with("Action")
+            || a.starts_with("GridAction")
     });
 
     if !is_action_method {
@@ -180,20 +199,21 @@ fn parse_action_method(
     // Extract route template
     let route_template = attributes.iter().find_map(|attr| {
         if attr.starts_with("Route(") || attr.starts_with("Http") {
-            extract_attribute_value(std::slice::from_ref(attr), "Route")
-                .or_else(|| {
-                    // [HttpGet("path")] -> extract path
-                    for (http_attr, _) in HTTP_ATTRIBUTES {
-                        if attr.starts_with(http_attr) {
-                            if let Some(v) = extract_attribute_value(std::slice::from_ref(attr), http_attr) {
-                                if !v.is_empty() {
-                                    return Some(v);
-                                }
+            extract_attribute_value(std::slice::from_ref(attr), "Route").or_else(|| {
+                // [HttpGet("path")] -> extract path
+                for (http_attr, _) in HTTP_ATTRIBUTES {
+                    if attr.starts_with(http_attr) {
+                        if let Some(v) =
+                            extract_attribute_value(std::slice::from_ref(attr), http_attr)
+                        {
+                            if !v.is_empty() {
+                                return Some(v);
                             }
                         }
                     }
-                    None
-                })
+                }
+                None
+            })
         } else {
             None
         }
@@ -210,12 +230,19 @@ fn parse_action_method(
     let filters = extract_action_filters(attributes);
 
     // Extract full parameter signature from parentheses
-    let parameters = line.find('(').and_then(|start| {
-        line[start..].find(')').map(|end| {
-            let params = line[start + 1..start + end].trim();
-            if params.is_empty() { None } else { Some(params.to_string()) }
+    let parameters = line
+        .find('(')
+        .and_then(|start| {
+            line[start..].find(')').map(|end| {
+                let params = line[start + 1..start + end].trim();
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params.to_string())
+                }
+            })
         })
-    }).flatten();
+        .flatten();
 
     Some(ActionInfo {
         name: method_name,

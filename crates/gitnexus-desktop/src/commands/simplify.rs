@@ -173,11 +173,7 @@ fn matches_scope(node: &gitnexus_core::graph::types::GraphNode, scope: &Scope) -
 
 // ─── Signal aggregation ─────────────────────────────────────────────
 
-fn build_signals(
-    graph: &KnowledgeGraph,
-    scope: &Scope,
-    min_complexity: u32,
-) -> SimplifySignals {
+fn build_signals(graph: &KnowledgeGraph, scope: &Scope, min_complexity: u32) -> SimplifySignals {
     // Pre-build community membership map if we filter by community.
     let mut in_community: Option<std::collections::HashSet<String>> = None;
     if let Some(comm_name) = &scope.community_filter {
@@ -205,7 +201,10 @@ fn build_signals(
         }
     }
 
-    let mut s = SimplifySignals { scope: scope.label.clone(), ..Default::default() };
+    let mut s = SimplifySignals {
+        scope: scope.label.clone(),
+        ..Default::default()
+    };
 
     let mut name_buckets: HashMap<String, Vec<String>> = HashMap::new(); // name → file paths
     let mut files_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -255,10 +254,8 @@ fn build_signals(
         }
         if let Some(smells) = &node.properties.llm_smells {
             for smell in smells {
-                s.llm_smells.push(format!(
-                    "{}: {}",
-                    node.properties.name, smell
-                ));
+                s.llm_smells
+                    .push(format!("{}: {}", node.properties.name, smell));
             }
         }
 
@@ -307,7 +304,8 @@ fn build_signals(
 
 // ─── LLM prompting ──────────────────────────────────────────────────
 
-const SYSTEM_PROMPT: &str = "You are the simplify role: read aggregated graph signals about a codebase \
+const SYSTEM_PROMPT: &str =
+    "You are the simplify role: read aggregated graph signals about a codebase \
 section and propose concrete refactor moves.\n\n\
 Rules:\n\
 - Output Markdown with a single section `### Proposals`.\n\
@@ -401,14 +399,18 @@ fn parse_proposals(md: &str, s: &SimplifySignals) -> Vec<SimplifyProposal> {
         }
         if let Some((kind, rest)) = trimmed.split_once(':') {
             let kind = kind.trim().to_ascii_lowercase();
-            if !matches!(kind.as_str(), "extract" | "delete" | "merge" | "inline" | "rename") {
+            if !matches!(
+                kind.as_str(),
+                "extract" | "delete" | "merge" | "inline" | "rename"
+            ) {
                 continue;
             }
             let (body, conf) = extract_confidence(rest.trim());
-            let (target, rationale) = match body.split_once(" — ").or_else(|| body.split_once(" - ")) {
-                Some((t, r)) => (t.trim().to_string(), r.trim().to_string()),
-                None => (body.trim().to_string(), String::new()),
-            };
+            let (target, rationale) =
+                match body.split_once(" — ").or_else(|| body.split_once(" - ")) {
+                    Some((t, r)) => (t.trim().to_string(), r.trim().to_string()),
+                    None => (body.trim().to_string(), String::new()),
+                };
             out.push(SimplifyProposal {
                 kind,
                 target,
@@ -512,7 +514,10 @@ fn render_markdown(scope: &str, s: &SimplifySignals, props: &[SimplifyProposal])
         md.push('\n');
     }
     if !s.dead_candidates.is_empty() {
-        md.push_str(&format!("## Dead candidates ({})\n", s.dead_candidates.len()));
+        md.push_str(&format!(
+            "## Dead candidates ({})\n",
+            s.dead_candidates.len()
+        ));
         for d in s.dead_candidates.iter().take(20) {
             md.push_str(&format!("- `{d}`\n"));
         }
@@ -589,5 +594,4 @@ mod tests {
         assert!(md.contains("foo.rs"));
         assert!(md.contains("5 files"));
     }
-
 }

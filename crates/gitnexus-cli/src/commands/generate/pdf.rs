@@ -41,10 +41,7 @@ pub(super) fn generate_pdf_from_docs(
 }
 
 /// Generate PDF from a standalone Markdown file or directory.
-pub(super) fn generate_pdf_from_input(
-    input_path: &Path,
-    output_path: &Path,
-) -> Result<()> {
+pub(super) fn generate_pdf_from_input(input_path: &Path, output_path: &Path) -> Result<()> {
     let md_files = if input_path.is_dir() {
         collect_md_from_directory(input_path)?
     } else {
@@ -103,7 +100,8 @@ fn generate_pdf(
     let mut heading_counter: u32 = 0;
 
     for (_name, section_html) in &body_sections {
-        let (processed, entries) = inject_heading_ids_and_collect(section_html, &mut heading_counter);
+        let (processed, entries) =
+            inject_heading_ids_and_collect(section_html, &mut heading_counter);
         toc_entries.extend(entries);
         full_body.push_str(&processed);
     }
@@ -128,9 +126,7 @@ fn generate_pdf(
 
     result?;
 
-    let file_size = std::fs::metadata(output_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let file_size = std::fs::metadata(output_path).map(|m| m.len()).unwrap_or(0);
     let size_str = if file_size > 1_048_576 {
         format!("{:.1} Mo", file_size as f64 / 1_048_576.0)
     } else {
@@ -306,10 +302,7 @@ struct TocEntry {
 }
 
 /// Inject `id` attributes on heading tags and collect TOC entries.
-fn inject_heading_ids_and_collect(
-    html: &str,
-    counter: &mut u32,
-) -> (String, Vec<TocEntry>) {
+fn inject_heading_ids_and_collect(html: &str, counter: &mut u32) -> (String, Vec<TocEntry>) {
     let mut result = String::with_capacity(html.len() + 1024);
     let mut entries = Vec::new();
 
@@ -818,10 +811,7 @@ fn run_playwright(html_path: &Path, output_path: &Path) -> Result<()> {
     let node = find_node()?;
     let node_path = find_global_node_modules();
 
-    println!(
-        "{} Running Playwright (Chromium headless)...",
-        ">>".blue()
-    );
+    println!("{} Running Playwright (Chromium headless)...", ">>".blue());
 
     let mut cmd = Command::new(&node);
     cmd.arg(js_path.to_str().unwrap_or(""))
@@ -854,13 +844,19 @@ fn run_playwright(html_path: &Path, output_path: &Path) -> Result<()> {
                 "Playwright is not installed. Run:\n  npm install -g playwright\n  npx playwright install chromium\n\nOriginal error: {}",
                 stderr.trim()
             )
-        } else if stderr.contains("Executable doesn't exist") || stderr.contains("browserType.launch") {
+        } else if stderr.contains("Executable doesn't exist")
+            || stderr.contains("browserType.launch")
+        {
             format!(
                 "Chromium browser not installed for Playwright. Run:\n  npx playwright install chromium\n\nOriginal error: {}",
                 stderr.trim()
             )
         } else {
-            format!("Playwright failed (exit {}): {}", output.status, stderr.trim())
+            format!(
+                "Playwright failed (exit {}): {}",
+                output.status,
+                stderr.trim()
+            )
         };
         bail!("{}", err_msg);
     }
@@ -903,10 +899,7 @@ fn find_node() -> Result<String> {
 /// Discover the global node_modules directory for NODE_PATH.
 fn find_global_node_modules() -> Option<String> {
     let npm_cmd = if cfg!(windows) { "npm.cmd" } else { "npm" };
-    let output = Command::new(npm_cmd)
-        .args(["root", "-g"])
-        .output()
-        .ok()?;
+    let output = Command::new(npm_cmd).args(["root", "-g"]).output().ok()?;
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !path.is_empty() && Path::new(&path).exists() {
@@ -937,7 +930,10 @@ mod tests {
 | **Auteur** | Équipe DaMadi |
 "#;
         let meta = extract_metadata(content);
-        assert_eq!(meta.title, "ALISE V2 \u{2014} SP\u{00C9}CIFICATIONS FONCTIONNELLES");
+        assert_eq!(
+            meta.title,
+            "ALISE V2 \u{2014} SP\u{00C9}CIFICATIONS FONCTIONNELLES"
+        );
         assert_eq!(meta.subtitle, "CYCLE DE VIE D'UN DOSSIER D'AIDE");
         assert_eq!(meta.version, "2.0");
         assert_eq!(meta.date, "12/04/2026");
@@ -946,8 +942,14 @@ mod tests {
 
     #[test]
     fn test_slugify() {
-        assert_eq!(slugify("Introduction générale", 1), "introduction-generale-1");
-        assert_eq!(slugify("2.1. Écrans de saisie", 5), "2-1-ecrans-de-saisie-5");
+        assert_eq!(
+            slugify("Introduction générale", 1),
+            "introduction-generale-1"
+        );
+        assert_eq!(
+            slugify("2.1. Écrans de saisie", 5),
+            "2-1-ecrans-de-saisie-5"
+        );
         assert_eq!(slugify("", 42), "heading-42");
     }
 
@@ -966,8 +968,16 @@ mod tests {
     #[test]
     fn test_build_toc_html() {
         let entries = vec![
-            TocEntry { level: 1, id: "intro-1".into(), text: "Introduction".into() },
-            TocEntry { level: 2, id: "context-2".into(), text: "Contexte".into() },
+            TocEntry {
+                level: 1,
+                id: "intro-1".into(),
+                text: "Introduction".into(),
+            },
+            TocEntry {
+                level: 2,
+                id: "context-2".into(),
+                text: "Contexte".into(),
+            },
         ];
         let toc = build_toc_html(&entries);
         assert!(toc.contains("toc-h1"));
@@ -980,12 +990,18 @@ mod tests {
     fn test_strip_html_inline() {
         assert_eq!(strip_html_inline("<strong>Bold</strong> text"), "Bold text");
         assert_eq!(strip_html_inline("No tags"), "No tags");
-        assert_eq!(strip_html_inline("<em>italic</em> &amp; more"), "italic & more");
+        assert_eq!(
+            strip_html_inline("<em>italic</em> &amp; more"),
+            "italic & more"
+        );
     }
 
     #[test]
     fn test_extract_table_value() {
         assert_eq!(extract_table_value("| **Version** | 2.0 |"), "2.0");
-        assert_eq!(extract_table_value("| **Date** | 12/04/2026 |"), "12/04/2026");
+        assert_eq!(
+            extract_table_value("| **Date** | 12/04/2026 |"),
+            "12/04/2026"
+        );
     }
 }

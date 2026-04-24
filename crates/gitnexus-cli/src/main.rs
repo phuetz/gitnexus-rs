@@ -18,7 +18,9 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Index a repository into a knowledge graph
-    #[command(after_help = "Examples:\n  gitnexus analyze\n  gitnexus analyze D:\\taf\\MyProject\n  gitnexus analyze --force --verbose\n  gitnexus analyze --llm-enrich")]
+    #[command(
+        after_help = "Examples:\n  gitnexus analyze\n  gitnexus analyze D:\\taf\\MyProject\n  gitnexus analyze --force --verbose\n  gitnexus analyze --llm-enrich"
+    )]
     Analyze {
         /// Path to the repository (defaults to current directory)
         #[arg(default_value = ".")]
@@ -73,7 +75,9 @@ enum Commands {
         all: bool,
     },
     /// Search the knowledge graph
-    #[command(after_help = "Examples:\n  gitnexus query \"authentication middleware\"\n  gitnexus query \"user service\" --limit 5")]
+    #[command(
+        after_help = "Examples:\n  gitnexus query \"authentication middleware\"\n  gitnexus query \"user service\" --limit 5"
+    )]
     Query {
         /// Natural language search query
         query: String,
@@ -85,7 +89,9 @@ enum Commands {
         limit: usize,
     },
     /// 360-degree symbol view
-    #[command(after_help = "Examples:\n  gitnexus context UserService\n  gitnexus context handleRequest --repo my-project")]
+    #[command(
+        after_help = "Examples:\n  gitnexus context UserService\n  gitnexus context handleRequest --repo my-project"
+    )]
     Context {
         /// Symbol name to look up
         name: String,
@@ -94,7 +100,9 @@ enum Commands {
         repo: Option<String>,
     },
     /// Blast radius analysis
-    #[command(after_help = "Examples:\n  gitnexus impact handleRequest --direction both\n  gitnexus impact UserService --direction upstream")]
+    #[command(
+        after_help = "Examples:\n  gitnexus impact handleRequest --direction both\n  gitnexus impact UserService --direction upstream"
+    )]
     Impact {
         /// Symbol name or node ID
         target: String,
@@ -128,10 +136,14 @@ enum Commands {
         path: Option<String>,
     },
     /// Generate documentation from the knowledge graph
-    #[command(after_help = "Examples:\n  gitnexus generate html --path D:\\taf\\MyProject\n  gitnexus generate pdf --input D:\\taf\\docs\\V2\n  gitnexus generate html --enrich --enrich-profile strict\n  gitnexus generate all --path D:\\taf\\MyProject\n  gitnexus generate inject --path D:\\taf\\MyProject --input inject.json")]
+    #[command(
+        after_help = "Examples:\n  gitnexus generate html --path D:\\taf\\MyProject\n  gitnexus generate pdf --input D:\\taf\\docs\\V2\n  gitnexus generate html --enrich --enrich-profile strict\n  gitnexus generate all --path D:\\taf\\MyProject\n  gitnexus generate inject --path D:\\taf\\MyProject --input inject.json"
+    )]
     Generate {
         /// Target: context | agents | wiki | skills | docs | docx | pdf | html | obsidian | process-doc | inject | all
-        #[arg(help = "Target: context | agents | wiki | skills | docs | docx | pdf | html | obsidian | process-doc | inject | all")]
+        #[arg(
+            help = "Target: context | agents | wiki | skills | docs | docx | pdf | html | obsidian | process-doc | inject | all"
+        )]
         what: String,
         /// Path to the repository (defaults to current directory)
         #[arg(short, long)]
@@ -212,7 +224,9 @@ enum Commands {
         json: bool,
     },
     /// Ask a question about the codebase using the knowledge graph + LLM
-    #[command(after_help = "Examples:\n  gitnexus ask \"how does authentication work?\"\n  gitnexus ask \"quels controllers appellent le WebAPI?\" --path D:\\taf\\MyProject")]
+    #[command(
+        after_help = "Examples:\n  gitnexus ask \"how does authentication work?\"\n  gitnexus ask \"quels controllers appellent le WebAPI?\" --path D:\\taf\\MyProject"
+    )]
     Ask {
         /// The question to ask
         question: String,
@@ -221,7 +235,9 @@ enum Commands {
         path: Option<String>,
     },
     /// Generate a combined code health report (hotspots + coupling + ownership + graph stats)
-    #[command(after_help = "Examples:\n  gitnexus report\n  gitnexus report --path D:\\taf\\MyProject\n  gitnexus report --json")]
+    #[command(
+        after_help = "Examples:\n  gitnexus report\n  gitnexus report --path D:\\taf\\MyProject\n  gitnexus report --json"
+    )]
     Report {
         /// Path to the repository (defaults to current directory)
         #[arg(short, long)]
@@ -237,7 +253,9 @@ enum Commands {
         action: String,
     },
     /// List all source files involved in a feature (BFS traversal from a symbol)
-    #[command(after_help = "Examples:\n  gitnexus trace-files CourrierController\n  gitnexus trace-files BenefService --depth 3 --json")]
+    #[command(
+        after_help = "Examples:\n  gitnexus trace-files CourrierController\n  gitnexus trace-files BenefService --depth 3 --json"
+    )]
     TraceFiles {
         /// Symbol name to trace from (controller, service, class, method)
         target: String,
@@ -252,7 +270,9 @@ enum Commands {
         json: bool,
     },
     /// Generate Mermaid diagrams from the knowledge graph
-    #[command(after_help = "Examples:\n  gitnexus diagram CourrierController --type flowchart\n  gitnexus diagram BenefService --format slides\n  gitnexus diagram CourrierController --type class --output diagram.md")]
+    #[command(
+        after_help = "Examples:\n  gitnexus diagram CourrierController --type flowchart\n  gitnexus diagram BenefService --format slides\n  gitnexus diagram CourrierController --type class --output diagram.md"
+    )]
     Diagram {
         /// Symbol name to diagram
         target: String,
@@ -270,7 +290,9 @@ enum Commands {
         output: Option<String>,
     },
     /// Import execution traces (log files) to enrich the knowledge graph
-    #[command(after_help = "Examples:\n  gitnexus trace-import D:\\logs\\production.log\n  gitnexus trace-import trace.csv --path D:\\taf\\MyProject")]
+    #[command(
+        after_help = "Examples:\n  gitnexus trace-import D:\\logs\\production.log\n  gitnexus trace-import trace.csv --path D:\\taf\\MyProject"
+    )]
     TraceImport {
         /// Path to the log/trace file
         file: String,
@@ -280,7 +302,9 @@ enum Commands {
     },
 
     /// Generate documentation from an execution trace using LLM
-    #[command(after_help = "Examples:\n  gitnexus trace-doc trace.json\n  gitnexus trace-doc trace.json --output doc.md")]
+    #[command(
+        after_help = "Examples:\n  gitnexus trace-doc trace.json\n  gitnexus trace-doc trace.json --output doc.md"
+    )]
     TraceDoc {
         /// Path to the JSON trace file
         file: String,
@@ -293,7 +317,9 @@ enum Commands {
     },
 
     /// Import external documentation (Markdown, DOCX) for GraphRAG
-    #[command(after_help = "Examples:\n  gitnexus rag-import ./docs\n  gitnexus rag-import D:\\Specs --path D:\\taf\\MyProject\n\nSupported formats: .md (Markdown), .docx (Microsoft Word OOXML). Other files are silently skipped.")]
+    #[command(
+        after_help = "Examples:\n  gitnexus rag-import ./docs\n  gitnexus rag-import D:\\Specs --path D:\\taf\\MyProject\n\nSupported formats: .md (Markdown), .docx (Microsoft Word OOXML). Other files are silently skipped."
+    )]
     RagImport {
         /// Path to the documentation directory
         docs_dir: String,
@@ -303,7 +329,9 @@ enum Commands {
     },
 
     /// Analyze tracing coverage and detect dead code
-    #[command(after_help = "Examples:\n  gitnexus coverage CourriersService\n  gitnexus coverage --json\n  gitnexus coverage CourriersService --path D:\\taf\\Alise_v2")]
+    #[command(
+        after_help = "Examples:\n  gitnexus coverage CourriersService\n  gitnexus coverage --json\n  gitnexus coverage CourriersService --path D:\\taf\\Alise_v2"
+    )]
     Coverage {
         /// Class/Service name to analyze (omit for global report)
         target: Option<String>,
@@ -335,8 +363,7 @@ async fn main() -> anyhow::Result<()> {
         .with_max_level(log_level)
         .with_writer(std::io::stderr)
         .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Failed to set tracing subscriber");
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
 
     match cli.command {
         Commands::Analyze {
@@ -385,9 +412,33 @@ async fn main() -> anyhow::Result<()> {
         Commands::Setup => commands::setup::run(),
         Commands::McpInstall { scope } => commands::mcp_install::run(&scope),
         Commands::Shell { path } => commands::shell::run(path.as_deref()).await,
-        Commands::Generate { what, path, output_dir, input, enrich, enrich_profile, enrich_lang, enrich_citations, enrich_only, retry_queue, retry_at, traces_dir } => {
-            commands::generate::run(&what, path.as_deref(), output_dir.as_deref(), enrich, &enrich_profile, &enrich_lang, enrich_citations, enrich_only, retry_queue, retry_at.as_deref(), traces_dir.as_deref(), input.as_deref())
-        }
+        Commands::Generate {
+            what,
+            path,
+            output_dir,
+            input,
+            enrich,
+            enrich_profile,
+            enrich_lang,
+            enrich_citations,
+            enrich_only,
+            retry_queue,
+            retry_at,
+            traces_dir,
+        } => commands::generate::run(
+            &what,
+            path.as_deref(),
+            output_dir.as_deref(),
+            enrich,
+            &enrich_profile,
+            &enrich_lang,
+            enrich_citations,
+            enrich_only,
+            retry_queue,
+            retry_at.as_deref(),
+            traces_dir.as_deref(),
+            input.as_deref(),
+        ),
         Commands::Watch { path } => commands::watch::run(path.as_deref()).await,
         Commands::Dashboard { path } => commands::dashboard::run(path.as_deref()),
         Commands::Hotspots { since, path, json } => {
@@ -396,43 +447,52 @@ async fn main() -> anyhow::Result<()> {
         Commands::Coupling { min, path, json } => {
             commands::coupling_cmd::run(min, path.as_deref(), json)
         }
-        Commands::Ownership { path, json } => {
-            commands::ownership_cmd::run(path.as_deref(), json)
-        }
-        Commands::Ask { question, path } => {
-            commands::ask::run(&question, path.as_deref())
-        }
-        Commands::Report { path, json } => {
-            commands::report::run(path.as_deref(), json)
-        }
-        Commands::Config { action } => {
-            match action.as_str() {
-                "test" => tokio::task::spawn_blocking(commands::config_cmd::run_test)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{}", e))?,
-                _ => {
-                    println!("Unknown config action: {}. Use 'gitnexus config test'.", action);
-                    Ok(())
-                }
+        Commands::Ownership { path, json } => commands::ownership_cmd::run(path.as_deref(), json),
+        Commands::Ask { question, path } => commands::ask::run(&question, path.as_deref()),
+        Commands::Report { path, json } => commands::report::run(path.as_deref(), json),
+        Commands::Config { action } => match action.as_str() {
+            "test" => tokio::task::spawn_blocking(commands::config_cmd::run_test)
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?,
+            _ => {
+                println!(
+                    "Unknown config action: {}. Use 'gitnexus config test'.",
+                    action
+                );
+                Ok(())
             }
-        }
-        Commands::TraceFiles { target, path, depth, json } => {
-            commands::trace_files::run(&target, path.as_deref(), depth, json)
-        }
-        Commands::Diagram { target, r#type, format, path, output } => {
-            commands::diagram::run(&target, &r#type, &format, path.as_deref(), output.as_deref())
-        }
-        Commands::TraceImport { file, path } => {
-            commands::trace_import::run(&file, path.as_deref())
-        }
+        },
+        Commands::TraceFiles {
+            target,
+            path,
+            depth,
+            json,
+        } => commands::trace_files::run(&target, path.as_deref(), depth, json),
+        Commands::Diagram {
+            target,
+            r#type,
+            format,
+            path,
+            output,
+        } => commands::diagram::run(
+            &target,
+            &r#type,
+            &format,
+            path.as_deref(),
+            output.as_deref(),
+        ),
+        Commands::TraceImport { file, path } => commands::trace_import::run(&file, path.as_deref()),
         Commands::RagImport { docs_dir, path } => {
             commands::rag_import::run(&docs_dir, path.as_deref())
         }
         Commands::TraceDoc { file, output, path } => {
             commands::trace_doc::run(&file, output.as_deref(), path.as_deref()).await
         }
-        Commands::Coverage { target, path, json, trace } => {
-            commands::coverage::run(target.as_deref(), path.as_deref(), json, trace)
-        }
+        Commands::Coverage {
+            target,
+            path,
+            json,
+            trace,
+        } => commands::coverage::run(target.as_deref(), path.as_deref(), json, trace),
     }
 }

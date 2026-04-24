@@ -76,7 +76,8 @@ impl KnowledgeGraph {
                 }
             }
             // Remove dangling relationships that reference this node
-            self.relationships.retain(|_, rel| rel.source_id != id && rel.target_id != id);
+            self.relationships
+                .retain(|_, rel| rel.source_id != id && rel.target_id != id);
             true
         } else {
             false
@@ -97,11 +98,9 @@ impl KnowledgeGraph {
                 }
             }
             // Also remove relationships referencing these nodes
-            let id_set: std::collections::HashSet<&str> =
-                ids.iter().map(|s| s.as_str()).collect();
+            let id_set: std::collections::HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
             self.relationships.retain(|_, rel| {
-                !id_set.contains(rel.source_id.as_str())
-                    && !id_set.contains(rel.target_id.as_str())
+                !id_set.contains(rel.source_id.as_str()) && !id_set.contains(rel.target_id.as_str())
             });
             count
         } else {
@@ -136,8 +135,7 @@ impl KnowledgeGraph {
         let id_set: std::collections::HashSet<&str> =
             ids_to_remove.iter().map(|s| s.as_str()).collect();
         self.relationships.retain(|_, rel| {
-            !id_set.contains(rel.source_id.as_str())
-                && !id_set.contains(rel.target_id.as_str())
+            !id_set.contains(rel.source_id.as_str()) && !id_set.contains(rel.target_id.as_str())
         });
         count
     }

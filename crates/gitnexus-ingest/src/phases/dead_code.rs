@@ -21,7 +21,9 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
     for rel in graph.iter_relationships() {
         if matches!(
             rel.rel_type,
-            RelationshipType::Calls | RelationshipType::CallsAction | RelationshipType::CallsService
+            RelationshipType::Calls
+                | RelationshipType::CallsAction
+                | RelationshipType::CallsService
         ) {
             has_incoming_call.insert(rel.target_id.clone());
         }
@@ -49,7 +51,12 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
     // doesn't — so we must exclude Methods that have a matching ControllerAction.
     let action_signatures: HashSet<(String, String)> = graph
         .iter_nodes()
-        .filter(|n| matches!(n.label, NodeLabel::ControllerAction | NodeLabel::ApiEndpoint))
+        .filter(|n| {
+            matches!(
+                n.label,
+                NodeLabel::ControllerAction | NodeLabel::ApiEndpoint
+            )
+        })
         .map(|n| (n.properties.file_path.clone(), n.properties.name.clone()))
         .collect();
 
@@ -91,18 +98,30 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
     let is_test_file = |path: &str| -> bool {
         let lower = path.to_lowercase();
         // Match test directories and test file patterns, not substrings
-        lower.contains("/test/") || lower.contains("\\test\\")
-            || lower.contains("/tests/") || lower.contains("\\tests\\")
-            || lower.contains(".test/") || lower.contains(".test\\")
-            || lower.contains(".tests/") || lower.contains(".tests\\")
-            || lower.contains(".test.") || lower.contains("_test.")
-            || lower.ends_with("/test.cs") || lower.ends_with("\\test.cs")
-            || lower.ends_with("_test.cs") || lower.ends_with(".test.cs")
-            || lower.ends_with("/test.js") || lower.ends_with("\\test.js")
-            || lower.ends_with("_test.js") || lower.ends_with(".test.js")
-            || lower.ends_with("/test.ts") || lower.ends_with("\\test.ts")
-            || lower.ends_with("_test.ts") || lower.ends_with(".test.ts")
-            || lower.contains(".spec.") || lower.contains("_spec.")
+        lower.contains("/test/")
+            || lower.contains("\\test\\")
+            || lower.contains("/tests/")
+            || lower.contains("\\tests\\")
+            || lower.contains(".test/")
+            || lower.contains(".test\\")
+            || lower.contains(".tests/")
+            || lower.contains(".tests\\")
+            || lower.contains(".test.")
+            || lower.contains("_test.")
+            || lower.ends_with("/test.cs")
+            || lower.ends_with("\\test.cs")
+            || lower.ends_with("_test.cs")
+            || lower.ends_with(".test.cs")
+            || lower.ends_with("/test.js")
+            || lower.ends_with("\\test.js")
+            || lower.ends_with("_test.js")
+            || lower.ends_with(".test.js")
+            || lower.ends_with("/test.ts")
+            || lower.ends_with("\\test.ts")
+            || lower.ends_with("_test.ts")
+            || lower.ends_with(".test.ts")
+            || lower.contains(".spec.")
+            || lower.contains("_spec.")
     };
 
     // Exclude JS functions in views, scripts, and compiled output.
@@ -122,28 +141,33 @@ pub fn mark_dead_code(graph: &mut KnowledgeGraph) {
 
     let is_compiled_output = |path: &str| -> bool {
         let lower = path.to_lowercase();
-        lower.contains("/obj/") || lower.contains("\\obj\\")
-            || lower.contains("/bin/") || lower.contains("\\bin\\")
+        lower.contains("/obj/")
+            || lower.contains("\\obj\\")
+            || lower.contains("/bin/")
+            || lower.contains("\\bin\\")
     };
 
     // Collect method IDs to evaluate — exclude Constructors entirely since
     // they are typically instantiated via DI containers or reflection.
     let method_ids: Vec<(String, bool)> = graph
         .iter_nodes()
-        .filter(|n| {
-            matches!(n.label, NodeLabel::Method | NodeLabel::Function)
-        })
+        .filter(|n| matches!(n.label, NodeLabel::Method | NodeLabel::Function))
         .map(|n| {
             let is_entry = entry_point_names.contains(n.properties.name.as_str());
             let is_test = is_test_file(&n.properties.file_path);
             let is_interface_method = interface_method_ids.contains(&n.id);
             let is_view_script = n.label == NodeLabel::Function
-                && (is_script_or_view(&n.properties.file_path) || is_compiled_output(&n.properties.file_path));
+                && (is_script_or_view(&n.properties.file_path)
+                    || is_compiled_output(&n.properties.file_path));
             // Methods in controllers that have a matching ControllerAction node
             let has_action = n.label == NodeLabel::Method
-                && action_signatures.contains(&(n.properties.file_path.clone(), n.properties.name.clone()));
+                && action_signatures
+                    .contains(&(n.properties.file_path.clone(), n.properties.name.clone()));
 
-            (n.id.clone(), is_entry || is_test || is_interface_method || is_view_script || has_action)
+            (
+                n.id.clone(),
+                is_entry || is_test || is_interface_method || is_view_script || has_action,
+            )
         })
         .collect();
 

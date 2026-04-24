@@ -3,7 +3,7 @@ use gitnexus_core::config::languages::SupportedLanguage;
 use crate::export_detection;
 use crate::import_resolvers::python as py_resolver;
 use crate::import_resolvers::types::{ImportResult, ResolveCtx};
-use crate::named_bindings::{types::NamedBinding, python as py_bindings};
+use crate::named_bindings::{python as py_bindings, types::NamedBinding};
 use crate::provider::{ImportSemantics, LanguageProvider, MroStrategy};
 use crate::queries;
 
@@ -26,7 +26,12 @@ impl LanguageProvider for PythonProvider {
         export_detection::check_python_export(node_text, node_type, ancestors)
     }
 
-    fn resolve_import<'a>(&self, raw_path: &str, file_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult {
+    fn resolve_import<'a>(
+        &self,
+        raw_path: &str,
+        file_path: &str,
+        ctx: &ResolveCtx<'a>,
+    ) -> ImportResult {
         py_resolver::resolve(raw_path, file_path, ctx)
     }
 

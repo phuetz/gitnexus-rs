@@ -18,8 +18,7 @@ pub async fn export_docs_docx(state: State<'_, AppState>) -> Result<String, Stri
 
     if !docs_dir.exists() {
         return Err(
-            "Documentation not generated yet. Run 'Analyze' first, then generate docs."
-                .to_string(),
+            "Documentation not generated yet. Run 'Analyze' first, then generate docs.".to_string(),
         );
     }
 
@@ -55,19 +54,25 @@ pub async fn export_obsidian_vault(state: State<'_, AppState>) -> Result<String,
     }
 
     use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
-    use gitnexus_output::obsidian::{CommunityInfo, generate_obsidian_vault};
+    use gitnexus_output::obsidian::{generate_obsidian_vault, CommunityInfo};
     use std::collections::BTreeMap;
 
     let mut communities = BTreeMap::new();
     for node in graph.iter_nodes() {
         if node.label == NodeLabel::Community {
-            let label = node.properties.heuristic_label.clone()
+            let label = node
+                .properties
+                .heuristic_label
+                .clone()
                 .unwrap_or_else(|| node.properties.name.clone());
-            communities.insert(node.id.clone(), CommunityInfo {
-                label,
-                description: node.properties.description.clone(),
-                member_ids: Vec::new(),
-            });
+            communities.insert(
+                node.id.clone(),
+                CommunityInfo {
+                    label,
+                    description: node.properties.description.clone(),
+                    member_ids: Vec::new(),
+                },
+            );
         }
     }
 
@@ -150,10 +155,11 @@ fn generate_docx_from_docs(
     };
 
     // Read all markdown files in order (with path traversal protection)
-    let docs_canonical = docs_dir.canonicalize()
-        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(
-            format!("Cannot resolve docs directory: {e}")
-        ))?;
+    let docs_canonical = docs_dir.canonicalize().map_err(|e| {
+        Box::<dyn std::error::Error + Send + Sync>::from(format!(
+            "Cannot resolve docs directory: {e}"
+        ))
+    })?;
     let mut md_files: Vec<(String, String, String)> = Vec::new();
     for (id, title, filename) in &ordered_files {
         let path = docs_dir.join(filename);
@@ -174,8 +180,8 @@ fn generate_docx_from_docs(
 
     let file = std::fs::File::create(output_path)?;
     let mut zip = ZipWriter::new(file);
-    let options: SimpleFileOptions = FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options: SimpleFileOptions =
+        FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     zip.start_file("[Content_Types].xml", options)?;
     zip.write_all(CONTENT_TYPES.as_bytes())?;
@@ -202,17 +208,25 @@ fn generate_docx_from_docs(
     <w:p><w:pPr><w:spacing w:before="120"/><w:jc w:val="center"/></w:pPr>
       <w:r><w:rPr><w:sz w:val="22"/><w:color w:val="888888"/></w:rPr>
         <w:t xml:space="preserve">Audit de code automatise — {}</w:t></w:r></w:p>"#,
-        xml_escape(project_name), date
+        xml_escape(project_name),
+        date
     ));
 
     // Stats table on title page
     if stats.files > 0 || stats.nodes > 0 {
-        body.push_str(r#"<w:p><w:pPr><w:spacing w:before="600"/><w:jc w:val="center"/></w:pPr></w:p>"#);
+        body.push_str(
+            r#"<w:p><w:pPr><w:spacing w:before="600"/><w:jc w:val="center"/></w:pPr></w:p>"#,
+        );
         body.push_str(r#"<w:tbl><w:tblPr><w:tblW w:w="7000" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders>"#);
         body.push_str(r#"<w:top w:val="single" w:sz="4" w:space="0" w:color="D0D0D0"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="D0D0D0"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="D0D0D0"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="D0D0D0"/>"#);
         body.push_str(r#"</w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="1750"/><w:gridCol w:w="1750"/><w:gridCol w:w="1750"/><w:gridCol w:w="1750"/></w:tblGrid>"#);
         body.push_str("<w:tr>");
-        for (label, value) in [("Fichiers", stats.files), ("Noeuds", stats.nodes), ("Relations", stats.edges), ("Modules", stats.modules)] {
+        for (label, value) in [
+            ("Fichiers", stats.files),
+            ("Noeuds", stats.nodes),
+            ("Relations", stats.edges),
+            ("Modules", stats.modules),
+        ] {
             body.push_str(&format!(
                 r#"<w:tc><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="F5F7FA"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="0"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="28"/><w:color w:val="1B3A6B"/></w:rPr><w:t>{}</w:t></w:r></w:p><w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="0"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/><w:color w:val="888888"/></w:rPr><w:t>{}</w:t></w:r></w:p></w:tc>"#,
                 value, label
@@ -221,9 +235,11 @@ fn generate_docx_from_docs(
         body.push_str("</w:tr></w:tbl>");
     }
 
-    body.push_str(r#"<w:p><w:pPr><w:spacing w:before="800"/><w:jc w:val="center"/></w:pPr>
+    body.push_str(
+        r#"<w:p><w:pPr><w:spacing w:before="800"/><w:jc w:val="center"/></w:pPr>
       <w:r><w:rPr><w:sz w:val="18"/><w:color w:val="AAAAAA"/></w:rPr>
-        <w:t xml:space="preserve">Genere automatiquement par GitNexus</w:t></w:r></w:p>"#);
+        <w:t xml:space="preserve">Genere automatiquement par GitNexus</w:t></w:r></w:p>"#,
+    );
 
     body.push_str(PAGE_BREAK);
 
@@ -279,7 +295,12 @@ const PAGE_BREAK: &str = r#"<w:p><w:r><w:br w:type="page"/></w:r></w:p>"#;
 // ─── _index.json Parsing ─────────────────────────────────────────────────
 
 #[derive(Default)]
-struct DocStats { files: usize, nodes: usize, edges: usize, modules: usize }
+struct DocStats {
+    files: usize,
+    nodes: usize,
+    edges: usize,
+    modules: usize,
+}
 
 fn extract_stats(index: &serde_json::Value) -> DocStats {
     let s = &index["stats"];
@@ -319,14 +340,30 @@ fn fallback_file_order() -> Vec<(String, String, String)> {
         ("overview", "Overview", "overview.md"),
         ("architecture", "Architecture", "architecture.md"),
         ("getting-started", "Getting Started", "getting-started.md"),
-        ("aspnet-controllers", "Controllers & Actions", "aspnet-controllers.md"),
+        (
+            "aspnet-controllers",
+            "Controllers & Actions",
+            "aspnet-controllers.md",
+        ),
         ("aspnet-routes", "API & Route Table", "aspnet-routes.md"),
         ("aspnet-entities", "Entity Data Model", "aspnet-entities.md"),
-        ("aspnet-data-model", "Entity Relationship Diagram", "aspnet-data-model.md"),
+        (
+            "aspnet-data-model",
+            "Entity Relationship Diagram",
+            "aspnet-data-model.md",
+        ),
         ("aspnet-views", "Views & Templates", "aspnet-views.md"),
         ("aspnet-areas", "MVC Areas", "aspnet-areas.md"),
-        ("aspnet-seq-http", "Sequence: HTTP Request Flow", "aspnet-seq-http.md"),
-        ("aspnet-seq-data", "Sequence: Data Access Flow", "aspnet-seq-data.md"),
+        (
+            "aspnet-seq-http",
+            "Sequence: HTTP Request Flow",
+            "aspnet-seq-http.md",
+        ),
+        (
+            "aspnet-seq-data",
+            "Sequence: Data Access Flow",
+            "aspnet-seq-data.md",
+        ),
     ]
     .iter()
     .map(|(id, title, path)| (id.to_string(), title.to_string(), path.to_string()))
@@ -343,32 +380,53 @@ fn md_to_ooxml(md: &str, rid_counter: &mut usize) -> (String, Vec<(String, Strin
 
     while i < lines.len() {
         let t = lines[i].trim();
-        if t.is_empty() { i += 1; continue; }
+        if t.is_empty() {
+            i += 1;
+            continue;
+        }
 
         // Headings (check H6 first to avoid prefix conflicts)
         if let Some(rest) = t.strip_prefix("###### ") {
             let (ooxml, hdr_links) = heading(rest, 6, rid_counter);
-            out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
+            out.push_str(&ooxml);
+            links.extend(hdr_links);
+            i += 1;
+            continue;
         }
         if let Some(rest) = t.strip_prefix("##### ") {
             let (ooxml, hdr_links) = heading(rest, 5, rid_counter);
-            out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
+            out.push_str(&ooxml);
+            links.extend(hdr_links);
+            i += 1;
+            continue;
         }
         if let Some(rest) = t.strip_prefix("#### ") {
             let (ooxml, hdr_links) = heading(rest, 4, rid_counter);
-            out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
+            out.push_str(&ooxml);
+            links.extend(hdr_links);
+            i += 1;
+            continue;
         }
         if let Some(rest) = t.strip_prefix("### ") {
             let (ooxml, hdr_links) = heading(rest, 3, rid_counter);
-            out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
+            out.push_str(&ooxml);
+            links.extend(hdr_links);
+            i += 1;
+            continue;
         }
         if let Some(rest) = t.strip_prefix("## ") {
             let (ooxml, hdr_links) = heading(rest, 2, rid_counter);
-            out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
+            out.push_str(&ooxml);
+            links.extend(hdr_links);
+            i += 1;
+            continue;
         }
         if let Some(rest) = t.strip_prefix("# ") {
             let (ooxml, hdr_links) = heading(rest, 1, rid_counter);
-            out.push_str(&ooxml); links.extend(hdr_links); i += 1; continue;
+            out.push_str(&ooxml);
+            links.extend(hdr_links);
+            i += 1;
+            continue;
         }
 
         // Code blocks
@@ -397,7 +455,8 @@ fn md_to_ooxml(md: &str, rid_counter: &mut usize) -> (String, Vec<(String, Strin
                 i += 1;
             }
             let (ooxml, tbl_links) = table_ooxml(&rows, rid_counter);
-            out.push_str(&ooxml); links.extend(tbl_links);
+            out.push_str(&ooxml);
+            links.extend(tbl_links);
             continue;
         }
 
@@ -412,7 +471,8 @@ fn md_to_ooxml(md: &str, rid_counter: &mut usize) -> (String, Vec<(String, Strin
                 r#"<w:p><w:pPr><w:pStyle w:val="ListBullet"/><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr><w:ind w:left="1080" w:hanging="360"/><w:spacing w:after="80"/></w:pPr>{}</w:p>"#,
                 runs
             ));
-            i += 1; continue;
+            i += 1;
+            continue;
         }
 
         // Bullets (level 0)
@@ -423,7 +483,8 @@ fn md_to_ooxml(md: &str, rid_counter: &mut usize) -> (String, Vec<(String, Strin
                 r#"<w:p><w:pPr><w:pStyle w:val="ListBullet"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr><w:spacing w:after="80"/></w:pPr>{}</w:p>"#,
                 runs
             ));
-            i += 1; continue;
+            i += 1;
+            continue;
         }
 
         // Numbered list
@@ -435,7 +496,8 @@ fn md_to_ooxml(md: &str, rid_counter: &mut usize) -> (String, Vec<(String, Strin
                 r#"<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr><w:spacing w:after="80"/></w:pPr>{}</w:p>"#,
                 runs
             ));
-            i += 1; continue;
+            i += 1;
+            continue;
         }
 
         // Blockquote
@@ -446,13 +508,15 @@ fn md_to_ooxml(md: &str, rid_counter: &mut usize) -> (String, Vec<(String, Strin
                 r#"<w:p><w:pPr><w:pBdr><w:left w:val="single" w:sz="18" w:space="8" w:color="4472C4"/></w:pBdr><w:ind w:left="360"/><w:shd w:val="clear" w:color="auto" w:fill="F0F4FA"/></w:pPr>{}</w:p>"#,
                 runs
             ));
-            i += 1; continue;
+            i += 1;
+            continue;
         }
 
         // Horizontal rule
         if t == "---" || t == "***" || t == "___" {
             out.push_str(r#"<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="CCCCCC"/></w:pBdr><w:spacing w:before="200" w:after="200"/></w:pPr></w:p>"#);
-            i += 1; continue;
+            i += 1;
+            continue;
         }
 
         // Regular paragraph with inline formatting
@@ -499,12 +563,19 @@ fn code_block(code: &str, lang: &str) -> String {
 
 fn mermaid_placeholder(code: &str) -> String {
     let mut r = String::new();
-    let diagram_type = if code.starts_with("sequenceDiagram") { "Diagramme de Sequence" }
-        else if code.starts_with("erDiagram") { "Diagramme Entite-Relation" }
-        else if code.starts_with("graph TD") || code.starts_with("graph LR") { "Diagramme de Dependances" }
-        else if code.starts_with("classDiagram") { "Diagramme de Classes" }
-        else if code.starts_with("flowchart") { "Diagramme de Flux" }
-        else { "Diagramme Mermaid" };
+    let diagram_type = if code.starts_with("sequenceDiagram") {
+        "Diagramme de Sequence"
+    } else if code.starts_with("erDiagram") {
+        "Diagramme Entite-Relation"
+    } else if code.starts_with("graph TD") || code.starts_with("graph LR") {
+        "Diagramme de Dependances"
+    } else if code.starts_with("classDiagram") {
+        "Diagramme de Classes"
+    } else if code.starts_with("flowchart") {
+        "Diagramme de Flux"
+    } else {
+        "Diagramme Mermaid"
+    };
 
     r.push_str(&format!(
         r#"<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="E8F0FE"/><w:spacing w:after="60"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="4472C4"/><w:bottom w:val="single" w:sz="4" w:space="4" w:color="4472C4"/></w:pBdr></w:pPr><w:r><w:rPr><w:b/><w:color w:val="1B3A6B"/><w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">  {diagram_type}</w:t></w:r></w:p>"#,
@@ -521,19 +592,29 @@ fn mermaid_placeholder(code: &str) -> String {
 }
 
 fn table_ooxml(rows: &[&str], rid_counter: &mut usize) -> (String, Vec<(String, String)>) {
-    if rows.is_empty() { return (String::new(), Vec::new()); }
+    if rows.is_empty() {
+        return (String::new(), Vec::new());
+    }
     let mut out = String::new();
     let mut links = Vec::new();
     let header = parse_table_row(rows[0]);
     let col_count = header.len();
-    if col_count == 0 { return (String::new(), Vec::new()); }
-    let data_start = if rows.len() > 1 && rows[1].contains("---") { 2 } else { 1 };
+    if col_count == 0 {
+        return (String::new(), Vec::new());
+    }
+    let data_start = if rows.len() > 1 && rows[1].contains("---") {
+        2
+    } else {
+        1
+    };
     let col_w = 9000 / col_count;
 
     out.push_str(r#"<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/><w:tblBorders>"#);
     out.push_str(r#"<w:top w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/><w:left w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/><w:right w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/>"#);
     out.push_str(r#"</w:tblBorders></w:tblPr><w:tblGrid>"#);
-    for _ in 0..col_count { out.push_str(&format!(r#"<w:gridCol w:w="{col_w}"/>"#)); }
+    for _ in 0..col_count {
+        out.push_str(&format!(r#"<w:gridCol w:w="{col_w}"/>"#));
+    }
     out.push_str("</w:tblGrid>");
 
     // Header
@@ -549,7 +630,11 @@ fn table_ooxml(rows: &[&str], rid_counter: &mut usize) -> (String, Vec<(String, 
     // Data rows
     for (i, row) in rows.iter().enumerate().skip(data_start) {
         let cells = parse_table_row(row);
-        let bg = if (i - data_start) % 2 == 0 { "FFFFFF" } else { "F5F7FA" };
+        let bg = if (i - data_start) % 2 == 0 {
+            "FFFFFF"
+        } else {
+            "F5F7FA"
+        };
         out.push_str("<w:tr>");
         for (j, cell) in cells.iter().enumerate() {
             if j < col_count {
@@ -580,7 +665,11 @@ fn table_ooxml(rows: &[&str], rid_counter: &mut usize) -> (String, Vec<(String, 
 /// (which determines `col_count`).
 fn parse_table_row(line: &str) -> Vec<String> {
     let raw: Vec<String> = line.split('|').map(|s| s.trim().to_string()).collect();
-    let start = if raw.first().is_some_and(|s| s.is_empty()) { 1 } else { 0 };
+    let start = if raw.first().is_some_and(|s| s.is_empty()) {
+        1
+    } else {
+        0
+    };
     let end = if raw.last().is_some_and(|s| s.is_empty()) {
         raw.len().saturating_sub(1)
     } else {
@@ -610,7 +699,8 @@ fn inline_runs(text: &str, rid_counter: &mut usize) -> (String, Vec<(String, Str
                     r#"<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r>"#,
                     xml_escape(&inner)
                 ));
-                i = end + 2; continue;
+                i = end + 2;
+                continue;
             }
         }
         // Inline code `text`
@@ -621,7 +711,8 @@ fn inline_runs(text: &str, rid_counter: &mut usize) -> (String, Vec<(String, Str
                     r#"<w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz w:val="20"/><w:shd w:val="clear" w:color="auto" w:fill="F0F0F0"/><w:color w:val="C7254E"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r>"#,
                     xml_escape(&inner)
                 ));
-                i = i + 1 + end + 1; continue;
+                i = i + 1 + end + 1;
+                continue;
             }
         }
         // Link [text](url)
@@ -636,7 +727,8 @@ fn inline_runs(text: &str, rid_counter: &mut usize) -> (String, Vec<(String, Str
                     r#"<w:hyperlink r:id="{rid}"><w:r><w:rPr><w:color w:val="2E5EA0"/><w:u w:val="single"/><w:rStyle w:val="Hyperlink"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r></w:hyperlink>"#,
                     xml_escape(&link_text)
                 ));
-                i = end_pos; continue;
+                i = end_pos;
+                continue;
             }
         }
         // Italic *text*
@@ -647,17 +739,26 @@ fn inline_runs(text: &str, rid_counter: &mut usize) -> (String, Vec<(String, Str
                     r#"<w:r><w:rPr><w:i/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r>"#,
                     xml_escape(&inner)
                 ));
-                i = i + 1 + end + 1; continue;
+                i = i + 1 + end + 1;
+                continue;
             }
         }
         // Regular text
         let start = i;
-        while i < len && chars[i] != '*' && chars[i] != '`' && chars[i] != '[' { i += 1; }
+        while i < len && chars[i] != '*' && chars[i] != '`' && chars[i] != '[' {
+            i += 1;
+        }
         if i > start {
             let span: String = chars[start..i].iter().collect();
-            result.push_str(&format!(r#"<w:r><w:t xml:space="preserve">{}</w:t></w:r>"#, xml_escape(&span)));
+            result.push_str(&format!(
+                r#"<w:r><w:t xml:space="preserve">{}</w:t></w:r>"#,
+                xml_escape(&span)
+            ));
         } else if i < len {
-            result.push_str(&format!(r#"<w:r><w:t xml:space="preserve">{}</w:t></w:r>"#, xml_escape(&chars[i].to_string())));
+            result.push_str(&format!(
+                r#"<w:r><w:t xml:space="preserve">{}</w:t></w:r>"#,
+                xml_escape(&chars[i].to_string())
+            ));
             i += 1;
         }
     }
@@ -666,19 +767,31 @@ fn inline_runs(text: &str, rid_counter: &mut usize) -> (String, Vec<(String, Str
 
 fn parse_link(chars: &[char], start: usize) -> Option<(String, String, usize)> {
     let mut j = start + 1;
-    while j < chars.len() && chars[j] != ']' { j += 1; }
-    if j >= chars.len() { return None; }
+    while j < chars.len() && chars[j] != ']' {
+        j += 1;
+    }
+    if j >= chars.len() {
+        return None;
+    }
     let text: String = chars[start + 1..j].iter().collect();
-    if j + 1 >= chars.len() || chars[j + 1] != '(' { return None; }
+    if j + 1 >= chars.len() || chars[j + 1] != '(' {
+        return None;
+    }
     let mut k = j + 2;
-    while k < chars.len() && chars[k] != ')' { k += 1; }
-    if k >= chars.len() { return None; }
+    while k < chars.len() && chars[k] != ')' {
+        k += 1;
+    }
+    if k >= chars.len() {
+        return None;
+    }
     let url: String = chars[j + 2..k].iter().collect();
     Some((text, url, k + 1))
 }
 
 fn find_closing_double(chars: &[char], start: usize, ch: char) -> Option<usize> {
-    if chars.len() < 2 { return None; }
+    if chars.len() < 2 {
+        return None;
+    }
     (start..chars.len() - 1).find(|&i| chars[i] == ch && chars[i + 1] == ch)
 }
 
@@ -707,10 +820,12 @@ const RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </Relationships>"#;
 
 fn generate_doc_rels(links: &[(String, String)]) -> String {
-    let mut rels = String::from(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    let mut rels = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>"#);
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>"#,
+    );
 
     // Add hyperlink relationships
     for (rid, url) in links {

@@ -98,9 +98,9 @@ impl<'a> ResolutionContext<'a> {
         // Tier 2a: Named import binding chain
         if let Some(bindings) = self.named_import_map.get(from_file) {
             if let Some(binding) = bindings.get(name) {
-                if let Some(defs) =
-                    self.symbols
-                        .lookup_in_file(&binding.source_path, &binding.exported_name)
+                if let Some(defs) = self
+                    .symbols
+                    .lookup_in_file(&binding.source_path, &binding.exported_name)
                 {
                     if !defs.is_empty() {
                         return Some(TieredCandidates {
@@ -274,7 +274,12 @@ mod tests {
         let mut symbols = SymbolTable::new();
         symbols.add(
             "helper".to_string(),
-            make_def("Function:utils:helper", "utils.ts", NodeLabel::Function, true),
+            make_def(
+                "Function:utils:helper",
+                "utils.ts",
+                NodeLabel::Function,
+                true,
+            ),
         );
 
         let mut import_map = ImportMap::new();

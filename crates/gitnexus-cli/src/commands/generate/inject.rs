@@ -201,20 +201,32 @@ fn parse_anchor(line: &str) -> Option<String> {
 fn build_injection(frag: &Fragment) -> Result<String> {
     match frag.kind.as_str() {
         "image" => {
-            let src = frag.source.as_deref().ok_or_else(|| anyhow!("image fragment missing 'source'"))?;
+            let src = frag
+                .source
+                .as_deref()
+                .ok_or_else(|| anyhow!("image fragment missing 'source'"))?;
             let alt = frag.alt.as_deref().unwrap_or("Image");
             // Use <div> wrapper so the custom markdown-to-html parser passes it through
             Ok(format!("\n<div class=\"gnx-inject-image\">\n<img src=\"{}\" alt=\"{}\" style=\"max-width:100%;border-radius:8px;\"/>\n</div>\n", src, html_escape_attr(alt)))
         }
         "markdown" => {
-            let content = frag.content.as_deref().ok_or_else(|| anyhow!("markdown fragment missing 'content'"))?;
+            let content = frag
+                .content
+                .as_deref()
+                .ok_or_else(|| anyhow!("markdown fragment missing 'content'"))?;
             Ok(format!("\n{}\n", content))
         }
         "mermaid" => {
-            let content = frag.content.as_deref().ok_or_else(|| anyhow!("mermaid fragment missing 'content'"))?;
+            let content = frag
+                .content
+                .as_deref()
+                .ok_or_else(|| anyhow!("mermaid fragment missing 'content'"))?;
             Ok(format!("\n```mermaid\n{}\n```\n", content))
         }
-        other => Err(anyhow!("Unknown fragment type: '{}'. Expected image, markdown, or mermaid.", other)),
+        other => Err(anyhow!(
+            "Unknown fragment type: '{}'. Expected image, markdown, or mermaid.",
+            other
+        )),
     }
 }
 

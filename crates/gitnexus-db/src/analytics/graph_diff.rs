@@ -171,10 +171,7 @@ fn quick_props_equal(a: &NodeProperties, b: &NodeProperties) -> bool {
 }
 
 fn full_props_equal(a: &NodeProperties, b: &NodeProperties) -> bool {
-    match (
-        serde_json::to_value(a).ok(),
-        serde_json::to_value(b).ok(),
-    ) {
+    match (serde_json::to_value(a).ok(), serde_json::to_value(b).ok()) {
         (Some(va), Some(vb)) => va == vb,
         _ => false,
     }

@@ -36,7 +36,9 @@ pub fn run_test() -> Result<()> {
             println!("  {{");
             println!("    \"provider\": \"gemini\",");
             println!("    \"api_key\": \"YOUR_API_KEY\",");
-            println!("    \"base_url\": \"https://generativelanguage.googleapis.com/v1beta/openai\",");
+            println!(
+                "    \"base_url\": \"https://generativelanguage.googleapis.com/v1beta/openai\","
+            );
             println!("    \"model\": \"gemini-2.5-flash\",");
             println!("    \"max_tokens\": 8192,");
             println!("    \"reasoning_effort\": \"high\"");
@@ -56,10 +58,7 @@ pub fn run_test() -> Result<()> {
     println!();
     println!("{} Testing connection...", "->".cyan());
 
-    let url = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let body = serde_json::json!({
         "model": config.model,
         "messages": [{"role": "user", "content": "Say hello in one word."}],
@@ -82,12 +81,23 @@ pub fn run_test() -> Result<()> {
             if status.is_success() {
                 println!("{} Connection successful (HTTP {})", "OK".green(), status);
                 if let Ok(json) = resp.json::<serde_json::Value>() {
-                    if let Some(content) = json.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("message")).and_then(|m| m.get("content")).and_then(|v| v.as_str()) {
+                    if let Some(content) = json
+                        .get("choices")
+                        .and_then(|c| c.get(0))
+                        .and_then(|c| c.get("message"))
+                        .and_then(|m| m.get("content"))
+                        .and_then(|v| v.as_str())
+                    {
                         println!("  Response: {}", content.trim());
                     }
                 }
             } else {
-                println!("{} HTTP {} — {}", "ERROR".red(), status, status.canonical_reason().unwrap_or(""));
+                println!(
+                    "{} HTTP {} — {}",
+                    "ERROR".red(),
+                    status,
+                    status.canonical_reason().unwrap_or("")
+                );
                 if let Ok(body) = resp.text() {
                     let preview: String = body.chars().take(200).collect();
                     println!("  {}", preview);

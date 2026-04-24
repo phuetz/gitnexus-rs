@@ -67,7 +67,7 @@ pub(super) fn markdown_to_html(md: &str) -> String {
                     t if t.starts_with("note") => ("note", "info", "Note"),
                     _ => ("note", "info", "Note"),
                 };
-                
+
                 // Allow custom titles: :::note Custom Title
                 let parts: Vec<&str> = line.trim_start_matches(":::").splitn(2, ' ').collect();
                 let title = if parts.len() > 1 && !parts[1].trim().is_empty() {
@@ -81,7 +81,9 @@ pub(super) fn markdown_to_html(md: &str) -> String {
                      <div class=\"callout-icon\"><i data-lucide=\"{}\"></i></div>\
                      <div class=\"callout-content\">\
                      <div class=\"callout-title\">{}</div>\n",
-                    css_class, icon, inline_md(title)
+                    css_class,
+                    icon,
+                    inline_md(title)
                 ));
                 in_callout = true;
             }
@@ -185,10 +187,7 @@ pub(super) fn markdown_to_html(md: &str) -> String {
             let tag = if table_has_body { "td" } else { "th" };
             html.push_str("<tr>");
             for cell in cells {
-                html.push_str(&format!(
-                    "<{tag}>{}</{tag}>",
-                    inline_md(cell.trim())
-                ));
+                html.push_str(&format!("<{tag}>{}</{tag}>", inline_md(cell.trim())));
             }
             html.push_str("</tr>\n");
             continue;
@@ -204,20 +203,38 @@ pub(super) fn markdown_to_html(md: &str) -> String {
 
         // Headings
         if let Some(rest) = line.strip_prefix("### ") {
-            if in_list { html.push_str("</ul>\n"); in_list = false; }
-            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
+            if in_ordered_list {
+                html.push_str("</ol>\n");
+                in_ordered_list = false;
+            }
             html.push_str(&format!("<h3>{}</h3>\n", inline_md(rest)));
             continue;
         }
         if let Some(rest) = line.strip_prefix("## ") {
-            if in_list { html.push_str("</ul>\n"); in_list = false; }
-            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
+            if in_ordered_list {
+                html.push_str("</ol>\n");
+                in_ordered_list = false;
+            }
             html.push_str(&format!("<h2>{}</h2>\n", inline_md(rest)));
             continue;
         }
         if let Some(rest) = line.strip_prefix("# ") {
-            if in_list { html.push_str("</ul>\n"); in_list = false; }
-            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
+            if in_ordered_list {
+                html.push_str("</ol>\n");
+                in_ordered_list = false;
+            }
             html.push_str(&format!("<h1>{}</h1>\n", inline_md(rest)));
             continue;
         }
@@ -225,15 +242,24 @@ pub(super) fn markdown_to_html(md: &str) -> String {
         // Horizontal rule
         let trimmed = line.trim();
         if trimmed == "---" || trimmed == "***" || trimmed == "___" {
-            if in_list { html.push_str("</ul>\n"); in_list = false; }
-            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
+            if in_ordered_list {
+                html.push_str("</ol>\n");
+                in_ordered_list = false;
+            }
             html.push_str("<hr>\n");
             continue;
         }
 
         // Unordered lists
         if line.starts_with("- ") || line.starts_with("* ") {
-            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+            if in_ordered_list {
+                html.push_str("</ol>\n");
+                in_ordered_list = false;
+            }
             if !in_list {
                 html.push_str("<ul>\n");
                 in_list = true;
@@ -244,7 +270,10 @@ pub(super) fn markdown_to_html(md: &str) -> String {
         // Indented sub-items (2 or 4 spaces + dash)
         if (line.starts_with("  - ") || line.starts_with("    - ")) && in_list {
             let content = line.trim_start().trim_start_matches("- ");
-            html.push_str(&format!("<li style=\"margin-left:16px\">{}</li>\n", inline_md(content)));
+            html.push_str(&format!(
+                "<li style=\"margin-left:16px\">{}</li>\n",
+                inline_md(content)
+            ));
             continue;
         }
 
@@ -253,7 +282,10 @@ pub(super) fn markdown_to_html(md: &str) -> String {
             let maybe_ol = trimmed.split_once(". ");
             if let Some((num_part, rest)) = maybe_ol {
                 if num_part.chars().all(|c| c.is_ascii_digit()) {
-                    if in_list { html.push_str("</ul>\n"); in_list = false; }
+                    if in_list {
+                        html.push_str("</ul>\n");
+                        in_list = false;
+                    }
                     if !in_ordered_list {
                         html.push_str("<ol>\n");
                         in_ordered_list = true;
@@ -266,22 +298,38 @@ pub(super) fn markdown_to_html(md: &str) -> String {
 
         // Callouts: > [!NOTE], > [!TIP], > [!WARNING], > [!DANGER]
         if line.starts_with("> [!") {
-            if in_list { html.push_str("</ul>\n"); in_list = false; }
-            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
-            let callout_type = if line.contains("[!NOTE]") { "note" }
-                else if line.contains("[!TIP]") { "tip" }
-                else if line.contains("[!WARNING]") { "warning" }
-                else if line.contains("[!DANGER]") { "danger" }
-                else { "note" };
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
+            if in_ordered_list {
+                html.push_str("</ol>\n");
+                in_ordered_list = false;
+            }
+            let callout_type = if line.contains("[!NOTE]") {
+                "note"
+            } else if line.contains("[!TIP]") {
+                "tip"
+            } else if line.contains("[!WARNING]") {
+                "warning"
+            } else if line.contains("[!DANGER]") {
+                "danger"
+            } else {
+                "note"
+            };
             let icon = match callout_type {
                 "tip" => "lightbulb",
                 "warning" => "triangle-alert",
                 "danger" => "octagon-alert",
                 _ => "info",
             };
-            let text = line.trim_start_matches("> ").trim_start_matches("[!NOTE]")
-                .trim_start_matches("[!TIP]").trim_start_matches("[!WARNING]")
-                .trim_start_matches("[!DANGER]").trim();
+            let text = line
+                .trim_start_matches("> ")
+                .trim_start_matches("[!NOTE]")
+                .trim_start_matches("[!TIP]")
+                .trim_start_matches("[!WARNING]")
+                .trim_start_matches("[!DANGER]")
+                .trim();
             html.push_str(&format!(
                 "<div class=\"callout callout-{}\">\
                  <div class=\"callout-icon\"><i data-lucide=\"{}\"></i></div>\
@@ -289,19 +337,24 @@ pub(super) fn markdown_to_html(md: &str) -> String {
                  <p>{}</p>\
                  </div>\
                  </div>\n",
-                callout_type, icon, inline_md(text)
+                callout_type,
+                icon,
+                inline_md(text)
             ));
             continue;
         }
 
         // Blockquotes
         if let Some(rest) = line.strip_prefix("> ") {
-            if in_list { html.push_str("</ul>\n"); in_list = false; }
-            if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
-            html.push_str(&format!(
-                "<blockquote>{}</blockquote>\n",
-                inline_md(rest)
-            ));
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
+            if in_ordered_list {
+                html.push_str("</ol>\n");
+                in_ordered_list = false;
+            }
+            html.push_str(&format!("<blockquote>{}</blockquote>\n", inline_md(rest)));
             continue;
         }
 
@@ -319,8 +372,14 @@ pub(super) fn markdown_to_html(md: &str) -> String {
         }
 
         // Paragraph (default)
-        if in_list { html.push_str("</ul>\n"); in_list = false; }
-        if in_ordered_list { html.push_str("</ol>\n"); in_ordered_list = false; }
+        if in_list {
+            html.push_str("</ul>\n");
+            in_list = false;
+        }
+        if in_ordered_list {
+            html.push_str("</ol>\n");
+            in_ordered_list = false;
+        }
         html.push_str(&format!("<p>{}</p>\n", inline_md(line)));
     }
 
@@ -478,8 +537,7 @@ pub(super) fn inline_md(text: &str) -> String {
                         } else {
                             (url, None)
                         };
-                        let page_id = md_part.trim_start_matches("./")
-                            .trim_end_matches(".md");
+                        let page_id = md_part.trim_start_matches("./").trim_end_matches(".md");
                         // page_id and anchor_id are interpolated into JS string
                         // literals delimited by single quotes, then into HTML
                         // attributes. They must be safe for both contexts. We
@@ -530,7 +588,11 @@ pub(super) fn inline_md(text: &str) -> String {
 /// 1:1 to the header columns.
 fn parse_md_table_row(line: &str) -> Vec<&str> {
     let raw: Vec<&str> = line.split('|').collect();
-    let start = if raw.first().is_some_and(|s| s.trim().is_empty()) { 1 } else { 0 };
+    let start = if raw.first().is_some_and(|s| s.trim().is_empty()) {
+        1
+    } else {
+        0
+    };
     let end = if raw.last().is_some_and(|s| s.trim().is_empty()) {
         raw.len().saturating_sub(1)
     } else {
@@ -562,7 +624,11 @@ pub(super) fn parse_md_image(line: &str) -> Option<String> {
     let alt = &trimmed[2..alt_end];
     let rest = &trimmed[alt_end + 2..];
     let paren_end = rest.rfind(')')?;
-    let url_part = rest[..paren_end].splitn(2, '"').next().unwrap_or(&rest[..paren_end]).trim();
+    let url_part = rest[..paren_end]
+        .splitn(2, '"')
+        .next()
+        .unwrap_or(&rest[..paren_end])
+        .trim();
     Some(format!(
         "<div class=\"gnx-img-wrapper\" style=\"margin:12px 0;text-align:center;\"><img src=\"{}\" alt=\"{}\" style=\"max-width:100%;border-radius:6px;\"/></div>",
         html_escape(url_part), html_escape(alt)
@@ -589,9 +655,7 @@ pub(super) fn is_safe_link_url(url: &str) -> bool {
         return true;
     }
     let lower = trimmed.to_ascii_lowercase();
-    if lower.starts_with("http://")
-        || lower.starts_with("https://")
-        || lower.starts_with("mailto:")
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")
     {
         // Reject control chars and angle brackets even in allowed schemes.
         return !trimmed

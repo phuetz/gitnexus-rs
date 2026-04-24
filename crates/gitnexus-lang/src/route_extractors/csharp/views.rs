@@ -10,7 +10,9 @@ pub fn extract_view_info(file_path: &str, source: &str) -> ViewInfo {
     // Extract @model directive
     let model_type = source.lines().find_map(|line| {
         let trimmed = line.trim();
-        trimmed.strip_prefix("@model ").map(|rest| rest.trim().to_string())
+        trimmed
+            .strip_prefix("@model ")
+            .map(|rest| rest.trim().to_string())
     });
 
     // Extract @{ Layout = "..."; } or @Layout = "..."

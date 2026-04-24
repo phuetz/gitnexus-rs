@@ -10,7 +10,7 @@ use tracing::info;
 
 use gitnexus_core::graph::KnowledgeGraph;
 
-use super::markdown::{markdown_to_html, extract_title_from_md, html_escape};
+use super::markdown::{extract_title_from_md, html_escape, markdown_to_html};
 
 pub(super) fn generate_html_site(
     graph: &KnowledgeGraph,
@@ -18,9 +18,7 @@ pub(super) fn generate_html_site(
     docs_dir: &Path,
 ) -> Result<()> {
     if !docs_dir.exists() {
-        return Err(anyhow::anyhow!(
-            "No docs found. Run 'generate docs' first."
-        ));
+        return Err(anyhow::anyhow!("No docs found. Run 'generate docs' first."));
     }
 
     // 1. Collect all .md files from docs/.
@@ -92,12 +90,25 @@ pub(super) fn generate_html_site(
 
     // Group pages by category — force overview first
     let preferred_order = [
-        "overview", "functional-guide", "project-health", "architecture",
-        "getting-started", "deployment",
-        "hotspots", "coupling", "ownership",
-        "aspnet-controllers", "aspnet-routes", "aspnet-entities", "aspnet-data-model",
-        "aspnet-views", "aspnet-services", "aspnet-external", "aspnet-entities-detail",
-        "aspnet-seq-http", "aspnet-seq-data",
+        "overview",
+        "functional-guide",
+        "project-health",
+        "architecture",
+        "getting-started",
+        "deployment",
+        "hotspots",
+        "coupling",
+        "ownership",
+        "aspnet-controllers",
+        "aspnet-routes",
+        "aspnet-entities",
+        "aspnet-data-model",
+        "aspnet-views",
+        "aspnet-services",
+        "aspnet-external",
+        "aspnet-entities-detail",
+        "aspnet-seq-http",
+        "aspnet-seq-data",
     ];
 
     let mut overview_pages: Vec<_> = pages
@@ -106,7 +117,10 @@ pub(super) fn generate_html_site(
         .collect();
     // Sort by preferred order, then alphabetically for unlisted
     overview_pages.sort_by_key(|(k, _)| {
-        preferred_order.iter().position(|&p| k.as_str() == p).unwrap_or(999)
+        preferred_order
+            .iter()
+            .position(|&p| k.as_str() == p)
+            .unwrap_or(999)
     });
 
     let module_pages: Vec<_> = pages
@@ -121,7 +135,10 @@ pub(super) fn generate_html_site(
 
     let mut section_num: usize = 1;
 
-    sidebar_html.push_str(&format!("<div class=\"section-title\">{}. OVERVIEW</div>\n", section_num));
+    sidebar_html.push_str(&format!(
+        "<div class=\"section-title\">{}. OVERVIEW</div>\n",
+        section_num
+    ));
     for (sub_idx, (id, (title, _))) in overview_pages.iter().enumerate() {
         let active = if id.as_str() == first_page_id {
             " active"
@@ -141,7 +158,10 @@ pub(super) fn generate_html_site(
         .collect();
     if !ctrl_pages.is_empty() {
         section_num += 1;
-        sidebar_html.push_str(&format!("<div class=\"section-title\">{}. CONTROLLERS</div>\n", section_num));
+        sidebar_html.push_str(&format!(
+            "<div class=\"section-title\">{}. CONTROLLERS</div>\n",
+            section_num
+        ));
         for (sub_idx, (id, (title, _))) in ctrl_pages.iter().enumerate() {
             sidebar_html.push_str(&format!(
                 "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{section_num}.{sub_num} {title}</a>\n",
@@ -157,7 +177,10 @@ pub(super) fn generate_html_site(
         .collect();
     if !data_pages.is_empty() {
         section_num += 1;
-        sidebar_html.push_str(&format!("<div class=\"section-title\">{}. DATA MODEL</div>\n", section_num));
+        sidebar_html.push_str(&format!(
+            "<div class=\"section-title\">{}. DATA MODEL</div>\n",
+            section_num
+        ));
         for (sub_idx, (id, (title, _))) in data_pages.iter().enumerate() {
             sidebar_html.push_str(&format!(
                 "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{section_num}.{sub_num} {title}</a>\n",
@@ -173,7 +196,10 @@ pub(super) fn generate_html_site(
         .collect();
     if !other_pages.is_empty() {
         section_num += 1;
-        sidebar_html.push_str(&format!("<div class=\"section-title\">{}. MODULES</div>\n", section_num));
+        sidebar_html.push_str(&format!(
+            "<div class=\"section-title\">{}. MODULES</div>\n",
+            section_num
+        ));
         for (sub_idx, (id, (title, _))) in other_pages.iter().enumerate() {
             sidebar_html.push_str(&format!(
                 "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{section_num}.{sub_num} {title}</a>\n",
@@ -189,7 +215,10 @@ pub(super) fn generate_html_site(
         .collect();
     if !process_pages.is_empty() {
         section_num += 1;
-        sidebar_html.push_str(&format!("<div class=\"section-title\">{}. BUSINESS PROCESSES</div>\n", section_num));
+        sidebar_html.push_str(&format!(
+            "<div class=\"section-title\">{}. BUSINESS PROCESSES</div>\n",
+            section_num
+        ));
         for (sub_idx, (id, (title, _))) in process_pages.iter().enumerate() {
             sidebar_html.push_str(&format!(
                 "<a href=\"#\" data-page=\"{id}\" onclick=\"showPage('{id}'); return false;\">{section_num}.{sub_num} {title}</a>\n",
@@ -224,7 +253,11 @@ pub(super) fn generate_html_site(
         serde_json::from_str::<Vec<serde_json::Value>>(&raw)
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|v| v.get("page_id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+            .filter_map(|v| {
+                v.get("page_id")
+                    .and_then(|id| id.as_str())
+                    .map(|s| s.to_string())
+            })
             .collect()
     } else {
         std::collections::HashSet::new()
@@ -313,7 +346,11 @@ pub(super) fn generate_html_site(
     // 7. Check for local mermaid.min.js (offline support)
     let mermaid_path = docs_dir.join("mermaid.min.js");
     if !mermaid_path.exists() {
-        println!("  {} For offline diagrams, download mermaid.min.js to {}", "TIP".cyan(), docs_dir.display());
+        println!(
+            "  {} For offline diagrams, download mermaid.min.js to {}",
+            "TIP".cyan(),
+            docs_dir.display()
+        );
     }
 
     // 8. Write output
@@ -334,9 +371,18 @@ pub(super) fn strip_html_tags(html: &str) -> String {
     let mut result = String::new();
     let mut in_tag = false;
     for c in html.chars() {
-        if c == '<' { in_tag = true; continue; }
-        if c == '>' { in_tag = false; result.push(' '); continue; }
-        if !in_tag { result.push(c); }
+        if c == '<' {
+            in_tag = true;
+            continue;
+        }
+        if c == '>' {
+            in_tag = false;
+            result.push(' ');
+            continue;
+        }
+        if !in_tag {
+            result.push(c);
+        }
     }
     // Collapse whitespace
     result.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -345,14 +391,23 @@ pub(super) fn strip_html_tags(html: &str) -> String {
 /// Classify a page ID into a display type for search filtering.
 fn classify_page_from_id(id: &str) -> &'static str {
     let name = id.split('/').last().unwrap_or(id);
-    if name.starts_with("ctrl-") { "Controller" }
-    else if name.starts_with("data-") || name.contains("model") { "DataModel" }
-    else if name.contains("service") || name.contains("repository") { "Service" }
-    else if name.contains("external") { "ExternalService" }
-    else if name == "overview" { "Overview" }
-    else if name == "architecture" { "Architecture" }
-    else if name.contains("view") || name.contains("ui") { "UI" }
-    else { "Misc" }
+    if name.starts_with("ctrl-") {
+        "Controller"
+    } else if name.starts_with("data-") || name.contains("model") {
+        "DataModel"
+    } else if name.contains("service") || name.contains("repository") {
+        "Service"
+    } else if name.contains("external") {
+        "ExternalService"
+    } else if name == "overview" {
+        "Overview"
+    } else if name == "architecture" {
+        "Architecture"
+    } else if name.contains("view") || name.contains("ui") {
+        "UI"
+    } else {
+        "Misc"
+    }
 }
 
 /// Build the complete self-contained HTML template.

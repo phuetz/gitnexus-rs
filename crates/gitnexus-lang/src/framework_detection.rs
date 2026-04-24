@@ -126,32 +126,32 @@ pub fn detect_framework_from_path(path: &str) -> Option<FrameworkHint> {
 
     // ── Spring Boot (Java/Kotlin) ────────────────────────────────────────
     if (segments.contains(&"controller") || segments.contains(&"controllers"))
-        && (path_lower.ends_with(".java") || path_lower.ends_with(".kt")) {
-            return Some(FrameworkHint {
-                multiplier: 1.8,
-                reason: "Spring controller".into(),
-            });
-        }
+        && (path_lower.ends_with(".java") || path_lower.ends_with(".kt"))
+    {
+        return Some(FrameworkHint {
+            multiplier: 1.8,
+            reason: "Spring controller".into(),
+        });
+    }
     if (segments.contains(&"service") || segments.contains(&"services"))
-        && (path_lower.ends_with(".java") || path_lower.ends_with(".kt")) {
-            return Some(FrameworkHint {
-                multiplier: 1.3,
-                reason: "Spring service".into(),
-            });
-        }
+        && (path_lower.ends_with(".java") || path_lower.ends_with(".kt"))
+    {
+        return Some(FrameworkHint {
+            multiplier: 1.3,
+            reason: "Spring service".into(),
+        });
+    }
     if (segments.contains(&"repository") || segments.contains(&"repositories"))
-        && (path_lower.ends_with(".java") || path_lower.ends_with(".kt")) {
-            return Some(FrameworkHint {
-                multiplier: 1.2,
-                reason: "Spring repository".into(),
-            });
-        }
+        && (path_lower.ends_with(".java") || path_lower.ends_with(".kt"))
+    {
+        return Some(FrameworkHint {
+            multiplier: 1.2,
+            reason: "Spring repository".into(),
+        });
+    }
 
     // ── Laravel (PHP) ────────────────────────────────────────────────────
-    if segments
-        .iter()
-        .any(|s| *s == "http" || *s == "controllers")
-        && path_lower.ends_with(".php")
+    if segments.iter().any(|s| *s == "http" || *s == "controllers") && path_lower.ends_with(".php")
     {
         return Some(FrameworkHint {
             multiplier: 1.8,
@@ -197,7 +197,8 @@ pub fn detect_framework_from_path(path: &str) -> Option<FrameworkHint> {
     if path_lower.ends_with(".cshtml") {
         // Shared layouts are high-priority structural files
         if segments.contains(&"shared") {
-            if filename.starts_with("_layout") || filename.starts_with("_viewstart")
+            if filename.starts_with("_layout")
+                || filename.starts_with("_viewstart")
                 || filename.starts_with("_viewimports")
             {
                 return Some(FrameworkHint {
@@ -267,12 +268,13 @@ pub fn detect_framework_from_path(path: &str) -> Option<FrameworkHint> {
 
     // ── Go HTTP handlers ─────────────────────────────────────────────────
     if (segments.contains(&"handlers") || segments.contains(&"handler"))
-        && path_lower.ends_with(".go") {
-            return Some(FrameworkHint {
-                multiplier: 1.5,
-                reason: "Go HTTP handler".into(),
-            });
-        }
+        && path_lower.ends_with(".go")
+    {
+        return Some(FrameworkHint {
+            multiplier: 1.5,
+            reason: "Go HTTP handler".into(),
+        });
+    }
 
     // ── Swift / iOS ──────────────────────────────────────────────────────
     if path_lower.ends_with("viewcontroller.swift") {
@@ -290,12 +292,13 @@ pub fn detect_framework_from_path(path: &str) -> Option<FrameworkHint> {
 
     // ── Rust web frameworks (Actix/Axum) ─────────────────────────────────
     if (segments.contains(&"handlers") || segments.contains(&"routes"))
-        && path_lower.ends_with(".rs") {
-            return Some(FrameworkHint {
-                multiplier: 1.5,
-                reason: "Rust web handler/route".into(),
-            });
-        }
+        && path_lower.ends_with(".rs")
+    {
+        return Some(FrameworkHint {
+            multiplier: 1.5,
+            reason: "Rust web handler/route".into(),
+        });
+    }
 
     None
 }

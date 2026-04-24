@@ -120,11 +120,7 @@ impl OutputFormatter for MarkdownFormatter {
             // Escape pipe so a name like `src/a|b` doesn't introduce spurious
             // table columns (`format_table` already does this; this method
             // had been the only outlier).
-            out.push_str(&format!(
-                "| {} | {} |\n",
-                name.replace('|', "\\|"),
-                count
-            ));
+            out.push_str(&format!("| {} | {} |\n", name.replace('|', "\\|"), count));
         }
         out.push('\n');
 
@@ -178,8 +174,16 @@ mod tests {
     fn test_format_tree_markdown() {
         let fmt = MarkdownFormatter::new();
         let items = vec![
-            TreeItem { label: "root".to_string(), depth: 0, is_last: false },
-            TreeItem { label: "child".to_string(), depth: 1, is_last: true },
+            TreeItem {
+                label: "root".to_string(),
+                depth: 0,
+                is_last: false,
+            },
+            TreeItem {
+                label: "child".to_string(),
+                depth: 1,
+                is_last: true,
+            },
         ];
 
         let output = fmt.format_tree(&items);

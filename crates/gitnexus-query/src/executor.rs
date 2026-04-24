@@ -70,8 +70,12 @@ impl Value {
             (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
             (Value::Int(a), Value::Int(b)) => a.cmp(b),
             (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
-            (Value::Int(a), Value::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal),
-            (Value::Float(a), Value::Int(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal),
+            (Value::Int(a), Value::Float(b)) => {
+                (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal)
+            }
+            (Value::Float(a), Value::Int(b)) => {
+                a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal)
+            }
             (Value::String(a), Value::String(b)) => a.cmp(b),
             (Value::Node(a), Value::Node(b)) => a.cmp(b),
             _ => self.sort_type_tag().cmp(&other.sort_type_tag()),
@@ -258,9 +262,8 @@ fn execute_match(
 
     // Step 2: Filter by WHERE clause
     if let Some(ref where_expr) = m.where_clause {
-        binding_sets.retain(|bindings| {
-            eval_expr_bool(where_expr, bindings, graph).unwrap_or(false)
-        });
+        binding_sets
+            .retain(|bindings| eval_expr_bool(where_expr, bindings, graph).unwrap_or(false));
     }
 
     // Step 3: Project RETURN items
@@ -403,11 +406,7 @@ fn expand_node_pattern<'g>(
     // Find candidate nodes
     let candidates: Vec<&GraphNode> = if let Some(ref label_str) = np.label {
         if let Some(label) = NodeLabel::from_str_label(label_str) {
-            index
-                .label_index
-                .get(&label)
-                .cloned()
-                .unwrap_or_default()
+            index.label_index.get(&label).cloned().unwrap_or_default()
         } else {
             vec![]
         }
@@ -545,10 +544,7 @@ fn expand_rel_pattern<'g>(
 fn dedup_bindings(bindings: &mut Vec<Bindings>) {
     let mut seen = std::collections::HashSet::new();
     bindings.retain(|b| {
-        let mut key_parts: Vec<String> = b
-            .iter()
-            .map(|(k, v)| format!("{k}={}", v.id))
-            .collect();
+        let mut key_parts: Vec<String> = b.iter().map(|(k, v)| format!("{k}={}", v.id)).collect();
         key_parts.sort();
         let key = key_parts.join(",");
         seen.insert(key)
@@ -724,63 +720,83 @@ fn eval_expr_bool(
     }
 }
 
-fn eval_binary_op(left: &Value, op: BinaryOperator, right: &Value) -> Result<Value, ExecutionError> {
+fn eval_binary_op(
+    left: &Value,
+    op: BinaryOperator,
+    right: &Value,
+) -> Result<Value, ExecutionError> {
     match op {
         BinaryOperator::Eq => Ok(Value::Bool(values_equal(left, right))),
         BinaryOperator::Neq => Ok(Value::Bool(!values_equal(left, right))),
-        BinaryOperator::Lt => Ok(Value::Bool(values_compare(left, right) == Some(std::cmp::Ordering::Less))),
-        BinaryOperator::Gt => Ok(Value::Bool(values_compare(left, right) == Some(std::cmp::Ordering::Greater))),
-        BinaryOperator::Lte => Ok(Value::Bool(matches!(values_compare(left, right), Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)))),
-        BinaryOperator::Gte => Ok(Value::Bool(matches!(values_compare(left, right), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)))),
+        BinaryOperator::Lt => Ok(Value::Bool(
+            values_compare(left, right) == Some(std::cmp::Ordering::Less),
+        )),
+        BinaryOperator::Gt => Ok(Value::Bool(
+            values_compare(left, right) == Some(std::cmp::Ordering::Greater),
+        )),
+        BinaryOperator::Lte => Ok(Value::Bool(matches!(
+            values_compare(left, right),
+            Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+        ))),
+        BinaryOperator::Gte => Ok(Value::Bool(matches!(
+            values_compare(left, right),
+            Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+        ))),
         BinaryOperator::And => {
             // Align with eval_expr_bool: Bool->b, Null->false, anything else->true
-            let lb = match left  { Value::Bool(b) => *b, Value::Null => false, _ => true };
-            let rb = match right { Value::Bool(b) => *b, Value::Null => false, _ => true };
+            let lb = match left {
+                Value::Bool(b) => *b,
+                Value::Null => false,
+                _ => true,
+            };
+            let rb = match right {
+                Value::Bool(b) => *b,
+                Value::Null => false,
+                _ => true,
+            };
             Ok(Value::Bool(lb && rb))
         }
         BinaryOperator::Or => {
-            let lb = match left  { Value::Bool(b) => *b, Value::Null => false, _ => true };
-            let rb = match right { Value::Bool(b) => *b, Value::Null => false, _ => true };
+            let lb = match left {
+                Value::Bool(b) => *b,
+                Value::Null => false,
+                _ => true,
+            };
+            let rb = match right {
+                Value::Bool(b) => *b,
+                Value::Null => false,
+                _ => true,
+            };
             Ok(Value::Bool(lb || rb))
         }
-        BinaryOperator::Contains => {
-            match (left, right) {
-                (Value::String(a), Value::String(b)) => Ok(Value::Bool(a.contains(b.as_str()))),
-                _ => Ok(Value::Bool(false)),
+        BinaryOperator::Contains => match (left, right) {
+            (Value::String(a), Value::String(b)) => Ok(Value::Bool(a.contains(b.as_str()))),
+            _ => Ok(Value::Bool(false)),
+        },
+        BinaryOperator::StartsWith => match (left, right) {
+            (Value::String(a), Value::String(b)) => Ok(Value::Bool(a.starts_with(b.as_str()))),
+            _ => Ok(Value::Bool(false)),
+        },
+        BinaryOperator::EndsWith => match (left, right) {
+            (Value::String(a), Value::String(b)) => Ok(Value::Bool(a.ends_with(b.as_str()))),
+            _ => Ok(Value::Bool(false)),
+        },
+        BinaryOperator::In => match right {
+            Value::List(items) => Ok(Value::Bool(
+                items.iter().any(|item| values_equal(left, item)),
+            )),
+            _ => Ok(Value::Bool(false)),
+        },
+        BinaryOperator::RegexMatch => match (left, right) {
+            (Value::String(text), Value::String(pattern)) => {
+                let re = regex::RegexBuilder::new(pattern)
+                    .size_limit(1 << 20)
+                    .build()
+                    .map_err(|e| ExecutionError::TypeError(format!("Invalid regex: {e}")))?;
+                Ok(Value::Bool(re.is_match(text)))
             }
-        }
-        BinaryOperator::StartsWith => {
-            match (left, right) {
-                (Value::String(a), Value::String(b)) => Ok(Value::Bool(a.starts_with(b.as_str()))),
-                _ => Ok(Value::Bool(false)),
-            }
-        }
-        BinaryOperator::EndsWith => {
-            match (left, right) {
-                (Value::String(a), Value::String(b)) => Ok(Value::Bool(a.ends_with(b.as_str()))),
-                _ => Ok(Value::Bool(false)),
-            }
-        }
-        BinaryOperator::In => {
-            match right {
-                Value::List(items) => Ok(Value::Bool(items.iter().any(|item| values_equal(left, item)))),
-                _ => Ok(Value::Bool(false)),
-            }
-        }
-        BinaryOperator::RegexMatch => {
-            match (left, right) {
-                (Value::String(text), Value::String(pattern)) => {
-                    let re = regex::RegexBuilder::new(pattern)
-                        .size_limit(1 << 20)
-                        .build()
-                        .map_err(|e| {
-                            ExecutionError::TypeError(format!("Invalid regex: {e}"))
-                        })?;
-                    Ok(Value::Bool(re.is_match(text)))
-                }
-                _ => Ok(Value::Bool(false)),
-            }
-        }
+            _ => Ok(Value::Bool(false)),
+        },
         BinaryOperator::Add => {
             // Use checked arithmetic so a query like
             // `RETURN 9223372036854775807 + 1` (or any computed sum that
@@ -946,24 +962,16 @@ fn eval_aggregate(
                         .sum();
                     Ok(Value::Float(sum / values.len() as f64))
                 }
-                AggFunc::Min => {
-                    values
-                        .into_iter()
-                        .min_by(|a, b| {
-                            values_compare(a, b).unwrap_or(std::cmp::Ordering::Equal)
-                        })
-                        .map(Ok)
-                        .unwrap_or(Ok(Value::Null))
-                }
-                AggFunc::Max => {
-                    values
-                        .into_iter()
-                        .max_by(|a, b| {
-                            values_compare(a, b).unwrap_or(std::cmp::Ordering::Equal)
-                        })
-                        .map(Ok)
-                        .unwrap_or(Ok(Value::Null))
-                }
+                AggFunc::Min => values
+                    .into_iter()
+                    .min_by(|a, b| values_compare(a, b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(Ok)
+                    .unwrap_or(Ok(Value::Null)),
+                AggFunc::Max => values
+                    .into_iter()
+                    .max_by(|a, b| values_compare(a, b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(Ok)
+                    .unwrap_or(Ok(Value::Null)),
             }
         }
         // Non-aggregate expression in aggregate context.
@@ -1125,10 +1133,8 @@ mod tests {
     #[test]
     fn test_execute_relationship() {
         let graph = make_test_graph();
-        let stmt = parse_cql(
-            "MATCH (a:Function)-[:CALLS]->(b:Function) RETURN a.name, b.name",
-        )
-        .unwrap();
+        let stmt =
+            parse_cql("MATCH (a:Function)-[:CALLS]->(b:Function) RETURN a.name, b.name").unwrap();
         let result = execute(&stmt, &graph).unwrap();
 
         assert_eq!(result.columns, vec!["a.name", "b.name"]);
@@ -1157,8 +1163,7 @@ mod tests {
     #[test]
     fn test_execute_order_by() {
         let graph = make_test_graph();
-        let stmt =
-            parse_cql("MATCH (n:Function) RETURN n.name ORDER BY n.name ASC").unwrap();
+        let stmt = parse_cql("MATCH (n:Function) RETURN n.name ORDER BY n.name ASC").unwrap();
         let result = execute(&stmt, &graph).unwrap();
 
         let names: Vec<&str> = result
@@ -1200,10 +1205,8 @@ mod tests {
     #[test]
     fn test_execute_boolean_filter() {
         let graph = make_test_graph();
-        let stmt = parse_cql(
-            "MATCH (n:Function) WHERE n.is_exported = true RETURN n.name",
-        )
-        .unwrap();
+        let stmt =
+            parse_cql("MATCH (n:Function) WHERE n.is_exported = true RETURN n.name").unwrap();
         let result = execute(&stmt, &graph).unwrap();
 
         assert_eq!(result.rows.len(), 2); // handleLogin and hash

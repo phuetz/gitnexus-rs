@@ -156,7 +156,15 @@ impl AppState {
     pub async fn get_repo(
         &self,
         name: Option<&str>,
-    ) -> Result<(Arc<KnowledgeGraph>, Arc<GraphIndexes>, Arc<FtsIndex>, String), String> {
+    ) -> Result<
+        (
+            Arc<KnowledgeGraph>,
+            Arc<GraphIndexes>,
+            Arc<FtsIndex>,
+            String,
+        ),
+        String,
+    > {
         let repo_name = match name {
             Some(n) => n.to_string(),
             None => self

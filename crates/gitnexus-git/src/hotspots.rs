@@ -25,7 +25,10 @@ pub enum HotspotError {
 ///
 /// Files are scored by `normalize(commit_count * churn)` and returned sorted
 /// by score descending.
-pub fn analyze_hotspots(repo_path: &Path, since_days: u32) -> Result<Vec<FileHotspot>, HotspotError> {
+pub fn analyze_hotspots(
+    repo_path: &Path,
+    since_days: u32,
+) -> Result<Vec<FileHotspot>, HotspotError> {
     // Step 1: Get commit hashes with associated files
     let since_arg = format!("{} days ago", since_days);
     let log_output = Command::new("git")
@@ -110,8 +113,16 @@ pub fn analyze_hotspots(repo_path: &Path, since_days: u32) -> Result<Vec<FileHot
             // Binary files report `-` `-` for added/removed; treat as 0.
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 3 {
-                let added: u32 = if parts[0] == "-" { 0 } else { parts[0].parse().unwrap_or(0) };
-                let removed: u32 = if parts[1] == "-" { 0 } else { parts[1].parse().unwrap_or(0) };
+                let added: u32 = if parts[0] == "-" {
+                    0
+                } else {
+                    parts[0].parse().unwrap_or(0)
+                };
+                let removed: u32 = if parts[1] == "-" {
+                    0
+                } else {
+                    parts[1].parse().unwrap_or(0)
+                };
                 let file = parts[2].to_string();
                 // Saturating add prevents u32 overflow on extremely active files
                 // (e.g., generated/vendored sources with millions of churned lines).
@@ -121,10 +132,7 @@ pub fn analyze_hotspots(repo_path: &Path, since_days: u32) -> Result<Vec<FileHot
                 *removed_entry = removed_entry.saturating_add(removed);
 
                 if let Some(ref author) = current_author {
-                    file_authors
-                        .entry(file)
-                        .or_default()
-                        .insert(author.clone());
+                    file_authors.entry(file).or_default().insert(author.clone());
                 }
             }
         }
@@ -138,14 +146,8 @@ pub fn analyze_hotspots(repo_path: &Path, since_days: u32) -> Result<Vec<FileHot
         let lines_added = file_added.get(file).copied().unwrap_or(0);
         let lines_removed = file_removed.get(file).copied().unwrap_or(0);
         let churn = lines_added.saturating_add(lines_removed);
-        let last_modified = file_last_date
-            .get(file)
-            .cloned()
-            .unwrap_or_default();
-        let author_count = file_authors
-            .get(file)
-            .map(|s| s.len() as u32)
-            .unwrap_or(0);
+        let last_modified = file_last_date.get(file).cloned().unwrap_or_default();
+        let author_count = file_authors.get(file).map(|s| s.len() as u32).unwrap_or(0);
 
         hotspots.push(FileHotspot {
             path: file.clone(),
@@ -166,10 +168,7 @@ pub fn analyze_hotspots(repo_path: &Path, since_days: u32) -> Result<Vec<FileHot
         .map(|h| h.commit_count as f64 * h.churn as f64)
         .collect();
 
-    let max_raw = raw_scores
-        .iter()
-        .copied()
-        .fold(0.0_f64, f64::max);
+    let max_raw = raw_scores.iter().copied().fold(0.0_f64, f64::max);
 
     if max_raw > 0.0 {
         for (i, hotspot) in hotspots.iter_mut().enumerate() {
@@ -178,7 +177,11 @@ pub fn analyze_hotspots(repo_path: &Path, since_days: u32) -> Result<Vec<FileHot
     }
 
     // Sort by score descending
-    hotspots.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    hotspots.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     Ok(hotspots)
 }
@@ -191,14 +194,22 @@ mod tests {
     fn test_analyze_hotspots_on_self() {
         // Test on a known git repo - the gitnexus-rs repo itself
         // This test only works when run from within the git repo
-        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
         if !repo.join(".git").exists() {
             // Not in a git repo, skip
             return;
         }
 
         let result = analyze_hotspots(repo, 365);
-        assert!(result.is_ok(), "analyze_hotspots should not error: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "analyze_hotspots should not error: {:?}",
+            result.err()
+        );
 
         let hotspots = result.unwrap();
         // There should be at least some files with commits

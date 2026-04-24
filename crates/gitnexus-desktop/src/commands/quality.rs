@@ -38,9 +38,8 @@ pub async fn detect_cycles(
 ) -> Result<Vec<Cycle>, String> {
     let (graph, _, _, _) = state.get_repo(None).await?;
     let scope_str = scope.unwrap_or_else(|| "imports".to_string());
-    let scope = CycleScope::parse(&scope_str).ok_or_else(|| {
-        format!("Invalid scope '{scope_str}' (expected 'imports' or 'calls')")
-    })?;
+    let scope = CycleScope::parse(&scope_str)
+        .ok_or_else(|| format!("Invalid scope '{scope_str}' (expected 'imports' or 'calls')"))?;
     Ok(find_cycles(&graph, scope))
 }
 
@@ -92,7 +91,11 @@ pub async fn list_todos_cmd(
     }
 
     // Sort: FIXME > HACK > TODO > XXX, then by file path.
-    out.sort_by(|a, b| rank(&a.kind).cmp(&rank(&b.kind)).then_with(|| a.file_path.cmp(&b.file_path)));
+    out.sort_by(|a, b| {
+        rank(&a.kind)
+            .cmp(&rank(&b.kind))
+            .then_with(|| a.file_path.cmp(&b.file_path))
+    });
 
     if let Some(cap) = limit {
         out.truncate(cap as usize);

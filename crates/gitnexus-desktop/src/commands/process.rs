@@ -24,9 +24,7 @@ pub struct ProcessStep {
 }
 
 #[tauri::command]
-pub async fn get_process_flows(
-    state: State<'_, AppState>,
-) -> Result<Vec<ProcessFlow>, String> {
+pub async fn get_process_flows(state: State<'_, AppState>) -> Result<Vec<ProcessFlow>, String> {
     let (graph, indexes, _, _) = state.get_repo(None).await?;
 
     let mut flows = Vec::new();
@@ -86,7 +84,7 @@ pub async fn get_process_flows(
                         if matches!(
                             rel_type,
                             gitnexus_core::graph::types::RelationshipType::Calls
-                            | gitnexus_core::graph::types::RelationshipType::CallsAction
+                                | gitnexus_core::graph::types::RelationshipType::CallsAction
                         ) && !visited.contains(target_id)
                         {
                             queue.push_back(target_id.clone());
@@ -137,10 +135,7 @@ pub async fn get_process_flows(
         for (i, step) in steps.iter().enumerate() {
             let safe_name = escape_mermaid_label(&step.name);
             let safe_label = escape_mermaid_label(&step.label);
-            mermaid.push_str(&format!(
-                "    S{}[\"{} ({})\"]\n",
-                i, safe_name, safe_label
-            ));
+            mermaid.push_str(&format!("    S{}[\"{} ({})\"]\n", i, safe_name, safe_label));
         }
         // Real graph edges between collected steps
         for step in &steps {
@@ -186,9 +181,15 @@ pub async fn get_process_flows(
     Ok(flows)
 }
 
-fn add_synthetic_business_flows(graph: &gitnexus_core::graph::KnowledgeGraph, flows: &mut Vec<ProcessFlow>) {
+fn add_synthetic_business_flows(
+    graph: &gitnexus_core::graph::KnowledgeGraph,
+    flows: &mut Vec<ProcessFlow>,
+) {
     // Courriers
-    if graph.iter_nodes().any(|n| n.properties.name.contains("Courrier")) {
+    if graph
+        .iter_nodes()
+        .any(|n| n.properties.name.contains("Courrier"))
+    {
         flows.push(ProcessFlow {
             id: "biz-courriers".into(),
             name: "Système de Courriers".into(),
@@ -211,12 +212,16 @@ fn add_synthetic_business_flows(graph: &gitnexus_core::graph::KnowledgeGraph, fl
         G->>PDF: Mail merge variables ELODIE
         G->>G: Sauver en base
     end
-    G-->>U: Téléchargement PDF unique"#.into(),
+    G-->>U: Téléchargement PDF unique"#
+                .into(),
         });
     }
 
     // Paiements
-    if graph.iter_nodes().any(|n| n.properties.name.contains("Reglement") || n.properties.name.contains("Facture")) {
+    if graph
+        .iter_nodes()
+        .any(|n| n.properties.name.contains("Reglement") || n.properties.name.contains("Facture"))
+    {
         flows.push(ProcessFlow {
             id: "biz-paiements".into(),
             name: "Cycle de Paiement (Facture -> ELODIE)".into(),
@@ -230,12 +235,16 @@ fn add_synthetic_business_flows(graph: &gitnexus_core::graph::KnowledgeGraph, fl
     DemGrPrVal --> DemTransmiseELODIE : Fonds nationaux
     DemGrPrVal --> BordereauEditeFP : Fonds propres
     DemTransmiseELODIE --> PaiementRegle : Règlement final
-    BordereauEditeFP --> PaiementRegle : Règlement final"#.into(),
+    BordereauEditeFP --> PaiementRegle : Règlement final"#
+                .into(),
         });
     }
 
     // Barèmes
-    if graph.iter_nodes().any(|n| n.properties.name.contains("Bareme")) {
+    if graph
+        .iter_nodes()
+        .any(|n| n.properties.name.contains("Bareme"))
+    {
         flows.push(ProcessFlow {
             id: "biz-baremes".into(),
             name: "Moteur de Calcul des Barèmes".into(),
@@ -247,7 +256,8 @@ fn add_synthetic_business_flows(graph: &gitnexus_core::graph::KnowledgeGraph, fl
     B --> C["Ressource comparable"]
     C --> D{Match Tranche ?}
     D -->|Oui| J["TauxFASS = TRA_TAUX_SERVI"]
-    D -->|Non| K["Hors barème / Taux min"]"#.into(),
+    D -->|Non| K["Hors barème / Taux min"]"#
+                .into(),
         });
     }
 }

@@ -3,9 +3,9 @@
 use anyhow::Result;
 use colored::Colorize;
 
-use gitnexus_db::snapshot;
 use gitnexus_db::inmemory::cypher::{self, GraphIndexes};
 use gitnexus_db::inmemory::fts::FtsIndex;
+use gitnexus_db::snapshot;
 
 pub async fn run(query: &str, repo: Option<&str>) -> Result<()> {
     let repo_path = if let Some(p) = repo {
@@ -42,8 +42,7 @@ pub async fn run(query: &str, repo: Option<&str>) -> Result<()> {
     let fts_index = FtsIndex::build(&graph);
 
     // Parse and execute
-    let stmt = cypher::parse(query)
-        .map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
+    let stmt = cypher::parse(query).map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
 
     let results = cypher::execute(&stmt, &graph, &indexes, &fts_index)
         .map_err(|e| anyhow::anyhow!("Query error: {}", e))?;
@@ -54,7 +53,12 @@ pub async fn run(query: &str, repo: Option<&str>) -> Result<()> {
     }
 
     // Print results as formatted JSON
-    println!("{} {} result{}", "OK".green(), results.len(), if results.len() == 1 { "" } else { "s" });
+    println!(
+        "{} {} result{}",
+        "OK".green(),
+        results.len(),
+        if results.len() == 1 { "" } else { "s" }
+    );
     println!();
     println!("{}", serde_json::to_string_pretty(&results)?);
 

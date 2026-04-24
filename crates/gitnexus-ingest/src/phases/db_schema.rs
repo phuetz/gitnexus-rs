@@ -76,10 +76,8 @@ static RE_CREATE_TABLE_HEAD: Lazy<Regex> = Lazy::new(|| {
     // We use this regex only to locate tables; the body is extracted by a
     // manual paren-matcher that handles nested `(` / `)` (decimal sizes,
     // CHECK constraints, etc.) which regex-only parsing fumbles.
-    Regex::new(
-        r#"(?is)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?(\w+)[`"\]]?\s*\("#,
-    )
-    .expect("create table head regex compiles")
+    Regex::new(r#"(?is)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?(\w+)[`"\]]?\s*\("#)
+        .expect("create table head regex compiles")
 });
 
 static RE_FOREIGN_KEY_FULL: Lazy<Regex> = Lazy::new(|| {
@@ -95,8 +93,7 @@ static RE_INLINE_REFERENCES: Lazy<Regex> = Lazy::new(|| {
 });
 
 static RE_PRISMA_MODEL: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?ms)^\s*model\s+(\w+)\s*\{([^}]*)\}"#)
-        .expect("prisma model regex compiles")
+    Regex::new(r#"(?ms)^\s*model\s+(\w+)\s*\{([^}]*)\}"#).expect("prisma model regex compiles")
 });
 
 static RE_TYPEORM_ENTITY: Lazy<Regex> = Lazy::new(|| {
@@ -106,8 +103,7 @@ static RE_TYPEORM_ENTITY: Lazy<Regex> = Lazy::new(|| {
 });
 
 static RE_TS_CLASS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"export\s+(?:abstract\s+)?class\s+(\w+)"#)
-        .expect("ts class regex compiles")
+    Regex::new(r#"export\s+(?:abstract\s+)?class\s+(\w+)"#).expect("ts class regex compiles")
 });
 
 static RE_SQLALCHEMY_CLASS: Lazy<Regex> = Lazy::new(|| {
@@ -123,10 +119,7 @@ static RE_SQLALCHEMY_TABLENAME: Lazy<Regex> = Lazy::new(|| {
 
 // ─── Entry point ────────────────────────────────────────────────────────────
 
-pub fn extract_db_schema(
-    graph: &mut KnowledgeGraph,
-    files: &[FileEntry],
-) -> DbSchemaStats {
+pub fn extract_db_schema(graph: &mut KnowledgeGraph, files: &[FileEntry]) -> DbSchemaStats {
     let per_file: Vec<(Vec<ParsedTable>, Vec<OrmMapping>)> = files
         .par_iter()
         .filter(|f| !should_skip(&f.path))
@@ -382,7 +375,10 @@ fn parse_sql_body(body: &str) -> (Vec<ParsedColumn>, Vec<(String, String)>) {
         }
         let upper = line.to_ascii_uppercase();
         // Constraint lines (PRIMARY KEY / FOREIGN KEY / CONSTRAINT … FK).
-        if upper.starts_with("PRIMARY KEY") || upper.starts_with("UNIQUE") || upper.starts_with("CHECK") {
+        if upper.starts_with("PRIMARY KEY")
+            || upper.starts_with("UNIQUE")
+            || upper.starts_with("CHECK")
+        {
             continue;
         }
         if upper.starts_with("FOREIGN KEY") || upper.starts_with("CONSTRAINT") {
@@ -396,7 +392,9 @@ fn parse_sql_body(body: &str) -> (Vec<ParsedColumn>, Vec<(String, String)>) {
         // Column definition: first token = name, next token = type.
         let mut parts = line.split_whitespace();
         let name = match parts.next() {
-            Some(n) => n.trim_matches(|c: char| c == '`' || c == '"' || c == '[' || c == ']').to_string(),
+            Some(n) => n
+                .trim_matches(|c: char| c == '`' || c == '"' || c == '[' || c == ']')
+                .to_string(),
             None => continue,
         };
         if name.is_empty() {

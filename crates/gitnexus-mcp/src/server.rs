@@ -101,28 +101,24 @@ pub async fn handle_request(
     let id = request.id.clone();
 
     match request.method.as_str() {
-        "initialize" => {
-            JsonRpcResponse::success(
-                id,
-                json!({
-                    "protocolVersion": MCP_PROTOCOL_VERSION,
-                    "capabilities": {
-                        "tools": { "listChanged": false },
-                        "resources": { "subscribe": false, "listChanged": false },
-                        "prompts": { "listChanged": false }
-                    },
-                    "serverInfo": server_info()
-                }),
-            )
-        }
+        "initialize" => JsonRpcResponse::success(
+            id,
+            json!({
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {
+                    "tools": { "listChanged": false },
+                    "resources": { "subscribe": false, "listChanged": false },
+                    "prompts": { "listChanged": false }
+                },
+                "serverInfo": server_info()
+            }),
+        ),
         "initialized" => {
             // Client acknowledgment, no response needed for notification-style
             // but since this came as a request, send empty success
             JsonRpcResponse::success(id, json!({}))
         }
-        "tools/list" => {
-            JsonRpcResponse::success(id, tools::definitions::tools_list_json())
-        }
+        "tools/list" => JsonRpcResponse::success(id, tools::definitions::tools_list_json()),
         "tools/call" => {
             let tool_name = request
                 .params
@@ -137,17 +133,10 @@ pub async fn handle_request(
 
             match backend.call_tool(tool_name, &arguments).await {
                 Ok(result) => JsonRpcResponse::success(id, result),
-                Err(e) => JsonRpcResponse::error(
-                    id,
-                    e.error_code(),
-                    e.to_string(),
-                    None,
-                ),
+                Err(e) => JsonRpcResponse::error(id, e.error_code(), e.to_string(), None),
             }
         }
-        "resources/list" => {
-            JsonRpcResponse::success(id, resources::resource_definitions())
-        }
+        "resources/list" => JsonRpcResponse::success(id, resources::resource_definitions()),
         "resources/read" => {
             let uri = request
                 .params
@@ -157,17 +146,12 @@ pub async fn handle_request(
 
             match resources::read_resource(uri, backend.registry()) {
                 Some(content) => JsonRpcResponse::success(id, content),
-                None => JsonRpcResponse::error(
-                    id,
-                    -32002,
-                    format!("Resource not found: {uri}"),
-                    None,
-                ),
+                None => {
+                    JsonRpcResponse::error(id, -32002, format!("Resource not found: {uri}"), None)
+                }
             }
         }
-        "prompts/list" => {
-            JsonRpcResponse::success(id, prompts::prompt_definitions())
-        }
+        "prompts/list" => JsonRpcResponse::success(id, prompts::prompt_definitions()),
         "prompts/get" => {
             let prompt_name = request
                 .params
@@ -190,9 +174,7 @@ pub async fn handle_request(
                 ),
             }
         }
-        "ping" => {
-            JsonRpcResponse::success(id, json!({}))
-        }
+        "ping" => JsonRpcResponse::success(id, json!({})),
         _ => JsonRpcResponse::method_not_found(id, &request.method),
     }
 }
@@ -218,7 +200,10 @@ mod tests {
         assert!(resp.result.is_some());
         let result = resp.result.unwrap();
         assert_eq!(result["protocolVersion"], MCP_PROTOCOL_VERSION);
-        assert!(result["serverInfo"]["name"].as_str().unwrap().contains("gitnexus"));
+        assert!(result["serverInfo"]["name"]
+            .as_str()
+            .unwrap()
+            .contains("gitnexus"));
     }
 
     #[tokio::test]
@@ -277,10 +262,13 @@ mod tests {
     #[tokio::test]
     async fn test_handle_prompt_get() {
         let mut backend = LocalBackend::new();
-        let req = make_request("prompts/get", json!({
-            "name": "detect_impact",
-            "arguments": {"target": "UserService"}
-        }));
+        let req = make_request(
+            "prompts/get",
+            json!({
+                "name": "detect_impact",
+                "arguments": {"target": "UserService"}
+            }),
+        );
         let resp = handle_request(&req, &mut backend).await;
         assert!(resp.result.is_some());
     }

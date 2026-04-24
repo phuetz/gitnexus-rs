@@ -27,9 +27,7 @@ pub struct DeadMethod {
 }
 
 #[tauri::command]
-pub async fn get_coverage_stats(
-    state: State<'_, AppState>,
-) -> Result<CoverageStats, String> {
+pub async fn get_coverage_stats(state: State<'_, AppState>) -> Result<CoverageStats, String> {
     let (graph, _, _, _) = state.get_repo(None).await?;
 
     // Build a method → owning-class index so we can show class names alongside

@@ -12,8 +12,8 @@ use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::{Config, Editor, Helper};
 
-use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::graph::types::{GraphNode, NodeLabel, RelationshipType};
+use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::storage::repo_manager;
 use gitnexus_output::terminal::TerminalFormatter;
 use gitnexus_output::traits::OutputFormatter;
@@ -46,10 +46,7 @@ impl ShellContext {
         for node in graph.iter_nodes() {
             *label_counts.entry(node.label).or_insert(0) += 1;
             let lower = node.properties.name.to_lowercase();
-            name_index
-                .entry(lower)
-                .or_default()
-                .push(node.id.clone());
+            name_index.entry(lower).or_default().push(node.id.clone());
             symbol_names.push(node.properties.name.clone());
         }
         symbol_names.sort();
@@ -58,14 +55,16 @@ impl ShellContext {
         // Build relationship indexes
         for rel in graph.iter_relationships() {
             *rel_counts.entry(rel.rel_type).or_insert(0) += 1;
-            outgoing
-                .entry(rel.source_id.clone())
-                .or_default()
-                .push((rel.target_id.clone(), rel.rel_type, rel.confidence));
-            incoming
-                .entry(rel.target_id.clone())
-                .or_default()
-                .push((rel.source_id.clone(), rel.rel_type, rel.confidence));
+            outgoing.entry(rel.source_id.clone()).or_default().push((
+                rel.target_id.clone(),
+                rel.rel_type,
+                rel.confidence,
+            ));
+            incoming.entry(rel.target_id.clone()).or_default().push((
+                rel.source_id.clone(),
+                rel.rel_type,
+                rel.confidence,
+            ));
         }
 
         Self {
@@ -110,10 +109,33 @@ struct ShellHelper {
 impl ShellHelper {
     fn new(symbols: Vec<String>) -> Self {
         let commands = vec![
-            "query", "q", "context", "ctx", "impact", "cypher", "stats", "find", "f",
-            "community", "com", "process", "proc", "neighbors", "n", "path", "files",
-            "export", "reload", "analyze", "hotspots", "coupling", "ownership",
-            "help", "h", "quit", "exit",
+            "query",
+            "q",
+            "context",
+            "ctx",
+            "impact",
+            "cypher",
+            "stats",
+            "find",
+            "f",
+            "community",
+            "com",
+            "process",
+            "proc",
+            "neighbors",
+            "n",
+            "path",
+            "files",
+            "export",
+            "reload",
+            "analyze",
+            "hotspots",
+            "coupling",
+            "ownership",
+            "help",
+            "h",
+            "quit",
+            "exit",
         ]
         .into_iter()
         .map(String::from)
@@ -398,11 +420,7 @@ fn cmd_stats(ctx: &ShellContext) -> anyhow::Result<()> {
         .copied()
         .unwrap_or(0);
     println!();
-    println!(
-        "  {:<16} {}",
-        "Files:".dimmed(),
-        format_number(file_count)
-    );
+    println!("  {:<16} {}", "Files:".dimmed(), format_number(file_count));
     println!(
         "  {:<16} {}",
         "Communities:".dimmed(),
@@ -549,11 +567,7 @@ fn cmd_context(symbol: &str, ctx: &ShellContext) -> anyhow::Result<()> {
         "Symbol:".bold(),
         node.properties.name.bold().cyan()
     );
-    println!(
-        "  {} {}",
-        "Label:".bold(),
-        node.label.as_str().yellow()
-    );
+    println!("  {} {}", "Label:".bold(), node.label.as_str().yellow());
     println!(
         "  {} {}",
         "File:".bold(),
@@ -902,7 +916,11 @@ fn cmd_neighbors(args: &str, ctx: &ShellContext) -> anyhow::Result<()> {
             for (target_id, rel_type, _) in edges {
                 if !visited.contains(target_id) {
                     visited.insert(target_id.clone());
-                    results.push((target_id.clone(), d + 1, format!("-[{}]->", rel_type.as_str())));
+                    results.push((
+                        target_id.clone(),
+                        d + 1,
+                        format!("-[{}]->", rel_type.as_str()),
+                    ));
                     queue.push_back((target_id.clone(), d + 1));
                 }
             }
@@ -1040,7 +1058,11 @@ fn cmd_community(name: &str, ctx: &ShellContext) -> anyhow::Result<()> {
                     })
                     .unwrap_or_default();
 
-                println!("  {} ({}):", "Members".bold(), members.len().to_string().dimmed());
+                println!(
+                    "  {} ({}):",
+                    "Members".bold(),
+                    members.len().to_string().dimmed()
+                );
                 for (src_id, _, _) in &members {
                     if let Some(node) = ctx.graph.get_node(src_id) {
                         println!(
@@ -1402,7 +1424,10 @@ fn cmd_cypher(query: &str, ctx: &ShellContext) -> anyhow::Result<()> {
     // false-blocks on legitimate read queries such as:
     //   MATCH (n) WHERE n.name CONTAINS 'Create' RETURN n
     if gitnexus_db::query::is_write_query(query) {
-        eprintln!("  {} Only read-only queries are allowed.", "Error:".red().bold());
+        eprintln!(
+            "  {} Only read-only queries are allowed.",
+            "Error:".red().bold()
+        );
         return Ok(());
     }
 
@@ -1419,20 +1444,26 @@ fn cmd_cypher(query: &str, ctx: &ShellContext) -> anyhow::Result<()> {
         }
     };
 
-    let results = match gitnexus_db::inmemory::cypher::execute(&stmt, &ctx.graph, &indexes, &fts_index) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("  {} {}", "Query error:".red().bold(), e);
-            return Ok(());
-        }
-    };
+    let results =
+        match gitnexus_db::inmemory::cypher::execute(&stmt, &ctx.graph, &indexes, &fts_index) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("  {} {}", "Query error:".red().bold(), e);
+                return Ok(());
+            }
+        };
 
     if results.is_empty() {
         println!("  {} No results.", "Info:".yellow().bold());
         return Ok(());
     }
 
-    println!("  {} {} result{}", "OK".green().bold(), results.len(), if results.len() == 1 { "" } else { "s" });
+    println!(
+        "  {} {} result{}",
+        "OK".green().bold(),
+        results.len(),
+        if results.len() == 1 { "" } else { "s" }
+    );
     println!();
     println!("{}", serde_json::to_string_pretty(&results)?);
 
@@ -1550,11 +1581,11 @@ fn cmd_analyze(path: &str, ctx: &mut ShellContext) -> anyhow::Result<()> {
         path.to_string()
     };
 
+    println!("  Running analysis on {} ...", target.cyan());
     println!(
-        "  Running analysis on {} ...",
-        target.cyan()
+        "  Please use 'gitnexus analyze {}' in another terminal, then 'reload' here.",
+        target
     );
-    println!("  Please use 'gitnexus analyze {}' in another terminal, then 'reload' here.", target);
 
     Ok(())
 }
@@ -1643,20 +1674,11 @@ fn cmd_help() -> anyhow::Result<()> {
         "    {}",
         "         WHERE: AND, OR, NOT  |  RETURN DISTINCT  |  ORDER BY, LIMIT".dimmed()
     );
-    println!(
-        "    {}  Reload graph from snapshot",
-        "reload".yellow()
-    );
-    println!(
-        "    {}  Hint to re-run pipeline",
-        "analyze [path]".yellow()
-    );
+    println!("    {}  Reload graph from snapshot", "reload".yellow());
+    println!("    {}  Hint to re-run pipeline", "analyze [path]".yellow());
     println!();
     println!("  {}", "General".bold());
-    println!(
-        "    {}  Show this help",
-        "help, h, ?".yellow()
-    );
+    println!("    {}  Show this help", "help, h, ?".yellow());
     println!(
         "    {}  Exit the shell (or press Ctrl+D)",
         "quit, exit".yellow()

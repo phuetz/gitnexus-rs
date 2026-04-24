@@ -225,10 +225,11 @@ pub fn find_clones(
 
     // Sort: biggest clusters first, then highest similarity.
     clusters.sort_by(|a, b| {
-        b.members
-            .len()
-            .cmp(&a.members.len())
-            .then_with(|| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal))
+        b.members.len().cmp(&a.members.len()).then_with(|| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
 
     clusters.truncate(opts.max_clusters);

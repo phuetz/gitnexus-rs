@@ -101,9 +101,7 @@ fn workflow_path(storage: &str, id: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-pub async fn workflow_list(
-    state: State<'_, AppState>,
-) -> Result<Vec<WorkflowSummary>, String> {
+pub async fn workflow_list(state: State<'_, AppState>) -> Result<Vec<WorkflowSummary>, String> {
     let storage = state.active_storage_path().await?;
     let dir = workflows_dir(&storage);
     if !dir.exists() {
@@ -136,14 +134,11 @@ pub async fn workflow_list(
 }
 
 #[tauri::command]
-pub async fn workflow_load(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<Workflow, String> {
+pub async fn workflow_load(state: State<'_, AppState>, id: String) -> Result<Workflow, String> {
     let storage = state.active_storage_path().await?;
     let path = workflow_path(&storage, &id)?;
-    let s = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Workflow '{id}' not found: {e}"))?;
+    let s =
+        std::fs::read_to_string(&path).map_err(|e| format!("Workflow '{id}' not found: {e}"))?;
     serde_json::from_str(&s).map_err(|e| e.to_string())
 }
 
@@ -171,10 +166,7 @@ pub async fn workflow_save(
 }
 
 #[tauri::command]
-pub async fn workflow_delete(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn workflow_delete(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let storage = state.active_storage_path().await?;
     let path = workflow_path(&storage, &id)?;
     if path.exists() {
@@ -295,10 +287,7 @@ fn run_impact(
         Some(s) => s.to_string(),
         None => return (String::new(), None, Some("Missing 'target'".into())),
     };
-    let max_depth = params
-        .get("maxDepth")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(3) as usize;
+    let max_depth = params.get("maxDepth").and_then(|v| v.as_u64()).unwrap_or(3) as usize;
 
     let target_lower = target.to_lowercase();
     let target_ids: std::collections::HashSet<String> = graph
@@ -338,10 +327,8 @@ fn run_impact(
         }
     }
     let mut affected: std::collections::HashSet<String> = target_ids.clone();
-    let mut q: std::collections::VecDeque<(String, usize)> = target_ids
-        .iter()
-        .map(|id| (id.clone(), 0usize))
-        .collect();
+    let mut q: std::collections::VecDeque<(String, usize)> =
+        target_ids.iter().map(|id| (id.clone(), 0usize)).collect();
     while let Some((node, depth)) = q.pop_front() {
         if depth >= max_depth {
             continue;
@@ -356,7 +343,11 @@ fn run_impact(
     }
     let count = affected.len().saturating_sub(target_ids.len()) as u32;
     let mut sample: Vec<serde_json::Value> = Vec::new();
-    for id in affected.iter().filter(|i| !target_ids.contains(*i)).take(20) {
+    for id in affected
+        .iter()
+        .filter(|i| !target_ids.contains(*i))
+        .take(20)
+    {
         if let Some(n) = graph.get_node(id) {
             sample.push(serde_json::json!({
                 "id": id,
@@ -401,7 +392,8 @@ fn run_read_file(
                 .and_then(|v| v.as_u64())
                 .unwrap_or(8000) as usize;
             let text = if content.len() > limit {
-                let boundary = content.char_indices()
+                let boundary = content
+                    .char_indices()
                     .take_while(|(i, _)| *i < limit)
                     .last()
                     .map(|(i, c)| i + c.len_utf8())
@@ -496,20 +488,19 @@ fn interpolate_params(params: &serde_json::Value, runs: &[StepRun]) -> serde_jso
         if rest == "text" || rest.is_empty() {
             return r.text.clone();
         }
-        if let Some(json_path) = rest.strip_prefix("json.").or_else(|| {
-            if rest == "json" {
-                Some("")
-            } else {
-                None
-            }
-        }) {
+        if let Some(json_path) =
+            rest.strip_prefix("json.")
+                .or_else(|| if rest == "json" { Some("") } else { None })
+        {
             let mut cursor = match &r.json {
                 Some(v) => v.clone(),
                 None => return String::new(),
             };
             if !json_path.is_empty() {
                 for segment in json_path.split('.') {
-                    if let Some(idx_str) = segment.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                    if let Some(idx_str) =
+                        segment.strip_prefix('[').and_then(|s| s.strip_suffix(']'))
+                    {
                         if let Ok(idx) = idx_str.parse::<usize>() {
                             cursor = cursor
                                 .as_array()

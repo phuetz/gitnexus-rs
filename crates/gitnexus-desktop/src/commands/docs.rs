@@ -21,8 +21,8 @@ pub async fn get_doc_index(state: State<'_, AppState>) -> Result<Option<DocIndex
     let content = std::fs::read_to_string(&index_path)
         .map_err(|e| format!("Failed to read doc index: {}", e))?;
 
-    let index: DocIndex = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse doc index: {}", e))?;
+    let index: DocIndex =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse doc index: {}", e))?;
 
     Ok(Some(index))
 }
@@ -38,7 +38,9 @@ pub async fn read_doc(state: State<'_, AppState>, path: String) -> Result<DocCon
     let canonical = doc_path
         .canonicalize()
         .map_err(|e| format!("Doc not found '{}': {}", path, e))?;
-    let docs_dir = repo_path.join(".gitnexus").join("docs")
+    let docs_dir = repo_path
+        .join(".gitnexus")
+        .join("docs")
         .canonicalize()
         .map_err(|e| format!("Docs directory not found: {}", e))?;
     if !canonical.starts_with(&docs_dir) {

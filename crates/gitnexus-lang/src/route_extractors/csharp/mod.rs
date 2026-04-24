@@ -8,30 +8,30 @@
 //! graph nodes into richer ASP.NET-specific types (`Controller`, `ControllerAction`,
 //! `ApiEndpoint`, `View`, `ViewModel`, `DbEntity`, `DbContext`, `Area`).
 
-mod types;
-mod helpers;
-mod controllers;
-mod views;
-mod database;
 mod ajax;
-mod telerik;
-mod services;
+mod controllers;
+mod database;
 mod di;
-mod forms;
-mod tracing;
 mod external;
+mod forms;
+mod helpers;
+mod services;
+mod telerik;
+mod tracing;
+mod types;
+mod views;
 
 // Re-export all public types
 pub use types::*;
 
 // Re-export all public functions
-pub use controllers::extract_controllers;
-pub use views::extract_view_info;
-pub use database::{extract_db_contexts, extract_entities};
 pub use ajax::extract_ajax_calls;
-pub use telerik::extract_telerik_components;
-pub use services::{extract_services_and_repositories, extract_constructor_dependencies};
+pub use controllers::extract_controllers;
+pub use database::{extract_db_contexts, extract_entities};
 pub use di::extract_di_registrations;
-pub use forms::{extract_form_actions, extract_partial_references};
-pub use tracing::extract_tracing_info;
 pub use external::extract_external_service_calls;
+pub use forms::{extract_form_actions, extract_partial_references};
+pub use services::{extract_constructor_dependencies, extract_services_and_repositories};
+pub use telerik::extract_telerik_components;
+pub use tracing::extract_tracing_info;
+pub use views::extract_view_info;

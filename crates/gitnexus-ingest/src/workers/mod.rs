@@ -128,11 +128,7 @@ mod tests {
             make_file("c.ts", 300),
         ];
         let counter = AtomicUsize::new(0);
-        let results = parallel_parse(
-            &files,
-            |_file| ExtractedData::default(),
-            &counter,
-        );
+        let results = parallel_parse(&files, |_file| ExtractedData::default(), &counter);
         assert_eq!(results.len(), 3);
         assert_eq!(counter.load(Ordering::Relaxed), 3);
     }

@@ -69,9 +69,7 @@ fn notebook_path(storage: &str, id: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-pub async fn notebook_list(
-    state: State<'_, AppState>,
-) -> Result<Vec<NotebookSummary>, String> {
+pub async fn notebook_list(state: State<'_, AppState>) -> Result<Vec<NotebookSummary>, String> {
     let storage = state.active_storage_path().await?;
     let dir = notebooks_dir(&storage);
     if !dir.exists() {
@@ -104,14 +102,11 @@ pub async fn notebook_list(
 }
 
 #[tauri::command]
-pub async fn notebook_load(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<Notebook, String> {
+pub async fn notebook_load(state: State<'_, AppState>, id: String) -> Result<Notebook, String> {
     let storage = state.active_storage_path().await?;
     let path = notebook_path(&storage, &id)?;
-    let s = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Notebook '{id}' not found: {e}"))?;
+    let s =
+        std::fs::read_to_string(&path).map_err(|e| format!("Notebook '{id}' not found: {e}"))?;
     serde_json::from_str(&s).map_err(|e| e.to_string())
 }
 
@@ -139,10 +134,7 @@ pub async fn notebook_save(
 }
 
 #[tauri::command]
-pub async fn notebook_delete(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn notebook_delete(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let storage = state.active_storage_path().await?;
     let path = notebook_path(&storage, &id)?;
     if path.exists() {

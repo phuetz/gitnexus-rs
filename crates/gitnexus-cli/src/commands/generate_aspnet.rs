@@ -114,7 +114,14 @@ pub fn generate_aspnet_docs(
 
     // 7. Sequence diagrams — HTTP request flow (per controller)
     if !controllers.is_empty() && (!actions.is_empty() || !views.is_empty()) {
-        generate_sequence_http_doc(docs_dir, &controllers, &actions, &views, &db_contexts, graph)?;
+        generate_sequence_http_doc(
+            docs_dir,
+            &controllers,
+            &actions,
+            &views,
+            &db_contexts,
+            graph,
+        )?;
         pages.push((
             "aspnet-seq-http".to_string(),
             "Sequence: HTTP Request Flow".to_string(),
@@ -187,14 +194,22 @@ fn generate_external_services_doc(
     writeln!(f, "# Services Externes")?;
     writeln!(f, "<!-- GNX:LEAD -->")?;
     writeln!(f)?;
-    writeln!(f, "> Documentation des {} services externes (WebAPI, WCF, REST) appelés par l'application.", ext_services.len())?;
+    writeln!(
+        f,
+        "> Documentation des {} services externes (WebAPI, WCF, REST) appelés par l'application.",
+        ext_services.len()
+    )?;
     writeln!(f)?;
 
     // Summary table (only show columns that have data)
     writeln!(f, "## Vue d'ensemble")?;
     writeln!(f)?;
-    let has_urls = ext_services.iter().any(|s| s.properties.description.is_some());
-    let has_files = ext_services.iter().any(|s| !s.properties.file_path.is_empty());
+    let has_urls = ext_services
+        .iter()
+        .any(|s| s.properties.description.is_some());
+    let has_files = ext_services
+        .iter()
+        .any(|s| !s.properties.file_path.is_empty());
 
     if has_urls && has_files {
         writeln!(f, "| Service | Type | Endpoint | Fichier |")?;
@@ -209,14 +224,22 @@ fn generate_external_services_doc(
     for svc in ext_services {
         let svc_type = svc.properties.component_type.as_deref().unwrap_or("API");
         if has_urls && has_files {
-            writeln!(f, "| **{}** | {} | {} | `{}` |",
-                svc.properties.name, svc_type,
+            writeln!(
+                f,
+                "| **{}** | {} | {} | `{}` |",
+                svc.properties.name,
+                svc_type,
                 svc.properties.description.as_deref().unwrap_or("-"),
-                svc.properties.file_path.replace('\\', "/"))?;
+                svc.properties.file_path.replace('\\', "/")
+            )?;
         } else if has_urls {
-            writeln!(f, "| **{}** | {} | {} |",
-                svc.properties.name, svc_type,
-                svc.properties.description.as_deref().unwrap_or("-"))?;
+            writeln!(
+                f,
+                "| **{}** | {} | {} |",
+                svc.properties.name,
+                svc_type,
+                svc.properties.description.as_deref().unwrap_or("-")
+            )?;
         } else {
             writeln!(f, "| **{}** | {} |", svc.properties.name, svc_type)?;
         }
@@ -238,7 +261,9 @@ fn generate_external_services_doc(
             .collect();
 
         let callers_exist = controllers.iter().any(|c| {
-            graph.iter_relationships().any(|r| r.source_id == c.id && r.target_id == svc.id)
+            graph
+                .iter_relationships()
+                .any(|r| r.source_id == c.id && r.target_id == svc.id)
         });
 
         // Only write the section if there's content
@@ -274,9 +299,9 @@ fn generate_external_services_doc(
         let callers: Vec<String> = controllers
             .iter()
             .filter(|c| {
-                graph.iter_relationships().any(|r| {
-                    r.source_id == c.id && r.target_id == svc.id
-                })
+                graph
+                    .iter_relationships()
+                    .any(|r| r.source_id == c.id && r.target_id == svc.id)
             })
             .map(|c| format!("`{}`", c.properties.name))
             .collect();
@@ -287,7 +312,11 @@ fn generate_external_services_doc(
         }
     }
 
-    println!("  {} aspnet-external.md ({} services)", "OK".green(), ext_services.len());
+    println!(
+        "  {} aspnet-external.md ({} services)",
+        "OK".green(),
+        ext_services.len()
+    );
     Ok(())
 }
 
@@ -304,14 +333,22 @@ fn generate_entities_detail_doc(
     writeln!(f, "# Détail des Entités")?;
     writeln!(f, "<!-- GNX:LEAD -->")?;
     writeln!(f)?;
-    writeln!(f, "> Propriétés, types et relations de chaque entité Entity Framework ({} entités).", entities.len())?;
+    writeln!(
+        f,
+        "> Propriétés, types et relations de chaque entité Entity Framework ({} entités).",
+        entities.len()
+    )?;
     writeln!(f)?;
 
     for entity in entities {
         writeln!(f, "---")?;
         writeln!(f, "## {}", entity.properties.name)?;
         writeln!(f)?;
-        writeln!(f, "**Fichier :** `{}`", entity.properties.file_path.replace('\\', "/"))?;
+        writeln!(
+            f,
+            "**Fichier :** `{}`",
+            entity.properties.file_path.replace('\\', "/")
+        )?;
         writeln!(f)?;
 
         // Collect properties (Property nodes in the same file or linked)
@@ -343,12 +380,15 @@ fn generate_entities_detail_doc(
             .iter_relationships()
             .filter(|r| {
                 r.source_id == entity.id
-                    && matches!(r.rel_type, gitnexus_core::graph::types::RelationshipType::AssociatesWith)
+                    && matches!(
+                        r.rel_type,
+                        gitnexus_core::graph::types::RelationshipType::AssociatesWith
+                    )
             })
             .filter_map(|r| {
-                graph.get_node(&r.target_id).map(|target| {
-                    format!("`{}`", target.properties.name)
-                })
+                graph
+                    .get_node(&r.target_id)
+                    .map(|target| format!("`{}`", target.properties.name))
             })
             .collect();
 
@@ -361,7 +401,11 @@ fn generate_entities_detail_doc(
         }
     }
 
-    println!("  {} aspnet-entities-detail.md ({} entités)", "OK".green(), entities.len());
+    println!(
+        "  {} aspnet-entities-detail.md ({} entités)",
+        "OK".green(),
+        entities.len()
+    );
     Ok(())
 }
 
@@ -403,8 +447,7 @@ fn generate_services_detail_doc(
         let method_count = graph
             .iter_nodes()
             .filter(|n| {
-                n.label == NodeLabel::Method
-                    && n.properties.file_path == svc.properties.file_path
+                n.label == NodeLabel::Method && n.properties.file_path == svc.properties.file_path
             })
             .count();
 
@@ -433,7 +476,12 @@ fn generate_services_detail_doc(
         } else {
             "Repository"
         };
-        writeln!(f, "**Type :** {} | **Fichier :** `{}`", svc_type, svc.properties.file_path.replace('\\', "/"))?;
+        writeln!(
+            f,
+            "**Type :** {} | **Fichier :** `{}`",
+            svc_type,
+            svc.properties.file_path.replace('\\', "/")
+        )?;
         writeln!(f)?;
 
         // Constructor-injected dependencies. Read the `DependsOn` edges
@@ -488,11 +536,7 @@ fn generate_services_detail_doc(
                     .parameter_count
                     .map(|c| format!("{} params", c))
                     .unwrap_or_else(|| "-".to_string());
-                let ret = m
-                    .properties
-                    .return_type
-                    .as_deref()
-                    .unwrap_or("-");
+                let ret = m.properties.return_type.as_deref().unwrap_or("-");
                 writeln!(f, "| `{}` | {} | {} |", m.properties.name, params, ret)?;
             }
             if methods.len() > 30 {
@@ -508,9 +552,9 @@ fn generate_services_detail_doc(
         let callers: Vec<String> = controllers
             .iter()
             .filter(|c| {
-                graph.iter_relationships().any(|r| {
-                    r.source_id == c.id && r.target_id == svc.id
-                })
+                graph
+                    .iter_relationships()
+                    .any(|r| r.source_id == c.id && r.target_id == svc.id)
             })
             .map(|c| c.properties.name.clone())
             .collect();
@@ -521,17 +565,18 @@ fn generate_services_detail_doc(
         }
     }
 
-    println!("  {} aspnet-services.md ({} services)", "OK".green(), services.len());
+    println!(
+        "  {} aspnet-services.md ({} services)",
+        "OK".green(),
+        services.len()
+    );
     Ok(())
 }
 
 // ─── Node Collection ─────────────────────────────────────────────────────
 
 fn collect_by_label(graph: &KnowledgeGraph, label: NodeLabel) -> Vec<&GraphNode> {
-    let mut nodes: Vec<&GraphNode> = graph
-        .iter_nodes()
-        .filter(|n| n.label == label)
-        .collect();
+    let mut nodes: Vec<&GraphNode> = graph.iter_nodes().filter(|n| n.label == label).collect();
     nodes.sort_by(|a, b| a.properties.name.cmp(&b.properties.name));
     nodes
 }
@@ -588,16 +633,8 @@ fn generate_controllers_doc(
             writeln!(f, "|--------|--------|-------|-------|-------------|")?;
 
             for action in ctrl_actions {
-                let http = action
-                    .properties
-                    .http_method
-                    .as_deref()
-                    .unwrap_or("GET");
-                let route = action
-                    .properties
-                    .route_template
-                    .as_deref()
-                    .unwrap_or("-");
+                let http = action.properties.http_method.as_deref().unwrap_or("GET");
+                let route = action.properties.route_template.as_deref().unwrap_or("-");
                 let model = action.properties.model_type.as_deref().unwrap_or("-");
                 let ret = action.properties.return_type.as_deref().unwrap_or("-");
 
@@ -618,14 +655,28 @@ fn generate_controllers_doc(
 
         // Only show high-level dependencies (Services, DbContexts, ExternalServices)
         // Skip HAS_ACTION, RENDERS_VIEW, etc. to keep diagrams readable
-        let dep_rels: Vec<&&GraphRelationship> = rels.iter()
-            .filter(|r| matches!(r.rel_type,
-                RelationshipType::DependsOn | RelationshipType::CallsService |
-                RelationshipType::Calls))
+        let dep_rels: Vec<&&GraphRelationship> = rels
+            .iter()
             .filter(|r| {
-                let other_id = if r.source_id == ctrl.id { &r.target_id } else { &r.source_id };
-                graph.get_node(other_id).is_some_and(|n| matches!(n.label,
-                    NodeLabel::Service | NodeLabel::DbContext | NodeLabel::ExternalService))
+                matches!(
+                    r.rel_type,
+                    RelationshipType::DependsOn
+                        | RelationshipType::CallsService
+                        | RelationshipType::Calls
+                )
+            })
+            .filter(|r| {
+                let other_id = if r.source_id == ctrl.id {
+                    &r.target_id
+                } else {
+                    &r.source_id
+                };
+                graph.get_node(other_id).is_some_and(|n| {
+                    matches!(
+                        n.label,
+                        NodeLabel::Service | NodeLabel::DbContext | NodeLabel::ExternalService
+                    )
+                })
             })
             .collect();
 
@@ -634,13 +685,24 @@ fn generate_controllers_doc(
             writeln!(f)?;
             writeln!(f, "```mermaid")?;
             writeln!(f, "graph LR")?;
-            writeln!(f, "  {}[\"{}\"]", sanitize_mermaid(&ctrl.properties.name), escape_mermaid_label(&ctrl.properties.name))?;
+            writeln!(
+                f,
+                "  {}[\"{}\"]",
+                sanitize_mermaid(&ctrl.properties.name),
+                escape_mermaid_label(&ctrl.properties.name)
+            )?;
             let mut seen_targets: HashSet<String> = HashSet::new();
             for rel in &dep_rels {
-                let other_id = if rel.source_id == ctrl.id { &rel.target_id } else { &rel.source_id };
+                let other_id = if rel.source_id == ctrl.id {
+                    &rel.target_id
+                } else {
+                    &rel.source_id
+                };
                 if let Some(other) = graph.get_node(other_id) {
                     if seen_targets.insert(other.properties.name.clone()) {
-                        writeln!(f, "  {} --> {}[\"{}\"]",
+                        writeln!(
+                            f,
+                            "  {} --> {}[\"{}\"]",
                             sanitize_mermaid(&ctrl.properties.name),
                             sanitize_mermaid(&other.properties.name),
                             escape_mermaid_label(&other.properties.name)
@@ -759,11 +821,7 @@ fn generate_entities_doc(
             writeln!(f, "| Entity | DbSet Property |")?;
             writeln!(f, "|--------|---------------|")?;
             for rel in &mapped {
-                let entity_name = rel
-                    .reason
-                    .split(':')
-                    .nth(1)
-                    .unwrap_or(&rel.target_id);
+                let entity_name = rel.reason.split(':').nth(1).unwrap_or(&rel.target_id);
                 let dbset_info = &rel.reason;
                 writeln!(f, "| {} | `{}` |", entity_name, dbset_info)?;
             }
@@ -792,9 +850,7 @@ fn generate_entities_doc(
         // Associations
         let associations: Vec<&GraphRelationship> = graph
             .iter_relationships()
-            .filter(|r| {
-                r.source_id == entity.id && r.rel_type == RelationshipType::AssociatesWith
-            })
+            .filter(|r| r.source_id == entity.id && r.rel_type == RelationshipType::AssociatesWith)
             .collect();
 
         if !associations.is_empty() {
@@ -827,7 +883,8 @@ fn generate_views_doc(
     let mut f = std::fs::File::create(path)?;
 
     // Filter out PackageTmp/obj duplicates — keep only source views
-    let source_views: Vec<&&GraphNode> = views.iter()
+    let source_views: Vec<&&GraphNode> = views
+        .iter()
         .filter(|v| {
             let p = &v.properties.file_path;
             !p.contains("PackageTmp") && !p.contains("/obj/") && !p.contains("\\obj\\")
@@ -851,7 +908,8 @@ fn generate_views_doc(
         if rel.rel_type == RelationshipType::CallsAction {
             if let Some(src) = graph.get_node(&rel.source_id) {
                 if (src.label == NodeLabel::View || src.label == NodeLabel::PartialView)
-                    && rel.reason.contains("beginform") {
+                    && rel.reason.contains("beginform")
+                {
                     views_with_form.insert(src.properties.file_path.clone());
                 }
             }
@@ -859,37 +917,63 @@ fn generate_views_doc(
     }
 
     // Classify views
-    let partial_views: Vec<&&GraphNode> = source_views.iter()
-        .filter(|v| v.label == NodeLabel::PartialView
-            || v.properties.file_path.rsplit(['/', '\\']).next().unwrap_or("")
-                .starts_with('_'))
+    let partial_views: Vec<&&GraphNode> = source_views
+        .iter()
+        .filter(|v| {
+            v.label == NodeLabel::PartialView
+                || v.properties
+                    .file_path
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or("")
+                    .starts_with('_')
+        })
         .copied()
         .collect();
-    let typed_views: Vec<&&GraphNode> = source_views.iter()
+    let typed_views: Vec<&&GraphNode> = source_views
+        .iter()
         .filter(|v| v.properties.model_type.is_some())
         .copied()
         .collect();
-    let grid_views: Vec<&&GraphNode> = source_views.iter()
+    let grid_views: Vec<&&GraphNode> = source_views
+        .iter()
         .filter(|v| views_with_grid.contains(&v.properties.file_path))
         .copied()
         .collect();
-    let form_views: Vec<&&GraphNode> = source_views.iter()
+    let form_views: Vec<&&GraphNode> = source_views
+        .iter()
         .filter(|v| views_with_form.contains(&v.properties.file_path))
         .copied()
         .collect();
 
     writeln!(f, "# Views & Templates")?;
     writeln!(f)?;
-    writeln!(f, "Total: **{} vues** (hors copies de déploiement)", source_views.len())?;
+    writeln!(
+        f,
+        "Total: **{} vues** (hors copies de déploiement)",
+        source_views.len()
+    )?;
     writeln!(f)?;
 
     // Summary stats
     writeln!(f, "| Catégorie | Nombre |")?;
     writeln!(f, "|-----------|--------|")?;
     writeln!(f, "| Vues avec **grille Telerik** | {} |", grid_views.len())?;
-    writeln!(f, "| Vues avec **formulaire** (Html.BeginForm) | {} |", form_views.len())?;
-    writeln!(f, "| Vues avec **modèle typé** (@model) | {} |", typed_views.len())?;
-    writeln!(f, "| **Vues partielles** (_*.cshtml) | {} |", partial_views.len())?;
+    writeln!(
+        f,
+        "| Vues avec **formulaire** (Html.BeginForm) | {} |",
+        form_views.len()
+    )?;
+    writeln!(
+        f,
+        "| Vues avec **modèle typé** (@model) | {} |",
+        typed_views.len()
+    )?;
+    writeln!(
+        f,
+        "| **Vues partielles** (_*.cshtml) | {} |",
+        partial_views.len()
+    )?;
     writeln!(f)?;
 
     // Section 1: Views with Telerik Grids (most important)
@@ -901,7 +985,12 @@ fn generate_views_doc(
         writeln!(f, "| Vue | Écran | Modèle |")?;
         writeln!(f, "|-----|-------|--------|")?;
         for view in &grid_views {
-            let filename = view.properties.file_path.rsplit(['/', '\\']).next().unwrap_or("");
+            let filename = view
+                .properties
+                .file_path
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or("");
             let folder = extract_view_folder(&view.properties.file_path);
             let model = view.properties.model_type.as_deref().unwrap_or("-");
             writeln!(f, "| `{}` | {} | {} |", filename, folder, model)?;
@@ -913,12 +1002,20 @@ fn generate_views_doc(
     if !form_views.is_empty() {
         writeln!(f, "## Vues avec formulaire ({}) 📝", form_views.len())?;
         writeln!(f)?;
-        writeln!(f, "> Ces vues contiennent des formulaires de saisie qui envoient des données au serveur.")?;
+        writeln!(
+            f,
+            "> Ces vues contiennent des formulaires de saisie qui envoient des données au serveur."
+        )?;
         writeln!(f)?;
         writeln!(f, "| Vue | Écran | Modèle |")?;
         writeln!(f, "|-----|-------|--------|")?;
         for view in &form_views {
-            let filename = view.properties.file_path.rsplit(['/', '\\']).next().unwrap_or("");
+            let filename = view
+                .properties
+                .file_path
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or("");
             let folder = extract_view_folder(&view.properties.file_path);
             let model = view.properties.model_type.as_deref().unwrap_or("-");
             writeln!(f, "| `{}` | {} | {} |", filename, folder, model)?;
@@ -943,21 +1040,37 @@ fn generate_views_doc(
         writeln!(f, "|-----|------|--------|--------|")?;
 
         for view in folder_views {
-            let filename = view.properties.file_path.rsplit(['/', '\\']).next().unwrap_or("");
+            let filename = view
+                .properties
+                .file_path
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or("");
             let model = view.properties.model_type.as_deref().unwrap_or("-");
             let layout = view.properties.layout_path.as_deref().unwrap_or("-");
             let is_partial = filename.starts_with('_');
             let has_grid = views_with_grid.contains(&view.properties.file_path);
             let has_form = views_with_form.contains(&view.properties.file_path);
 
-            let type_str = if is_partial && has_grid { "Partielle ⚡" }
-                else if is_partial { "Partielle" }
-                else if has_grid && has_form { "⚡📝" }
-                else if has_grid { "⚡ Grille" }
-                else if has_form { "📝 Formulaire" }
-                else { "Vue" };
+            let type_str = if is_partial && has_grid {
+                "Partielle ⚡"
+            } else if is_partial {
+                "Partielle"
+            } else if has_grid && has_form {
+                "⚡📝"
+            } else if has_grid {
+                "⚡ Grille"
+            } else if has_form {
+                "📝 Formulaire"
+            } else {
+                "Vue"
+            };
 
-            writeln!(f, "| `{}` | {} | {} | {} |", filename, type_str, model, layout)?;
+            writeln!(
+                f,
+                "| `{}` | {} | {} | {} |",
+                filename, type_str, model, layout
+            )?;
         }
         writeln!(f)?;
     }
@@ -997,11 +1110,19 @@ fn generate_areas_doc(
 
     writeln!(f, "# MVC Areas")?;
     writeln!(f)?;
-    writeln!(f, "This project is organized into **{} areas**.", areas.len())?;
+    writeln!(
+        f,
+        "This project is organized into **{} areas**.",
+        areas.len()
+    )?;
     writeln!(f)?;
 
     for area in areas {
-        let area_name = area.properties.area_name.as_deref().unwrap_or(&area.properties.name);
+        let area_name = area
+            .properties
+            .area_name
+            .as_deref()
+            .unwrap_or(&area.properties.name);
         writeln!(f, "## Area: {}", area_name)?;
         writeln!(f)?;
 
@@ -1015,7 +1136,11 @@ fn generate_areas_doc(
             writeln!(f, "### Controllers ({})", area_controllers.len())?;
             writeln!(f)?;
             for ctrl in &area_controllers {
-                writeln!(f, "- **{}** (`{}`)", ctrl.properties.name, ctrl.properties.file_path)?;
+                writeln!(
+                    f,
+                    "- **{}** (`{}`)",
+                    ctrl.properties.name, ctrl.properties.file_path
+                )?;
             }
             writeln!(f)?;
         }
@@ -1051,36 +1176,131 @@ fn generate_er_diagram_doc(
 
     writeln!(f, "# Modèle de Données")?;
     writeln!(f)?;
-    writeln!(f, "> {} entités détectées dans le modèle Entity Framework.", entities.len())?;
+    writeln!(
+        f,
+        "> {} entités détectées dans le modèle Entity Framework.",
+        entities.len()
+    )?;
     writeln!(f)?;
 
     // Build adjacency map for entities
-    let entity_names: HashSet<String> = entities.iter()
-        .map(|e| e.properties.name.clone())
-        .collect();
+    let entity_names: HashSet<String> =
+        entities.iter().map(|e| e.properties.name.clone()).collect();
 
     let mut adjacency: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new(); // entity -> [(related, cardinality)]
     for rel in graph.iter_relationships() {
         if rel.rel_type == RelationshipType::AssociatesWith {
-            let source = rel.source_id.rsplit(':').next().unwrap_or(&rel.source_id).to_string();
-            let target = rel.target_id.rsplit(':').next().unwrap_or(&rel.target_id).to_string();
-            let card = if rel.reason.contains("1:*") { "1:N" }
-                else if rel.reason.contains("*:1") { "N:1" }
-                else if rel.reason.contains("*:*") { "N:N" }
-                else { "1:1" };
-            adjacency.entry(source.clone()).or_default().push((target.clone(), card.to_string()));
-            adjacency.entry(target).or_default().push((source, card.to_string()));
+            let source = rel
+                .source_id
+                .rsplit(':')
+                .next()
+                .unwrap_or(&rel.source_id)
+                .to_string();
+            let target = rel
+                .target_id
+                .rsplit(':')
+                .next()
+                .unwrap_or(&rel.target_id)
+                .to_string();
+            let card = if rel.reason.contains("1:*") {
+                "1:N"
+            } else if rel.reason.contains("*:1") {
+                "N:1"
+            } else if rel.reason.contains("*:*") {
+                "N:N"
+            } else {
+                "1:1"
+            };
+            adjacency
+                .entry(source.clone())
+                .or_default()
+                .push((target.clone(), card.to_string()));
+            adjacency
+                .entry(target)
+                .or_default()
+                .push((source, card.to_string()));
         }
     }
 
     // Group entities by business domain (heuristic based on name)
     let domains: Vec<(&str, Vec<&str>)> = vec![
-        ("Aides & Barèmes", vec!["AIDEFINANCE", "GROUPEAIDE", "BAREME", "TRANCHEBAREME", "TARIFBASE_AIDE", "PARAMAIDE", "PARAMAIDJUST", "MAJOAIDE", "PLAFOND", "PLAFOND_DOSSIER", "REF_UNITETAR", "REF_UNITEMAJ", "REFFOND", "BUDGET"]),
-        ("Dossiers & Prestations", vec!["DOSSIERPRESTA", "DOSSIERELIGIBLE", "ODDEMANDEUR", "BENEFPRESTA", "DSTRGTPOSSIBLE", "JUSTIFICATIFS", "STATDOSSIER"]),
-        ("Paiements & Factures", vec!["REGLEMENT", "REGLEMENTLIGNE", "REGULLIGNE", "REF_STATREG"]),
-        ("Utilisateurs & Habilitations", vec!["UTILISATEUR", "PROFILS", "HABILITATION", "AUTORISATION", "CMCASUTILPROF", "CMCAS", "CMCASPARAM", "PARAMCMCAS", "REF_FONCTION"]),
-        ("Référentiels", vec!["REFTYPEBENEF", "REFTYPEDST", "REFTYPEODAD", "REFTYPEPENSION", "REFTYPEMDLCOUR", "REFPUBLIC", "PARAMPUBLIC", "REFFORMAT", "REFMESSAGE", "REF_UNITE", "REF_CONFIG", "REF_NUM", "REF_STATUTS"]),
-        ("Courriers & Documents", vec!["MODELECOURRIER", "MODCOURAIDE", "MODCOURGRP", "DOCUMENT", "EXPORT"]),
+        (
+            "Aides & Barèmes",
+            vec![
+                "AIDEFINANCE",
+                "GROUPEAIDE",
+                "BAREME",
+                "TRANCHEBAREME",
+                "TARIFBASE_AIDE",
+                "PARAMAIDE",
+                "PARAMAIDJUST",
+                "MAJOAIDE",
+                "PLAFOND",
+                "PLAFOND_DOSSIER",
+                "REF_UNITETAR",
+                "REF_UNITEMAJ",
+                "REFFOND",
+                "BUDGET",
+            ],
+        ),
+        (
+            "Dossiers & Prestations",
+            vec![
+                "DOSSIERPRESTA",
+                "DOSSIERELIGIBLE",
+                "ODDEMANDEUR",
+                "BENEFPRESTA",
+                "DSTRGTPOSSIBLE",
+                "JUSTIFICATIFS",
+                "STATDOSSIER",
+            ],
+        ),
+        (
+            "Paiements & Factures",
+            vec!["REGLEMENT", "REGLEMENTLIGNE", "REGULLIGNE", "REF_STATREG"],
+        ),
+        (
+            "Utilisateurs & Habilitations",
+            vec![
+                "UTILISATEUR",
+                "PROFILS",
+                "HABILITATION",
+                "AUTORISATION",
+                "CMCASUTILPROF",
+                "CMCAS",
+                "CMCASPARAM",
+                "PARAMCMCAS",
+                "REF_FONCTION",
+            ],
+        ),
+        (
+            "Référentiels",
+            vec![
+                "REFTYPEBENEF",
+                "REFTYPEDST",
+                "REFTYPEODAD",
+                "REFTYPEPENSION",
+                "REFTYPEMDLCOUR",
+                "REFPUBLIC",
+                "PARAMPUBLIC",
+                "REFFORMAT",
+                "REFMESSAGE",
+                "REF_UNITE",
+                "REF_CONFIG",
+                "REF_NUM",
+                "REF_STATUTS",
+            ],
+        ),
+        (
+            "Courriers & Documents",
+            vec![
+                "MODELECOURRIER",
+                "MODCOURAIDE",
+                "MODCOURGRP",
+                "DOCUMENT",
+                "EXPORT",
+            ],
+        ),
         ("Audit", vec!["AUDIT", "Audit", "Auditligne"]),
     ];
 
@@ -1089,16 +1309,22 @@ fn generate_er_diagram_doc(
     writeln!(f, "| Entité | Fichier | Relations |")?;
     writeln!(f, "|--------|---------|-----------|")?;
     for entity in entities {
-        let rel_count = adjacency.get(&entity.properties.name).map_or(0, |v| v.len());
-        writeln!(f, "| **{}** | `{}` | {} |",
-            entity.properties.name, entity.properties.file_path, rel_count)?;
+        let rel_count = adjacency
+            .get(&entity.properties.name)
+            .map_or(0, |v| v.len());
+        writeln!(
+            f,
+            "| **{}** | `{}` | {} |",
+            entity.properties.name, entity.properties.file_path, rel_count
+        )?;
     }
     writeln!(f)?;
 
     // Per-domain diagrams
     for (domain_name, domain_entities) in &domains {
         // Filter to entities that actually exist in the graph
-        let existing: Vec<&&str> = domain_entities.iter()
+        let existing: Vec<&&str> = domain_entities
+            .iter()
             .filter(|name| entity_names.contains(**name))
             .collect();
 
@@ -1137,8 +1363,13 @@ fn generate_er_diagram_doc(
                                 "N:N" => "-->|N:N|",
                                 _ => "---",
                             };
-                            writeln!(f, "    {} {} {}",
-                                sanitize_mermaid(name), arrow, sanitize_mermaid(target))?;
+                            writeln!(
+                                f,
+                                "    {} {} {}",
+                                sanitize_mermaid(name),
+                                arrow,
+                                sanitize_mermaid(target)
+                            )?;
                         }
                     }
                 }
@@ -1149,17 +1380,23 @@ fn generate_er_diagram_doc(
     }
 
     // Entities not in any domain
-    let all_domain_entities: HashSet<&str> = domains.iter()
+    let all_domain_entities: HashSet<&str> = domains
+        .iter()
         .flat_map(|(_, ents)| ents.iter().copied())
         .collect();
-    let unclassified: Vec<&&GraphNode> = entities.iter()
+    let unclassified: Vec<&&GraphNode> = entities
+        .iter()
         .filter(|e| !all_domain_entities.contains(e.properties.name.as_str()))
         .collect();
 
     if !unclassified.is_empty() {
         writeln!(f, "## Autres entités\n")?;
         for entity in &unclassified {
-            writeln!(f, "- **{}** (`{}`)", entity.properties.name, entity.properties.file_path)?;
+            writeln!(
+                f,
+                "- **{}** (`{}`)",
+                entity.properties.name, entity.properties.file_path
+            )?;
         }
         writeln!(f)?;
     }
@@ -1257,11 +1494,7 @@ fn generate_sequence_http_doc(
 
     for ctrl in top_ctrls {
         let ctrl_name = &ctrl.properties.name;
-        let area = ctrl
-            .properties
-            .area_name
-            .as_deref()
-            .unwrap_or("");
+        let area = ctrl.properties.area_name.as_deref().unwrap_or("");
         let area_prefix = if area.is_empty() {
             String::new()
         } else {
@@ -1290,7 +1523,12 @@ fn generate_sequence_http_doc(
         // Show max 3 representative actions to keep diagram readable
         let sample_actions: Vec<&&GraphNode> = my_actions.iter().take(3).collect();
         if my_actions.len() > 3 {
-            writeln!(f, "    Note over Client: Showing {}/{} actions", sample_actions.len(), my_actions.len())?;
+            writeln!(
+                f,
+                "    Note over Client: Showing {}/{} actions",
+                sample_actions.len(),
+                my_actions.len()
+            )?;
         }
 
         // Collect unique views and models for sampled actions
@@ -1330,11 +1568,7 @@ fn generate_sequence_http_doc(
 
         // Declare DbContext if used
         if has_db {
-            writeln!(
-                f,
-                "    participant DB as {}",
-                escape_mermaid_label(db_name)
-            )?;
+            writeln!(f, "    participant DB as {}", escape_mermaid_label(db_name))?;
         }
 
         writeln!(f)?;
@@ -1342,16 +1576,8 @@ fn generate_sequence_http_doc(
         // Generate interactions for sampled actions only
         for action in &sample_actions {
             let action_name = &action.properties.name;
-            let http_method = action
-                .properties
-                .http_method
-                .as_deref()
-                .unwrap_or("GET");
-            let route = action
-                .properties
-                .route_template
-                .as_deref()
-                .unwrap_or("/?");
+            let http_method = action.properties.http_method.as_deref().unwrap_or("GET");
+            let route = action.properties.route_template.as_deref().unwrap_or("/?");
 
             // Client → Router
             writeln!(
@@ -1390,11 +1616,7 @@ fn generate_sequence_http_doc(
                             "    Ctrl->>DB: Query {}",
                             escape_mermaid_label(model_name)
                         )?;
-                        writeln!(
-                            f,
-                            "    DB-->>Ctrl: {}[]",
-                            escape_mermaid_label(model_name)
-                        )?;
+                        writeln!(f, "    DB-->>Ctrl: {}[]", escape_mermaid_label(model_name))?;
                     }
                 }
             }
@@ -1403,16 +1625,8 @@ fn generate_sequence_http_doc(
             if let Some(views_list) = action_views.get(&action.id) {
                 for v in views_list {
                     let vn = &v.properties.name;
-                    writeln!(
-                        f,
-                        "    Ctrl->>{}: Render",
-                        sanitize_mermaid(vn)
-                    )?;
-                    writeln!(
-                        f,
-                        "    {}-->>Client: HTML Response",
-                        sanitize_mermaid(vn)
-                    )?;
+                    writeln!(f, "    Ctrl->>{}: Render", sanitize_mermaid(vn))?;
+                    writeln!(f, "    {}-->>Client: HTML Response", sanitize_mermaid(vn))?;
                 }
             } else {
                 // No view: likely returns JSON or redirect
@@ -1530,7 +1744,12 @@ fn generate_sequence_data_doc(
                 )?;
             }
 
-            writeln!(f, "    Note over {},DB: {} entities managed", ctx_label, entity_names.len())?;
+            writeln!(
+                f,
+                "    Note over {},DB: {} entities managed",
+                ctx_label,
+                entity_names.len()
+            )?;
             writeln!(f)?;
         }
     }
@@ -1552,10 +1771,7 @@ fn generate_sequence_data_doc(
         let mut relevant_ctx: Option<&GraphNode> = None;
         for ctx in db_contexts {
             if let Some(ctx_ents) = ctx_entities.get(&ctx.id) {
-                if entity_map
-                    .keys()
-                    .any(|e| ctx_ents.iter().any(|ce| ce == e))
-                {
+                if entity_map.keys().any(|e| ctx_ents.iter().any(|ce| ce == e)) {
                     relevant_ctx = Some(ctx);
                     break;
                 }
@@ -1611,16 +1827,10 @@ fn generate_sequence_data_doc(
             writeln!(
                 f,
                 "    Ctx->>DB: SELECT FROM {}",
-                escape_mermaid_label(
-                    entity_name
-                )
+                escape_mermaid_label(entity_name)
             )?;
             writeln!(f, "    DB-->>Ctx: ResultSet")?;
-            writeln!(
-                f,
-                "    Ctx-->>{}: Materialize",
-                ent_safe
-            )?;
+            writeln!(f, "    Ctx-->>{}: Materialize", ent_safe)?;
             writeln!(f, "    {}-->>Ctrl: Entity data", ent_safe)?;
             writeln!(f)?;
         }
@@ -1637,7 +1847,13 @@ fn generate_sequence_data_doc(
 /// Sanitize a name for use as a Mermaid node ID.
 fn sanitize_mermaid(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -1664,9 +1880,18 @@ mod tests {
 
     #[test]
     fn extract_view_folder_basic() {
-        assert_eq!(extract_view_folder("/MyApp/Views/Home/Index.cshtml"), "Home");
-        assert_eq!(extract_view_folder("MyApp\\Views\\Account\\Login.cshtml"), "Account");
-        assert_eq!(extract_view_folder("MyApp/Controllers/HomeController.cs"), "Autres");
+        assert_eq!(
+            extract_view_folder("/MyApp/Views/Home/Index.cshtml"),
+            "Home"
+        );
+        assert_eq!(
+            extract_view_folder("MyApp\\Views\\Account\\Login.cshtml"),
+            "Account"
+        );
+        assert_eq!(
+            extract_view_folder("MyApp/Controllers/HomeController.cs"),
+            "Autres"
+        );
     }
 
     #[test]

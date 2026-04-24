@@ -49,7 +49,12 @@ pub trait LanguageProvider: Send + Sync {
     fn check_export(&self, node_text: &str, node_type: &str, ancestors: &[&str]) -> bool;
 
     /// Resolve an import path to file(s).
-    fn resolve_import<'a>(&self, raw_path: &str, file_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult;
+    fn resolve_import<'a>(
+        &self,
+        raw_path: &str,
+        file_path: &str,
+        ctx: &ResolveCtx<'a>,
+    ) -> ImportResult;
 
     // ── Import semantics ──────────────────────────────────────────
     fn import_semantics(&self) -> ImportSemantics {

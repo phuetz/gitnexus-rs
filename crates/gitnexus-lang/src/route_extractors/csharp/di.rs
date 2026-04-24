@@ -18,24 +18,19 @@ static RE_AUTOFAC_LIFETIME: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// Unity: container.RegisterType<IProductService, ProductService>()
-static RE_UNITY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"RegisterType<(\w+),\s*(\w+)>"#).unwrap()
-});
+static RE_UNITY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"RegisterType<(\w+),\s*(\w+)>"#).unwrap());
 
 /// Ninject: Bind<IProductService>().To<ProductService>()
-static RE_NINJECT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"Bind<(\w+)>\s*\(\s*\)\s*\.To<(\w+)>"#).unwrap()
-});
+static RE_NINJECT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"Bind<(\w+)>\s*\(\s*\)\s*\.To<(\w+)>"#).unwrap());
 
 /// MS DI: services.AddScoped<IProductService, ProductService>()
-static RE_MS_DI: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?:AddScoped|AddTransient|AddSingleton)<(\w+),\s*(\w+)>"#).unwrap()
-});
+static RE_MS_DI: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?:AddScoped|AddTransient|AddSingleton)<(\w+),\s*(\w+)>"#).unwrap());
 
 /// MS DI lifetime from method name
-static RE_MS_DI_LIFETIME: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(AddScoped|AddTransient|AddSingleton)<"#).unwrap()
-});
+static RE_MS_DI_LIFETIME: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(AddScoped|AddTransient|AddSingleton)<"#).unwrap());
 
 /// Extract DI container registrations from C# source (Autofac, Unity, Ninject, MS DI).
 pub fn extract_di_registrations(source: &str) -> Vec<DiRegistration> {
@@ -44,8 +39,14 @@ pub fn extract_di_registrations(source: &str) -> Vec<DiRegistration> {
     for line in source.lines() {
         // --- Autofac: RegisterType<Impl>().As<IService>() ---
         if let Some(cap) = RE_AUTOFAC.captures(line) {
-            let impl_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let svc_type = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let impl_type = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let svc_type = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
 
             let lifetime = RE_AUTOFAC_LIFETIME.captures(line).map(|lc| {
                 let raw = lc.get(1).map(|m| m.as_str()).unwrap_or_default();
@@ -69,8 +70,14 @@ pub fn extract_di_registrations(source: &str) -> Vec<DiRegistration> {
 
         // --- Unity: RegisterType<IService, Impl>() ---
         if let Some(cap) = RE_UNITY.captures(line) {
-            let svc_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let impl_type = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let svc_type = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let impl_type = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             results.push(DiRegistration {
                 implementation_type: impl_type,
                 service_type: svc_type,
@@ -82,8 +89,14 @@ pub fn extract_di_registrations(source: &str) -> Vec<DiRegistration> {
 
         // --- Ninject: Bind<IService>().To<Impl>() ---
         if let Some(cap) = RE_NINJECT.captures(line) {
-            let svc_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let impl_type = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let svc_type = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let impl_type = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             results.push(DiRegistration {
                 implementation_type: impl_type,
                 service_type: svc_type,
@@ -95,8 +108,14 @@ pub fn extract_di_registrations(source: &str) -> Vec<DiRegistration> {
 
         // --- MS DI: AddScoped/AddTransient/AddSingleton<IService, Impl>() ---
         if let Some(cap) = RE_MS_DI.captures(line) {
-            let svc_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let impl_type = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let svc_type = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let impl_type = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
 
             let lifetime = RE_MS_DI_LIFETIME.captures(line).map(|lc| {
                 let raw = lc.get(1).map(|m| m.as_str()).unwrap_or_default();

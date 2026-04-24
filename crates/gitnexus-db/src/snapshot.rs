@@ -111,8 +111,8 @@ pub fn save_snapshot(graph: &KnowledgeGraph, path: &Path) -> Result<(), DbError>
 
 /// Load a KnowledgeGraph from a JSON snapshot file.
 pub fn load_snapshot(path: &Path) -> Result<KnowledgeGraph, DbError> {
-    let file = File::open(path)
-        .map_err(|e| snapshot_err(format!("Failed to open snapshot: {e}")))?;
+    let file =
+        File::open(path).map_err(|e| snapshot_err(format!("Failed to open snapshot: {e}")))?;
     let reader = BufReader::new(file);
     let graph: KnowledgeGraph = serde_json::from_reader(reader)
         .map_err(|e| snapshot_err(format!("Failed to deserialize snapshot: {e}")))?;

@@ -6,12 +6,16 @@ use colored::Colorize;
 use gitnexus_db::snapshot;
 
 pub fn run(question: &str, path: Option<&str>) -> Result<()> {
-    let (answer, top_nodes) = ask_question(question, path, Some(Box::new(|delta| {
-        print!("{}", delta);
-        use std::io::Write;
-        std::io::stdout().flush().unwrap();
-    })))?;
-    
+    let (answer, top_nodes) = ask_question(
+        question,
+        path,
+        Some(Box::new(|delta| {
+            print!("{}", delta);
+            use std::io::Write;
+            std::io::stdout().flush().unwrap();
+        })),
+    )?;
+
     if answer.is_empty() && top_nodes.is_empty() {
         return Ok(());
     }
@@ -34,7 +38,11 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
 
 pub type StreamCallback = Box<dyn Fn(&str) + Send>;
 
-pub fn ask_question(question: &str, path: Option<&str>, stream_cb: Option<StreamCallback>) -> Result<(String, Vec<(gitnexus_core::graph::types::GraphNode, f64)>)> {
+pub fn ask_question(
+    question: &str,
+    path: Option<&str>,
+    stream_cb: Option<StreamCallback>,
+) -> Result<(String, Vec<(gitnexus_core::graph::types::GraphNode, f64)>)> {
     let repo_path = if let Some(p) = path {
         std::path::PathBuf::from(p)
     } else {
@@ -46,7 +54,9 @@ pub fn ask_question(question: &str, path: Option<&str>, stream_cb: Option<Stream
     let config = match config {
         Some(c) => c,
         None => {
-            return Err(anyhow::anyhow!("No LLM configured. Create ~/.gitnexus/chat-config.json"));
+            return Err(anyhow::anyhow!(
+                "No LLM configured. Create ~/.gitnexus/chat-config.json"
+            ));
         }
     };
 
@@ -54,7 +64,9 @@ pub fn ask_question(question: &str, path: Option<&str>, stream_cb: Option<Stream
     let storage_path = repo_path.join(".gitnexus");
     let snap_path = storage_path.join("graph.bin");
     if !snap_path.exists() {
-        return Err(anyhow::anyhow!("No index found. Run 'gitnexus analyze' first."));
+        return Err(anyhow::anyhow!(
+            "No index found. Run 'gitnexus analyze' first."
+        ));
     }
 
     let graph = snapshot::load_snapshot(&snap_path)
@@ -92,8 +104,7 @@ pub fn ask_question(question: &str, path: Option<&str>, stream_cb: Option<Stream
         }
     }
 
-    relevant_nodes
-        .sort_by(|a, b| b.1.total_cmp(&a.1));
+    relevant_nodes.sort_by(|a, b| b.1.total_cmp(&a.1));
     let top_nodes = &relevant_nodes[..relevant_nodes.len().min(10)];
 
     if top_nodes.is_empty() {
@@ -120,7 +131,13 @@ pub fn ask_question(question: &str, path: Option<&str>, stream_cb: Option<Stream
         let source_path = repo_path.join(&node.properties.file_path);
         if let Ok(source) = std::fs::read_to_string(&source_path) {
             let lines: Vec<&str> = source.lines().collect();
-            let start = node.properties.start_line.map(|l| l as usize).unwrap_or(1).saturating_sub(1).min(lines.len());
+            let start = node
+                .properties
+                .start_line
+                .map(|l| l as usize)
+                .unwrap_or(1)
+                .saturating_sub(1)
+                .min(lines.len());
             let end = (start + 15).min(lines.len());
             context.push_str("```\n");
             for line in &lines[start..end] {
@@ -178,9 +195,17 @@ pub fn ask_question(question: &str, path: Option<&str>, stream_cb: Option<Stream
     for line in reader.lines() {
         let line = line?;
         if let Some(data) = line.strip_prefix("data: ") {
-            if data.trim() == "[DONE]" { break; }
+            if data.trim() == "[DONE]" {
+                break;
+            }
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                if let Some(delta) = json.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")).and_then(|d| d.get("content")).and_then(|v| v.as_str()) {
+                if let Some(delta) = json
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("delta"))
+                    .and_then(|d| d.get("content"))
+                    .and_then(|v| v.as_str())
+                {
                     if let Some(cb) = &stream_cb {
                         cb(delta);
                     }
@@ -190,9 +215,15 @@ pub fn ask_question(question: &str, path: Option<&str>, stream_cb: Option<Stream
         } else if stream_cb.is_none() {
             // Non-streaming response body parsing if stream is false
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
-                 if let Some(content) = json.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("message")).and_then(|m| m.get("content")).and_then(|v| v.as_str()) {
-                     full_answer.push_str(content);
-                 }
+                if let Some(content) = json
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("message"))
+                    .and_then(|m| m.get("content"))
+                    .and_then(|v| v.as_str())
+                {
+                    full_answer.push_str(content);
+                }
             }
         }
     }

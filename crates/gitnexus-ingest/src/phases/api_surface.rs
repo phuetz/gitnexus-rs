@@ -128,10 +128,7 @@ static RE_NEXT_APP_HANDLER: Lazy<Regex> = Lazy::new(|| {
 
 /// Run the endpoint extraction phase. Scans files in parallel and writes all
 /// discovered endpoints + their `HandledBy` edges into the graph.
-pub fn extract_api_surface(
-    graph: &mut KnowledgeGraph,
-    files: &[FileEntry],
-) -> ApiSurfaceStats {
+pub fn extract_api_surface(graph: &mut KnowledgeGraph, files: &[FileEntry]) -> ApiSurfaceStats {
     // Parallel scan — one thread per file.
     let per_file: Vec<Vec<RawEndpoint>> = files
         .par_iter()
@@ -239,8 +236,10 @@ fn scan_file(file: &FileEntry) -> Vec<RawEndpoint> {
     let is_python = lower_path.ends_with(".py");
     let is_java_kotlin = lower_path.ends_with(".java") || lower_path.ends_with(".kt");
     let is_next_route = is_js_family
-        && (lower_path.ends_with("/route.ts") || lower_path.ends_with("/route.js")
-            || lower_path.ends_with("/route.tsx") || lower_path.ends_with("/route.jsx"));
+        && (lower_path.ends_with("/route.ts")
+            || lower_path.ends_with("/route.js")
+            || lower_path.ends_with("/route.tsx")
+            || lower_path.ends_with("/route.jsx"));
 
     // Scan line-by-line so we can report accurate line numbers.
     for (idx, line) in file.content.lines().enumerate() {
@@ -370,10 +369,7 @@ fn route_from_next_path(path: &str) -> String {
         .unwrap_or(0);
     let tail = &forward[start..];
     // Strip the trailing `/route.ts` etc.
-    let without_file = tail
-        .rsplit_once('/')
-        .map(|(dirs, _)| dirs)
-        .unwrap_or(tail);
+    let without_file = tail.rsplit_once('/').map(|(dirs, _)| dirs).unwrap_or(tail);
     // Convert `[id]` → `:id`; drop grouping folders `(auth)`.
     let mut parts: Vec<String> = Vec::new();
     for segment in without_file.split('/') {

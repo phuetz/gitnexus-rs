@@ -20,9 +20,7 @@ pub struct CodeHealth {
 }
 
 #[tauri::command]
-pub async fn get_code_health(
-    state: State<'_, AppState>,
-) -> Result<CodeHealth, String> {
+pub async fn get_code_health(state: State<'_, AppState>) -> Result<CodeHealth, String> {
     let (graph, _, _, repo_path_str) = state.get_repo(None).await?;
     let repo_path = std::path::PathBuf::from(repo_path_str);
 
@@ -108,19 +106,22 @@ pub async fn get_code_health(
     let ownership_score = if ownerships.is_empty() {
         0.5
     } else {
-        let avg_pct: f64 = ownerships.iter().map(|o| o.ownership_pct).sum::<f64>()
-            / ownerships.len() as f64;
+        let avg_pct: f64 =
+            ownerships.iter().map(|o| o.ownership_pct).sum::<f64>() / ownerships.len() as f64;
         (avg_pct / 100.0).min(1.0)
     };
 
     // Cyclomatic complexity metrics
     let complexity_values: Vec<u32> = graph
         .iter_nodes()
-        .filter(|n| matches!(n.label,
-            gitnexus_core::graph::types::NodeLabel::Method
-            | gitnexus_core::graph::types::NodeLabel::Function
-            | gitnexus_core::graph::types::NodeLabel::Constructor
-        ))
+        .filter(|n| {
+            matches!(
+                n.label,
+                gitnexus_core::graph::types::NodeLabel::Method
+                    | gitnexus_core::graph::types::NodeLabel::Function
+                    | gitnexus_core::graph::types::NodeLabel::Constructor
+            )
+        })
         .filter_map(|n| n.properties.complexity)
         .collect();
     let max_complexity = complexity_values.iter().copied().max().unwrap_or(0);

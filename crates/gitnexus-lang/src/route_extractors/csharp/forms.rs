@@ -14,8 +14,10 @@ static RE_BEGIN_FORM: Lazy<Regex> = Lazy::new(|| {
 /// Html.Partial("Name"), Html.RenderPartial("Name"), Html.Action("Name", "Controller"),
 /// Html.RenderAction("Name", "Controller")
 static RE_PARTIAL: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"Html\.\s*(Partial|RenderPartial|Action|RenderAction)\s*\(\s*"(\w+)"(?:\s*,\s*"(\w+)")?"#)
-        .expect("RE_PARTIAL regex must compile")
+    Regex::new(
+        r#"Html\.\s*(Partial|RenderPartial|Action|RenderAction)\s*\(\s*"(\w+)"(?:\s*,\s*"(\w+)")?"#,
+    )
+    .expect("RE_PARTIAL regex must compile")
 });
 
 /// Extract Html.BeginForm() calls from Razor view source.
@@ -24,8 +26,14 @@ pub fn extract_form_actions(source: &str) -> Vec<FormActionInfo> {
 
     for (line_idx, line) in source.lines().enumerate() {
         if let Some(cap) = RE_BEGIN_FORM.captures(line) {
-            let action_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let controller_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let action_name = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let controller_name = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let http_method = cap
                 .get(3)
                 .map(|m| m.as_str().to_uppercase())
@@ -50,8 +58,14 @@ pub fn extract_partial_references(source: &str) -> Vec<PartialReference> {
 
     for (line_idx, line) in source.lines().enumerate() {
         for cap in RE_PARTIAL.captures_iter(line) {
-            let helper_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let partial_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let helper_type = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let partial_name = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let controller_name = cap.get(3).map(|m| m.as_str().to_string());
 
             results.push(PartialReference {

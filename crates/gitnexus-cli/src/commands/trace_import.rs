@@ -1,8 +1,8 @@
 //! The `trace-import` command: import execution traces to enrich the knowledge graph.
 
-use std::collections::HashMap;
 use anyhow::Result;
 use colored::Colorize;
+use std::collections::HashMap;
 
 use gitnexus_core::trace;
 use gitnexus_db::snapshot;
@@ -16,7 +16,10 @@ pub fn run(log_file: &str, path: Option<&str>) -> Result<()> {
 
     let snap_path = repo_path.join(".gitnexus").join("graph.bin");
     if !snap_path.exists() {
-        println!("{} No index found. Run 'gitnexus analyze' first.", "ERROR".red());
+        println!(
+            "{} No index found. Run 'gitnexus analyze' first.",
+            "ERROR".red()
+        );
         return Ok(());
     }
 
@@ -36,13 +39,11 @@ pub fn run(log_file: &str, path: Option<&str>) -> Result<()> {
     // Extract ClassName.MethodName patterns from log lines
     let mut trace_counts: HashMap<String, u32> = HashMap::new();
     let method_pattern = regex::Regex::new(
-        r"(?:^|[\s|:])([A-Z]\w+(?:Service|Controller|Repository|Manager|Helper|Provider|Factory|Client|Handler|Processor))\.(\w+)"
+        r"(?:^|[\s|:])([A-Z]\w+(?:Service|Controller|Repository|Manager|Helper|Provider|Factory|Client|Handler|Processor))\.(\w+)",
     )?;
 
     // Also match simpler patterns: ClassName.MethodName with timing
-    let simple_pattern = regex::Regex::new(
-        r"([A-Z]\w{2,})\.([A-Z]\w+)\s*(?:\(|[\s|]|\d+ms)"
-    )?;
+    let simple_pattern = regex::Regex::new(r"([A-Z]\w{2,})\.([A-Z]\w+)\s*(?:\(|[\s|]|\d+ms)")?;
 
     for line in log_content.lines() {
         // Try structured pattern first
@@ -115,8 +116,15 @@ pub fn run(log_file: &str, path: Option<&str>) -> Result<()> {
     println!("{} Trace import complete", "OK".green());
     println!("  Log entries parsed:  {}", log_content.lines().count());
     println!("  Unique methods:      {}", trace_counts.len());
-    println!("  Matched in graph:    {} ({:.0}%)", matched,
-        if trace_counts.is_empty() { 0.0 } else { matched as f64 / trace_counts.len() as f64 * 100.0 });
+    println!(
+        "  Matched in graph:    {} ({:.0}%)",
+        matched,
+        if trace_counts.is_empty() {
+            0.0
+        } else {
+            matched as f64 / trace_counts.len() as f64 * 100.0
+        }
+    );
     println!("  Nodes updated:       {}", updated_nodes);
     println!("  Unmatched:           {}", unmatched.len());
 

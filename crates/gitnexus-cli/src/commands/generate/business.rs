@@ -9,10 +9,7 @@ use colored::Colorize;
 use gitnexus_core::graph::KnowledgeGraph;
 
 /// Generate business-specific process documentation (B1-B5).
-pub(super) fn generate_business_docs(
-    graph: &KnowledgeGraph,
-    docs_dir: &Path,
-) -> Result<usize> {
+pub(super) fn generate_business_docs(graph: &KnowledgeGraph, docs_dir: &Path) -> Result<usize> {
     let processes_dir = docs_dir.join("processes");
     if !processes_dir.exists() {
         std::fs::create_dir_all(&processes_dir)?;
@@ -49,8 +46,12 @@ pub(super) fn generate_business_docs(
 }
 
 fn generate_courriers_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
-    let has_courrier = graph.iter_nodes().any(|n| n.properties.name.contains("Courrier"));
-    if !has_courrier { return Ok(false); }
+    let has_courrier = graph
+        .iter_nodes()
+        .any(|n| n.properties.name.contains("Courrier"));
+    if !has_courrier {
+        return Ok(false);
+    }
 
     let out_path = dir.join("courriers.md");
     let mut f = std::fs::File::create(&out_path)?;
@@ -58,7 +59,10 @@ fn generate_courriers_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
     writeln!(f, "# Système de Courriers")?;
     writeln!(f, "<!-- GNX:LEAD -->")?;
     writeln!(f)?;
-    writeln!(f, "> Ce module gère la génération des 11 types de courriers officiels de l'application.")?;
+    writeln!(
+        f,
+        "> Ce module gère la génération des 11 types de courriers officiels de l'application."
+    )?;
     writeln!(f)?;
 
     writeln!(f, "## Types de courriers")?;
@@ -70,11 +74,17 @@ fn generate_courriers_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
     writeln!(f, "| Refus | Lettre de refus de demande |")?;
     writeln!(f, "| Rejet | Lettre de rejet (changement de statut) |")?;
     writeln!(f, "| TarifApplique | Notification du tarif appliqué |")?;
-    writeln!(f, "| DemandeJustificatif | Demande de pièces justificatives |")?;
+    writeln!(
+        f,
+        "| DemandeJustificatif | Demande de pièces justificatives |"
+    )?;
     writeln!(f, "| Renouvellement | Notification de renouvellement |")?;
     writeln!(f, "| Attestation | Lettre d'attestation |")?;
     writeln!(f, "| PvCommission | Procès-verbal de commission |")?;
-    writeln!(f, "| CourrierInformation | Courrier d'information générale |")?;
+    writeln!(
+        f,
+        "| CourrierInformation | Courrier d'information générale |"
+    )?;
     writeln!(f, "| Regularisation | Notification de régularisation |")?;
     writeln!(f, "| Bordereau | Bordereau de transmission |")?;
     writeln!(f)?;
@@ -125,8 +135,12 @@ fn generate_courriers_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
 }
 
 fn generate_paiements_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
-    let has_reglement = graph.iter_nodes().any(|n| n.properties.name.contains("Reglement") || n.properties.name.contains("Facture"));
-    if !has_reglement { return Ok(false); }
+    let has_reglement = graph
+        .iter_nodes()
+        .any(|n| n.properties.name.contains("Reglement") || n.properties.name.contains("Facture"));
+    if !has_reglement {
+        return Ok(false);
+    }
 
     let out_path = dir.join("paiements-lifecycle.md");
     let mut f = std::fs::File::create(&out_path)?;
@@ -145,13 +159,22 @@ fn generate_paiements_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
     writeln!(f, "    [*] --> DemPaiemVal : Création facture")?;
     writeln!(f, "    DemPaiemVal --> DemPaiemCtrler : Contrôle")?;
     writeln!(f, "    DemPaiemCtrler --> DemPaiemCorrig : Correction")?;
-    writeln!(f, "    DemPaiemVal --> DemGrPrVal : Groupement (SetNumeroValidation)")?;
+    writeln!(
+        f,
+        "    DemPaiemVal --> DemGrPrVal : Groupement (SetNumeroValidation)"
+    )?;
     writeln!(f, "    DemPaiemCtrler --> DemGrPrVal : Groupement")?;
     writeln!(f, "    DemPaiemCorrig --> DemGrPrVal : Groupement")?;
     writeln!(f, "    DemGrPrVal --> DemTransmiseELODIE : Fonds nationaux")?;
     writeln!(f, "    DemGrPrVal --> BordereauEditeFP : Fonds propres")?;
-    writeln!(f, "    DemTransmiseELODIE --> PaiementRegle : Règlement final")?;
-    writeln!(f, "    BordereauEditeFP --> PaiementRegle : Règlement final")?;
+    writeln!(
+        f,
+        "    DemTransmiseELODIE --> PaiementRegle : Règlement final"
+    )?;
+    writeln!(
+        f,
+        "    BordereauEditeFP --> PaiementRegle : Règlement final"
+    )?;
     writeln!(f, "```")?;
     writeln!(f)?;
 
@@ -186,8 +209,12 @@ fn generate_paiements_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
 }
 
 fn generate_baremes_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
-    let has_bareme = graph.iter_nodes().any(|n| n.properties.name.contains("Bareme"));
-    if !has_bareme { return Ok(false); }
+    let has_bareme = graph
+        .iter_nodes()
+        .any(|n| n.properties.name.contains("Bareme"));
+    if !has_bareme {
+        return Ok(false);
+    }
 
     let out_path = dir.join("baremes-calcul.md");
     let mut f = std::fs::File::create(&out_path)?;
@@ -195,7 +222,10 @@ fn generate_baremes_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
     writeln!(f, "# Moteur de Calcul des Barèmes")?;
     writeln!(f, "<!-- GNX:LEAD -->")?;
     writeln!(f)?;
-    writeln!(f, "> Le barème détermine le taux de participation (TauxFASS) en fonction des ressources.")?;
+    writeln!(
+        f,
+        "> Le barème détermine le taux de participation (TauxFASS) en fonction des ressources."
+    )?;
     writeln!(f)?;
 
     writeln!(f, "## Processus de calcul")?;
@@ -203,7 +233,10 @@ fn generate_baremes_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
     writeln!(f)?;
     writeln!(f, "```mermaid")?;
     writeln!(f, "flowchart TD")?;
-    writeln!(f, "    A[\"Ressources annuelles\"] --> B[\"÷ Nombre de parts\"]")?;
+    writeln!(
+        f,
+        "    A[\"Ressources annuelles\"] --> B[\"÷ Nombre de parts\"]"
+    )?;
     writeln!(f, "    B --> C[\"Ressource comparable\"]")?;
     writeln!(f, "    C --> D{{Match Tranche ?}}")?;
     writeln!(f, "    D -->|Oui| J[\"TauxFASS = TRA_TAUX_SERVI\"]")?;
@@ -221,7 +254,10 @@ fn generate_baremes_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
     writeln!(f)?;
     writeln!(f, "| Aspect | Barème Automatique | Barème Manuel |")?;
     writeln!(f, "|--------|-------------------|---------------|")?;
-    writeln!(f, "| Création | Tranches calculées (min/max) | Tranches saisies une par une |")?;
+    writeln!(
+        f,
+        "| Création | Tranches calculées (min/max) | Tranches saisies une par une |"
+    )?;
     writeln!(f, "| BAR_TYPE | 1 | 2 ou 3 |")?;
     writeln!(f, "| Flexibilité | Fixe | Totale |")?;
     writeln!(f)?;
@@ -232,8 +268,12 @@ fn generate_baremes_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
 }
 
 fn generate_financial_entities_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
-    let has_reglement = graph.iter_nodes().any(|n| n.properties.name.contains("Reglement"));
-    if !has_reglement { return Ok(false); }
+    let has_reglement = graph
+        .iter_nodes()
+        .any(|n| n.properties.name.contains("Reglement"));
+    if !has_reglement {
+        return Ok(false);
+    }
 
     let out_path = dir.join("entites-financieres.md");
     let mut f = std::fs::File::create(&out_path)?;
@@ -261,8 +301,12 @@ fn generate_financial_entities_doc(graph: &KnowledgeGraph, dir: &Path) -> Result
 }
 
 fn generate_suppliers_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
-    let has_fournisseur = graph.iter_nodes().any(|n| n.properties.name.contains("Fournisseur"));
-    if !has_fournisseur { return Ok(false); }
+    let has_fournisseur = graph
+        .iter_nodes()
+        .any(|n| n.properties.name.contains("Fournisseur"));
+    if !has_fournisseur {
+        return Ok(false);
+    }
 
     let out_path = dir.join("fournisseurs.md");
     let mut f = std::fs::File::create(&out_path)?;
@@ -270,7 +314,10 @@ fn generate_suppliers_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
     writeln!(f, "# Gestion des Fournisseurs")?;
     writeln!(f, "<!-- GNX:LEAD -->")?;
     writeln!(f)?;
-    writeln!(f, "> Les fournisseurs sont les prestataires payés par la CMCAS pour les aides sociales.")?;
+    writeln!(
+        f,
+        "> Les fournisseurs sont les prestataires payés par la CMCAS pour les aides sociales."
+    )?;
     writeln!(f)?;
 
     writeln!(f, "## Fonctionnalités clés")?;
@@ -285,4 +332,3 @@ fn generate_suppliers_doc(graph: &KnowledgeGraph, dir: &Path) -> Result<bool> {
     println!("  {} processes/fournisseurs.md", "OK".green());
     Ok(true)
 }
-

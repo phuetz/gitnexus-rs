@@ -78,7 +78,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             c.members.len()
         );
         for m in c.members.iter().take(3) {
-            println!("    - {} @ {}  ({} tokens)", m.name, m.file_path, m.token_count);
+            println!(
+                "    - {} @ {}  ({} tokens)",
+                m.name, m.file_path, m.token_count
+            );
         }
     }
 
@@ -97,7 +100,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!(
         "  severity: low={} medium={} high={} critical={}",
-        r.severity_counts.low, r.severity_counts.medium, r.severity_counts.high, r.severity_counts.critical
+        r.severity_counts.low,
+        r.severity_counts.medium,
+        r.severity_counts.high,
+        r.severity_counts.critical
     );
     println!("  top 5:");
     for t in r.top_symbols.iter().take(5) {
@@ -122,9 +128,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         d.removed_edges.len(),
         d.modified.len()
     );
-    assert!(d.added_nodes.is_empty(), "self-diff should have no added nodes");
-    assert!(d.removed_nodes.is_empty(), "self-diff should have no removed nodes");
-    assert!(d.modified.is_empty(), "self-diff should have no modified nodes");
+    assert!(
+        d.added_nodes.is_empty(),
+        "self-diff should have no added nodes"
+    );
+    assert!(
+        d.removed_nodes.is_empty(),
+        "self-diff should have no removed nodes"
+    );
+    assert!(
+        d.modified.is_empty(),
+        "self-diff should have no modified nodes"
+    );
     println!("  ✓ self-diff is empty (as expected)");
 
     Ok(())

@@ -35,11 +35,7 @@ pub fn resolve(raw_path: &str, file_path: &str, ctx: &ResolveCtx<'_>) -> ImportR
 /// - `.` = current package
 /// - `..` = parent package
 /// - `...` = grandparent package, etc.
-fn resolve_relative_import(
-    cleaned: &str,
-    file_path: &str,
-    ctx: &ResolveCtx<'_>,
-) -> ImportResult {
+fn resolve_relative_import(cleaned: &str, file_path: &str, ctx: &ResolveCtx<'_>) -> ImportResult {
     // Count leading dots
     let dot_count = cleaned.chars().take_while(|c| *c == '.').count();
     let remainder = &cleaned[dot_count..];
@@ -80,8 +76,8 @@ fn resolve_absolute_import(cleaned: &str, ctx: &ResolveCtx<'_>) -> ImportResult 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{ImportConfigs, SuffixIndex};
+    use super::*;
     use std::collections::HashSet;
 
     fn make_ctx<'a>(
@@ -150,9 +146,7 @@ mod tests {
 
     #[test]
     fn test_init_py_resolution() {
-        let files = vec![
-            "myapp/models/__init__.py".to_string(),
-        ];
+        let files = vec!["myapp/models/__init__.py".to_string()];
         let index = SuffixIndex::build(&files, &files);
         let configs = ImportConfigs::default();
         let ctx = make_ctx(&files, &index, &configs);

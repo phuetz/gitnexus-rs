@@ -25,7 +25,12 @@ impl LanguageProvider for GoProvider {
         export_detection::check_go_export(node_text, node_type, ancestors)
     }
 
-    fn resolve_import<'a>(&self, raw_path: &str, file_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult {
+    fn resolve_import<'a>(
+        &self,
+        raw_path: &str,
+        file_path: &str,
+        ctx: &ResolveCtx<'a>,
+    ) -> ImportResult {
         go_resolver::resolve(raw_path, file_path, ctx)
     }
 

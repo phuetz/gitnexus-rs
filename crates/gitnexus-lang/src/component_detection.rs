@@ -248,9 +248,7 @@ impl ComponentDetector {
             for pattern in &lib.detection_patterns {
                 match pattern.pattern_type {
                     PatternType::NugetPackage => {
-                        if let Some(version) =
-                            extract_package_version(content, &pattern.value)
-                        {
+                        if let Some(version) = extract_package_version(content, &pattern.value) {
                             detected.push(DetectedComponent {
                                 library_name: lib.name.clone(),
                                 vendor: lib.vendor.clone(),
@@ -382,7 +380,8 @@ impl ComponentDetector {
                 // Direct search for the prefix in the content (covers class attrs and beyond)
                 if content_lower.contains(&prefix_lower) {
                     // Verify it appears in a plausible class or CSS context
-                    let in_class_attr = content_lower.contains(&format!("class=\"{}", prefix_lower))
+                    let in_class_attr = content_lower
+                        .contains(&format!("class=\"{}", prefix_lower))
                         || content_lower.contains(&format!("class='{}", prefix_lower))
                         || content_lower.contains(&format!(" {}", prefix_lower));
                     let in_css_rule = content_lower.contains(&format!(".{}", prefix_lower));
@@ -459,8 +458,10 @@ fn extract_package_version(csproj_content: &str, package_name: &str) -> Option<S
     });
     // Pattern 2: nested Version element
     static VERSION_ELEMENT: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"PackageReference\s+Include="([^"]+)"[^>]*>[\s\S]*?<Version>([^<]+)</Version>"#)
-            .unwrap()
+        Regex::new(
+            r#"PackageReference\s+Include="([^"]+)"[^>]*>[\s\S]*?<Version>([^<]+)</Version>"#,
+        )
+        .unwrap()
     });
 
     for re in [&*VERSION_INLINE, &*VERSION_ELEMENT] {
@@ -548,9 +549,8 @@ pub fn extract_razor_directives(content: &str) -> Vec<RazorDirective> {
 /// Returns a list of (start_line, script_content) tuples.
 /// Handles both inline and multi-line script blocks.
 pub fn extract_script_blocks(content: &str) -> Vec<(usize, String)> {
-    static SCRIPT_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?si)<script[^>]*>(.*?)</script>").unwrap()
-    });
+    static SCRIPT_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?si)<script[^>]*>(.*?)</script>").unwrap());
 
     let mut blocks = Vec::new();
 
@@ -594,13 +594,11 @@ pub fn extract_csharp_blocks(content: &str) -> String {
 
             let is_code_block = rest.starts_with("@code") && {
                 let after = i + 5;
-                after < len
-                    && (bytes[after].is_ascii_whitespace() || bytes[after] == b'{')
+                after < len && (bytes[after].is_ascii_whitespace() || bytes[after] == b'{')
             };
             let is_functions_block = rest.starts_with("@functions") && {
                 let after = i + 10;
-                after < len
-                    && (bytes[after].is_ascii_whitespace() || bytes[after] == b'{')
+                after < len && (bytes[after].is_ascii_whitespace() || bytes[after] == b'{')
             };
             let is_inline_block = bytes[i + 1] == b'{';
 
@@ -614,9 +612,7 @@ pub fn extract_csharp_blocks(content: &str) -> String {
                     i + 1
                 };
 
-                if let Some(brace_offset) =
-                    bytes[search_from..].iter().position(|&c| c == b'{')
-                {
+                if let Some(brace_offset) = bytes[search_from..].iter().position(|&c| c == b'{') {
                     let brace_start = search_from + brace_offset;
                     // Count braces to find matching close
                     let mut depth = 1;
@@ -680,9 +676,8 @@ pub fn extract_html_helpers(content: &str) -> Vec<HtmlHelperCall> {
         .unwrap()
     });
 
-    static PARTIAL_TAG_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"<partial\s+name="([^"]+)""#).unwrap()
-    });
+    static PARTIAL_TAG_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"<partial\s+name="([^"]+)""#).unwrap());
 
     let mut helpers = Vec::new();
 
@@ -692,7 +687,10 @@ pub fn extract_html_helpers(content: &str) -> Vec<HtmlHelperCall> {
             if let Some(helper_match) = cap.get(1) {
                 // Html.* pattern
                 let helper_type = helper_match.as_str().to_string();
-                let arg1 = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let arg1 = cap
+                    .get(2)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
                 let arg2 = cap.get(3).map(|m| m.as_str().to_string());
                 let arg3 = cap.get(4).map(|m| m.as_str().to_string());
 
@@ -901,8 +899,14 @@ mod tests {
 }
 "#;
         let code = extract_csharp_blocks(content);
-        assert!(code.contains("private void Process()"), "Should extract method");
-        assert!(code.contains("DoSomething(i);"), "Should capture deeply nested code");
+        assert!(
+            code.contains("private void Process()"),
+            "Should extract method"
+        );
+        assert!(
+            code.contains("DoSomething(i);"),
+            "Should capture deeply nested code"
+        );
         assert!(code.contains("for (int i = 0;"), "Should capture for loop");
     }
 
@@ -916,7 +920,10 @@ mod tests {
 }
 "#;
         let code = extract_csharp_blocks(content);
-        assert!(code.contains("FormatDate"), "Should extract @functions block");
+        assert!(
+            code.contains("FormatDate"),
+            "Should extract @functions block"
+        );
     }
 
     #[test]
@@ -949,7 +956,10 @@ mod tests {
 </div>
 "#;
         let code = extract_csharp_blocks(content);
-        assert!(code.contains("var message"), "Should extract @{{}} inline block");
+        assert!(
+            code.contains("var message"),
+            "Should extract @{{}} inline block"
+        );
     }
 
     #[test]
@@ -972,7 +982,9 @@ mod tests {
 "#;
         let results = detector.detect_in_file(content, "Views/Index.cshtml");
         assert!(
-            results.iter().any(|r| r.library_name.contains("Kendo") || r.vendor == "Progress"),
+            results
+                .iter()
+                .any(|r| r.library_name.contains("Kendo") || r.vendor == "Progress"),
             "Should detect Kendo CSS prefix in mid-attribute position"
         );
     }
@@ -1048,17 +1060,24 @@ mod tests {
 
         // Razor Page handlers
         let score = score_name_for_language("OnGet", SupportedLanguage::Razor).unwrap();
-        assert!(score.score >= 0.9, "OnGet should be high-scoring entry point");
+        assert!(
+            score.score >= 0.9,
+            "OnGet should be high-scoring entry point"
+        );
 
         let score = score_name_for_language("OnPostAsync", SupportedLanguage::Razor).unwrap();
         assert!(score.score >= 0.9, "OnPostAsync should be high-scoring");
 
         // Blazor lifecycle
-        let score = score_name_for_language("OnInitializedAsync", SupportedLanguage::Razor).unwrap();
+        let score =
+            score_name_for_language("OnInitializedAsync", SupportedLanguage::Razor).unwrap();
         assert!(score.score >= 0.8, "OnInitializedAsync should score well");
 
         // Fallback to C#
         let score = score_name_for_language("Main", SupportedLanguage::Razor).unwrap();
-        assert!((score.score - 1.0).abs() < f64::EPSILON, "Main should fall back to C# scoring");
+        assert!(
+            (score.score - 1.0).abs() < f64::EPSILON,
+            "Main should fall back to C# scoring"
+        );
     }
 }

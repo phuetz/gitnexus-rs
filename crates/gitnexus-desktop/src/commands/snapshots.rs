@@ -172,7 +172,8 @@ fn enforce_cap_and_save(storage: &str, idx: &mut SnapshotIndex) -> Result<(), St
             let _ = std::fs::remove_file(snapshot_meta_path(storage, &evicted.id));
         }
     }
-    idx.snapshots.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    idx.snapshots
+        .sort_by(|a, b| b.created_at.cmp(&a.created_at));
     save_index(storage, idx)
 }
 
@@ -416,7 +417,8 @@ pub async fn snapshot_diff(
     let mut added: Vec<DiffNode> = Vec::new();
     let mut removed: Vec<DiffNode> = Vec::new();
     let mut modified: Vec<ModifiedNode> = Vec::new();
-    let mut by_label_from: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut by_label_from: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::new();
     let mut by_label_to: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     let mut by_label_added: std::collections::HashMap<String, u32> =
         std::collections::HashMap::new();
@@ -452,7 +454,9 @@ pub async fn snapshot_diff(
 
     // Detect "modified" nodes: same id, but key boolean flags flipped.
     for n_from in from.iter_nodes() {
-        let Some(n_to) = to.get_node(&n_from.id) else { continue };
+        let Some(n_to) = to.get_node(&n_from.id) else {
+            continue;
+        };
         let mut changes: Vec<String> = Vec::new();
         let pf = &n_from.properties;
         let pt = &n_to.properties;
@@ -661,10 +665,8 @@ mod tests {
 
     #[test]
     fn test_index_roundtrip() {
-        let dir = std::env::temp_dir().join(format!(
-            "gitnexus-snapshots-test-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("gitnexus-snapshots-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::create_dir_all(dir.join("snapshots")).unwrap();
         let storage = dir.to_string_lossy().to_string();

@@ -110,8 +110,7 @@ pub async fn code_review_run(
     signals.dead_candidates.dedup();
 
     // BFS upstream to count transitively affected nodes + reach Process nodes.
-    let (affected_count, affected_processes) =
-        compute_upstream_reach(&graph, &changed_symbol_ids);
+    let (affected_count, affected_processes) = compute_upstream_reach(&graph, &changed_symbol_ids);
     signals.affected_count = affected_count as u32;
     signals.affected_processes = affected_processes;
 
@@ -173,8 +172,7 @@ pub async fn code_review_run(
 
     // Enforce the confidence filter + severity filter on the final review.
     review.issues.retain(|i| {
-        i.confidence >= min_confidence
-            && (request.include_all_severities || i.severity == "high")
+        i.confidence >= min_confidence && (request.include_all_severities || i.severity == "high")
     });
 
     let markdown = render_markdown(&scope_summary, &signals, &review);
@@ -367,8 +365,10 @@ fn compute_upstream_reach(
                 | RelationshipType::MapsToEntity
         )
     };
-    let mut reverse: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-    let mut step_in_process: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut reverse: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut step_in_process: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     for rel in graph.iter_relationships() {
         if want_rel(rel.rel_type) {
             reverse
@@ -385,10 +385,8 @@ fn compute_upstream_reach(
     }
 
     let mut affected: HashSet<String> = seeds.clone();
-    let mut queue: std::collections::VecDeque<(String, usize)> = seeds
-        .iter()
-        .map(|id| (id.clone(), 0usize))
-        .collect();
+    let mut queue: std::collections::VecDeque<(String, usize)> =
+        seeds.iter().map(|id| (id.clone(), 0usize)).collect();
     let max_depth = 3usize;
     while let Some((node, depth)) = queue.pop_front() {
         if depth >= max_depth {

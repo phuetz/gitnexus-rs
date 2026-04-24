@@ -73,7 +73,9 @@ pub(super) fn count_files(graph: &KnowledgeGraph) -> usize {
 }
 
 /// Build outgoing edges map: source_id -> Vec<(target_id, rel_type)>.
-pub(super) fn build_edge_map(graph: &KnowledgeGraph) -> HashMap<String, Vec<(String, RelationshipType)>> {
+pub(super) fn build_edge_map(
+    graph: &KnowledgeGraph,
+) -> HashMap<String, Vec<(String, RelationshipType)>> {
     let mut map: HashMap<String, Vec<(String, RelationshipType)>> = HashMap::new();
     for rel in graph.iter_relationships() {
         map.entry(rel.source_id.clone())
@@ -125,7 +127,13 @@ pub(super) fn escape_mermaid_label(label: &str) -> String {
 /// Keeps only alphanumeric characters and underscores.
 pub(super) fn sanitize_mermaid_id(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -227,7 +235,10 @@ pub(super) fn extract_params_linked(params_str: &str, known_types: &HashSet<Stri
 }
 
 /// Extract ALL method signatures (params + return type) from source code, including overloads.
-pub(super) fn extract_all_method_signatures(source: &str, method_name: &str) -> Vec<(String, String)> {
+pub(super) fn extract_all_method_signatures(
+    source: &str,
+    method_name: &str,
+) -> Vec<(String, String)> {
     let mut results = Vec::new();
 
     for line in source.lines() {
@@ -235,8 +246,11 @@ pub(super) fn extract_all_method_signatures(source: &str, method_name: &str) -> 
         if !trimmed.contains(method_name) || !trimmed.contains('(') {
             continue;
         }
-        if !trimmed.starts_with("public") && !trimmed.starts_with("private")
-            && !trimmed.starts_with("protected") && !trimmed.starts_with("async") {
+        if !trimmed.starts_with("public")
+            && !trimmed.starts_with("private")
+            && !trimmed.starts_with("protected")
+            && !trimmed.starts_with("async")
+        {
             continue;
         }
         if trimmed.contains("await ") || trimmed.contains(".GetAwaiter") || trimmed.contains("=>") {
@@ -272,42 +286,54 @@ pub(super) fn extract_all_method_signatures(source: &str, method_name: &str) -> 
                 }
 
                 // Format params: simplify System.* types
-                let params: Vec<String> = params_raw.split(',').map(|p| {
-                    // Strip default values: "string nia = null" → "string nia"
-                    let p_clean = p.split('=').next().unwrap_or(p).trim()
-                        .replace("System.Threading.CancellationToken", "CancellationToken")
-                        .replace("System.Threading.Tasks.", "");
-                    let parts: Vec<&str> = p_clean.split_whitespace().collect();
-                    if parts.len() >= 2 {
-                        // Walk from the END of the token list: the parameter
-                        // name is always the last token, the type is the
-                        // token immediately before it. Anything earlier is a
-                        // modifier (`out`, `ref`, `in`, `params`) or an
-                        // attribute (`[FromBody]`, `[Required]`). The
-                        // previous implementation took `parts[0]` as the
-                        // type and `parts[1]` as the name, so
-                        // `[FromBody] string name` rendered as
-                        // `` `[FromBody]` string`` and `out int result`
-                        // rendered as `` `out` int``.
-                        let param_name = parts[parts.len() - 1];
-                        let type_name = parts[parts.len() - 2];
-                        format!("`{}` {}", type_name, param_name)
-                    } else if parts.len() == 1 {
-                        format!("`{}`", parts[0])
-                    } else {
-                        p.trim().to_string()
-                    }
-                }).collect();
+                let params: Vec<String> = params_raw
+                    .split(',')
+                    .map(|p| {
+                        // Strip default values: "string nia = null" → "string nia"
+                        let p_clean = p
+                            .split('=')
+                            .next()
+                            .unwrap_or(p)
+                            .trim()
+                            .replace("System.Threading.CancellationToken", "CancellationToken")
+                            .replace("System.Threading.Tasks.", "");
+                        let parts: Vec<&str> = p_clean.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            // Walk from the END of the token list: the parameter
+                            // name is always the last token, the type is the
+                            // token immediately before it. Anything earlier is a
+                            // modifier (`out`, `ref`, `in`, `params`) or an
+                            // attribute (`[FromBody]`, `[Required]`). The
+                            // previous implementation took `parts[0]` as the
+                            // type and `parts[1]` as the name, so
+                            // `[FromBody] string name` rendered as
+                            // `` `[FromBody]` string`` and `out int result`
+                            // rendered as `` `out` int``.
+                            let param_name = parts[parts.len() - 1];
+                            let type_name = parts[parts.len() - 2];
+                            format!("`{}` {}", type_name, param_name)
+                        } else if parts.len() == 1 {
+                            format!("`{}`", parts[0])
+                        } else {
+                            p.trim().to_string()
+                        }
+                    })
+                    .collect();
 
                 // Filter out CancellationToken (internal plumbing)
-                let visible_params: Vec<&String> = params.iter()
+                let visible_params: Vec<&String> = params
+                    .iter()
                     .filter(|p| !p.contains("CancellationToken"))
                     .collect();
 
                 let params_str = if visible_params.is_empty() {
                     "-".to_string()
                 } else {
-                    visible_params.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                    visible_params
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 };
 
                 results.push((params_str, clean_ret));
@@ -321,7 +347,11 @@ pub(super) fn extract_all_method_signatures(source: &str, method_name: &str) -> 
 }
 
 /// Extract a method body from source code by finding the method declaration and reading until its closing brace.
-pub(super) fn extract_method_body(source: &str, method_name: &str, max_lines: usize) -> Option<String> {
+pub(super) fn extract_method_body(
+    source: &str,
+    method_name: &str,
+    max_lines: usize,
+) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     let pattern = format!(" {}(", method_name);
 
@@ -329,8 +359,10 @@ pub(super) fn extract_method_body(source: &str, method_name: &str, max_lines: us
     let start_idx = lines.iter().position(|line| {
         let trimmed = line.trim();
         trimmed.contains(&pattern)
-            && (trimmed.starts_with("public") || trimmed.starts_with("private")
-                || trimmed.starts_with("protected") || trimmed.starts_with("["))
+            && (trimmed.starts_with("public")
+                || trimmed.starts_with("private")
+                || trimmed.starts_with("protected")
+                || trimmed.starts_with("["))
             && !trimmed.contains("await ")
             && !trimmed.contains(".GetAwaiter")
     })?;
@@ -395,13 +427,17 @@ pub(super) fn top_connected_files(graph: &KnowledgeGraph, n: usize) -> Vec<Strin
         // Count source file
         if let Some(src_node) = graph.get_node(&rel.source_id) {
             if !src_node.properties.file_path.is_empty() {
-                *file_degree.entry(src_node.properties.file_path.clone()).or_insert(0) += 1;
+                *file_degree
+                    .entry(src_node.properties.file_path.clone())
+                    .or_insert(0) += 1;
             }
         }
         // Count target file
         if let Some(tgt_node) = graph.get_node(&rel.target_id) {
             if !tgt_node.properties.file_path.is_empty() {
-                *file_degree.entry(tgt_node.properties.file_path.clone()).or_insert(0) += 1;
+                *file_degree
+                    .entry(tgt_node.properties.file_path.clone())
+                    .or_insert(0) += 1;
             }
         }
     }
@@ -411,7 +447,10 @@ pub(super) fn top_connected_files(graph: &KnowledgeGraph, n: usize) -> Vec<Strin
 }
 
 /// Detect frameworks/libraries from graph nodes and file extensions.
-pub(super) fn detect_technology_stack(graph: &KnowledgeGraph, lang_stats: &BTreeMap<String, usize>) -> (Vec<String>, Vec<String>, Vec<String>, String) {
+pub(super) fn detect_technology_stack(
+    graph: &KnowledgeGraph,
+    lang_stats: &BTreeMap<String, usize>,
+) -> (Vec<String>, Vec<String>, Vec<String>, String) {
     let mut languages: Vec<String> = Vec::new();
     let mut frameworks: Vec<String> = Vec::new();
     let mut ui_libs: Vec<String> = Vec::new();
@@ -424,13 +463,29 @@ pub(super) fn detect_technology_stack(graph: &KnowledgeGraph, lang_stats: &BTree
 
     // Detect frameworks from node labels
     let label_counts = count_nodes_by_label(graph);
-    let has_controllers = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0) > 0;
-    let has_db_context = label_counts.get(&NodeLabel::DbContext).copied().unwrap_or(0) > 0;
+    let has_controllers = label_counts
+        .get(&NodeLabel::Controller)
+        .copied()
+        .unwrap_or(0)
+        > 0;
+    let has_db_context = label_counts
+        .get(&NodeLabel::DbContext)
+        .copied()
+        .unwrap_or(0)
+        > 0;
     let has_db_entities = label_counts.get(&NodeLabel::DbEntity).copied().unwrap_or(0) > 0;
     let has_views = label_counts.get(&NodeLabel::View).copied().unwrap_or(0) > 0;
-    let has_ui_components = label_counts.get(&NodeLabel::UiComponent).copied().unwrap_or(0) > 0;
+    let has_ui_components = label_counts
+        .get(&NodeLabel::UiComponent)
+        .copied()
+        .unwrap_or(0)
+        > 0;
     let has_services = label_counts.get(&NodeLabel::Service).copied().unwrap_or(0) > 0;
-    let has_external = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0) > 0;
+    let has_external = label_counts
+        .get(&NodeLabel::ExternalService)
+        .copied()
+        .unwrap_or(0)
+        > 0;
 
     if has_controllers {
         frameworks.push("ASP.NET MVC 5".to_string());
@@ -448,9 +503,10 @@ pub(super) fn detect_technology_stack(graph: &KnowledgeGraph, lang_stats: &BTree
         // Check for Telerik/Kendo
         let has_telerik = graph.iter_nodes().any(|n| {
             n.label == NodeLabel::UiComponent
-                && n.properties.component_type.as_deref().is_some_and(|t| {
-                    t.contains("Telerik") || t.contains("Kendo")
-                })
+                && n.properties
+                    .component_type
+                    .as_deref()
+                    .is_some_and(|t| t.contains("Telerik") || t.contains("Kendo"))
         });
         if has_telerik {
             ui_libs.push("Telerik UI / Kendo UI".to_string());
@@ -464,15 +520,18 @@ pub(super) fn detect_technology_stack(graph: &KnowledgeGraph, lang_stats: &BTree
     }
     if has_services {
         // Check if we have repository pattern too
-        let has_repos = label_counts.get(&NodeLabel::Repository).copied().unwrap_or(0) > 0;
+        let has_repos = label_counts
+            .get(&NodeLabel::Repository)
+            .copied()
+            .unwrap_or(0)
+            > 0;
         if has_repos {
             frameworks.push("Repository Pattern".to_string());
         }
     }
     if has_views {
         let has_razor = graph.iter_nodes().any(|n| {
-            n.label == NodeLabel::View
-                && n.properties.view_engine.as_deref() == Some("razor")
+            n.label == NodeLabel::View && n.properties.view_engine.as_deref() == Some("razor")
         });
         if has_razor {
             frameworks.push("Razor Views".to_string());
@@ -481,7 +540,11 @@ pub(super) fn detect_technology_stack(graph: &KnowledgeGraph, lang_stats: &BTree
 
     // If no ASP.NET detected, describe generically
     if description_parts.is_empty() {
-        let primary_lang = lang_stats.iter().max_by_key(|(_, c)| *c).map(|(l, _)| l.as_str()).unwrap_or("multi-language");
+        let primary_lang = lang_stats
+            .iter()
+            .max_by_key(|(_, c)| *c)
+            .map(|(l, _)| l.as_str())
+            .unwrap_or("multi-language");
         description_parts.push(format!("{} codebase", primary_lang));
     }
 
@@ -494,4 +557,3 @@ pub(super) fn detect_technology_stack(graph: &KnowledgeGraph, lang_stats: &BTree
 
     (languages, frameworks, ui_libs, description)
 }
-

@@ -29,7 +29,8 @@ pub(super) fn generate_skills(graph: &KnowledgeGraph, repo_path: &Path) -> Resul
     }
 
     // Build member->community label mapping
-    let mut member_to_community: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut member_to_community: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for info in communities.values() {
         for mid in &info.member_ids {
             member_to_community.insert(mid.clone(), info.label.clone());
@@ -183,7 +184,9 @@ pub(super) fn generate_skills(graph: &KnowledgeGraph, repo_path: &Path) -> Resul
                         && !member_set.contains(target_id.as_str())
                     {
                         if let Some(target_comm) = member_to_community.get(target_id) {
-                            *connected_communities.entry(target_comm.clone()).or_insert(0) += 1;
+                            *connected_communities
+                                .entry(target_comm.clone())
+                                .or_insert(0) += 1;
                         }
                     }
                 }
@@ -201,10 +204,7 @@ pub(super) fn generate_skills(graph: &KnowledgeGraph, repo_path: &Path) -> Resul
             writeln!(f)?;
         }
 
-        println!(
-            "  {} skills/{filename}.md",
-            "OK".green(),
-        );
+        println!("  {} skills/{filename}.md", "OK".green(),);
     }
 
     info!("Documentation generated: {} pages", communities.len());

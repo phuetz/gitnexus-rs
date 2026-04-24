@@ -67,10 +67,7 @@ impl SuffixIndex {
                 let dir_parts: Vec<&str> = dir.split('/').collect();
                 for i in 0..dir_parts.len() {
                     let dir_suffix = dir_parts[i..].join("/");
-                    dir_index
-                        .entry(dir_suffix)
-                        .or_default()
-                        .push(orig.clone());
+                    dir_index.entry(dir_suffix).or_default().push(orig.clone());
                 }
             }
         }
@@ -166,10 +163,7 @@ mod tests {
 
         assert_eq!(index.get("user.ts"), Some("src/models/user.ts"));
         assert_eq!(index.get("models/user.ts"), Some("src/models/user.ts"));
-        assert_eq!(
-            index.get("src/models/user.ts"),
-            Some("src/models/user.ts")
-        );
+        assert_eq!(index.get("src/models/user.ts"), Some("src/models/user.ts"));
         assert_eq!(index.get("nonexistent.ts"), None);
     }
 

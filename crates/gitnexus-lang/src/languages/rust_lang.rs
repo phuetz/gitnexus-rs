@@ -3,7 +3,7 @@ use gitnexus_core::config::languages::SupportedLanguage;
 use crate::export_detection;
 use crate::import_resolvers::rust_lang as rust_resolver;
 use crate::import_resolvers::types::{ImportResult, ResolveCtx};
-use crate::named_bindings::{types::NamedBinding, rust_lang as rust_bindings};
+use crate::named_bindings::{rust_lang as rust_bindings, types::NamedBinding};
 use crate::provider::{ImportSemantics, LanguageProvider, MroStrategy};
 use crate::queries;
 
@@ -26,7 +26,12 @@ impl LanguageProvider for RustProvider {
         export_detection::check_rust_export(node_text, node_type, ancestors)
     }
 
-    fn resolve_import<'a>(&self, raw_path: &str, file_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult {
+    fn resolve_import<'a>(
+        &self,
+        raw_path: &str,
+        file_path: &str,
+        ctx: &ResolveCtx<'a>,
+    ) -> ImportResult {
         rust_resolver::resolve(raw_path, file_path, ctx)
     }
 

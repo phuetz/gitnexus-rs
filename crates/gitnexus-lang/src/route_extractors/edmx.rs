@@ -10,7 +10,6 @@
 //! Uses lightweight regex-based parsing to avoid adding an XML dependency.
 //! The EDMX format is well-structured enough for this approach.
 
-
 // ─── Result Types ────────────────────────────────────────────────────────
 
 /// Complete parsed EDMX model.
@@ -313,15 +312,13 @@ fn parse_properties(block: &str) -> Vec<EdmxProperty> {
         let nullable = extract_attr(prop_str, "Property", "Nullable")
             .map(|v| v != "false")
             .unwrap_or(true);
-        let max_length = extract_attr(prop_str, "Property", "MaxLength")
-            .and_then(|v| v.parse().ok());
-        let precision = extract_attr(prop_str, "Property", "Precision")
-            .and_then(|v| v.parse().ok());
-        let scale = extract_attr(prop_str, "Property", "Scale")
-            .and_then(|v| v.parse().ok());
-        let store_generated =
-            extract_attr(prop_str, "Property", "StoreGeneratedPattern")
-                .or_else(|| extract_attr(prop_str, "Property", "annotation:StoreGeneratedPattern"));
+        let max_length =
+            extract_attr(prop_str, "Property", "MaxLength").and_then(|v| v.parse().ok());
+        let precision =
+            extract_attr(prop_str, "Property", "Precision").and_then(|v| v.parse().ok());
+        let scale = extract_attr(prop_str, "Property", "Scale").and_then(|v| v.parse().ok());
+        let store_generated = extract_attr(prop_str, "Property", "StoreGeneratedPattern")
+            .or_else(|| extract_attr(prop_str, "Property", "annotation:StoreGeneratedPattern"));
         let is_concurrency_token = prop_str.contains("ConcurrencyMode=\"Fixed\"");
 
         if !name.is_empty() {
@@ -363,10 +360,8 @@ fn parse_navigation_properties(block: &str) -> Vec<EdmxNavigationProperty> {
         let name = extract_attr(nav_str, "NavigationProperty", "Name").unwrap_or_default();
         let relationship =
             extract_attr(nav_str, "NavigationProperty", "Relationship").unwrap_or_default();
-        let from_role =
-            extract_attr(nav_str, "NavigationProperty", "FromRole").unwrap_or_default();
-        let to_role =
-            extract_attr(nav_str, "NavigationProperty", "ToRole").unwrap_or_default();
+        let from_role = extract_attr(nav_str, "NavigationProperty", "FromRole").unwrap_or_default();
+        let to_role = extract_attr(nav_str, "NavigationProperty", "ToRole").unwrap_or_default();
 
         if !name.is_empty() {
             navs.push(EdmxNavigationProperty {
@@ -497,8 +492,7 @@ fn parse_entity_sets(csdl: &str) -> Vec<EdmxEntitySet> {
         let set_str = &csdl[abs..line_end];
 
         let name = extract_attr(set_str, "EntitySet", "Name").unwrap_or_default();
-        let entity_type =
-            extract_attr(set_str, "EntitySet", "EntityType").unwrap_or_default();
+        let entity_type = extract_attr(set_str, "EntitySet", "EntityType").unwrap_or_default();
 
         if !name.is_empty() {
             sets.push(EdmxEntitySet { name, entity_type });
@@ -730,19 +724,31 @@ mod tests {
         let model = parse_edmx(edmx);
 
         // PersonEntity has no base type
-        let person = model.entity_types.iter().find(|e| e.name == "PersonEntity").unwrap();
+        let person = model
+            .entity_types
+            .iter()
+            .find(|e| e.name == "PersonEntity")
+            .unwrap();
         assert!(person.base_type.is_none());
         assert!(!person.is_abstract);
 
         // EmployeeEntity inherits from Self.PersonEntity
-        let employee = model.entity_types.iter().find(|e| e.name == "EmployeeEntity").unwrap();
+        let employee = model
+            .entity_types
+            .iter()
+            .find(|e| e.name == "EmployeeEntity")
+            .unwrap();
         assert_eq!(employee.base_type.as_deref(), Some("Self.PersonEntity"));
         assert!(!employee.is_abstract);
         // Should have its own properties (not inherited ones)
         assert!(employee.properties.iter().any(|p| p.name == "EmployeeId"));
 
         // ManagerEntity inherits from Self.EmployeeEntity and is abstract
-        let manager = model.entity_types.iter().find(|e| e.name == "ManagerEntity").unwrap();
+        let manager = model
+            .entity_types
+            .iter()
+            .find(|e| e.name == "ManagerEntity")
+            .unwrap();
         assert_eq!(manager.base_type.as_deref(), Some("Self.EmployeeEntity"));
         assert!(manager.is_abstract);
 
@@ -757,9 +763,13 @@ mod tests {
         // the close tag was searched globally and could land before the open
         // tag. Should now find the close *after* the open and return a valid
         // slice (or None if there is no balanced close).
-        let content = "<Container></EntityType><Schema><EntityType Name=\"X\"></EntityType></Schema>";
+        let content =
+            "<Container></EntityType><Schema><EntityType Name=\"X\"></EntityType></Schema>";
         let section = extract_section(content, "EntityType");
-        assert!(section.is_some(), "Expected a slice once the close-after-open search is in place");
+        assert!(
+            section.is_some(),
+            "Expected a slice once the close-after-open search is in place"
+        );
         let s = section.unwrap();
         assert!(s.starts_with("<EntityType Name=\"X\""));
         assert!(s.ends_with("</EntityType>"));

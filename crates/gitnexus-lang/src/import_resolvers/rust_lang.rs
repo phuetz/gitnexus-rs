@@ -42,11 +42,7 @@ pub fn resolve(raw_path: &str, file_path: &str, ctx: &ResolveCtx<'_>) -> ImportR
 ///
 /// The crate root is inferred from the file path by finding the nearest
 /// `src/` directory or `lib.rs`/`main.rs`.
-fn resolve_crate_path(
-    segments: &[&str],
-    file_path: &str,
-    ctx: &ResolveCtx<'_>,
-) -> ImportResult {
+fn resolve_crate_path(segments: &[&str], file_path: &str, ctx: &ResolveCtx<'_>) -> ImportResult {
     let crate_root = find_crate_root(file_path);
     let module_path = if crate_root.is_empty() {
         segments.join("/")
@@ -58,11 +54,7 @@ fn resolve_crate_path(
 }
 
 /// Resolve `super::` paths by walking up from the current module.
-fn resolve_super_path(
-    segments: &[&str],
-    file_path: &str,
-    ctx: &ResolveCtx<'_>,
-) -> ImportResult {
+fn resolve_super_path(segments: &[&str], file_path: &str, ctx: &ResolveCtx<'_>) -> ImportResult {
     let mut dir = module_dir(file_path);
 
     // Count consecutive `super` segments
@@ -89,11 +81,7 @@ fn resolve_super_path(
 }
 
 /// Resolve `self::` paths relative to the current module.
-fn resolve_self_path(
-    segments: &[&str],
-    file_path: &str,
-    ctx: &ResolveCtx<'_>,
-) -> ImportResult {
+fn resolve_self_path(segments: &[&str], file_path: &str, ctx: &ResolveCtx<'_>) -> ImportResult {
     let dir = module_dir(file_path);
     let module_path = if segments.is_empty() {
         dir
@@ -169,8 +157,8 @@ fn module_dir(file_path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{ImportConfigs, SuffixIndex};
+    use super::*;
     use std::collections::HashSet;
 
     fn make_ctx<'a>(
@@ -191,10 +179,7 @@ mod tests {
 
     #[test]
     fn test_crate_path() {
-        let files = vec![
-            "src/models/user.rs".to_string(),
-            "src/lib.rs".to_string(),
-        ];
+        let files = vec!["src/models/user.rs".to_string(), "src/lib.rs".to_string()];
         let index = SuffixIndex::build(&files, &files);
         let configs = ImportConfigs::default();
         let ctx = make_ctx(&files, &index, &configs);

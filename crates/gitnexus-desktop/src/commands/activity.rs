@@ -117,9 +117,7 @@ pub async fn activity_record(
 }
 
 #[tauri::command]
-pub async fn activity_list(
-    state: State<'_, AppState>,
-) -> Result<Vec<ActivityEntry>, String> {
+pub async fn activity_list(state: State<'_, AppState>) -> Result<Vec<ActivityEntry>, String> {
     let storage = state.active_storage_path().await?;
     Ok(load(&activity_path(&storage)).entries)
 }
@@ -137,10 +135,8 @@ mod tests {
 
     #[test]
     fn test_save_load_caps_at_200() {
-        let dir = std::env::temp_dir().join(format!(
-            "gitnexus-activity-test-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("gitnexus-activity-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("activity.json");
         let mut file = ActivityFile::default();

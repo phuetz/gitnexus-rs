@@ -6,9 +6,9 @@ use tauri::State;
 
 use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 
+use crate::commands::shared::{node_to_cyto, node_to_cyto_with_depth};
 use crate::state::AppState;
 use crate::types::*;
-use crate::commands::shared::{node_to_cyto, node_to_cyto_with_depth};
 
 /// Get graph data filtered by zoom level.
 #[tauri::command]
@@ -22,16 +22,8 @@ pub async fn get_graph_data(
 
     // Determine which node labels to include based on zoom level
     let allowed_labels = match filter.zoom_level {
-        ZoomLevel::Package => vec![
-            NodeLabel::Folder,
-            NodeLabel::Package,
-            NodeLabel::Project,
-        ],
-        ZoomLevel::Module => vec![
-            NodeLabel::File,
-            NodeLabel::Module,
-            NodeLabel::Folder,
-        ],
+        ZoomLevel::Package => vec![NodeLabel::Folder, NodeLabel::Package, NodeLabel::Project],
+        ZoomLevel::Module => vec![NodeLabel::File, NodeLabel::Module, NodeLabel::Folder],
         ZoomLevel::Symbol => vec![
             NodeLabel::Function,
             NodeLabel::Class,
@@ -120,8 +112,14 @@ pub async fn get_graph_data(
             let mut score: f64 = 0.0;
 
             // Connectivity (from indexes)
-            let indegree = indexes.incoming.get(node.id.as_str()).map_or(0, |v| v.len());
-            let outdegree = indexes.outgoing.get(node.id.as_str()).map_or(0, |v| v.len());
+            let indegree = indexes
+                .incoming
+                .get(node.id.as_str())
+                .map_or(0, |v| v.len());
+            let outdegree = indexes
+                .outgoing
+                .get(node.id.as_str())
+                .map_or(0, |v| v.len());
             score += (indegree + outdegree) as f64 * 2.0;
 
             // Entry point bonus
@@ -166,8 +164,7 @@ pub async fn get_graph_data(
         .collect();
 
     // Collect node ID set for edge filtering — only edges between selected nodes
-    let node_ids: std::collections::HashSet<&str> =
-        nodes.iter().map(|n| n.id.as_str()).collect();
+    let node_ids: std::collections::HashSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
 
     // Collect edges between selected nodes.
     // NOTE (M13): The outgoing index stores (target_id, Vec<RelationshipType>) but not
@@ -179,9 +176,7 @@ pub async fn get_graph_data(
         if !allowed_rel_types.contains(&rel.rel_type) {
             continue;
         }
-        if node_ids.contains(rel.source_id.as_str())
-            && node_ids.contains(rel.target_id.as_str())
-        {
+        if node_ids.contains(rel.source_id.as_str()) && node_ids.contains(rel.target_id.as_str()) {
             edges.push(rel_to_cyto(rel));
         }
     }
@@ -394,8 +389,7 @@ pub async fn find_path(
 
     // Standard BFS with parent tracking.
     let mut visited: HashSet<String> = HashSet::new();
-    let mut parent: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    let mut parent: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut depth: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     let mut queue: VecDeque<String> = VecDeque::new();
 

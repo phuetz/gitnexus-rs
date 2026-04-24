@@ -52,12 +52,21 @@ pub fn detect_communities(graph: &mut KnowledgeGraph) -> Result<usize, crate::In
     let max_iterations = if is_large { 3 } else { 10 };
 
     // Run Louvain-style community detection
-    let assignments = louvain_communities(&node_ids, &adjacency, edge_count, resolution, max_iterations);
+    let assignments = louvain_communities(
+        &node_ids,
+        &adjacency,
+        edge_count,
+        resolution,
+        max_iterations,
+    );
 
     // Group nodes by community
     let mut communities: HashMap<usize, Vec<&str>> = HashMap::new();
     for (i, &community_id) in assignments.iter().enumerate() {
-        communities.entry(community_id).or_default().push(&node_ids[i]);
+        communities
+            .entry(community_id)
+            .or_default()
+            .push(&node_ids[i]);
     }
 
     // Filter out singleton communities (need at least 2 members)
@@ -236,8 +245,7 @@ fn louvain_communities(
             let sigma_tot_current = community_degree_sum[current_community];
 
             // Delta Q for removing from current community
-            let remove_cost =
-                ki_in / m2 - resolution * ki * (sigma_tot_current - ki) / (m2 * m2);
+            let remove_cost = ki_in / m2 - resolution * ki * (sigma_tot_current - ki) / (m2 * m2);
 
             // Find best community to move to
             let mut best_community = current_community;
@@ -251,8 +259,8 @@ fn louvain_communities(
                 let sigma_tot_target = community_degree_sum[target_community];
 
                 // Delta Q for adding to target community
-                let add_gain = edges_to_target / m2
-                    - resolution * ki * sigma_tot_target / (m2 * m2);
+                let add_gain =
+                    edges_to_target / m2 - resolution * ki * sigma_tot_target / (m2 * m2);
 
                 let total_gain = add_gain - remove_cost;
                 if total_gain > best_gain {
@@ -438,22 +446,10 @@ mod tests {
         let mut adjacency: HashMap<String, HashSet<String>> = HashMap::new();
 
         // a-b connected, c-d connected, no cross-cluster edges
-        adjacency
-            .entry("a".into())
-            .or_default()
-            .insert("b".into());
-        adjacency
-            .entry("b".into())
-            .or_default()
-            .insert("a".into());
-        adjacency
-            .entry("c".into())
-            .or_default()
-            .insert("d".into());
-        adjacency
-            .entry("d".into())
-            .or_default()
-            .insert("c".into());
+        adjacency.entry("a".into()).or_default().insert("b".into());
+        adjacency.entry("b".into()).or_default().insert("a".into());
+        adjacency.entry("c".into()).or_default().insert("d".into());
+        adjacency.entry("d".into()).or_default().insert("c".into());
 
         let result = louvain_communities(&node_ids, &adjacency, 2, 1.0, 10);
 
@@ -469,14 +465,8 @@ mod tests {
     fn test_calculate_cohesion_full() {
         let mut adjacency: HashMap<String, HashSet<String>> = HashMap::new();
         // Fully connected: a-b, b-a (all edges internal)
-        adjacency
-            .entry("a".into())
-            .or_default()
-            .insert("b".into());
-        adjacency
-            .entry("b".into())
-            .or_default()
-            .insert("a".into());
+        adjacency.entry("a".into()).or_default().insert("b".into());
+        adjacency.entry("b".into()).or_default().insert("a".into());
 
         let members = vec!["a", "b"];
         let all_node_ids: Vec<String> = vec!["a".into(), "b".into()];
@@ -488,10 +478,7 @@ mod tests {
     fn test_calculate_cohesion_none() {
         let mut adjacency: HashMap<String, HashSet<String>> = HashMap::new();
         // a connects to c (external), not to b
-        adjacency
-            .entry("a".into())
-            .or_default()
-            .insert("c".into());
+        adjacency.entry("a".into()).or_default().insert("c".into());
 
         let members = vec!["a", "b"];
         let all_node_ids: Vec<String> = vec!["a".into(), "b".into(), "c".into()];

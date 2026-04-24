@@ -114,12 +114,7 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
             }
 
             // Skip self-references (don't link to the current page)
-            if link.contains(
-                file_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or(""),
-            ) {
+            if link.contains(file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("")) {
                 continue;
             }
 
@@ -139,16 +134,14 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
             while let Some(rel) = modified[scan_from..].find(name.as_str()) {
                 let idx = scan_from + rel;
                 let end = idx + name_bytes.len();
-                let before_ok = idx == 0
-                    || {
-                        let prev = bytes[idx - 1];
-                        !(prev.is_ascii_alphanumeric() || prev == b'_')
-                    };
-                let after_ok = end >= bytes.len()
-                    || {
-                        let next = bytes[end];
-                        !(next.is_ascii_alphanumeric() || next == b'_')
-                    };
+                let before_ok = idx == 0 || {
+                    let prev = bytes[idx - 1];
+                    !(prev.is_ascii_alphanumeric() || prev == b'_')
+                };
+                let after_ok = end >= bytes.len() || {
+                    let next = bytes[end];
+                    !(next.is_ascii_alphanumeric() || next == b'_')
+                };
                 if before_ok && after_ok {
                     found_idx = Some(idx);
                     break;
@@ -165,15 +158,15 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
                 let in_code = before.matches("```").count() % 2 == 1;
                 let in_inline_code = before.ends_with('`');
                 let in_link = before.ends_with('[') || before.ends_with("](");
-                let in_heading = before
-                    .lines()
-                    .last()
-                    .is_some_and(|l| l.starts_with('#'));
+                let in_heading = before.lines().last().is_some_and(|l| l.starts_with('#'));
 
                 if !in_code && !in_inline_code && !in_link && !in_heading {
                     // Replace the found occurrence with a link
                     modified = format!(
-                        "{}[{}]({}){}", &modified[..idx], name, link,
+                        "{}[{}]({}){}",
+                        &modified[..idx],
+                        name,
+                        link,
                         &modified[idx + name.len()..]
                     );
                     linked_names.insert(name.clone());
@@ -183,7 +176,8 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
                         .trim_start_matches("./modules/")
                         .trim_start_matches("./")
                         .trim_end_matches(".md")
-                        .split('#').next()
+                        .split('#')
+                        .next()
                         .unwrap_or("")
                         .to_string();
                     if !target_stem.is_empty() {
@@ -220,7 +214,13 @@ pub(super) fn apply_cross_references(docs_dir: &Path, graph: &KnowledgeGraph) ->
 /// lowercase, spaces and underscores replaced with `-`, non-alphanumeric stripped.
 fn sanitize_for_anchor(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .split('-')
         .filter(|p| !p.is_empty())

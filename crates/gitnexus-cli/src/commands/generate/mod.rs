@@ -1,22 +1,22 @@
 //! The `generate` command: produces AI context files (AGENTS.md, wiki/, skills/) from the knowledge graph.
 
-mod utils;
-mod markdown;
-mod enrichment;
-mod cross_ref;
-mod inject;
 mod agents;
-mod wiki;
-mod skills;
-mod docs;
-mod health;
 mod analytics;
-mod functional;
-mod deployment;
-mod html;
-mod process_doc;
 mod business;
+mod cross_ref;
+mod deployment;
+mod docs;
+mod enrichment;
+mod functional;
+mod health;
+mod html;
+mod inject;
+mod markdown;
 mod pdf;
+mod process_doc;
+mod skills;
+mod utils;
+mod wiki;
 
 pub(crate) use enrichment::load_llm_config;
 
@@ -44,7 +44,20 @@ const TARGET_ALL: &str = "all";
 const TARGET_INJECT: &str = "inject";
 
 #[allow(clippy::too_many_arguments)]
-pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: bool, enrich_profile: &str, enrich_lang: &str, enrich_citations: bool, enrich_only: bool, retry_queue: bool, retry_at: Option<&str>, traces_dir: Option<&str>, input: Option<&str>) -> Result<()> {
+pub fn run(
+    what: &str,
+    path: Option<&str>,
+    output_dir: Option<&str>,
+    enrich: bool,
+    enrich_profile: &str,
+    enrich_lang: &str,
+    enrich_citations: bool,
+    enrich_only: bool,
+    retry_queue: bool,
+    retry_at: Option<&str>,
+    traces_dir: Option<&str>,
+    input: Option<&str>,
+) -> Result<()> {
     // Standalone PDF mode: no knowledge graph needed
     if what == TARGET_PDF {
         if let Some(input_path) = input {
@@ -55,8 +68,12 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
                     dir.join("documentation.pdf")
                 } else {
                     dir.join(
-                        input.file_stem().and_then(|s| s.to_str()).unwrap_or("output"),
-                    ).with_extension("pdf")
+                        input
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("output"),
+                    )
+                    .with_extension("pdf")
                 }
             } else if input.is_dir() {
                 input.join("documentation.pdf")
@@ -76,7 +93,9 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
     info!("Generating {} for {}", what, repo_path.display());
 
     let default_docs_dir = repo_path.join(".gitnexus").join("docs");
-    let docs_dir = output_dir.map(std::path::PathBuf::from).unwrap_or(default_docs_dir);
+    let docs_dir = output_dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or(default_docs_dir);
 
     match what {
         TARGET_CONTEXT | TARGET_AGENTS => agents::generate_agents_md(&graph, &repo_path)?,
@@ -84,28 +103,82 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
         TARGET_SKILLS => skills::generate_skills(&graph, &repo_path)?,
         TARGET_DOCS => {
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
+            process_doc::generate_process_docs(
+                &graph,
+                &repo_path,
+                &docs_dir,
+                traces_dir.map(std::path::Path::new),
+            )?;
+            enrichment::run_enrichment_if_enabled(
+                enrich,
+                &graph,
+                &repo_path,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                &docs_dir,
+                retry_at,
+            )?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
-                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+                println!(
+                    "{} Cross-references: {} links added",
+                    "OK".green(),
+                    xref_count
+                );
             }
         }
         TARGET_PROCESS_DOC => {
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
+            process_doc::generate_process_docs(
+                &graph,
+                &repo_path,
+                &docs_dir,
+                traces_dir.map(std::path::Path::new),
+            )?;
+            enrichment::run_enrichment_if_enabled(
+                enrich,
+                &graph,
+                &repo_path,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                &docs_dir,
+                retry_at,
+            )?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
-                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+                println!(
+                    "{} Cross-references: {} links added",
+                    "OK".green(),
+                    xref_count
+                );
             }
         }
         TARGET_DOCX => {
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
+            process_doc::generate_process_docs(
+                &graph,
+                &repo_path,
+                &docs_dir,
+                traces_dir.map(std::path::Path::new),
+            )?;
+            enrichment::run_enrichment_if_enabled(
+                enrich,
+                &graph,
+                &repo_path,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                &docs_dir,
+                retry_at,
+            )?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
-                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+                println!(
+                    "{} Cross-references: {} links added",
+                    "OK".green(),
+                    xref_count
+                );
             }
             let output_path = docs_dir.join("documentation.docx");
             let repo_name = repo_path
@@ -114,25 +187,47 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
                 .unwrap_or("Project");
             super::export_docx::export_docs_as_docx(&docs_dir, &output_path, repo_name)?;
             info!("Generated DOCX documentation at {}", output_path.display());
-            println!(
-                "{} Generated DOCX: {}",
-                "OK".green(),
-                output_path.display()
-            );
+            println!("{} Generated DOCX: {}", "OK".green(), output_path.display());
         }
         TARGET_HTML => {
             if retry_queue {
-                enrichment::run_enrichment_queue_only(&graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
+                enrichment::run_enrichment_queue_only(
+                    &graph,
+                    &repo_path,
+                    enrich_profile,
+                    enrich_lang,
+                    enrich_citations,
+                    &docs_dir,
+                    retry_at,
+                )?;
             } else {
                 if !enrich_only {
                     docs::generate_docs(&graph, &repo_path, &docs_dir)?;
-                    process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
+                    process_doc::generate_process_docs(
+                        &graph,
+                        &repo_path,
+                        &docs_dir,
+                        traces_dir.map(std::path::Path::new),
+                    )?;
                 }
-                enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
+                enrichment::run_enrichment_if_enabled(
+                    enrich,
+                    &graph,
+                    &repo_path,
+                    enrich_profile,
+                    enrich_lang,
+                    enrich_citations,
+                    &docs_dir,
+                    retry_at,
+                )?;
             }
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
-                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+                println!(
+                    "{} Cross-references: {} links added",
+                    "OK".green(),
+                    xref_count
+                );
             }
             html::generate_html_site(&graph, &repo_path, &docs_dir)?;
         }
@@ -140,22 +235,51 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
             let communities = utils::collect_communities(&graph);
             let mut output_communities = std::collections::BTreeMap::new();
             for (id, info) in communities {
-                output_communities.insert(id, gitnexus_output::obsidian::CommunityInfo {
-                    label: info.label,
-                    description: info.description,
-                    member_ids: info.member_ids,
-                });
+                output_communities.insert(
+                    id,
+                    gitnexus_output::obsidian::CommunityInfo {
+                        label: info.label,
+                        description: info.description,
+                        member_ids: info.member_ids,
+                    },
+                );
             }
-            gitnexus_output::obsidian::generate_obsidian_vault(&graph, &docs_dir, &output_communities)?;
-            println!("{} Generated Obsidian Vault in {}", "OK".green(), docs_dir.join("obsidian_vault").display());
+            gitnexus_output::obsidian::generate_obsidian_vault(
+                &graph,
+                &docs_dir,
+                &output_communities,
+            )?;
+            println!(
+                "{} Generated Obsidian Vault in {}",
+                "OK".green(),
+                docs_dir.join("obsidian_vault").display()
+            );
         }
         TARGET_PDF => {
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
+            process_doc::generate_process_docs(
+                &graph,
+                &repo_path,
+                &docs_dir,
+                traces_dir.map(std::path::Path::new),
+            )?;
+            enrichment::run_enrichment_if_enabled(
+                enrich,
+                &graph,
+                &repo_path,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                &docs_dir,
+                retry_at,
+            )?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
-                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+                println!(
+                    "{} Cross-references: {} links added",
+                    "OK".green(),
+                    xref_count
+                );
             }
             let output_path = docs_dir.join("documentation.pdf");
             let repo_name = repo_path
@@ -170,11 +294,29 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
             wiki::generate_wiki(&graph, &repo_path)?;
             skills::generate_skills(&graph, &repo_path)?;
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
-            process_doc::generate_process_docs(&graph, &repo_path, &docs_dir, traces_dir.map(std::path::Path::new))?;
-            enrichment::run_enrichment_if_enabled(enrich, &graph, &repo_path, enrich_profile, enrich_lang, enrich_citations, &docs_dir, retry_at)?;
+            process_doc::generate_process_docs(
+                &graph,
+                &repo_path,
+                &docs_dir,
+                traces_dir.map(std::path::Path::new),
+            )?;
+            enrichment::run_enrichment_if_enabled(
+                enrich,
+                &graph,
+                &repo_path,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                &docs_dir,
+                retry_at,
+            )?;
             let xref_count = cross_ref::apply_cross_references(&docs_dir, &graph)?;
             if xref_count > 0 {
-                println!("{} Cross-references: {} links added", "OK".green(), xref_count);
+                println!(
+                    "{} Cross-references: {} links added",
+                    "OK".green(),
+                    xref_count
+                );
             }
             let output_path = docs_dir.join("documentation.docx");
             let repo_name = repo_path
@@ -183,23 +325,26 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
                 .unwrap_or("Project");
             super::export_docx::export_docs_as_docx(&docs_dir, &output_path, repo_name)?;
             info!("Generated DOCX documentation at {}", output_path.display());
-            println!(
-                "{} Generated DOCX: {}",
-                "OK".green(),
-                output_path.display()
-            );
+            println!("{} Generated DOCX: {}", "OK".green(), output_path.display());
             html::generate_html_site(&graph, &repo_path, &docs_dir)?;
-            
+
             let communities = utils::collect_communities(&graph);
             let mut output_communities = std::collections::BTreeMap::new();
             for (id, info) in communities {
-                output_communities.insert(id, gitnexus_output::obsidian::CommunityInfo {
-                    label: info.label,
-                    description: info.description,
-                    member_ids: info.member_ids,
-                });
+                output_communities.insert(
+                    id,
+                    gitnexus_output::obsidian::CommunityInfo {
+                        label: info.label,
+                        description: info.description,
+                        member_ids: info.member_ids,
+                    },
+                );
             }
-            gitnexus_output::obsidian::generate_obsidian_vault(&graph, &docs_dir, &output_communities)?;
+            gitnexus_output::obsidian::generate_obsidian_vault(
+                &graph,
+                &docs_dir,
+                &output_communities,
+            )?;
         }
         TARGET_INJECT => {
             // Inject fragments from manifest into existing .md pages, then regenerate HTML
@@ -208,13 +353,25 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
                 .unwrap_or_else(|| repo_path.join("inject.json"));
             println!("→ Injecting fragments from {} …", manifest_path.display());
             let count = inject::apply_inject(&docs_dir, &manifest_path)?;
-            println!("{} Injected {} fragment{}", "OK".green(), count, if count == 1 { "" } else { "s" });
+            println!(
+                "{} Injected {} fragment{}",
+                "OK".green(),
+                count,
+                if count == 1 { "" } else { "s" }
+            );
             // Regenerate HTML to reflect the new content
-            let repo_name = repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("Project");
+            let repo_name = repo_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Project");
             html::generate_html_site(&graph, &repo_path, &docs_dir)?;
             let html_path = docs_dir.join("index.html");
             info!("Generated HTML documentation at {}", html_path.display());
-            println!("{} Generated HTML documentation: {}", "OK".green(), html_path.display());
+            println!(
+                "{} Generated HTML documentation: {}",
+                "OK".green(),
+                html_path.display()
+            );
         }
         _ => {
             eprintln!(
@@ -228,13 +385,16 @@ pub fn run(what: &str, path: Option<&str>, output_dir: Option<&str>, enrich: boo
 
 #[cfg(test)]
 mod tests {
-    use super::utils::*;
     use super::html::strip_html_tags;
+    use super::utils::*;
 
     #[test]
     fn test_sanitize_filename() {
         assert_eq!(sanitize_filename("Hello World"), "hello_world");
-        assert_eq!(sanitize_filename("DossiersController"), "dossierscontroller");
+        assert_eq!(
+            sanitize_filename("DossiersController"),
+            "dossierscontroller"
+        );
         assert_eq!(sanitize_filename("a-b_c"), "a-b_c");
     }
 
@@ -244,10 +404,7 @@ mod tests {
             extract_params_from_content("string id, int page", "test"),
             "`string` id, `int` page"
         );
-        assert_eq!(
-            extract_params_from_content("", "test"),
-            "-"
-        );
+        assert_eq!(extract_params_from_content("", "test"), "-");
         assert_eq!(
             extract_params_from_content("DossierPresta dossier", "test"),
             "`DossierPresta` dossier"

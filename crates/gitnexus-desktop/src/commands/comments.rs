@@ -113,7 +113,8 @@ mod tests {
 
     #[test]
     fn test_save_load_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("gitnexus-comments-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("gitnexus-comments-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("comments.json");
         let mut file = CommentsFile::default();

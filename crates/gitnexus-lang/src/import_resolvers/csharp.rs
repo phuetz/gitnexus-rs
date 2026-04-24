@@ -21,9 +21,7 @@ pub fn resolve(raw_path: &str, _file_path: &str, ctx: &ResolveCtx<'_>) -> Import
     }
 
     // Strip `static ` prefix
-    let path = cleaned
-        .strip_prefix("static ")
-        .unwrap_or(&cleaned);
+    let path = cleaned.strip_prefix("static ").unwrap_or(&cleaned);
 
     // Handle alias: `Alias = Full.Namespace.Type` -> take the RHS
     let path = if let Some(pos) = path.find(" = ") {
@@ -64,8 +62,8 @@ pub fn resolve(raw_path: &str, _file_path: &str, ctx: &ResolveCtx<'_>) -> Import
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{ImportConfigs, SuffixIndex};
+    use super::*;
     use std::collections::HashSet;
 
     fn make_ctx<'a>(

@@ -8,7 +8,7 @@ use gitnexus_core::id::generate_id;
 /// A file entry discovered during repository scan.
 #[derive(Debug, Clone)]
 pub struct FileEntry {
-    pub path: String,   // Relative path with forward slashes
+    pub path: String,    // Relative path with forward slashes
     pub content: String, // File content (read lazily or eagerly)
     pub size: usize,
     pub language: Option<SupportedLanguage>,
@@ -46,8 +46,10 @@ pub fn walk_repository(repo_path: &Path) -> Result<Vec<FileEntry>, crate::Ingest
         // Skip build output and package directories (often not in .gitignore for legacy repos)
         {
             let lower = rel_path.to_lowercase();
-            if lower.contains("/obj/") || lower.contains("/bin/")
-                || lower.starts_with("obj/") || lower.starts_with("bin/")
+            if lower.contains("/obj/")
+                || lower.contains("/bin/")
+                || lower.starts_with("obj/")
+                || lower.starts_with("bin/")
                 || lower.contains("/node_modules/")
                 || lower.contains("/packages/")
                 || lower.contains("/.nuget/")
@@ -184,7 +186,10 @@ mod tests {
         let file = graph.get_node("File:src/main.ts").unwrap();
         assert_eq!(file.label, NodeLabel::File);
         assert_eq!(file.properties.name, "main.ts");
-        assert_eq!(file.properties.language, Some(SupportedLanguage::TypeScript));
+        assert_eq!(
+            file.properties.language,
+            Some(SupportedLanguage::TypeScript)
+        );
     }
 
     #[test]

@@ -17,9 +17,7 @@ static RE_SERVICE_CLASS: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// Constructor parameter matching an interface: ISomeService someService
-static RE_CTOR_PARAM: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(I[A-Z]\w+)\s+(\w+)"#).unwrap()
-});
+static RE_CTOR_PARAM: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(I[A-Z]\w+)\s+(\w+)"#).unwrap());
 
 /// Extract service / repository / manager / provider classes from C# source.
 pub fn extract_services_and_repositories(source: &str) -> Vec<ServiceInfo> {
@@ -28,8 +26,14 @@ pub fn extract_services_and_repositories(source: &str) -> Vec<ServiceInfo> {
 
     for (line_idx, &line) in lines.iter().enumerate() {
         if let Some(cap) = RE_SERVICE_CLASS.captures(line) {
-            let class_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let interface_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let class_name = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let interface_name = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
 
             let layer_type = if class_name.ends_with("Repository") {
                 "Repository"
@@ -89,8 +93,14 @@ pub fn extract_constructor_dependencies(source: &str, class_name: &str) -> Vec<(
         let params = cap.get(1).map(|m| m.as_str()).unwrap_or("");
         let mut deps = Vec::new();
         for param_cap in RE_CTOR_PARAM.captures_iter(params) {
-            let iface = param_cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let name = param_cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let iface = param_cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let name = param_cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             deps.push((iface, name));
         }
         if deps.len() > best.len() {
@@ -151,7 +161,10 @@ public class OrderRepository : IOrderRepository
         let repo = &services[0];
         assert_eq!(repo.class_name, "OrderRepository");
         assert_eq!(repo.layer_type, "Repository");
-        assert_eq!(repo.implements_interface.as_deref(), Some("IOrderRepository"));
+        assert_eq!(
+            repo.implements_interface.as_deref(),
+            Some("IOrderRepository")
+        );
         assert_eq!(repo.dependencies.len(), 2);
         assert!(repo.dependencies.iter().any(|(t, _)| t == "IUnitOfWork"));
         assert!(repo.dependencies.iter().any(|(t, _)| t == "ILogger"));
@@ -169,8 +182,14 @@ public class InvoiceManager : IInvoiceManager
 "#;
         let deps = extract_constructor_dependencies(source, "InvoiceManager");
         assert_eq!(deps.len(), 2);
-        assert_eq!(deps[0], ("IOrderService".to_string(), "orderService".to_string()));
-        assert_eq!(deps[1], ("IEmailService".to_string(), "emailService".to_string()));
+        assert_eq!(
+            deps[0],
+            ("IOrderService".to_string(), "orderService".to_string())
+        );
+        assert_eq!(
+            deps[1],
+            ("IEmailService".to_string(), "emailService".to_string())
+        );
     }
 
     #[test]

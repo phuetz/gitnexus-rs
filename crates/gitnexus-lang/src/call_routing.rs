@@ -8,13 +8,9 @@ pub enum CallRoutingResult {
         is_relative: bool,
     },
     /// Route to heritage processing (Ruby include/extend/prepend)
-    Heritage {
-        items: Vec<HeritageItem>,
-    },
+    Heritage { items: Vec<HeritageItem> },
     /// Route to property definition (Ruby attr_accessor/attr_reader/attr_writer)
-    Properties {
-        items: Vec<PropertyItem>,
-    },
+    Properties { items: Vec<PropertyItem> },
     /// Treat as a regular call expression
     Call,
     /// Skip this call entirely
@@ -54,7 +50,8 @@ pub fn route_ruby_call(called_name: &str, call_text: &str) -> Option<CallRouting
             let is_relative = called_name == "require_relative";
             // Extract the string argument
             if let Some(path) = extract_string_arg(call_text) {
-                if path.len() > 1024 || path.contains('\0') || path.chars().any(|c| c.is_control()) {
+                if path.len() > 1024 || path.contains('\0') || path.chars().any(|c| c.is_control())
+                {
                     return Some(CallRoutingResult::Skip);
                 }
                 Some(CallRoutingResult::Import {
@@ -130,14 +127,18 @@ fn extract_symbol_args(text: &str) -> Vec<String> {
     for part in text.split(',') {
         let part = part.trim();
         if let Some(sym) = part.strip_prefix(':') {
-            let name = sym.trim().trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+            let name = sym
+                .trim()
+                .trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
             if !name.is_empty() {
                 results.push(name.to_string());
             }
         } else if part.contains(':') {
             // Could be in format `attr_accessor :name, :age`
             for sub in part.split(':') {
-                let name = sub.trim().trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                let name = sub
+                    .trim()
+                    .trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
                 if !name.is_empty()
                     && name.chars().next().is_some_and(|c| c.is_lowercase())
                     && !["attr_accessor", "attr_reader", "attr_writer"].contains(&name)

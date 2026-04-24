@@ -109,18 +109,15 @@ pub struct FileOwnership {
 }
 
 #[tauri::command]
-pub async fn get_ownership(
-    state: State<'_, AppState>,
-) -> Result<Vec<FileOwnership>, String> {
+pub async fn get_ownership(state: State<'_, AppState>) -> Result<Vec<FileOwnership>, String> {
     let (_, _, _, repo_path_str) = state.get_repo(None).await?;
     let repo_path = std::path::PathBuf::from(repo_path_str);
 
-    let result = tokio::task::spawn_blocking(move || {
-        gitnexus_git::ownership::analyze_ownership(&repo_path)
-    })
-    .await
-    .map_err(|e| format!("Task error: {}", e))?
-    .map_err(|e| format!("Ownership analysis failed: {}", e))?;
+    let result =
+        tokio::task::spawn_blocking(move || gitnexus_git::ownership::analyze_ownership(&repo_path))
+            .await
+            .map_err(|e| format!("Task error: {}", e))?
+            .map_err(|e| format!("Ownership analysis failed: {}", e))?;
 
     Ok(result
         .into_iter()

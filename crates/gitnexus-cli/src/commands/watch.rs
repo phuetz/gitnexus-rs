@@ -37,12 +37,9 @@ pub async fn run(path: Option<&str>) -> Result<()> {
             "No existing index. Running initial analysis...".yellow()
         );
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let result = gitnexus_ingest::pipeline::run_pipeline(
-            &repo_path,
-            Some(tx),
-            Default::default(),
-        )
-        .await?;
+        let result =
+            gitnexus_ingest::pipeline::run_pipeline(&repo_path, Some(tx), Default::default())
+                .await?;
 
         // Save initial manifest alongside snapshot
         let file_entries = gitnexus_ingest::phases::structure::walk_repository(&repo_path)?;
@@ -100,8 +97,8 @@ pub async fn run(path: Option<&str>) -> Result<()> {
                                 // contains("/target/") check missed `target/` at
                                 // the repo root, causing rebuild loops on Rust
                                 // projects.
-                                let in_target = rel.starts_with("target/")
-                                    || rel.contains("/target/");
+                                let in_target =
+                                    rel.starts_with("target/") || rel.contains("/target/");
                                 let in_node_modules = rel.starts_with("node_modules/")
                                     || rel.contains("/node_modules/");
                                 if !rel.starts_with(".gitnexus")
@@ -176,7 +173,11 @@ pub async fn run(path: Option<&str>) -> Result<()> {
                                         true
                                     }
                                     Err(e) => {
-                                        eprintln!("    {} Failed to save snapshot: {}", "!".red(), e);
+                                        eprintln!(
+                                            "    {} Failed to save snapshot: {}",
+                                            "!".red(),
+                                            e
+                                        );
                                         false
                                     }
                                 };
@@ -206,18 +207,11 @@ pub async fn run(path: Option<&str>) -> Result<()> {
                                     g.relationship_count()
                                 );
                             } else {
-                                println!(
-                                    "    {} No effective changes detected",
-                                    "=".dimmed(),
-                                );
+                                println!("    {} No effective changes detected", "=".dimmed(),);
                             }
                         }
                         Err(e) => {
-                            eprintln!(
-                                "    {} Incremental update failed: {}",
-                                "!".red(),
-                                e
-                            );
+                            eprintln!("    {} Incremental update failed: {}", "!".red(), e);
                         }
                     }
 

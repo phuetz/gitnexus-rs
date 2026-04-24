@@ -61,8 +61,7 @@ pub async fn export_interactive_html(
     let (graph, _idx, _fts, repo_path) = state.get_repo(None).await?;
 
     // Pick the most-connected nodes first to fit under max_nodes when needed.
-    let mut node_degree: std::collections::HashMap<String, u32> =
-        std::collections::HashMap::new();
+    let mut node_degree: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     for rel in graph.iter_relationships() {
         *node_degree.entry(rel.source_id.clone()).or_insert(0) += 1;
         *node_degree.entry(rel.target_id.clone()).or_insert(0) += 1;
@@ -120,7 +119,8 @@ pub async fn export_interactive_html(
         .canonicalize()
         .or_else(|_| {
             // File may not exist yet — canonicalize parent and append filename
-            out_path.parent()
+            out_path
+                .parent()
                 .and_then(|p| p.canonicalize().ok())
                 .map(|p| p.join(out_path.file_name().unwrap_or_default()))
                 .ok_or_else(|| std::io::Error::other("invalid path"))
@@ -133,7 +133,9 @@ pub async fn export_interactive_html(
     let mut f = std::fs::File::create(&canonical_out).map_err(|e| e.to_string())?;
     f.write_all(html.as_bytes()).map_err(|e| e.to_string())?;
 
-    let size = std::fs::metadata(&canonical_out).map(|m| m.len()).unwrap_or(0);
+    let size = std::fs::metadata(&canonical_out)
+        .map(|m| m.len())
+        .unwrap_or(0);
     Ok(HtmlExportResult {
         path: canonical_out.to_string_lossy().to_string(),
         node_count: exported_nodes.len() as u32,

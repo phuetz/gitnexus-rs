@@ -15,10 +15,22 @@ use gitnexus_db::query::escape_cypher_string;
 /// Tables that have FTS indexes.
 /// Matches the 17 tables defined in gitnexus-db schema::fts_queries().
 const FTS_TABLES: &[&str] = &[
-    "File", "Function", "Class", "Method", "Interface",
-    "Controller", "ControllerAction", "ApiEndpoint", "View",
-    "ViewModel", "DbEntity", "DbContext",
-    "ScriptFile", "UiComponent", "Service", "Repository",
+    "File",
+    "Function",
+    "Class",
+    "Method",
+    "Interface",
+    "Controller",
+    "ControllerAction",
+    "ApiEndpoint",
+    "View",
+    "ViewModel",
+    "DbEntity",
+    "DbContext",
+    "ScriptFile",
+    "UiComponent",
+    "Service",
+    "Repository",
     "ExternalService",
 ];
 
@@ -70,7 +82,11 @@ pub fn search_fts(
 
     // Sort by score descending and assign ranks
     let mut sorted: Vec<BM25SearchResult> = merged.into_values().collect();
-    sorted.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     sorted.truncate(limit);
 
     for (i, result) in sorted.iter_mut().enumerate() {
@@ -107,8 +123,14 @@ fn parse_fts_row(row: &Value, table: &str) -> Option<BM25SearchResult> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let start_line = row.get("startLine").and_then(|v| v.as_u64()).map(|v| v as u32);
-    let end_line = row.get("endLine").and_then(|v| v.as_u64()).map(|v| v as u32);
+    let start_line = row
+        .get("startLine")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+    let end_line = row
+        .get("endLine")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
 
     Some(BM25SearchResult {
         file_path,
@@ -130,9 +152,7 @@ fn parse_fts_row(row: &Value, table: &str) -> Option<BM25SearchResult> {
 /// happens to occur in a function name). Taking the max keeps ranking driven
 /// by the strongest individual match, which aligns with "best symbol in the
 /// file" — the mental model the chat UI ends up surfacing to users.
-fn merge_by_file_path(
-    results: Vec<BM25SearchResult>,
-) -> HashMap<String, BM25SearchResult> {
+fn merge_by_file_path(results: Vec<BM25SearchResult>) -> HashMap<String, BM25SearchResult> {
     let mut merged: HashMap<String, BM25SearchResult> = HashMap::new();
 
     for result in results {

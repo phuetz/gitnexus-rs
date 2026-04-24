@@ -185,7 +185,10 @@ fn walk_repo(
     covered: &HashSet<(String, u32)>,
 ) -> Vec<RenameEdit> {
     let mut out = Vec::new();
-    let walker = ignore::WalkBuilder::new(repo).hidden(false).git_ignore(true).build();
+    let walker = ignore::WalkBuilder::new(repo)
+        .hidden(false)
+        .git_ignore(true)
+        .build();
     for entry in walker.flatten() {
         let path = entry.path();
         if !path.is_file() {
@@ -194,10 +197,32 @@ fn walk_repo(
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             if matches!(
                 ext,
-                "png" | "jpg" | "jpeg" | "gif" | "ico" | "pdf" | "zip"
-                    | "tar" | "gz" | "bin" | "exe" | "dll" | "so" | "dylib"
-                    | "jar" | "class" | "o" | "a" | "lib" | "wasm" | "mp4"
-                    | "mp3" | "woff" | "woff2" | "ttf" | "eot"
+                "png"
+                    | "jpg"
+                    | "jpeg"
+                    | "gif"
+                    | "ico"
+                    | "pdf"
+                    | "zip"
+                    | "tar"
+                    | "gz"
+                    | "bin"
+                    | "exe"
+                    | "dll"
+                    | "so"
+                    | "dylib"
+                    | "jar"
+                    | "class"
+                    | "o"
+                    | "a"
+                    | "lib"
+                    | "wasm"
+                    | "mp4"
+                    | "mp3"
+                    | "woff"
+                    | "woff2"
+                    | "ttf"
+                    | "eot"
             ) {
                 continue;
             }
@@ -240,7 +265,8 @@ fn truncate(s: &str, max: usize) -> String {
     if t.len() <= max {
         t.to_string()
     } else {
-        let end = t.char_indices()
+        let end = t
+            .char_indices()
             .take_while(|(i, _)| *i < max)
             .last()
             .map(|(i, c)| i + c.len_utf8())
@@ -249,10 +275,7 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn apply(
-    repo: &std::path::Path,
-    edits: &[RenameEdit],
-) -> std::io::Result<serde_json::Value> {
+fn apply(repo: &std::path::Path, edits: &[RenameEdit]) -> std::io::Result<serde_json::Value> {
     use std::collections::BTreeMap;
     let mut by_file: BTreeMap<String, Vec<&RenameEdit>> = BTreeMap::new();
     for e in edits {

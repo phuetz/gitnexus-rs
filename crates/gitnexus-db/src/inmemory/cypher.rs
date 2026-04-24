@@ -62,14 +62,14 @@ pub enum Direction {
 
 #[derive(Debug, Clone)]
 pub enum WhereExpr {
-    Eq(String, String, CypherValue),        // var.field = value
-    NotEq(String, String, CypherValue),     // var.field <> value  OR  var.field != value
-    Contains(String, String, String),       // var.field CONTAINS text
-    StartsWith(String, String, String),     // var.field STARTS WITH text
-    EndsWith(String, String, String),       // var.field ENDS WITH text
+    Eq(String, String, CypherValue),    // var.field = value
+    NotEq(String, String, CypherValue), // var.field <> value  OR  var.field != value
+    Contains(String, String, String),   // var.field CONTAINS text
+    StartsWith(String, String, String), // var.field STARTS WITH text
+    EndsWith(String, String, String),   // var.field ENDS WITH text
     And(Box<WhereExpr>, Box<WhereExpr>),
     Or(Box<WhereExpr>, Box<WhereExpr>),
-    Not(Box<WhereExpr>),                    // NOT expr
+    Not(Box<WhereExpr>), // NOT expr
 }
 
 #[derive(Debug, Clone)]
@@ -88,9 +88,9 @@ pub struct ReturnClause {
 
 #[derive(Debug, Clone)]
 pub enum ReturnItem {
-    Var(String),                // n → full node as JSON
-    Field(String, String),      // n.name → specific property
-    Count(String),              // count(n)
+    Var(String),           // n → full node as JSON
+    Field(String, String), // n.name → specific property
+    Count(String),         // count(n)
 }
 
 #[derive(Debug, Clone)]
@@ -115,10 +115,10 @@ enum Token {
     Dot,
     Comma,
     Eq,
-    Arrow,      // ->
-    Dash,       // -
-    LAngle,     // <
-    NotEq,      // <> or !=
+    Arrow,  // ->
+    Dash,   // -
+    LAngle, // <
+    NotEq,  // <> or !=
     Star,
     Eof,
 }
@@ -139,15 +139,42 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
         }
 
         match c {
-            '(' => { tokens.push(Token::LParen); i += 1; }
-            ')' => { tokens.push(Token::RParen); i += 1; }
-            '[' => { tokens.push(Token::LBracket); i += 1; }
-            ']' => { tokens.push(Token::RBracket); i += 1; }
-            ':' => { tokens.push(Token::Colon); i += 1; }
-            '.' => { tokens.push(Token::Dot); i += 1; }
-            ',' => { tokens.push(Token::Comma); i += 1; }
-            '=' => { tokens.push(Token::Eq); i += 1; }
-            '*' => { tokens.push(Token::Star); i += 1; }
+            '(' => {
+                tokens.push(Token::LParen);
+                i += 1;
+            }
+            ')' => {
+                tokens.push(Token::RParen);
+                i += 1;
+            }
+            '[' => {
+                tokens.push(Token::LBracket);
+                i += 1;
+            }
+            ']' => {
+                tokens.push(Token::RBracket);
+                i += 1;
+            }
+            ':' => {
+                tokens.push(Token::Colon);
+                i += 1;
+            }
+            '.' => {
+                tokens.push(Token::Dot);
+                i += 1;
+            }
+            ',' => {
+                tokens.push(Token::Comma);
+                i += 1;
+            }
+            '=' => {
+                tokens.push(Token::Eq);
+                i += 1;
+            }
+            '*' => {
+                tokens.push(Token::Star);
+                i += 1;
+            }
             '<' => {
                 if i + 1 < len && chars[i + 1] == '>' {
                     tokens.push(Token::NotEq);
@@ -198,12 +225,16 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                 let start = i;
                 let mut dot_seen = false;
                 while i < len && (chars[i].is_ascii_digit() || (chars[i] == '.' && !dot_seen)) {
-                    if chars[i] == '.' { dot_seen = true; }
+                    if chars[i] == '.' {
+                        dot_seen = true;
+                    }
                     i += 1;
                 }
                 let num_str: String = chars[start..i].iter().collect();
                 if num_str.contains('.') {
-                    let f = num_str.parse::<f64>().map_err(|_| format!("Invalid numeric literal '{num_str}' at position {start}"))?;
+                    let f = num_str.parse::<f64>().map_err(|_| {
+                        format!("Invalid numeric literal '{num_str}' at position {start}")
+                    })?;
                     tokens.push(Token::Float(f));
                 } else if let Ok(n) = num_str.parse::<i64>() {
                     tokens.push(Token::Int(n));
@@ -277,7 +308,10 @@ impl CypherParser {
         } else if self.check_ident("CALL") {
             self.parse_call().map(CypherStatement::Call)
         } else {
-            Err(parse_err(format!("Expected MATCH or CALL, got {:?}", self.peek())))
+            Err(parse_err(format!(
+                "Expected MATCH or CALL, got {:?}",
+                self.peek()
+            )))
         }
     }
 
@@ -374,10 +408,7 @@ impl CypherParser {
                     // mask off-by-one bugs in callers constructing queries
                     // dynamically.
                     if n < 0 {
-                        return Err(parse_err(format!(
-                            "LIMIT must be non-negative, got {}",
-                            n
-                        )));
+                        return Err(parse_err(format!("LIMIT must be non-negative, got {}", n)));
                     }
                     Some(n as usize)
                 }
@@ -619,7 +650,10 @@ impl CypherParser {
                 Token::Ident(s) if s.eq_ignore_ascii_case("true") => CypherValue::Bool(true),
                 Token::Ident(s) if s.eq_ignore_ascii_case("false") => CypherValue::Bool(false),
                 other => {
-                    return Err(parse_err(format!("Expected value after operator, got {:?}", other)))
+                    return Err(parse_err(format!(
+                        "Expected value after operator, got {:?}",
+                        other
+                    )))
                 }
             };
             if is_not_eq {
@@ -762,12 +796,7 @@ fn execute_call(
         let query_text = &cq.args[1];
         let table_filter = super::fts::parse_fts_table_filter(table_name);
 
-        let results = fts_index.search(
-            graph,
-            query_text,
-            table_filter.as_deref(),
-            100,
-        );
+        let results = fts_index.search(graph, query_text, table_filter.as_deref(), 100);
 
         Ok(results.iter().map(super::fts::fts_result_to_json).collect())
     } else {
@@ -807,8 +836,7 @@ fn execute_match(
                 ..
             } => {
                 // Get source candidates
-                let src_candidates =
-                    get_label_candidates(src_label.as_deref(), indexes, graph);
+                let src_candidates = get_label_candidates(src_label.as_deref(), indexes, graph);
 
                 let rel_type_filter = rel_type
                     .as_deref()
@@ -888,17 +916,19 @@ fn execute_match(
     if mq.return_clause.distinct {
         let mut seen = std::collections::HashSet::new();
         bindings.retain(|b| {
-            let key: Vec<String> = mq.return_clause.items.iter().map(|item| {
-                match item {
+            let key: Vec<String> = mq
+                .return_clause
+                .items
+                .iter()
+                .map(|item| match item {
                     ReturnItem::Var(var) => b.get(var).cloned().unwrap_or_default(),
-                    ReturnItem::Field(var, field) => {
-                        b.get(var)
-                            .and_then(|id| get_field_str(graph, id, field))
-                            .unwrap_or_default()
-                    }
+                    ReturnItem::Field(var, field) => b
+                        .get(var)
+                        .and_then(|id| get_field_str(graph, id, field))
+                        .unwrap_or_default(),
                     ReturnItem::Count(_) => String::new(),
-                }
-            }).collect();
+                })
+                .collect();
             seen.insert(key)
         });
     }
@@ -994,11 +1024,7 @@ fn get_label_candidates(
 ) -> Vec<String> {
     if let Some(label_str) = label {
         if let Some(nl) = NodeLabel::from_str_label(label_str) {
-            indexes
-                .label_index
-                .get(&nl)
-                .cloned()
-                .unwrap_or_default()
+            indexes.label_index.get(&nl).cloned().unwrap_or_default()
         } else {
             Vec::new()
         }
@@ -1113,9 +1139,7 @@ fn eval_where(expr: &WhereExpr, binding: &HashMap<String, String>, graph: &Knowl
         WhereExpr::Or(left, right) => {
             eval_where(left, binding, graph) || eval_where(right, binding, graph)
         }
-        WhereExpr::Not(inner) => {
-            !eval_where(inner, binding, graph)
-        }
+        WhereExpr::Not(inner) => !eval_where(inner, binding, graph),
     }
 }
 
@@ -1169,7 +1193,9 @@ fn get_node_field_str(node: &GraphNode, field: &str) -> Option<String> {
 }
 
 fn get_field_str(graph: &KnowledgeGraph, node_id: &str, field: &str) -> Option<String> {
-    graph.get_node(node_id).and_then(|n| get_node_field_str(n, field))
+    graph
+        .get_node(node_id)
+        .and_then(|n| get_node_field_str(n, field))
 }
 
 fn get_field_value(graph: &KnowledgeGraph, node_id: &str, field: &str) -> Value {
@@ -1224,7 +1250,10 @@ fn node_to_json(node: &GraphNode) -> Value {
         Ok(Value::Object(m)) => m,
         _ => serde_json::Map::new(),
     };
-    map.insert("_label".to_string(), Value::String(node.label.as_str().to_string()));
+    map.insert(
+        "_label".to_string(),
+        Value::String(node.label.as_str().to_string()),
+    );
     map.insert("_id".to_string(), Value::String(node.id.clone()));
     Value::Object(map)
 }
@@ -1341,8 +1370,7 @@ mod tests {
 
     #[test]
     fn test_parse_match_with_where() {
-        let stmt =
-            parse("MATCH (n:Function) WHERE n.name = 'handleLogin' RETURN n").unwrap();
+        let stmt = parse("MATCH (n:Function) WHERE n.name = 'handleLogin' RETURN n").unwrap();
         match stmt {
             CypherStatement::Match(mq) => {
                 assert!(mq.where_clause.is_some());
@@ -1361,19 +1389,16 @@ mod tests {
 
     #[test]
     fn test_parse_match_with_contains() {
-        let stmt =
-            parse("MATCH (n:Function) WHERE n.name CONTAINS 'handle' RETURN n").unwrap();
+        let stmt = parse("MATCH (n:Function) WHERE n.name CONTAINS 'handle' RETURN n").unwrap();
         match stmt {
-            CypherStatement::Match(mq) => {
-                match mq.where_clause.unwrap() {
-                    WhereExpr::Contains(var, field, text) => {
-                        assert_eq!(var, "n");
-                        assert_eq!(field, "name");
-                        assert_eq!(text, "handle");
-                    }
-                    _ => panic!("Expected Contains"),
+            CypherStatement::Match(mq) => match mq.where_clause.unwrap() {
+                WhereExpr::Contains(var, field, text) => {
+                    assert_eq!(var, "n");
+                    assert_eq!(field, "name");
+                    assert_eq!(text, "handle");
                 }
-            }
+                _ => panic!("Expected Contains"),
+            },
             _ => panic!("Expected Match"),
         }
     }
@@ -1381,26 +1406,23 @@ mod tests {
     #[test]
     fn test_parse_relationship() {
         let stmt =
-            parse("MATCH (n)-[:CALLS]->(m) WHERE n.name = 'handleLogin' RETURN m.name")
-                .unwrap();
+            parse("MATCH (n)-[:CALLS]->(m) WHERE n.name = 'handleLogin' RETURN m.name").unwrap();
         match stmt {
-            CypherStatement::Match(mq) => {
-                match &mq.patterns[0] {
-                    Pattern::Relationship {
-                        src_var,
-                        rel_type,
-                        dst_var,
-                        direction,
-                        ..
-                    } => {
-                        assert_eq!(src_var, "n");
-                        assert_eq!(dst_var, "m");
-                        assert_eq!(rel_type.as_deref(), Some("CALLS"));
-                        assert_eq!(*direction, Direction::Outgoing);
-                    }
-                    _ => panic!("Expected Relationship pattern"),
+            CypherStatement::Match(mq) => match &mq.patterns[0] {
+                Pattern::Relationship {
+                    src_var,
+                    rel_type,
+                    dst_var,
+                    direction,
+                    ..
+                } => {
+                    assert_eq!(src_var, "n");
+                    assert_eq!(dst_var, "m");
+                    assert_eq!(rel_type.as_deref(), Some("CALLS"));
+                    assert_eq!(*direction, Direction::Outgoing);
                 }
-            }
+                _ => panic!("Expected Relationship pattern"),
+            },
             _ => panic!("Expected Match"),
         }
     }
@@ -1418,8 +1440,7 @@ mod tests {
 
     #[test]
     fn test_parse_order_by() {
-        let stmt =
-            parse("MATCH (n:Function) RETURN n ORDER BY n.name DESC LIMIT 10").unwrap();
+        let stmt = parse("MATCH (n:Function) RETURN n ORDER BY n.name DESC LIMIT 10").unwrap();
         match stmt {
             CypherStatement::Match(mq) => {
                 let (var, field, ascending) = mq.order_by.unwrap();
@@ -1461,10 +1482,9 @@ mod tests {
 
     #[test]
     fn test_parse_projected_return() {
-        let stmt = parse(
-            "MATCH (n)-[:CALLS]->(m) WHERE n.name = 'handleLogin' RETURN m.name, m.filePath",
-        )
-        .unwrap();
+        let stmt =
+            parse("MATCH (n)-[:CALLS]->(m) WHERE n.name = 'handleLogin' RETURN m.name, m.filePath")
+                .unwrap();
         match stmt {
             CypherStatement::Match(mq) => {
                 assert_eq!(mq.return_clause.items.len(), 2);
@@ -1506,8 +1526,7 @@ mod tests {
         let indexes = GraphIndexes::build(&graph);
         let fts = super::super::fts::FtsIndex::new();
 
-        let stmt =
-            parse("MATCH (n:Function) WHERE n.name = 'handleLogin' RETURN n").unwrap();
+        let stmt = parse("MATCH (n:Function) WHERE n.name = 'handleLogin' RETURN n").unwrap();
         let results = execute(&stmt, &graph, &indexes, &fts).unwrap();
 
         assert_eq!(results.len(), 1);
@@ -1521,8 +1540,7 @@ mod tests {
         let indexes = GraphIndexes::build(&graph);
         let fts = super::super::fts::FtsIndex::new();
 
-        let stmt =
-            parse("MATCH (n:Function) WHERE n.name CONTAINS 'handle' RETURN n").unwrap();
+        let stmt = parse("MATCH (n:Function) WHERE n.name CONTAINS 'handle' RETURN n").unwrap();
         let results = execute(&stmt, &graph, &indexes, &fts).unwrap();
 
         assert_eq!(results.len(), 1);
@@ -1535,14 +1553,15 @@ mod tests {
         let indexes = GraphIndexes::build(&graph);
         let fts = super::super::fts::FtsIndex::new();
 
-        let stmt = parse(
-            "MATCH (n)-[:CALLS]->(m) WHERE n.name = 'handleLogin' RETURN m.name",
-        )
-        .unwrap();
+        let stmt =
+            parse("MATCH (n)-[:CALLS]->(m) WHERE n.name = 'handleLogin' RETURN m.name").unwrap();
         let results = execute(&stmt, &graph, &indexes, &fts).unwrap();
 
         assert_eq!(results.len(), 2);
-        let names: Vec<&str> = results.iter().filter_map(|r| r["m.name"].as_str()).collect();
+        let names: Vec<&str> = results
+            .iter()
+            .filter_map(|r| r["m.name"].as_str())
+            .collect();
         assert!(names.contains(&"validateToken"));
         assert!(names.contains(&"getUser"));
     }
@@ -1578,11 +1597,13 @@ mod tests {
         let indexes = GraphIndexes::build(&graph);
         let fts = super::super::fts::FtsIndex::new();
 
-        let stmt =
-            parse("MATCH (n:Function) RETURN n.name ORDER BY n.name ASC").unwrap();
+        let stmt = parse("MATCH (n:Function) RETURN n.name ORDER BY n.name ASC").unwrap();
         let results = execute(&stmt, &graph, &indexes, &fts).unwrap();
 
-        let names: Vec<&str> = results.iter().filter_map(|r| r["n.name"].as_str()).collect();
+        let names: Vec<&str> = results
+            .iter()
+            .filter_map(|r| r["n.name"].as_str())
+            .collect();
         let mut sorted = names.clone();
         sorted.sort();
         assert_eq!(names, sorted);
@@ -1607,27 +1628,25 @@ mod tests {
             "MATCH (n:Function) WHERE n.name = 'handleLogin' AND n.filePath = 'src/auth.ts' RETURN n",
         ).unwrap();
         match stmt {
-            CypherStatement::Match(mq) => {
-                match mq.where_clause.unwrap() {
-                    WhereExpr::And(left, right) => {
-                        match *left {
-                            WhereExpr::Eq(ref var, ref field, _) => {
-                                assert_eq!(var, "n");
-                                assert_eq!(field, "name");
-                            }
-                            _ => panic!("Expected Eq in left"),
+            CypherStatement::Match(mq) => match mq.where_clause.unwrap() {
+                WhereExpr::And(left, right) => {
+                    match *left {
+                        WhereExpr::Eq(ref var, ref field, _) => {
+                            assert_eq!(var, "n");
+                            assert_eq!(field, "name");
                         }
-                        match *right {
-                            WhereExpr::Eq(ref var, ref field, _) => {
-                                assert_eq!(var, "n");
-                                assert_eq!(field, "filePath");
-                            }
-                            _ => panic!("Expected Eq in right"),
-                        }
+                        _ => panic!("Expected Eq in left"),
                     }
-                    _ => panic!("Expected And"),
+                    match *right {
+                        WhereExpr::Eq(ref var, ref field, _) => {
+                            assert_eq!(var, "n");
+                            assert_eq!(field, "filePath");
+                        }
+                        _ => panic!("Expected Eq in right"),
+                    }
                 }
-            }
+                _ => panic!("Expected And"),
+            },
             _ => panic!("Expected Match"),
         }
     }
@@ -1638,10 +1657,8 @@ mod tests {
         let indexes = GraphIndexes::build(&graph);
         let fts = super::super::fts::FtsIndex::new();
 
-        let stmt = parse(
-            "MATCH (n)<-[:CALLS]-(m) WHERE n.name = 'validateToken' RETURN m.name",
-        )
-        .unwrap();
+        let stmt =
+            parse("MATCH (n)<-[:CALLS]-(m) WHERE n.name = 'validateToken' RETURN m.name").unwrap();
         let results = execute(&stmt, &graph, &indexes, &fts).unwrap();
 
         assert_eq!(results.len(), 1);
@@ -1652,29 +1669,28 @@ mod tests {
     fn test_parse_or_where() {
         let stmt = parse(
             "MATCH (n:Function) WHERE n.name = 'handleLogin' OR n.name = 'validateToken' RETURN n",
-        ).unwrap();
+        )
+        .unwrap();
         match stmt {
-            CypherStatement::Match(mq) => {
-                match mq.where_clause.unwrap() {
-                    WhereExpr::Or(left, right) => {
-                        match *left {
-                            WhereExpr::Eq(ref var, ref field, _) => {
-                                assert_eq!(var, "n");
-                                assert_eq!(field, "name");
-                            }
-                            _ => panic!("Expected Eq in left"),
+            CypherStatement::Match(mq) => match mq.where_clause.unwrap() {
+                WhereExpr::Or(left, right) => {
+                    match *left {
+                        WhereExpr::Eq(ref var, ref field, _) => {
+                            assert_eq!(var, "n");
+                            assert_eq!(field, "name");
                         }
-                        match *right {
-                            WhereExpr::Eq(ref var, ref field, _) => {
-                                assert_eq!(var, "n");
-                                assert_eq!(field, "name");
-                            }
-                            _ => panic!("Expected Eq in right"),
-                        }
+                        _ => panic!("Expected Eq in left"),
                     }
-                    _ => panic!("Expected Or"),
+                    match *right {
+                        WhereExpr::Eq(ref var, ref field, _) => {
+                            assert_eq!(var, "n");
+                            assert_eq!(field, "name");
+                        }
+                        _ => panic!("Expected Eq in right"),
+                    }
                 }
-            }
+                _ => panic!("Expected Or"),
+            },
             _ => panic!("Expected Match"),
         }
     }
@@ -1691,7 +1707,8 @@ mod tests {
         let results = execute(&stmt, &graph, &indexes, &fts).unwrap();
 
         assert_eq!(results.len(), 2);
-        let names: Vec<&str> = results.iter()
+        let names: Vec<&str> = results
+            .iter()
             .filter_map(|r| r.get("n.name").and_then(|v| v.as_str()))
             .collect();
         assert!(names.contains(&"handleLogin"));
@@ -1720,29 +1737,23 @@ mod tests {
 
     #[test]
     fn test_parse_not_equal() {
-        let stmt = parse(
-            "MATCH (n:Function) WHERE n.name <> 'handleLogin' RETURN n",
-        ).unwrap();
+        let stmt = parse("MATCH (n:Function) WHERE n.name <> 'handleLogin' RETURN n").unwrap();
         match stmt {
-            CypherStatement::Match(mq) => {
-                match mq.where_clause.unwrap() {
-                    WhereExpr::NotEq(var, field, CypherValue::Str(val)) => {
-                        assert_eq!(var, "n");
-                        assert_eq!(field, "name");
-                        assert_eq!(val, "handleLogin");
-                    }
-                    _ => panic!("Expected NotEq"),
+            CypherStatement::Match(mq) => match mq.where_clause.unwrap() {
+                WhereExpr::NotEq(var, field, CypherValue::Str(val)) => {
+                    assert_eq!(var, "n");
+                    assert_eq!(field, "name");
+                    assert_eq!(val, "handleLogin");
                 }
-            }
+                _ => panic!("Expected NotEq"),
+            },
             _ => panic!("Expected Match"),
         }
     }
 
     #[test]
     fn test_parse_not_equal_bang() {
-        let stmt = parse(
-            "MATCH (n:Function) WHERE n.name != 'handleLogin' RETURN n",
-        ).unwrap();
+        let stmt = parse("MATCH (n:Function) WHERE n.name != 'handleLogin' RETURN n").unwrap();
         match stmt {
             CypherStatement::Match(mq) => {
                 matches!(mq.where_clause.unwrap(), WhereExpr::NotEq(_, _, _));
@@ -1757,9 +1768,7 @@ mod tests {
         let indexes = GraphIndexes::build(&graph);
         let fts = super::super::fts::FtsIndex::new();
 
-        let stmt = parse(
-            "MATCH (n:Function) WHERE n.name <> 'handleLogin' RETURN n.name",
-        ).unwrap();
+        let stmt = parse("MATCH (n:Function) WHERE n.name <> 'handleLogin' RETURN n.name").unwrap();
         let results = execute(&stmt, &graph, &indexes, &fts).unwrap();
 
         // Should get all functions except handleLogin
@@ -1771,20 +1780,16 @@ mod tests {
 
     #[test]
     fn test_parse_starts_with() {
-        let stmt = parse(
-            "MATCH (n:Function) WHERE n.name STARTS WITH 'handle' RETURN n",
-        ).unwrap();
+        let stmt = parse("MATCH (n:Function) WHERE n.name STARTS WITH 'handle' RETURN n").unwrap();
         match stmt {
-            CypherStatement::Match(mq) => {
-                match mq.where_clause.unwrap() {
-                    WhereExpr::StartsWith(var, field, text) => {
-                        assert_eq!(var, "n");
-                        assert_eq!(field, "name");
-                        assert_eq!(text, "handle");
-                    }
-                    _ => panic!("Expected StartsWith"),
+            CypherStatement::Match(mq) => match mq.where_clause.unwrap() {
+                WhereExpr::StartsWith(var, field, text) => {
+                    assert_eq!(var, "n");
+                    assert_eq!(field, "name");
+                    assert_eq!(text, "handle");
                 }
-            }
+                _ => panic!("Expected StartsWith"),
+            },
             _ => panic!("Expected Match"),
         }
     }
@@ -1795,9 +1800,8 @@ mod tests {
         let indexes = GraphIndexes::build(&graph);
         let fts = super::super::fts::FtsIndex::new();
 
-        let stmt = parse(
-            "MATCH (n:Function) WHERE n.name STARTS WITH 'handle' RETURN n.name",
-        ).unwrap();
+        let stmt =
+            parse("MATCH (n:Function) WHERE n.name STARTS WITH 'handle' RETURN n.name").unwrap();
         let results = execute(&stmt, &graph, &indexes, &fts).unwrap();
 
         assert_eq!(results.len(), 1);
@@ -1806,20 +1810,16 @@ mod tests {
 
     #[test]
     fn test_parse_ends_with() {
-        let stmt = parse(
-            "MATCH (n:Function) WHERE n.name ENDS WITH 'Token' RETURN n",
-        ).unwrap();
+        let stmt = parse("MATCH (n:Function) WHERE n.name ENDS WITH 'Token' RETURN n").unwrap();
         match stmt {
-            CypherStatement::Match(mq) => {
-                match mq.where_clause.unwrap() {
-                    WhereExpr::EndsWith(var, field, text) => {
-                        assert_eq!(var, "n");
-                        assert_eq!(field, "name");
-                        assert_eq!(text, "Token");
-                    }
-                    _ => panic!("Expected EndsWith"),
+            CypherStatement::Match(mq) => match mq.where_clause.unwrap() {
+                WhereExpr::EndsWith(var, field, text) => {
+                    assert_eq!(var, "n");
+                    assert_eq!(field, "name");
+                    assert_eq!(text, "Token");
                 }
-            }
+                _ => panic!("Expected EndsWith"),
+            },
             _ => panic!("Expected Match"),
         }
     }
@@ -1830,9 +1830,8 @@ mod tests {
         let indexes = GraphIndexes::build(&graph);
         let fts = super::super::fts::FtsIndex::new();
 
-        let stmt = parse(
-            "MATCH (n:Function) WHERE n.name ENDS WITH 'Token' RETURN n.name",
-        ).unwrap();
+        let stmt =
+            parse("MATCH (n:Function) WHERE n.name ENDS WITH 'Token' RETURN n.name").unwrap();
         let results = execute(&stmt, &graph, &indexes, &fts).unwrap();
 
         assert_eq!(results.len(), 1);
@@ -1841,18 +1840,14 @@ mod tests {
 
     #[test]
     fn test_parse_not_where() {
-        let stmt = parse(
-            "MATCH (n:Function) WHERE NOT n.name = 'handleLogin' RETURN n",
-        ).unwrap();
+        let stmt = parse("MATCH (n:Function) WHERE NOT n.name = 'handleLogin' RETURN n").unwrap();
         match stmt {
-            CypherStatement::Match(mq) => {
-                match mq.where_clause.unwrap() {
-                    WhereExpr::Not(inner) => {
-                        matches!(*inner, WhereExpr::Eq(_, _, _));
-                    }
-                    _ => panic!("Expected Not"),
+            CypherStatement::Match(mq) => match mq.where_clause.unwrap() {
+                WhereExpr::Not(inner) => {
+                    matches!(*inner, WhereExpr::Eq(_, _, _));
                 }
-            }
+                _ => panic!("Expected Not"),
+            },
             _ => panic!("Expected Match"),
         }
     }
@@ -1863,9 +1858,8 @@ mod tests {
         let indexes = GraphIndexes::build(&graph);
         let fts = super::super::fts::FtsIndex::new();
 
-        let stmt = parse(
-            "MATCH (n:Function) WHERE NOT n.name = 'handleLogin' RETURN n.name",
-        ).unwrap();
+        let stmt =
+            parse("MATCH (n:Function) WHERE NOT n.name = 'handleLogin' RETURN n.name").unwrap();
         let results = execute(&stmt, &graph, &indexes, &fts).unwrap();
 
         assert!(!results.is_empty());
@@ -1876,9 +1870,7 @@ mod tests {
 
     #[test]
     fn test_parse_distinct() {
-        let stmt = parse(
-            "MATCH (n:Function) RETURN DISTINCT n.name",
-        ).unwrap();
+        let stmt = parse("MATCH (n:Function) RETURN DISTINCT n.name").unwrap();
         match stmt {
             CypherStatement::Match(mq) => {
                 assert!(mq.return_clause.distinct);

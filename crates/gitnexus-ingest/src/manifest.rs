@@ -175,9 +175,8 @@ pub fn save_manifest(manifest: &FileManifest, path: &Path) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(manifest).map_err(|e| {
-        io::Error::other(format!("JSON serialize error: {e}"))
-    })?;
+    let json = serde_json::to_string_pretty(manifest)
+        .map_err(|e| io::Error::other(format!("JSON serialize error: {e}")))?;
 
     let pid = std::process::id();
     let nanos = std::time::SystemTime::now()
@@ -209,9 +208,8 @@ pub fn save_manifest(manifest: &FileManifest, path: &Path) -> io::Result<()> {
 pub fn load_manifest(path: &Path) -> io::Result<Option<FileManifest>> {
     match fs::read_to_string(path) {
         Ok(json) => {
-            let manifest: FileManifest = serde_json::from_str(&json).map_err(|e| {
-                io::Error::other(format!("JSON deserialize error: {e}"))
-            })?;
+            let manifest: FileManifest = serde_json::from_str(&json)
+                .map_err(|e| io::Error::other(format!("JSON deserialize error: {e}")))?;
             Ok(Some(manifest))
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),

@@ -69,11 +69,12 @@ pub async fn run_pipeline(
     if options.incremental && !options.force && snap_path.exists() && manifest_path.exists() {
         send_progress(PipelinePhase::Structure, 0.0, "Incremental update...");
 
-        let mut graph = gitnexus_db::snapshot::load_snapshot(&snap_path)
-            .map_err(|e| crate::IngestError::PhaseError {
+        let mut graph = gitnexus_db::snapshot::load_snapshot(&snap_path).map_err(|e| {
+            crate::IngestError::PhaseError {
                 phase: "incremental".into(),
                 message: format!("Failed to load snapshot: {e}"),
-            })?;
+            }
+        })?;
 
         let inc_result = incremental::incremental_update(repo_path, &storage_path, &mut graph)?;
 
@@ -107,11 +108,12 @@ pub async fn run_pipeline(
             // manifest before the snapshot would silently bake in a stale
             // graph (manifest claims everything is current, but the on-disk
             // snapshot doesn't reflect the changes we just applied).
-            gitnexus_db::snapshot::save_snapshot(&graph, &snap_path)
-                .map_err(|e| crate::IngestError::PhaseError {
+            gitnexus_db::snapshot::save_snapshot(&graph, &snap_path).map_err(|e| {
+                crate::IngestError::PhaseError {
                     phase: "incremental".into(),
                     message: format!("Failed to save snapshot: {e}"),
-                })?;
+                }
+            })?;
 
             crate::manifest::save_manifest(&new_manifest_to_save, &manifest_path).map_err(|e| {
                 crate::IngestError::PhaseError {
@@ -128,10 +130,14 @@ pub async fn run_pipeline(
                 "Incremental pipeline complete"
             );
 
-            send_progress(PipelinePhase::Complete, 100.0, &format!(
-                "Incremental: +{} ~{} -{} files",
-                inc_result.added, inc_result.modified, inc_result.removed,
-            ));
+            send_progress(
+                PipelinePhase::Complete,
+                100.0,
+                &format!(
+                    "Incremental: +{} ~{} -{} files",
+                    inc_result.added, inc_result.modified, inc_result.removed,
+                ),
+            );
 
             return Ok(PipelineResult {
                 graph,
@@ -144,10 +150,12 @@ pub async fn run_pipeline(
             tracing::info!("No changes detected, graph is up to date");
             send_progress(PipelinePhase::Complete, 100.0, "No changes detected");
 
-            let community_count = graph.iter_nodes()
+            let community_count = graph
+                .iter_nodes()
                 .filter(|n| n.label == gitnexus_core::graph::types::NodeLabel::Community)
                 .count();
-            let process_count = graph.iter_nodes()
+            let process_count = graph
+                .iter_nodes()
                 .filter(|n| n.label == gitnexus_core::graph::types::NodeLabel::Process)
                 .count();
 
@@ -236,12 +244,7 @@ pub async fn run_pipeline(
     send_progress(PipelinePhase::Imports, 0.0, "Resolving imports...");
     let phase_start = Instant::now();
     let (import_map, named_import_map, package_map, module_alias_map) =
-        phases::imports::resolve_imports(
-            &mut graph,
-            &file_entries,
-            &extracted,
-            &symbol_table,
-        )?;
+        phases::imports::resolve_imports(&mut graph, &file_entries, &extracted, &symbol_table)?;
     let duration = phase_start.elapsed();
     tracing::info!(
         phase = "imports",
@@ -381,11 +384,7 @@ pub async fn run_pipeline(
     );
 
     // Phase 6a: Community detection
-    send_progress(
-        PipelinePhase::Communities,
-        0.0,
-        "Detecting communities...",
-    );
+    send_progress(PipelinePhase::Communities, 0.0, "Detecting communities...");
     let phase_start = Instant::now();
     let community_count = phases::community::detect_communities(&mut graph)?;
     let duration = phase_start.elapsed();
@@ -402,11 +401,7 @@ pub async fn run_pipeline(
     );
 
     // Phase 6b: Process detection
-    send_progress(
-        PipelinePhase::Processes,
-        0.0,
-        "Tracing execution flows...",
-    );
+    send_progress(PipelinePhase::Processes, 0.0, "Tracing execution flows...");
     let phase_start = Instant::now();
     let process_count = phases::process::detect_processes(&mut graph)?;
     let duration = phase_start.elapsed();
@@ -494,7 +489,9 @@ pub fn topological_level_sort(import_map: &HashMap<String, HashSet<String>>) -> 
         all_files.insert(file);
         in_degree.entry(file).or_insert(0);
         for imported in imports {
-            if imported == file { continue; } // skip self-imports
+            if imported == file {
+                continue;
+            } // skip self-imports
             all_files.insert(imported);
             *in_degree.entry(file.as_str()).or_insert(0) += 1;
             reverse_deps
@@ -572,14 +569,8 @@ mod tests {
     fn test_topological_sort_linear_chain() {
         // a.ts -> b.ts -> c.ts (a imports b, b imports c)
         let mut import_map: HashMap<String, HashSet<String>> = HashMap::new();
-        import_map.insert(
-            "a.ts".to_string(),
-            HashSet::from(["b.ts".to_string()]),
-        );
-        import_map.insert(
-            "b.ts".to_string(),
-            HashSet::from(["c.ts".to_string()]),
-        );
+        import_map.insert("a.ts".to_string(), HashSet::from(["b.ts".to_string()]));
+        import_map.insert("b.ts".to_string(), HashSet::from(["c.ts".to_string()]));
 
         let result = topological_level_sort(&import_map);
         assert_eq!(result.cycle_count, 0);
@@ -596,14 +587,8 @@ mod tests {
     fn test_topological_sort_parallel_deps() {
         // a.ts -> c.ts, b.ts -> c.ts (both a and b import c)
         let mut import_map: HashMap<String, HashSet<String>> = HashMap::new();
-        import_map.insert(
-            "a.ts".to_string(),
-            HashSet::from(["c.ts".to_string()]),
-        );
-        import_map.insert(
-            "b.ts".to_string(),
-            HashSet::from(["c.ts".to_string()]),
-        );
+        import_map.insert("a.ts".to_string(), HashSet::from(["c.ts".to_string()]));
+        import_map.insert("b.ts".to_string(), HashSet::from(["c.ts".to_string()]));
 
         let result = topological_level_sort(&import_map);
         assert_eq!(result.cycle_count, 0);
@@ -619,14 +604,8 @@ mod tests {
     fn test_topological_sort_cycle() {
         // a.ts -> b.ts -> a.ts (cycle)
         let mut import_map: HashMap<String, HashSet<String>> = HashMap::new();
-        import_map.insert(
-            "a.ts".to_string(),
-            HashSet::from(["b.ts".to_string()]),
-        );
-        import_map.insert(
-            "b.ts".to_string(),
-            HashSet::from(["a.ts".to_string()]),
-        );
+        import_map.insert("a.ts".to_string(), HashSet::from(["b.ts".to_string()]));
+        import_map.insert("b.ts".to_string(), HashSet::from(["a.ts".to_string()]));
 
         let result = topological_level_sort(&import_map);
         assert_eq!(result.cycle_count, 2);
@@ -670,14 +649,8 @@ mod tests {
             "a.ts".to_string(),
             HashSet::from(["b.ts".to_string(), "c.ts".to_string()]),
         );
-        import_map.insert(
-            "b.ts".to_string(),
-            HashSet::from(["d.ts".to_string()]),
-        );
-        import_map.insert(
-            "c.ts".to_string(),
-            HashSet::from(["d.ts".to_string()]),
-        );
+        import_map.insert("b.ts".to_string(), HashSet::from(["d.ts".to_string()]));
+        import_map.insert("c.ts".to_string(), HashSet::from(["d.ts".to_string()]));
 
         let result = topological_level_sort(&import_map);
         assert_eq!(result.cycle_count, 0);
@@ -942,10 +915,7 @@ class Dog(Animal):
         assert!(result.is_ok());
 
         let result = result.unwrap();
-        assert_eq!(
-            result.total_file_count, 3,
-            "Should report exactly 3 files"
-        );
+        assert_eq!(result.total_file_count, 3, "Should report exactly 3 files");
 
         cleanup(&dir);
     }

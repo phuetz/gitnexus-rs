@@ -56,21 +56,18 @@ static RE_YAML_KEY: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?m)^([A-Za-z][\w\-]*)\s*:"#).expect("yaml regex")
 });
 
-static RE_PROCESS_ENV_DOT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"process\.env\.([A-Z][A-Z0-9_]*)"#).expect("process.env regex")
-});
+static RE_PROCESS_ENV_DOT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"process\.env\.([A-Z][A-Z0-9_]*)"#).expect("process.env regex"));
 
 static RE_PROCESS_ENV_BRACKET: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"process\.env\[\s*['"]([^'"]+)['"]\s*\]"#).expect("process.env[...] regex")
 });
 
-static RE_OS_GETENV: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"os\.getenv\(\s*['"]([^'"]+)['"]"#).expect("os.getenv regex")
-});
+static RE_OS_GETENV: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"os\.getenv\(\s*['"]([^'"]+)['"]"#).expect("os.getenv regex"));
 
-static RE_OS_ENVIRON: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"os\.environ\[\s*['"]([^'"]+)['"]\s*\]"#).expect("os.environ regex")
-});
+static RE_OS_ENVIRON: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"os\.environ\[\s*['"]([^'"]+)['"]\s*\]"#).expect("os.environ regex"));
 
 static RE_DOTNET_ENV: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
@@ -79,9 +76,8 @@ static RE_DOTNET_ENV: Lazy<Regex> = Lazy::new(|| {
     .expect("dotnet env regex")
 });
 
-static RE_JAVA_GETENV: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"System\.getenv\(\s*['"]([^'"]+)['"]"#).expect("java getenv regex")
-});
+static RE_JAVA_GETENV: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"System\.getenv\(\s*['"]([^'"]+)['"]"#).expect("java getenv regex"));
 
 // ─── Internal models ───────────────────────────────────────────────────────
 
@@ -99,10 +95,7 @@ struct Reference {
 
 // ─── Entry point ───────────────────────────────────────────────────────────
 
-pub fn extract_env_vars(
-    graph: &mut KnowledgeGraph,
-    files: &[FileEntry],
-) -> ConfigInventoryStats {
+pub fn extract_env_vars(graph: &mut KnowledgeGraph, files: &[FileEntry]) -> ConfigInventoryStats {
     let scanned: Vec<(Vec<(String, Declaration)>, Vec<(String, Reference)>)> = files
         .par_iter()
         .filter(|f| !should_skip(&f.path))
@@ -231,7 +224,13 @@ fn scan_file(file: &FileEntry) -> (Vec<(String, Declaration)>, Vec<(String, Refe
         for cap in RE_DOTENV_LINE.captures_iter(&file.content) {
             let name = cap.get(1).unwrap().as_str().to_string();
             let line = offset_to_line(&file.content, cap.get(0).unwrap().start());
-            decls.push((name, Declaration { file: file.path.clone(), line }));
+            decls.push((
+                name,
+                Declaration {
+                    file: file.path.clone(),
+                    line,
+                },
+            ));
         }
         return (decls, refs);
     }
@@ -264,7 +263,13 @@ fn scan_file(file: &FileEntry) -> (Vec<(String, Declaration)>, Vec<(String, Refe
         for cap in RE_PROPS_LINE.captures_iter(&file.content) {
             let name = cap.get(1).unwrap().as_str().to_string();
             let line = offset_to_line(&file.content, cap.get(0).unwrap().start());
-            decls.push((name, Declaration { file: file.path.clone(), line }));
+            decls.push((
+                name,
+                Declaration {
+                    file: file.path.clone(),
+                    line,
+                },
+            ));
         }
         return (decls, refs);
     }
@@ -273,7 +278,13 @@ fn scan_file(file: &FileEntry) -> (Vec<(String, Declaration)>, Vec<(String, Refe
         for cap in RE_YAML_KEY.captures_iter(&file.content) {
             let name = cap.get(1).unwrap().as_str().to_string();
             let line = offset_to_line(&file.content, cap.get(0).unwrap().start());
-            decls.push((name, Declaration { file: file.path.clone(), line }));
+            decls.push((
+                name,
+                Declaration {
+                    file: file.path.clone(),
+                    line,
+                },
+            ));
         }
         return (decls, refs);
     }
@@ -282,7 +293,13 @@ fn scan_file(file: &FileEntry) -> (Vec<(String, Declaration)>, Vec<(String, Refe
         for cap in RE_DOTENV_LINE.captures_iter(&file.content) {
             let name = cap.get(1).unwrap().as_str().to_string();
             let line = offset_to_line(&file.content, cap.get(0).unwrap().start());
-            decls.push((name, Declaration { file: file.path.clone(), line }));
+            decls.push((
+                name,
+                Declaration {
+                    file: file.path.clone(),
+                    line,
+                },
+            ));
         }
         return (decls, refs);
     }
@@ -295,7 +312,10 @@ fn scan_file(file: &FileEntry) -> (Vec<(String, Declaration)>, Vec<(String, Refe
                 if let Some(m) = cap.get(1) {
                     out.push((
                         m.as_str().to_string(),
-                        Reference { file: file.path.clone(), line: line_num },
+                        Reference {
+                            file: file.path.clone(),
+                            line: line_num,
+                        },
                     ));
                 }
             }
@@ -367,7 +387,10 @@ mod tests {
 
     #[test]
     fn test_dotenv_declaration() {
-        let file = fe(".env", "DATABASE_URL=postgres://...\nAPI_KEY=xxx\n# comment\n");
+        let file = fe(
+            ".env",
+            "DATABASE_URL=postgres://...\nAPI_KEY=xxx\n# comment\n",
+        );
         let (decls, refs) = scan_file(&file);
         assert_eq!(decls.len(), 2);
         assert!(refs.is_empty());
@@ -410,10 +433,7 @@ mod tests {
 
     #[test]
     fn test_java_references() {
-        let file = fe(
-            "Foo.java",
-            "String v = System.getenv(\"JAVA_HOME\");\n",
-        );
+        let file = fe("Foo.java", "String v = System.getenv(\"JAVA_HOME\");\n");
         let (_, refs) = scan_file(&file);
         assert_eq!(refs.len(), 1);
     }
@@ -432,7 +452,10 @@ mod tests {
             },
         });
         let env = fe(".env", "USED_VAR=1\nUNUSED_VAR=2\n");
-        let js = fe("src/app.js", "console.log(process.env.USED_VAR, process.env.NEW_VAR);");
+        let js = fe(
+            "src/app.js",
+            "console.log(process.env.USED_VAR, process.env.NEW_VAR);",
+        );
         let stats = extract_env_vars(&mut graph, &[env, js]);
         assert!(stats.declared >= 2);
         assert!(stats.referenced >= 2);

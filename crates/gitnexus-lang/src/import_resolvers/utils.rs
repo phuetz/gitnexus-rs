@@ -21,10 +21,7 @@ pub fn resolve_by_suffix<'a>(cleaned_path: &str, ctx: &ResolveCtx<'a>) -> Import
 }
 
 /// Resolve by suffix with case-insensitive matching as a fallback.
-pub fn resolve_by_suffix_insensitive<'a>(
-    cleaned_path: &str,
-    ctx: &ResolveCtx<'a>,
-) -> ImportResult {
+pub fn resolve_by_suffix_insensitive<'a>(cleaned_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult {
     // Try case-sensitive first
     let result = resolve_by_suffix(cleaned_path, ctx);
     if !matches!(result, ImportResult::Unresolved) {
@@ -93,10 +90,7 @@ pub fn is_relative_path(path: &str) -> bool {
 ///
 /// Tries each alias pattern against the import path. Patterns use `*` as a
 /// wildcard (e.g., `@/*` maps to `src/*`).
-pub fn resolve_ts_path_alias<'a>(
-    import_path: &str,
-    ctx: &ResolveCtx<'a>,
-) -> ImportResult {
+pub fn resolve_ts_path_alias<'a>(import_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult {
     let ts_paths = match &ctx.configs.ts_paths {
         Some(paths) => paths,
         None => return ImportResult::Unresolved,
@@ -149,7 +143,10 @@ mod tests {
     fn test_normalize_import_path() {
         assert_eq!(normalize_import_path("  './foo'  "), "./foo");
         assert_eq!(normalize_import_path("\"../bar\""), "../bar");
-        assert_eq!(normalize_import_path("src\\models\\user"), "src/models/user");
+        assert_eq!(
+            normalize_import_path("src\\models\\user"),
+            "src/models/user"
+        );
     }
 
     #[test]
@@ -184,7 +181,10 @@ mod tests {
 
     #[test]
     fn test_match_ts_pattern() {
-        assert_eq!(match_ts_pattern("@/*", "@/components/Button"), Some("components/Button"));
+        assert_eq!(
+            match_ts_pattern("@/*", "@/components/Button"),
+            Some("components/Button")
+        );
         assert_eq!(match_ts_pattern("~/*", "~/utils"), Some("utils"));
         assert_eq!(match_ts_pattern("@/*", "lodash"), None);
         assert_eq!(match_ts_pattern("exact-match", "exact-match"), Some(""));

@@ -17,7 +17,11 @@ pub(super) fn generate_functional_guide(
     graph: &KnowledgeGraph,
 ) -> Result<()> {
     let label_counts = count_nodes_by_label(graph);
-    let has_controllers = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0) > 0;
+    let has_controllers = label_counts
+        .get(&NodeLabel::Controller)
+        .copied()
+        .unwrap_or(0)
+        > 0;
 
     // Only generate for ASP.NET MVC projects with controllers
     if !has_controllers {
@@ -27,16 +31,29 @@ pub(super) fn generate_functional_guide(
     let out_path = docs_dir.join("functional-guide.md");
     let mut f = std::fs::File::create(&out_path)?;
 
-    let ctrl_count = label_counts.get(&NodeLabel::Controller).copied().unwrap_or(0);
+    let ctrl_count = label_counts
+        .get(&NodeLabel::Controller)
+        .copied()
+        .unwrap_or(0);
     let view_count = label_counts.get(&NodeLabel::View).copied().unwrap_or(0);
-    let action_count = label_counts.get(&NodeLabel::ControllerAction).copied().unwrap_or(0);
+    let action_count = label_counts
+        .get(&NodeLabel::ControllerAction)
+        .copied()
+        .unwrap_or(0);
     let entity_count = label_counts.get(&NodeLabel::DbEntity).copied().unwrap_or(0);
     let svc_count = label_counts.get(&NodeLabel::Service).copied().unwrap_or(0);
-    let ui_count = label_counts.get(&NodeLabel::UiComponent).copied().unwrap_or(0);
-    let ext_count = label_counts.get(&NodeLabel::ExternalService).copied().unwrap_or(0);
+    let ui_count = label_counts
+        .get(&NodeLabel::UiComponent)
+        .copied()
+        .unwrap_or(0);
+    let ext_count = label_counts
+        .get(&NodeLabel::ExternalService)
+        .copied()
+        .unwrap_or(0);
 
     // Collect controllers and group actions by controller
-    let controllers: Vec<&GraphNode> = graph.iter_nodes()
+    let controllers: Vec<&GraphNode> = graph
+        .iter_nodes()
         .filter(|n| n.label == NodeLabel::Controller)
         .collect();
 
@@ -45,14 +62,21 @@ pub(super) fn generate_functional_guide(
     writeln!(f)?;
 
     // Source files
-    let ctrl_files: Vec<&str> = controllers.iter()
+    let ctrl_files: Vec<&str> = controllers
+        .iter()
         .map(|c| c.properties.file_path.as_str())
         .take(10)
         .collect();
     write!(f, "{}", source_files_section(&ctrl_files))?;
 
-    writeln!(f, "> Ce guide décrit les modules fonctionnels de l'application du point de vue métier.")?;
-    writeln!(f, "> Il est destiné aux responsables de service et aux personnes reprenant l'application.")?;
+    writeln!(
+        f,
+        "> Ce guide décrit les modules fonctionnels de l'application du point de vue métier."
+    )?;
+    writeln!(
+        f,
+        "> Il est destiné aux responsables de service et aux personnes reprenant l'application."
+    )?;
     writeln!(f)?;
 
     // Quick stats
@@ -69,11 +93,15 @@ pub(super) fn generate_functional_guide(
 
     // Generate module documentation for each controller
     // Sort by action count descending (most important first)
-    let mut ctrl_with_actions: Vec<(&GraphNode, Vec<&GraphNode>)> = controllers.iter()
+    let mut ctrl_with_actions: Vec<(&GraphNode, Vec<&GraphNode>)> = controllers
+        .iter()
         .map(|ctrl| {
-            let actions: Vec<&GraphNode> = graph.iter_nodes()
-                .filter(|n| n.label == NodeLabel::ControllerAction
-                    && n.properties.file_path == ctrl.properties.file_path)
+            let actions: Vec<&GraphNode> = graph
+                .iter_nodes()
+                .filter(|n| {
+                    n.label == NodeLabel::ControllerAction
+                        && n.properties.file_path == ctrl.properties.file_path
+                })
                 .collect();
             (*ctrl, actions)
         })
@@ -81,8 +109,11 @@ pub(super) fn generate_functional_guide(
     ctrl_with_actions.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 
     for (ctrl, actions) in &ctrl_with_actions {
-        let name = ctrl.properties.name
-            .strip_suffix("Controller").unwrap_or(&ctrl.properties.name);
+        let name = ctrl
+            .properties
+            .name
+            .strip_suffix("Controller")
+            .unwrap_or(&ctrl.properties.name);
 
         // Skip RootController (base class, not a real module)
         if name == "Root" || name == "PdfView" || name == "Print" {
@@ -104,15 +135,19 @@ pub(super) fn generate_functional_guide(
         // `User` does not accidentally pick up unrelated directories whose
         // name merely CONTAINS "User" (e.g. `Views/PasswordUserReset/`).
         let path_segment = format!("/{}/", name);
-        let ctrl_views: Vec<&GraphNode> = graph.iter_nodes()
-            .filter(|n| n.label == NodeLabel::View
-                && n.properties.file_path.contains(&path_segment))
+        let ctrl_views: Vec<&GraphNode> = graph
+            .iter_nodes()
+            .filter(|n| {
+                n.label == NodeLabel::View && n.properties.file_path.contains(&path_segment)
+            })
             .collect();
 
         // Same segment match for UI components (Telerik grids etc.).
-        let ctrl_ui: Vec<&GraphNode> = graph.iter_nodes()
-            .filter(|n| n.label == NodeLabel::UiComponent
-                && n.properties.file_path.contains(&path_segment))
+        let ctrl_ui: Vec<&GraphNode> = graph
+            .iter_nodes()
+            .filter(|n| {
+                n.label == NodeLabel::UiComponent && n.properties.file_path.contains(&path_segment)
+            })
             .collect();
 
         writeln!(f, "| | |")?;
@@ -125,10 +160,12 @@ pub(super) fn generate_functional_guide(
         writeln!(f)?;
 
         // Key actions (group by GET/POST)
-        let _get_actions: Vec<&&GraphNode> = actions.iter()
+        let _get_actions: Vec<&&GraphNode> = actions
+            .iter()
             .filter(|a| a.properties.http_method.as_deref().unwrap_or("GET") == "GET")
             .collect();
-        let _post_actions: Vec<&&GraphNode> = actions.iter()
+        let _post_actions: Vec<&&GraphNode> = actions
+            .iter()
             .filter(|a| a.properties.http_method.as_deref().unwrap_or("GET") == "POST")
             .collect();
 
@@ -140,7 +177,11 @@ pub(super) fn generate_functional_guide(
         for action in actions.iter().take(15) {
             let aname = &action.properties.name;
             let method = action.properties.http_method.as_deref().unwrap_or("GET");
-            let icon = if method == "POST" { "\u{270f}\u{fe0f}" } else { "\u{1f4c4}" };
+            let icon = if method == "POST" {
+                "\u{270f}\u{fe0f}"
+            } else {
+                "\u{1f4c4}"
+            };
             writeln!(f, "- {} **{}** ({})", icon, aname, method)?;
             listed += 1;
         }
@@ -185,7 +226,10 @@ pub(super) fn generate_functional_guide(
             // Show: Search → View/Create → Edit → Validate
             let has_search = actions.iter().any(|a| {
                 let n = a.properties.name.to_lowercase();
-                n.contains("rech") || n.contains("search") || n.contains("list") || n.contains("get")
+                n.contains("rech")
+                    || n.contains("search")
+                    || n.contains("list")
+                    || n.contains("get")
             });
             let has_create = actions.iter().any(|a| {
                 let n = a.properties.name.to_lowercase();
@@ -209,12 +253,24 @@ pub(super) fn generate_functional_guide(
             });
 
             let mut steps = Vec::new();
-            if has_search { steps.push(("Recherche", "Rechercher")); }
-            if has_detail { steps.push(("Consultation", "Consulter")); }
-            if has_create { steps.push(("Creation", "Créer")); }
-            if has_edit { steps.push(("Modification", "Modifier")); }
-            if has_delete { steps.push(("Suppression", "Supprimer")); }
-            if has_export { steps.push(("Export", "Exporter")); }
+            if has_search {
+                steps.push(("Recherche", "Rechercher"));
+            }
+            if has_detail {
+                steps.push(("Consultation", "Consulter"));
+            }
+            if has_create {
+                steps.push(("Creation", "Créer"));
+            }
+            if has_edit {
+                steps.push(("Modification", "Modifier"));
+            }
+            if has_delete {
+                steps.push(("Suppression", "Supprimer"));
+            }
+            if has_export {
+                steps.push(("Export", "Exporter"));
+            }
 
             for (id, label) in &steps {
                 writeln!(f, "    {}[\"{}\" ]", id, label)?;
@@ -306,7 +362,8 @@ pub(super) fn generate_functional_guide(
     writeln!(f)?;
 
     // Sort by action count, take top 3
-    let top3: Vec<&(&GraphNode, Vec<&GraphNode>)> = ctrl_with_actions.iter()
+    let top3: Vec<&(&GraphNode, Vec<&GraphNode>)> = ctrl_with_actions
+        .iter()
         .filter(|(c, _)| {
             let n = c.properties.name.as_str();
             n != "RootController" && n != "PdfViewController" && n != "PrintController"
@@ -315,17 +372,28 @@ pub(super) fn generate_functional_guide(
         .collect();
 
     for (i, (ctrl, actions)) in top3.iter().enumerate() {
-        let name = ctrl.properties.name
-            .strip_suffix("Controller").unwrap_or(&ctrl.properties.name);
+        let name = ctrl
+            .properties
+            .name
+            .strip_suffix("Controller")
+            .unwrap_or(&ctrl.properties.name);
         writeln!(f, "### {}. {}", i + 1, name)?;
         writeln!(f)?;
-        writeln!(f, "**{} actions** — {}", actions.len(), describe_controller_fr(&ctrl.properties.name))?;
+        writeln!(
+            f,
+            "**{} actions** — {}",
+            actions.len(),
+            describe_controller_fr(&ctrl.properties.name)
+        )?;
         writeln!(f)?;
     }
 
     writeln!(f, "---")?;
     writeln!(f)?;
-    writeln!(f, "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)")?;
+    writeln!(
+        f,
+        "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)"
+    )?;
     writeln!(f)?;
     writeln!(f, "[\u{2190} Previous: Overview](./overview.md) | [Next: Architecture \u{2192}](./architecture.md)")?;
 
@@ -337,20 +405,35 @@ pub(super) fn generate_functional_guide(
 /// French business description for a project based on its name.
 pub(super) fn describe_project_fr(name: &str) -> &'static str {
     let lower = name.to_lowercase();
-    if lower.contains("ihm") && !lower.contains("test") { "Application web ASP.NET MVC (Présentation)" }
-    else if lower.contains("bal") && !lower.contains("test") { "Couche métier (Business Logic)" }
-    else if lower.contains("dal") && !lower.contains("test") { "Couche d'accès aux données (Entity Framework)" }
-    else if lower.contains("entities") { "Entités / objets métier partagés" }
-    else if lower.contains("commun") { "Utilitaires et attributs communs" }
-    else if lower.contains("courrier") && !lower.contains("test") { "Génération de courriers (mail merge)" }
-    else if lower.contains("erable") || lower.contains("webapi") { "Client API REST Erable (bénéficiaires)" }
-    else if lower.contains("ldap") { "Client LDAP / Active Directory" }
-    else if lower.contains("pdf") { "Génération de rapports PDF" }
-    else if lower.contains("ressource") { "Fichiers de ressources (localisation)" }
-    else if lower.contains("traitement") || lower.contains("batch") { "Traitement batch / planifié" }
-    else if lower.contains("console") { "Application console" }
-    else if lower.contains("test") { "Tests unitaires / intégration" }
-    else { "Projet" }
+    if lower.contains("ihm") && !lower.contains("test") {
+        "Application web ASP.NET MVC (Présentation)"
+    } else if lower.contains("bal") && !lower.contains("test") {
+        "Couche métier (Business Logic)"
+    } else if lower.contains("dal") && !lower.contains("test") {
+        "Couche d'accès aux données (Entity Framework)"
+    } else if lower.contains("entities") {
+        "Entités / objets métier partagés"
+    } else if lower.contains("commun") {
+        "Utilitaires et attributs communs"
+    } else if lower.contains("courrier") && !lower.contains("test") {
+        "Génération de courriers (mail merge)"
+    } else if lower.contains("erable") || lower.contains("webapi") {
+        "Client API REST Erable (bénéficiaires)"
+    } else if lower.contains("ldap") {
+        "Client LDAP / Active Directory"
+    } else if lower.contains("pdf") {
+        "Génération de rapports PDF"
+    } else if lower.contains("ressource") {
+        "Fichiers de ressources (localisation)"
+    } else if lower.contains("traitement") || lower.contains("batch") {
+        "Traitement batch / planifié"
+    } else if lower.contains("console") {
+        "Application console"
+    } else if lower.contains("test") {
+        "Tests unitaires / intégration"
+    } else {
+        "Projet"
+    }
 }
 
 pub(super) fn describe_controller_fr(name: &str) -> &'static str {

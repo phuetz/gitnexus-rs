@@ -39,7 +39,8 @@ pub async fn run(
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
     // Create progress channel
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<gitnexus_core::pipeline::PipelineProgress>();
+    let (tx, mut rx) =
+        tokio::sync::mpsc::unbounded_channel::<gitnexus_core::pipeline::PipelineProgress>();
 
     // Spawn progress handler
     let pb_clone = pb.clone();
@@ -110,8 +111,7 @@ pub async fn run(
             println!("  Processes:   {}", result.process_count);
 
             // Save metadata
-            let commit = git::current_commit(&repo_path)
-                .unwrap_or_else(|| "unknown".to_string());
+            let commit = git::current_commit(&repo_path).unwrap_or_else(|| "unknown".to_string());
             let meta = repo_manager::RepoMeta {
                 repo_path: repo_path.display().to_string(),
                 last_commit: commit,
@@ -133,13 +133,18 @@ pub async fn run(
             // Save binary snapshot for fast reload (REPL, MCP, CLI queries)
             let snap_path = gitnexus_db::snapshot::snapshot_path(&storage_paths.storage_path);
             gitnexus_db::snapshot::save_snapshot(&result.graph, &snap_path)?;
-            println!("  Graph snapshot saved ({} bytes)", std::fs::metadata(&snap_path).map(|m| m.len()).unwrap_or(0));
+            println!(
+                "  Graph snapshot saved ({} bytes)",
+                std::fs::metadata(&snap_path).map(|m| m.len()).unwrap_or(0)
+            );
 
             // Save file manifest for incremental indexing
             {
                 let file_entries = gitnexus_ingest::phases::structure::walk_repository(&repo_path)?;
-                let manifest = gitnexus_ingest::manifest::build_manifest_from_entries(&file_entries);
-                let manifest_file = gitnexus_ingest::manifest::manifest_path(&storage_paths.storage_path);
+                let manifest =
+                    gitnexus_ingest::manifest::build_manifest_from_entries(&file_entries);
+                let manifest_file =
+                    gitnexus_ingest::manifest::manifest_path(&storage_paths.storage_path);
                 gitnexus_ingest::manifest::save_manifest(&manifest, &manifest_file)?;
                 println!("  File manifest saved ({} files)", manifest.files.len());
             }

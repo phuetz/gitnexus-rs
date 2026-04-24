@@ -14,18 +14,16 @@ use gitnexus_core::graph::types::{
 };
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_lang::route_extractors::csharp::{
-    self, ControllerInfo, DbContextInfo,
-    extract_ajax_calls, extract_telerik_components,
-    extract_services_and_repositories, extract_constructor_dependencies,
-    extract_tracing_info, extract_external_service_calls,
-    extract_partial_references, extract_form_actions,
+    self, extract_ajax_calls, extract_constructor_dependencies, extract_external_service_calls,
+    extract_form_actions, extract_partial_references, extract_services_and_repositories,
+    extract_telerik_components, extract_tracing_info, ControllerInfo, DbContextInfo,
 };
 use gitnexus_lang::route_extractors::edmx;
 
 use super::structure::FileEntry;
-use std::collections::{HashMap, HashSet};
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::collections::{HashMap, HashSet};
 
 /// Result statistics from the ASP.NET MVC enrichment phase.
 #[derive(Debug, Default)]
@@ -59,9 +57,9 @@ pub fn enrich_aspnet_mvc(
     file_entries: &[FileEntry],
 ) -> Result<AspNetMvcStats, crate::IngestError> {
     // Quick check: does this project have any C# files?
-    let has_csharp = file_entries
-        .iter()
-        .any(|f| f.path.ends_with(".cs") || f.path.ends_with(".cshtml") || f.path.ends_with(".edmx"));
+    let has_csharp = file_entries.iter().any(|f| {
+        f.path.ends_with(".cs") || f.path.ends_with(".cshtml") || f.path.ends_with(".edmx")
+    });
 
     if !has_csharp {
         return Ok(AspNetMvcStats::default());
@@ -97,10 +95,14 @@ pub fn enrich_aspnet_mvc(
     // ──────────────────────────────────────────────────────────────────────
     // Pass 1b: Parse Web.config files
     // ──────────────────────────────────────────────────────────────────────
-    let re_auth = Regex::new(r#"<authentication\s+mode="([^"]+)""#).expect("regex pattern must compile");
-    let re_conn = Regex::new(r#"<add\s+name="[^"]+"\s+connectionString="#).expect("regex pattern must compile");
-    let re_appsettings = Regex::new(r#"<appSettings>[\s\S]*?<add\s+key="#).expect("regex pattern must compile");
-    let re_binding = Regex::new(r#"<bindingRedirect\s+oldVersion="#).expect("regex pattern must compile");
+    let re_auth =
+        Regex::new(r#"<authentication\s+mode="([^"]+)""#).expect("regex pattern must compile");
+    let re_conn = Regex::new(r#"<add\s+name="[^"]+"\s+connectionString="#)
+        .expect("regex pattern must compile");
+    let re_appsettings =
+        Regex::new(r#"<appSettings>[\s\S]*?<add\s+key="#).expect("regex pattern must compile");
+    let re_binding =
+        Regex::new(r#"<bindingRedirect\s+oldVersion="#).expect("regex pattern must compile");
 
     for entry in file_entries {
         if entry.path.ends_with("Web.config") || entry.path.ends_with("web.config") {
@@ -420,7 +422,10 @@ pub fn enrich_aspnet_mvc(
                     .unwrap_or_else(|| format!("ViewModel:*:{}", model_type));
 
                 graph.add_relationship(GraphRelationship {
-                    id: format!("binds:{}:{}:{}:{}", file_path, ctrl.class_name, action.name, model_type),
+                    id: format!(
+                        "binds:{}:{}:{}:{}",
+                        file_path, ctrl.class_name, action.name, model_type
+                    ),
                     source_id: action_id.clone(),
                     target_id,
                     rel_type: RelationshipType::BindsModel,
@@ -458,12 +463,23 @@ pub fn enrich_aspnet_mvc(
 
     // Standard filter names for confidence check
     let standard_filters: HashSet<&str> = [
-        "Authorize", "ValidateAntiForgeryToken", "OutputCache", "HandleError",
-        "AllowAnonymous", "RequireHttps", "ActionFilter", "ExceptionFilter", "ResultFilter",
-    ].iter().copied().collect();
+        "Authorize",
+        "ValidateAntiForgeryToken",
+        "OutputCache",
+        "HandleError",
+        "AllowAnonymous",
+        "RequireHttps",
+        "ActionFilter",
+        "ExceptionFilter",
+        "ResultFilter",
+    ]
+    .iter()
+    .copied()
+    .collect();
 
     for (file_path, ctrl) in &all_controllers {
-        let content = file_entries.iter()
+        let content = file_entries
+            .iter()
             .find(|f| f.path == *file_path)
             .map(|f| f.content.as_str())
             .unwrap_or("");
@@ -707,7 +723,8 @@ pub fn enrich_aspnet_mvc(
     // correctly via `extract_partial_references`, emitting a real
     // `CallsAction` edge, so we must not shadow it here.
     // ──────────────────────────────────────────────────────────────────────
-    let partial_regex = Regex::new(r#"@?\s*Html\.(Partial|RenderPartial)\("([^"]+)""#).expect("regex pattern must compile");
+    let partial_regex = Regex::new(r#"@?\s*Html\.(Partial|RenderPartial)\("([^"]+)""#)
+        .expect("regex pattern must compile");
 
     for entry in &view_files {
         let view_id = format!("View:{}", entry.path);
@@ -813,9 +830,8 @@ pub fn enrich_aspnet_mvc(
     // ──────────────────────────────────────────────────────────────────────
 
     // Regex for extracting <script src="..."> references
-    static RE_SCRIPT_SRC: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"(?i)<script[^>]+src\s*=\s*["']([^"']+)["']"#).unwrap()
-    });
+    static RE_SCRIPT_SRC: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"(?i)<script[^>]+src\s*=\s*["']([^"']+)["']"#).unwrap());
 
     // 8a: Process standalone .js files
     let js_files: Vec<&FileEntry> = file_entries
@@ -880,8 +896,7 @@ pub fn enrich_aspnet_mvc(
             });
 
             // Try to link AjaxCall → ControllerAction
-            if let (Some(ctrl_name), Some(action_name)) =
-                (&call.controller_name, &call.action_name)
+            if let (Some(ctrl_name), Some(action_name)) = (&call.controller_name, &call.action_name)
             {
                 if let Some((action_node_id, confidence)) =
                     resolve_action_node_id(&all_controllers, ctrl_name, action_name)
@@ -948,7 +963,10 @@ pub fn enrich_aspnet_mvc(
 
             // Link View → AjaxCall
             graph.add_relationship(GraphRelationship {
-                id: format!("view_ajax:{}:{}:{}", entry.path, call.line_number, call.url_pattern),
+                id: format!(
+                    "view_ajax:{}:{}:{}",
+                    entry.path, call.line_number, call.url_pattern
+                ),
                 source_id: view_id.clone(),
                 target_id: ajax_id.clone(),
                 rel_type: RelationshipType::CallsAction,
@@ -958,17 +976,13 @@ pub fn enrich_aspnet_mvc(
             });
 
             // Try to link AjaxCall → ControllerAction
-            if let (Some(ctrl_name), Some(action_name)) =
-                (&call.controller_name, &call.action_name)
+            if let (Some(ctrl_name), Some(action_name)) = (&call.controller_name, &call.action_name)
             {
                 if let Some((action_node_id, confidence)) =
                     resolve_action_node_id(&all_controllers, ctrl_name, action_name)
                 {
                     graph.add_relationship(GraphRelationship {
-                        id: format!(
-                            "ajax_action:{}:{}:{}",
-                            entry.path, ctrl_name, action_name
-                        ),
+                        id: format!("ajax_action:{}:{}:{}", entry.path, ctrl_name, action_name),
                         source_id: ajax_id.clone(),
                         target_id: action_node_id,
                         rel_type: RelationshipType::CallsAction,
@@ -1014,7 +1028,8 @@ pub fn enrich_aspnet_mvc(
                 .iter()
                 .find(|f| {
                     // Match on filename or relative path suffix
-                    f.path.ends_with(script_src.trim_start_matches('~').trim_start_matches('/'))
+                    f.path
+                        .ends_with(script_src.trim_start_matches('~').trim_start_matches('/'))
                         || f.path
                             .rsplit('/')
                             .next()
@@ -1146,7 +1161,10 @@ pub fn enrich_aspnet_mvc(
                 continue;
             };
             graph.add_relationship(GraphRelationship {
-                id: format!("partial_ref:{}:{}:{}", entry.path, pref.partial_name, pref.line_number),
+                id: format!(
+                    "partial_ref:{}:{}:{}",
+                    entry.path, pref.partial_name, pref.line_number
+                ),
                 source_id: view_id.clone(),
                 target_id,
                 rel_type,
@@ -1157,7 +1175,10 @@ pub fn enrich_aspnet_mvc(
             partial_refs_count += 1;
         }
     }
-    tracing::info!(partial_refs = partial_refs_count, "Pass 13: Partial/RenderAction references");
+    tracing::info!(
+        partial_refs = partial_refs_count,
+        "Pass 13: Partial/RenderAction references"
+    );
 
     // ─── Pass 14: @Html.BeginForm → Controller action links ─────────────
     let mut form_refs_count: usize = 0;
@@ -1165,14 +1186,14 @@ pub fn enrich_aspnet_mvc(
         let forms = extract_form_actions(&entry.content);
         let view_id = format!("View:{}", entry.path);
         for form in &forms {
-            let target_id = resolve_action_node_id(
-                &all_controllers,
-                &form.controller_name,
-                &form.action_name,
-            );
+            let target_id =
+                resolve_action_node_id(&all_controllers, &form.controller_name, &form.action_name);
             if let Some((action_id, confidence)) = target_id {
                 graph.add_relationship(GraphRelationship {
-                    id: format!("form_action:{}:{}:{}", entry.path, form.action_name, form.line_number),
+                    id: format!(
+                        "form_action:{}:{}:{}",
+                        entry.path, form.action_name, form.line_number
+                    ),
                     source_id: view_id.clone(),
                     target_id: action_id,
                     rel_type: RelationshipType::CallsAction,
@@ -1184,7 +1205,10 @@ pub fn enrich_aspnet_mvc(
             }
         }
     }
-    tracing::info!(form_refs = form_refs_count, "Pass 14: Html.BeginForm references");
+    tracing::info!(
+        form_refs = form_refs_count,
+        "Pass 14: Html.BeginForm references"
+    );
 
     tracing::info!(
         controllers = stats.controllers,
@@ -1430,7 +1454,10 @@ fn run_pass_10_services(
                     // Scope by file_path so two different files defining
                     // services with the same class name (e.g., area-scoped
                     // duplicates) don't collide on the same edge ID.
-                    id: format!("implements:{}:{}:{}", entry.path, svc.class_name, iface_name),
+                    id: format!(
+                        "implements:{}:{}:{}",
+                        entry.path, svc.class_name, iface_name
+                    ),
                     source_id: svc_id.clone(),
                     target_id: iface_id.clone(),
                     rel_type: RelationshipType::Implements,
@@ -1627,8 +1654,10 @@ fn resolve_action_node_id(
                 } else {
                     "ControllerAction"
                 };
-                let node_id =
-                    format!("{}:{}:{}:{}", prefix, file_path, ctrl.class_name, action.name);
+                let node_id = format!(
+                    "{}:{}:{}:{}",
+                    prefix, file_path, ctrl.class_name, action.name
+                );
 
                 // Exact match (case matches) → 0.95; case-insensitive match → 0.85
                 let confidence = if ctrl_base == without_suffix && action.name == action_name {
@@ -1695,7 +1724,12 @@ mod tests {
     #[test]
     fn test_build_full_route() {
         assert_eq!(
-            build_full_route(Some("api/products"), Some("{id}"), "ProductsController", "Get"),
+            build_full_route(
+                Some("api/products"),
+                Some("{id}"),
+                "ProductsController",
+                "Get"
+            ),
             "api/products/{id}"
         );
         assert_eq!(

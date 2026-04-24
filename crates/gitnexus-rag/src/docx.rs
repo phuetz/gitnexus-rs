@@ -19,8 +19,7 @@ use quick_xml::Reader;
 
 /// Extract the body of a `.docx` file as markdown.
 pub fn docx_to_markdown(path: &Path) -> Result<String> {
-    let file = File::open(path)
-        .with_context(|| format!("open docx: {}", path.display()))?;
+    let file = File::open(path).with_context(|| format!("open docx: {}", path.display()))?;
     let mut archive = zip::ZipArchive::new(file)
         .with_context(|| format!("not a valid .docx (zip) file: {}", path.display()))?;
 
@@ -176,9 +175,8 @@ fn detect_heading_level(style: &str) -> Option<u8> {
     let s = style.trim();
     let lower = s.to_ascii_lowercase();
     // English (Heading1, Heading 1, heading1), French (Titre1, Titre 1).
-    let is_heading = lower.starts_with("heading")
-        || lower.starts_with("titre")
-        || lower.starts_with("title");
+    let is_heading =
+        lower.starts_with("heading") || lower.starts_with("titre") || lower.starts_with("title");
     if !is_heading {
         return None;
     }
@@ -237,7 +235,10 @@ mod tests {
 <w:p><w:pPr><w:pStyle w:val="Titre 2"/></w:pPr><w:r><w:t>Calcul des baremes</w:t></w:r></w:p>
 "#;
         let md = parse_document_xml(&wrap_body(body)).unwrap();
-        assert!(md.contains("## Calcul des baremes"), "expected French H2, got: {md}");
+        assert!(
+            md.contains("## Calcul des baremes"),
+            "expected French H2, got: {md}"
+        );
     }
 
     #[test]

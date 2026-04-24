@@ -140,19 +140,19 @@ pub fn incremental_update(
         .iter()
         .filter(|e| {
             affected_files.contains(&e.path)
-                && changes.iter().find(|c| match c {
+                && changes
+                    .iter()
+                    .find(|c| match c {
                         FileChange::Removed(p) => p == &e.path,
                         _ => false,
-                    }).is_none()
+                    })
+                    .is_none()
         })
         .collect();
 
     if !entries_to_parse.is_empty() {
         // Create temporary copies for structure + parse
-        let parse_entries: Vec<FileEntry> = entries_to_parse
-            .iter()
-            .map(|e| (*e).clone())
-            .collect();
+        let parse_entries: Vec<FileEntry> = entries_to_parse.iter().map(|e| (*e).clone()).collect();
 
         // Capture pre-update edge count so we can compute edges_added below.
         let edges_before = graph.relationship_count();
@@ -161,8 +161,7 @@ pub fn incremental_update(
         phases::structure::create_structure_nodes(graph, &parse_entries);
 
         // Parse AST
-        let extracted =
-            phases::parsing::parse_files(graph, &parse_entries, None)?;
+        let extracted = phases::parsing::parse_files(graph, &parse_entries, None)?;
 
         result.nodes_added = count_graph_nodes_for_files(graph, &parse_entries);
 
@@ -172,12 +171,7 @@ pub fn incremental_update(
 
         // Re-run import resolution for changed files only
         let (import_map, named_import_map, package_map, module_alias_map) =
-            phases::imports::resolve_imports(
-                graph,
-                &parse_entries,
-                &extracted,
-                &symbol_table,
-            )?;
+            phases::imports::resolve_imports(graph, &parse_entries, &extracted, &symbol_table)?;
 
         // Re-run call resolution for changed files
         phases::calls::resolve_calls(
@@ -202,9 +196,7 @@ pub fn incremental_update(
 
         // Compute edges_added as the net change in the relationship store.
         // This will be 0 (or negative, clamped) if removed edges balance new ones.
-        result.edges_added = graph
-            .relationship_count()
-            .saturating_sub(edges_before);
+        result.edges_added = graph.relationship_count().saturating_sub(edges_before);
 
         info!(
             nodes_added = result.nodes_added,

@@ -1,8 +1,8 @@
 //! The `trace-files` command: list all source files involved in a feature.
 
-use std::collections::{BTreeMap, HashSet, VecDeque};
 use anyhow::Result;
 use colored::Colorize;
+use std::collections::{BTreeMap, HashSet, VecDeque};
 
 use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_db::snapshot;
@@ -15,9 +15,13 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
     };
 
     let storage = gitnexus_core::storage::repo_manager::get_storage_paths(&repo_path);
-    let snap_path = gitnexus_db::snapshot::snapshot_path(std::path::Path::new(&storage.storage_path));
+    let snap_path =
+        gitnexus_db::snapshot::snapshot_path(std::path::Path::new(&storage.storage_path));
     if !snap_path.exists() {
-        println!("{} No index found. Run 'gitnexus analyze' first.", "ERROR".red());
+        println!(
+            "{} No index found. Run 'gitnexus analyze' first.",
+            "ERROR".red()
+        );
         return Ok(());
     }
 
@@ -26,7 +30,8 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
 
     // Find the target symbol — prefer Class/Controller over Constructor/Method
     let target_lower = target.to_lowercase();
-    let mut candidates: Vec<_> = graph.iter_nodes()
+    let mut candidates: Vec<_> = graph
+        .iter_nodes()
         .filter(|n| n.properties.name.to_lowercase() == target_lower)
         .collect();
     candidates.sort_by_key(|n| match n.label {
@@ -40,12 +45,21 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
     let start_node = match start_node {
         Some(n) => n,
         None => {
-            println!("{} Symbol '{}' not found in the graph.", "ERROR".red(), target);
+            println!(
+                "{} Symbol '{}' not found in the graph.",
+                "ERROR".red(),
+                target
+            );
             return Ok(());
         }
     };
 
-    println!("{} Tracing files from {} ({})", "->".cyan(), start_node.properties.name, start_node.label.as_str());
+    println!(
+        "{} Tracing files from {} ({})",
+        "->".cyan(),
+        start_node.properties.name,
+        start_node.label.as_str()
+    );
 
     // BFS: follow outgoing relationships, seeding with child methods for Class/Service nodes
     let mut visited = HashSet::new();
@@ -57,23 +71,32 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
     let mut files: BTreeMap<String, (Vec<String>, usize)> = BTreeMap::new();
 
     // Helper: check if a file_path should be included (filter out obj/ build artifacts)
-    let is_valid_path = |p: &str| -> bool {
-        !p.is_empty() && !p.contains("/obj/") && !p.contains("\\obj\\")
-    };
+    let is_valid_path =
+        |p: &str| -> bool { !p.is_empty() && !p.contains("/obj/") && !p.contains("\\obj\\") };
 
     // Record start node's file
     if is_valid_path(&start_node.properties.file_path) {
-        files.entry(start_node.properties.file_path.clone())
+        files
+            .entry(start_node.properties.file_path.clone())
             .or_insert_with(|| (Vec::new(), 0))
             .0
-            .push(format!("{} ({})", start_node.properties.name, start_node.label.as_str()));
+            .push(format!(
+                "{} ({})",
+                start_node.properties.name,
+                start_node.label.as_str()
+            ));
     }
 
     // Seed: include child methods via HasMethod so BFS can follow their Calls edges.
     // For Controllers, also seed from the sibling Class node (which carries HasMethod edges).
-    if matches!(start_node.label, NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface
-        | NodeLabel::Struct | NodeLabel::Controller)
-    {
+    if matches!(
+        start_node.label,
+        NodeLabel::Class
+            | NodeLabel::Service
+            | NodeLabel::Interface
+            | NodeLabel::Struct
+            | NodeLabel::Controller
+    ) {
         // For Controllers, find the sibling Class node (same name, same file)
         let seed_source_ids: Vec<String> = if start_node.label == NodeLabel::Controller {
             let mut ids = vec![start_node.id.clone()];
@@ -92,20 +115,30 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
 
         for rel in graph.iter_relationships() {
             if seed_source_ids.contains(&rel.source_id)
-                && matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty | RelationshipType::HasAction)
-                && !visited.contains(&rel.target_id) {
-                    visited.insert(rel.target_id.clone());
-                    queue.push_back((rel.target_id.clone(), 1));
-                    if let Some(member) = graph.get_node(&rel.target_id) {
-                        if is_valid_path(&member.properties.file_path) {
-                            let entry = files
-                                .entry(member.properties.file_path.clone())
-                                .or_insert_with(|| (Vec::new(), 1));
-                            entry.0.push(format!("{} ({})", member.properties.name, member.label.as_str()));
-                            entry.1 = entry.1.min(1);
-                        }
+                && matches!(
+                    rel.rel_type,
+                    RelationshipType::HasMethod
+                        | RelationshipType::HasProperty
+                        | RelationshipType::HasAction
+                )
+                && !visited.contains(&rel.target_id)
+            {
+                visited.insert(rel.target_id.clone());
+                queue.push_back((rel.target_id.clone(), 1));
+                if let Some(member) = graph.get_node(&rel.target_id) {
+                    if is_valid_path(&member.properties.file_path) {
+                        let entry = files
+                            .entry(member.properties.file_path.clone())
+                            .or_insert_with(|| (Vec::new(), 1));
+                        entry.0.push(format!(
+                            "{} ({})",
+                            member.properties.name,
+                            member.label.as_str()
+                        ));
+                        entry.1 = entry.1.min(1);
                     }
                 }
+            }
         }
     }
 
@@ -120,7 +153,10 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
                 continue;
             }
             // Skip already-seeded HasMethod/HasProperty edges to avoid double-counting
-            if matches!(rel.rel_type, RelationshipType::HasMethod | RelationshipType::HasProperty) {
+            if matches!(
+                rel.rel_type,
+                RelationshipType::HasMethod | RelationshipType::HasProperty
+            ) {
                 continue;
             }
             let neighbor_id = &rel.target_id;
@@ -136,7 +172,11 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
                     let entry = files
                         .entry(neighbor.properties.file_path.clone())
                         .or_insert_with(|| (Vec::new(), d + 1));
-                    entry.0.push(format!("{} ({})", neighbor.properties.name, neighbor.label.as_str()));
+                    entry.0.push(format!(
+                        "{} ({})",
+                        neighbor.properties.name,
+                        neighbor.label.as_str()
+                    ));
                     entry.1 = entry.1.min(d + 1);
                 }
 
@@ -190,7 +230,11 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
             views.push((path, symbols));
         } else if has_label("DbEntity") || has_label("Entity") {
             entities.push((path, symbols));
-        } else if path_lower.ends_with(".js") || path_lower.ends_with(".ts") || has_label("ScriptFile") || has_label("Function") {
+        } else if path_lower.ends_with(".js")
+            || path_lower.ends_with(".ts")
+            || has_label("ScriptFile")
+            || has_label("Function")
+        {
             scripts.push((path, symbols));
         } else {
             other.push((path, symbols));
@@ -217,7 +261,12 @@ pub fn run(target: &str, path: Option<&str>, depth: usize, json: bool) -> Result
         println!("  {} ({})", colored_title, items.len());
         for (path, symbols) in items.iter().take(15) {
             let short_path = path.replace('\\', "/");
-            let sym_preview: String = symbols.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
+            let sym_preview: String = symbols
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
             println!("    {} {}", short_path, sym_preview.dimmed());
         }
         if items.len() > 15 {

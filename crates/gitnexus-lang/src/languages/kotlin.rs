@@ -4,7 +4,7 @@ use gitnexus_core::graph::types::NodeLabel;
 use crate::export_detection;
 use crate::import_resolvers::jvm;
 use crate::import_resolvers::types::{ImportResult, ResolveCtx};
-use crate::named_bindings::{types::NamedBinding, kotlin as kt_bindings};
+use crate::named_bindings::{kotlin as kt_bindings, types::NamedBinding};
 use crate::provider::{ImportSemantics, LanguageProvider, MroStrategy};
 use crate::queries;
 
@@ -27,7 +27,12 @@ impl LanguageProvider for KotlinProvider {
         export_detection::check_kotlin_export(node_text, node_type, ancestors)
     }
 
-    fn resolve_import<'a>(&self, raw_path: &str, file_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult {
+    fn resolve_import<'a>(
+        &self,
+        raw_path: &str,
+        file_path: &str,
+        ctx: &ResolveCtx<'a>,
+    ) -> ImportResult {
         jvm::resolve_kotlin(raw_path, file_path, ctx)
     }
 

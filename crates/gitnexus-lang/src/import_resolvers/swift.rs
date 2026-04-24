@@ -51,9 +51,7 @@ pub fn resolve(raw_path: &str, _file_path: &str, ctx: &ResolveCtx<'_>) -> Import
     }
 
     // Try the module name as a direct directory
-    let direct_files = ctx
-        .suffix_index
-        .get_files_in_dir_with_ext(module, ".swift");
+    let direct_files = ctx.suffix_index.get_files_in_dir_with_ext(module, ".swift");
 
     if !direct_files.is_empty() {
         return ImportResult::Package {
@@ -68,8 +66,8 @@ pub fn resolve(raw_path: &str, _file_path: &str, ctx: &ResolveCtx<'_>) -> Import
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{ImportConfigs, SuffixIndex};
+    use super::*;
     use std::collections::HashSet;
 
     fn make_ctx<'a>(

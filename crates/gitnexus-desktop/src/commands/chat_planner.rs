@@ -38,27 +38,78 @@ pub fn analyze_query_impl(
     // phrase questions in French (e.g. « comment sont calculés les paiements »);
     // without these, broad French queries fell through to the generic fallback
     // and got classified Medium instead of Architecture/Complex.
-    let is_definition = q.contains("what is") || q.contains("explain") || q.contains("describe")
-        || q.contains("qu'est-ce que") || q.contains("qu'est ce que") || q.contains("c'est quoi")
-        || q.contains("définir") || q.contains("définition");
-    let is_usage = q.contains("who calls") || q.contains("where is") || q.contains("used by") || q.contains("how is")
-        || q.contains("qui appelle") || q.contains("utilisé") || q.contains("référenc")
-        || q.contains("où est") || q.contains("où se trouve");
-    let is_impact = q.contains("impact") || q.contains("affect") || q.contains("depends on") || q.contains("dependency") || q.contains("blast radius")
-        || q.contains("dépendance") || q.contains("dépend de") || q.contains("casse") || q.contains("impacté");
-    let is_architecture = q.contains("architecture") || q.contains("structure") || q.contains("how do") || q.contains("how does") || q.contains("overview")
-        || q.contains("vue d'ensemble") || q.contains("comment fonctionne") || q.contains("comment fonctionnent")
-        || q.contains("comment sont") || q.contains("comment son") || q.contains("comment est") || q.contains("comment c'est")
-        || q.contains("expliquer") || q.contains("explique") || q.contains("explication")
-        || q.contains("décrire") || q.contains("décris") || q.contains("présente");
-    let is_comparison = q.contains("difference") || q.contains("compare") || q.contains("vs") || q.contains("between")
-        || q.contains("comparer") || q.contains("différence") || q.contains("entre");
-    let is_refactor = q.contains("refactor") || q.contains("improve") || q.contains("clean up") || q.contains("simplify")
-        || q.contains("améliorer") || q.contains("simplifier") || q.contains("refactoriser") || q.contains("nettoyer");
-    let is_flow = q.contains("flow") || q.contains("pipeline") || q.contains("process") || q.contains("chain") || q.contains("lifecycle")
-        || q.contains("flux") || q.contains("processus") || q.contains("enchaînement")
-        || q.contains("calcul") || q.contains("calculé") || q.contains("calculer")
-        || q.contains("traitement") || q.contains("workflow");
+    let is_definition = q.contains("what is")
+        || q.contains("explain")
+        || q.contains("describe")
+        || q.contains("qu'est-ce que")
+        || q.contains("qu'est ce que")
+        || q.contains("c'est quoi")
+        || q.contains("définir")
+        || q.contains("définition");
+    let is_usage = q.contains("who calls")
+        || q.contains("where is")
+        || q.contains("used by")
+        || q.contains("how is")
+        || q.contains("qui appelle")
+        || q.contains("utilisé")
+        || q.contains("référenc")
+        || q.contains("où est")
+        || q.contains("où se trouve");
+    let is_impact = q.contains("impact")
+        || q.contains("affect")
+        || q.contains("depends on")
+        || q.contains("dependency")
+        || q.contains("blast radius")
+        || q.contains("dépendance")
+        || q.contains("dépend de")
+        || q.contains("casse")
+        || q.contains("impacté");
+    let is_architecture = q.contains("architecture")
+        || q.contains("structure")
+        || q.contains("how do")
+        || q.contains("how does")
+        || q.contains("overview")
+        || q.contains("vue d'ensemble")
+        || q.contains("comment fonctionne")
+        || q.contains("comment fonctionnent")
+        || q.contains("comment sont")
+        || q.contains("comment son")
+        || q.contains("comment est")
+        || q.contains("comment c'est")
+        || q.contains("expliquer")
+        || q.contains("explique")
+        || q.contains("explication")
+        || q.contains("décrire")
+        || q.contains("décris")
+        || q.contains("présente");
+    let is_comparison = q.contains("difference")
+        || q.contains("compare")
+        || q.contains("vs")
+        || q.contains("between")
+        || q.contains("comparer")
+        || q.contains("différence")
+        || q.contains("entre");
+    let is_refactor = q.contains("refactor")
+        || q.contains("improve")
+        || q.contains("clean up")
+        || q.contains("simplify")
+        || q.contains("améliorer")
+        || q.contains("simplifier")
+        || q.contains("refactoriser")
+        || q.contains("nettoyer");
+    let is_flow = q.contains("flow")
+        || q.contains("pipeline")
+        || q.contains("process")
+        || q.contains("chain")
+        || q.contains("lifecycle")
+        || q.contains("flux")
+        || q.contains("processus")
+        || q.contains("enchaînement")
+        || q.contains("calcul")
+        || q.contains("calculé")
+        || q.contains("calculer")
+        || q.contains("traitement")
+        || q.contains("workflow");
 
     // Check if query targets specific symbols
     let has_symbol_match = !keywords.is_empty() && {
@@ -67,15 +118,18 @@ pub fn analyze_query_impl(
     };
 
     // Has active filters => more focused, potentially simpler
-    let has_filters = filters.as_ref().is_some_and(|f| {
-        !f.files.is_empty() || !f.symbols.is_empty() || !f.modules.is_empty()
-    });
+    let has_filters = filters
+        .as_ref()
+        .is_some_and(|f| !f.files.is_empty() || !f.symbols.is_empty() || !f.modules.is_empty());
 
     // Determine complexity
     let (complexity, mut tools, reasoning) = if is_definition && has_symbol_match {
         (
             QueryComplexity::Simple,
-            vec!["search_symbols".to_string(), "get_symbol_context".to_string()],
+            vec![
+                "search_symbols".to_string(),
+                "get_symbol_context".to_string(),
+            ],
             "Direct symbol lookup — single search + context retrieval".to_string(),
         )
     } else if is_usage && has_symbol_match {
@@ -86,7 +140,8 @@ pub fn analyze_query_impl(
                 "get_symbol_context".to_string(),
                 "read_file_content".to_string(),
             ],
-            "Usage analysis — find symbol, get context with callers/callees, read source".to_string(),
+            "Usage analysis — find symbol, get context with callers/callees, read source"
+                .to_string(),
         )
     } else if is_impact {
         (
@@ -118,7 +173,8 @@ pub fn analyze_query_impl(
                 "get_symbol_context".to_string(),
                 "read_file_content".to_string(),
             ],
-            "Comparison — look up both subjects, compare their structure and relationships".to_string(),
+            "Comparison — look up both subjects, compare their structure and relationships"
+                .to_string(),
         )
     } else if is_refactor {
         (
@@ -130,12 +186,16 @@ pub fn analyze_query_impl(
                 "read_file_content".to_string(),
                 "execute_cypher".to_string(),
             ],
-            "Refactoring analysis — find symbol, analyze dependencies, assess impact, review code".to_string(),
+            "Refactoring analysis — find symbol, analyze dependencies, assess impact, review code"
+                .to_string(),
         )
     } else if has_filters && has_symbol_match {
         (
             QueryComplexity::Simple,
-            vec!["search_symbols".to_string(), "read_file_content".to_string()],
+            vec![
+                "search_symbols".to_string(),
+                "read_file_content".to_string(),
+            ],
             "Filtered search — scoped to specific files/symbols".to_string(),
         )
     } else if has_symbol_match {
@@ -151,10 +211,7 @@ pub fn analyze_query_impl(
     } else {
         (
             QueryComplexity::Medium,
-            vec![
-                "search_symbols".to_string(),
-                "execute_cypher".to_string(),
-            ],
+            vec!["search_symbols".to_string(), "execute_cypher".to_string()],
             "Broad question — full-text search + graph query exploration".to_string(),
         )
     };
@@ -253,13 +310,17 @@ fn build_research_steps(
     order += 1;
 
     // Step 2: If specific symbols are targeted, get their context
-    let ctx_step_id_opt = if analysis.suggested_tools.contains(&"get_symbol_context".to_string()) {
+    let ctx_step_id_opt = if analysis
+        .suggested_tools
+        .contains(&"get_symbol_context".to_string())
+    {
         let ctx_step_id = format!("{}-context", plan_id);
         steps.push(ResearchStep {
             id: ctx_step_id.clone(),
             order,
             tool: "get_symbol_context".to_string(),
-            description: "Get 360° context (callers, callees, imports, heritage) for top symbols".to_string(),
+            description: "Get 360° context (callers, callees, imports, heritage) for top symbols"
+                .to_string(),
             params: serde_json::json!({
                 "top_n": 5
             }),
@@ -282,9 +343,14 @@ fn build_research_steps(
     // user's filter-scoped file read never happened. Pull the step out so
     // it runs whenever the analyser asked for it, depending on the context
     // step if present and falling back to the search step otherwise.
-    if analysis.suggested_tools.contains(&"read_file_content".to_string()) {
+    if analysis
+        .suggested_tools
+        .contains(&"read_file_content".to_string())
+    {
         let read_step_id = format!("{}-read", plan_id);
-        let dep_id = ctx_step_id_opt.clone().unwrap_or_else(|| search_step_id.clone());
+        let dep_id = ctx_step_id_opt
+            .clone()
+            .unwrap_or_else(|| search_step_id.clone());
         let params = match &ctx_step_id_opt {
             Some(ctx_id) => serde_json::json!({
                 "from_step": ctx_id,
@@ -314,7 +380,8 @@ fn build_research_steps(
             id: impact_step_id.clone(),
             order,
             tool: "get_impact_analysis".to_string(),
-            description: "Analyze blast radius and dependency impact of the target symbol".to_string(),
+            description: "Analyze blast radius and dependency impact of the target symbol"
+                .to_string(),
             params: serde_json::json!({
                 "direction": "both",
                 "max_depth": 3
@@ -327,7 +394,10 @@ fn build_research_steps(
     }
 
     // Step 5: If architecture/flow query, add a Cypher exploration step
-    if analysis.suggested_tools.contains(&"execute_cypher".to_string()) {
+    if analysis
+        .suggested_tools
+        .contains(&"execute_cypher".to_string())
+    {
         let cypher_step_id = format!("{}-cypher", plan_id);
         let cypher_query = build_cypher_for_question(question, analysis, graph);
 
@@ -410,8 +480,7 @@ pub async fn chat_pick_files(
     // The previous implementation re-scanned the full node list for each
     // matching file, producing O(files × nodes) work — a latency spike on
     // large repositories.
-    let mut symbol_counts: std::collections::HashMap<&str, u32> =
-        std::collections::HashMap::new();
+    let mut symbol_counts: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
     for node in graph.iter_nodes() {
         if matches!(
             node.label,
@@ -446,7 +515,10 @@ pub async fn chat_pick_files(
             .and_then(|n| n.to_str())
             .unwrap_or(fp);
 
-        if query.is_empty() || fp_lower.contains(&query_lower) || name.to_lowercase().contains(&query_lower) {
+        if query.is_empty()
+            || fp_lower.contains(&query_lower)
+            || name.to_lowercase().contains(&query_lower)
+        {
             let symbol_count = symbol_counts.get(fp.as_str()).copied().unwrap_or(0);
 
             // Detect language from extension
@@ -468,7 +540,8 @@ pub async fn chat_pick_files(
     results.sort_by(|a, b| {
         let a_exact = a.name.to_lowercase() == query_lower;
         let b_exact = b.name.to_lowercase() == query_lower;
-        b_exact.cmp(&a_exact)
+        b_exact
+            .cmp(&a_exact)
             .then_with(|| b.symbol_count.cmp(&a.symbol_count))
     });
 
@@ -570,7 +643,10 @@ pub async fn chat_pick_modules(
         if node.label != NodeLabel::Community {
             continue;
         }
-        let name = node.properties.heuristic_label.clone()
+        let name = node
+            .properties
+            .heuristic_label
+            .clone()
             .unwrap_or_else(|| node.properties.name.clone());
 
         if !query.is_empty() && !name.to_lowercase().contains(&query_lower) {
@@ -578,7 +654,8 @@ pub async fn chat_pick_modules(
         }
 
         // Count members
-        let member_count = graph.iter_relationships()
+        let member_count = graph
+            .iter_relationships()
             .filter(|r| r.rel_type == RelationshipType::MemberOf && r.target_id == node.id)
             .count() as u32;
 
@@ -600,23 +677,22 @@ pub async fn chat_pick_modules(
 /// Extract meaningful keywords from a question.
 fn extract_keywords(question: &str) -> Vec<String> {
     let stop_words: std::collections::HashSet<&str> = [
-        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "shall",
-        "should", "may", "might", "must", "can", "could", "to", "of", "in",
-        "for", "on", "with", "at", "by", "from", "as", "into", "through",
-        "during", "before", "after", "above", "below", "between", "out",
-        "this", "that", "these", "those", "it", "its", "my", "your", "his",
-        "her", "their", "our", "what", "which", "who", "whom", "where",
-        "when", "why", "how", "all", "each", "every", "both", "few",
-        "more", "most", "other", "some", "such", "no", "not", "only",
-        "and", "but", "or", "if", "about", "up", "there", "than", "very",
-        // French stop words
-        "le", "la", "les", "un", "une", "des", "du", "de", "et", "est",
-        "en", "que", "qui", "dans", "ce", "il", "ne", "sur", "se", "pas",
-        "plus", "par", "je", "avec", "tout", "faire", "son", "sont", "comme",
-        "mais", "ou", "nous", "vous", "aux", "été", "aussi", "peut",
-        "entre", "quoi", "quel", "quelle", "comment", "pourquoi",
-    ].iter().copied().collect();
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+        "do", "does", "did", "will", "would", "shall", "should", "may", "might", "must", "can",
+        "could", "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into",
+        "through", "during", "before", "after", "above", "below", "between", "out", "this", "that",
+        "these", "those", "it", "its", "my", "your", "his", "her", "their", "our", "what", "which",
+        "who", "whom", "where", "when", "why", "how", "all", "each", "every", "both", "few",
+        "more", "most", "other", "some", "such", "no", "not", "only", "and", "but", "or", "if",
+        "about", "up", "there", "than", "very", // French stop words
+        "le", "la", "les", "un", "une", "des", "du", "de", "et", "est", "en", "que", "qui", "dans",
+        "ce", "il", "ne", "sur", "se", "pas", "plus", "par", "je", "avec", "tout", "faire", "son",
+        "sont", "comme", "mais", "ou", "nous", "vous", "aux", "été", "aussi", "peut", "entre",
+        "quoi", "quel", "quelle", "comment", "pourquoi",
+    ]
+    .iter()
+    .copied()
+    .collect();
 
     question
         .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.')
@@ -626,19 +702,31 @@ fn extract_keywords(question: &str) -> Vec<String> {
 }
 
 fn is_code_symbol(label: &NodeLabel) -> bool {
-    matches!(label,
-        NodeLabel::Function | NodeLabel::Method | NodeLabel::Constructor |
-        NodeLabel::Class | NodeLabel::Struct | NodeLabel::Trait |
-        NodeLabel::Interface | NodeLabel::Enum | NodeLabel::TypeAlias |
-        NodeLabel::Variable | NodeLabel::Const
+    matches!(
+        label,
+        NodeLabel::Function
+            | NodeLabel::Method
+            | NodeLabel::Constructor
+            | NodeLabel::Class
+            | NodeLabel::Struct
+            | NodeLabel::Trait
+            | NodeLabel::Interface
+            | NodeLabel::Enum
+            | NodeLabel::TypeAlias
+            | NodeLabel::Variable
+            | NodeLabel::Const
     )
 }
 
-fn node_to_symbol_pick(node: &gitnexus_core::graph::types::GraphNode, graph: &KnowledgeGraph) -> SymbolQuickPick {
+fn node_to_symbol_pick(
+    node: &gitnexus_core::graph::types::GraphNode,
+    graph: &KnowledgeGraph,
+) -> SymbolQuickPick {
     // Try to find container (class/module containing this symbol)
     // Contains: source=parent, target=child → look for target_id == node.id
     // MemberOf: source=member, target=community → look for source_id == node.id
-    let container = graph.iter_relationships()
+    let container = graph
+        .iter_relationships()
         .find(|r| {
             (r.rel_type == RelationshipType::Contains && r.target_id == node.id)
                 || (r.rel_type == RelationshipType::MemberOf && r.source_id == node.id)
@@ -683,8 +771,11 @@ mod tests {
         // "comment sont" hits is_architecture AND "calculés" hits is_flow.
         // Either path lands the query on Complex via the architecture/flow
         // branch in the classifier.
-        assert_eq!(a.complexity, QueryComplexity::Complex,
-            "broad French 'how' question must not be Simple");
+        assert_eq!(
+            a.complexity,
+            QueryComplexity::Complex,
+            "broad French 'how' question must not be Simple"
+        );
         assert!(a.needs_cross_file, "flow/architecture queries span files");
     }
 
@@ -697,8 +788,11 @@ mod tests {
             "présente le processus de courrier de masse",
         ] {
             let a = analyze(q);
-            assert_eq!(a.complexity, QueryComplexity::Complex,
-                "query {q:?} should be Complex");
+            assert_eq!(
+                a.complexity,
+                QueryComplexity::Complex,
+                "query {q:?} should be Complex"
+            );
         }
     }
 

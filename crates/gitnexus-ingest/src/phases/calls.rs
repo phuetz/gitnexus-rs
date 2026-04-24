@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use once_cell::sync::Lazy;
-use regex::Regex;
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::resolution::context::ResolutionContext;
 use gitnexus_core::resolution::types::*;
 use gitnexus_core::symbol::SymbolTable;
+use once_cell::sync::Lazy;
+use regex::Regex;
 
 use crate::phases::parsing::ExtractedData;
 use crate::IngestError;
@@ -20,23 +20,20 @@ static FIELD_RE: Lazy<Regex> = Lazy::new(|| {
 
 // Pattern 2: Constructor DI params like "public Foo(ICourriersService courriersService)"
 static CLASS_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"(?:public|internal|private)?\s*(?:partial\s+)?class\s+(\w+)"
-    ).expect("CLASS_RE must compile")
+    Regex::new(r"(?:public|internal|private)?\s*(?:partial\s+)?class\s+(\w+)")
+        .expect("CLASS_RE must compile")
 });
 
 // Pattern 3: C# 'using' statement: using (var x = new CourriersService(...))
 static USING_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"using\s*\(\s*(?:var|[A-Z]\w+)\s+(\w+)\s*=\s*new\s+([A-Z]\w+)\s*\("
-    ).expect("USING_RE must compile")
+    Regex::new(r"using\s*\(\s*(?:var|[A-Z]\w+)\s+(\w+)\s*=\s*new\s+([A-Z]\w+)\s*\(")
+        .expect("USING_RE must compile")
 });
 
 // Pattern 4: Local variable instantiation: var x = new SomeService(...)
 static LOCAL_NEW_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"(?:var|[A-Z]\w+)\s+(\w+)\s*=\s*new\s+([A-Z]\w+)\s*[\(\{]"
-    ).expect("LOCAL_NEW_RE must compile")
+    Regex::new(r"(?:var|[A-Z]\w+)\s+(\w+)\s*=\s*new\s+([A-Z]\w+)\s*[\(\{]")
+        .expect("LOCAL_NEW_RE must compile")
 });
 
 /// Build a map of (file_path, field_name) → interface_type from constructor parameters.
@@ -68,10 +65,11 @@ fn build_field_type_map(
         // Extract constructor DI params (modern pattern)
         for cap in CLASS_RE.captures_iter(&file.content) {
             if let Some(class_name) = cap.get(1) {
-                let deps = gitnexus_lang::route_extractors::csharp::extract_constructor_dependencies(
-                    &file.content,
-                    class_name.as_str(),
-                );
+                let deps =
+                    gitnexus_lang::route_extractors::csharp::extract_constructor_dependencies(
+                        &file.content,
+                        class_name.as_str(),
+                    );
                 for (iface_type, param_name) in deps {
                     map.insert((fp.clone(), param_name.clone()), iface_type.clone());
                     map.insert((fp.clone(), format!("_{}", param_name)), iface_type.clone());
@@ -82,19 +80,29 @@ fn build_field_type_map(
         // Extract 'using' pattern: using (var svc = new CourriersService(...))
         for cap in USING_RE.captures_iter(&file.content) {
             if let (Some(var_name), Some(type_name)) = (cap.get(1), cap.get(2)) {
-                map.insert((fp.clone(), var_name.as_str().to_string()), type_name.as_str().to_string());
+                map.insert(
+                    (fp.clone(), var_name.as_str().to_string()),
+                    type_name.as_str().to_string(),
+                );
             }
         }
 
         // Extract local instantiation: var x = new SomeService(...)
         for cap in LOCAL_NEW_RE.captures_iter(&file.content) {
             if let (Some(var_name), Some(type_name)) = (cap.get(1), cap.get(2)) {
-                map.insert((fp.clone(), var_name.as_str().to_string()), type_name.as_str().to_string());
+                map.insert(
+                    (fp.clone(), var_name.as_str().to_string()),
+                    type_name.as_str().to_string(),
+                );
             }
         }
     }
 
-    tracing::debug!("Built field type map: {} entries from {} classes with DI", map.len(), class_count);
+    tracing::debug!(
+        "Built field type map: {} entries from {} classes with DI",
+        map.len(),
+        class_count
+    );
     map
 }
 
@@ -134,9 +142,22 @@ pub fn resolve_calls(
     let mut edge_count = 0;
 
     // Debug: count how many calls have receivers
-    let with_receiver = extracted.calls.iter().filter(|c| c.receiver_name.is_some()).count();
-    let cs_calls = extracted.calls.iter().filter(|c| c.file_path.ends_with(".cs")).count();
-    tracing::debug!("Calls: {} total, {} C#, {} with receiver", extracted.calls.len(), cs_calls, with_receiver);
+    let with_receiver = extracted
+        .calls
+        .iter()
+        .filter(|c| c.receiver_name.is_some())
+        .count();
+    let cs_calls = extracted
+        .calls
+        .iter()
+        .filter(|c| c.file_path.ends_with(".cs"))
+        .count();
+    tracing::debug!(
+        "Calls: {} total, {} C#, {} with receiver",
+        extracted.calls.len(),
+        cs_calls,
+        with_receiver
+    );
 
     for call in &extracted.calls {
         ctx.enable_cache(&call.file_path);
@@ -148,19 +169,25 @@ pub fn resolve_calls(
         if call.file_path.ends_with(".cs") {
             if let Some(ref receiver) = call.receiver_name {
                 // Look up the specific receiver's type from the field map
-                if let Some(svc_type) = field_type_map.get(&(call.file_path.clone(), receiver.clone())) {
+                if let Some(svc_type) =
+                    field_type_map.get(&(call.file_path.clone(), receiver.clone()))
+                {
                     if let Some(candidates) = symbol_table.lookup_global(&call.called_name) {
                         let impl_name = svc_type.strip_prefix('I').unwrap_or(svc_type);
                         let target = candidates.iter().find(|def| {
-                            (def.symbol_type == NodeLabel::Method || def.symbol_type == NodeLabel::Function)
+                            (def.symbol_type == NodeLabel::Method
+                                || def.symbol_type == NodeLabel::Function)
                                 && (def.file_path.contains(impl_name)
-                                    || def.owner_id.as_deref()
+                                    || def
+                                        .owner_id
+                                        .as_deref()
                                         .map(|o| o.contains(impl_name))
                                         .unwrap_or(false))
                         });
 
                         if let Some(target_def) = target {
-                            let edge_id = format!("calls_di_{}_{}", call.source_id, target_def.node_id);
+                            let edge_id =
+                                format!("calls_di_{}_{}", call.source_id, target_def.node_id);
                             if graph.get_relationship(&edge_id).is_none() {
                                 graph.add_relationship(GraphRelationship {
                                     id: edge_id,
@@ -196,11 +223,18 @@ pub fn resolve_calls(
                     if !class_files.is_empty() {
                         if let Some(method_defs) = symbol_table.lookup_global(&call.called_name) {
                             let target = method_defs.iter().find(|d| {
-                                matches!(d.symbol_type, NodeLabel::Method | NodeLabel::Function | NodeLabel::Constructor)
-                                    && class_files.contains(&d.file_path.as_str())
+                                matches!(
+                                    d.symbol_type,
+                                    NodeLabel::Method
+                                        | NodeLabel::Function
+                                        | NodeLabel::Constructor
+                                ) && class_files.contains(&d.file_path.as_str())
                             });
                             if let Some(target_def) = target {
-                                let edge_id = format!("calls_static_{}_{}", call.source_id, target_def.node_id);
+                                let edge_id = format!(
+                                    "calls_static_{}_{}",
+                                    call.source_id, target_def.node_id
+                                );
                                 if graph.get_relationship(&edge_id).is_none() {
                                     graph.add_relationship(GraphRelationship {
                                         id: edge_id,
@@ -208,7 +242,10 @@ pub fn resolve_calls(
                                         target_id: target_def.node_id.clone(),
                                         rel_type: RelationshipType::Calls,
                                         confidence: 0.80,
-                                        reason: format!("static-call:{}::{}", receiver, call.called_name),
+                                        reason: format!(
+                                            "static-call:{}::{}",
+                                            receiver, call.called_name
+                                        ),
                                         step: None,
                                     });
                                     edge_count += 1;
@@ -262,6 +299,10 @@ pub fn resolve_calls(
         }
     }
 
-    tracing::info!("Resolved {} call edges ({} via DI receiver)", edge_count, receiver_resolved);
+    tracing::info!(
+        "Resolved {} call edges ({} via DI receiver)",
+        edge_count,
+        receiver_resolved
+    );
     Ok(())
 }

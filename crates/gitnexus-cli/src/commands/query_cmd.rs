@@ -11,7 +11,9 @@ pub async fn run(query: &str, repo: Option<&str>, limit: usize) -> anyhow::Resul
     let snap = gitnexus_db::snapshot::snapshot_path(&storage.storage_path);
 
     if !snap.exists() {
-        return Err(anyhow::anyhow!("No graph snapshot found. Run 'gitnexus analyze' first."));
+        return Err(anyhow::anyhow!(
+            "No graph snapshot found. Run 'gitnexus analyze' first."
+        ));
     }
 
     let graph = gitnexus_db::snapshot::load_snapshot(&snap)?;
@@ -34,13 +36,7 @@ pub async fn run(query: &str, repo: Option<&str>, limit: usize) -> anyhow::Resul
             (Some(s), None) => format!("{}:{}", r.file_path, s),
             _ => r.file_path.clone(),
         };
-        println!(
-            "  {:>3}. [{:<10}] {:<30}  {}",
-            i + 1,
-            r.label,
-            r.name,
-            loc
-        );
+        println!("  {:>3}. [{:<10}] {:<30}  {}", i + 1, r.label, r.name, loc);
     }
 
     Ok(())

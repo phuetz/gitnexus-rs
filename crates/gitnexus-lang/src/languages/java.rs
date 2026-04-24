@@ -3,7 +3,7 @@ use gitnexus_core::config::languages::SupportedLanguage;
 use crate::export_detection;
 use crate::import_resolvers::jvm;
 use crate::import_resolvers::types::{ImportResult, ResolveCtx};
-use crate::named_bindings::{types::NamedBinding, java as java_bindings};
+use crate::named_bindings::{java as java_bindings, types::NamedBinding};
 use crate::provider::{ImportSemantics, LanguageProvider, MroStrategy};
 use crate::queries;
 
@@ -31,7 +31,12 @@ impl LanguageProvider for JavaProvider {
         export_detection::check_java_export(node_text, node_type, ancestors)
     }
 
-    fn resolve_import<'a>(&self, raw_path: &str, file_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult {
+    fn resolve_import<'a>(
+        &self,
+        raw_path: &str,
+        file_path: &str,
+        ctx: &ResolveCtx<'a>,
+    ) -> ImportResult {
         jvm::resolve_java(raw_path, file_path, ctx)
     }
 

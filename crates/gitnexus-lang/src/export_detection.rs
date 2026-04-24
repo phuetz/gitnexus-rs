@@ -125,8 +125,7 @@ pub fn check_php_export(node_text: &str, node_type: &str, _ancestors: &[&str]) -
         return true;
     }
     // If neither private nor protected is present, PHP defaults to public
-    !node_text_has_modifier(node_text, "private")
-        && !node_text_has_modifier(node_text, "protected")
+    !node_text_has_modifier(node_text, "private") && !node_text_has_modifier(node_text, "protected")
 }
 
 // ── Ruby ─────────────────────────────────────────────────────────────────────
@@ -178,8 +177,7 @@ fn node_text_has_modifier(node_text: &str, modifier: &str) -> bool {
     while i + mod_len <= bytes.len() {
         if &bytes[i..i + mod_len] == mod_bytes {
             // Check left boundary: start of string or non-alphanumeric
-            let left_ok =
-                i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
+            let left_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
             // Check right boundary: end of string or non-alphanumeric
             let right_ok = i + mod_len == bytes.len()
                 || !bytes[i + mod_len].is_ascii_alphanumeric() && bytes[i + mod_len] != b'_';
@@ -200,7 +198,11 @@ mod tests {
 
     #[test]
     fn test_ts_export_keyword() {
-        assert!(check_ts_export("export function foo() {}", "function_declaration", &[]));
+        assert!(check_ts_export(
+            "export function foo() {}",
+            "function_declaration",
+            &[]
+        ));
     }
 
     #[test]
@@ -214,7 +216,11 @@ mod tests {
 
     #[test]
     fn test_ts_not_exported() {
-        assert!(!check_ts_export("function foo() {}", "function_declaration", &[]));
+        assert!(!check_ts_export(
+            "function foo() {}",
+            "function_declaration",
+            &[]
+        ));
     }
 
     #[test]
@@ -247,13 +253,21 @@ mod tests {
     #[test]
     fn test_rust_pub() {
         assert!(check_rust_export("pub fn foo() {}", "function_item", &[]));
-        assert!(check_rust_export("pub(crate) fn foo() {}", "function_item", &[]));
+        assert!(check_rust_export(
+            "pub(crate) fn foo() {}",
+            "function_item",
+            &[]
+        ));
         assert!(!check_rust_export("fn foo() {}", "function_item", &[]));
     }
 
     #[test]
     fn test_c_cpp_static() {
-        assert!(check_c_cpp_export("int foo() {}", "function_definition", &[]));
+        assert!(check_c_cpp_export(
+            "int foo() {}",
+            "function_definition",
+            &[]
+        ));
         assert!(!check_c_cpp_export(
             "static int foo() {}",
             "function_definition",
@@ -263,7 +277,11 @@ mod tests {
 
     #[test]
     fn test_csharp_public_internal() {
-        assert!(check_csharp_export("public class Foo {}", "class_declaration", &[]));
+        assert!(check_csharp_export(
+            "public class Foo {}",
+            "class_declaration",
+            &[]
+        ));
         assert!(check_csharp_export(
             "internal class Foo {}",
             "class_declaration",
@@ -278,7 +296,11 @@ mod tests {
 
     #[test]
     fn test_kotlin_default_public() {
-        assert!(check_kotlin_export("fun foo() {}", "function_declaration", &[]));
+        assert!(check_kotlin_export(
+            "fun foo() {}",
+            "function_declaration",
+            &[]
+        ));
         assert!(!check_kotlin_export(
             "private fun foo() {}",
             "function_declaration",
@@ -293,8 +315,16 @@ mod tests {
 
     #[test]
     fn test_swift_private_fileprivate() {
-        assert!(check_swift_export("func foo() {}", "function_declaration", &[]));
-        assert!(check_swift_export("public func foo() {}", "function_declaration", &[]));
+        assert!(check_swift_export(
+            "func foo() {}",
+            "function_declaration",
+            &[]
+        ));
+        assert!(check_swift_export(
+            "public func foo() {}",
+            "function_declaration",
+            &[]
+        ));
         assert!(!check_swift_export(
             "private func foo() {}",
             "function_declaration",

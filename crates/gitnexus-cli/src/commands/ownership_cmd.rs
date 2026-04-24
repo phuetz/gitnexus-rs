@@ -15,17 +15,13 @@ pub fn run(path: Option<&str>, json: bool) -> anyhow::Result<()> {
         None => std::env::current_dir()?,
     };
 
-    let ownerships = analyze_ownership(&repo_path)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let ownerships = analyze_ownership(&repo_path).map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if ownerships.is_empty() {
         if json {
             println!("[]");
         } else {
-            eprintln!(
-                "{} No ownership data found.",
-                "Info:".cyan().bold(),
-            );
+            eprintln!("{} No ownership data found.", "Info:".cyan().bold(),);
         }
         return Ok(());
     }

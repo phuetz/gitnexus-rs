@@ -74,9 +74,7 @@ struct FileContentCache {
 impl FileContentCache {
     fn new() -> Self {
         Self {
-            cache: LruCache::new(
-                std::num::NonZeroUsize::new(FILE_CACHE_CAPACITY).unwrap(),
-            ),
+            cache: LruCache::new(std::num::NonZeroUsize::new(FILE_CACHE_CAPACITY).unwrap()),
         }
     }
 
@@ -91,9 +89,7 @@ impl FileContentCache {
                 if is_binary_content(&bytes) {
                     None
                 } else {
-                    String::from_utf8(bytes)
-                        .ok()
-                        .map(|s| sanitize_utf8(&s))
+                    String::from_utf8(bytes).ok().map(|s| sanitize_utf8(&s))
                 }
             }
             Err(_) => None,
@@ -298,10 +294,7 @@ pub fn generate_node_csvs(
 }
 
 /// Generate the CodeRelation CSV from graph relationships.
-pub fn generate_relation_csv(
-    graph: &KnowledgeGraph,
-    output_dir: &Path,
-) -> Result<PathBuf> {
+pub fn generate_relation_csv(graph: &KnowledgeGraph, output_dir: &Path) -> Result<PathBuf> {
     let csv_path = output_dir.join("CodeRelation.csv");
     let file = std::fs::File::create(&csv_path).map_err(|e| DbError::CsvError {
         table: "CodeRelation".into(),

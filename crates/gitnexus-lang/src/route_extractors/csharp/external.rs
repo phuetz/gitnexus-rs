@@ -6,19 +6,16 @@ use regex::Regex;
 use super::types::ExternalServiceCall;
 
 /// new XxxClient(httpClient) -- WebAPI client instantiation
-static RE_WEBAPI_CLIENT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"new\s+(\w+Client)\s*\("#).expect("regex")
-});
+static RE_WEBAPI_CLIENT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"new\s+(\w+Client)\s*\("#).expect("regex"));
 
 /// client.XxxAsync(...).GetAwaiter -- async WebAPI method call with GetAwaiter pattern
-static RE_CLIENT_METHOD_GETAWAITER: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(\w+)\.\s*(\w+Async)\s*\([^)]*\)\s*\.GetAwaiter"#).expect("regex")
-});
+static RE_CLIENT_METHOD_GETAWAITER: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(\w+)\.\s*(\w+Async)\s*\([^)]*\)\s*\.GetAwaiter"#).expect("regex"));
 
 /// WCF service reference calls: new XxxSvc() or new XxxService() or new XxxWS()
-static RE_WCF_CALL: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"new\s+(\w+(?:Svc|WS))\s*\("#).expect("regex")
-});
+static RE_WCF_CALL: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"new\s+(\w+(?:Svc|WS))\s*\("#).expect("regex"));
 
 /// Detect external service calls (WebAPI auto-generated clients, WCF service references)
 /// from C# source code.
@@ -31,7 +28,10 @@ pub fn extract_external_service_calls(source: &str) -> Vec<ExternalServiceCall> 
 
         // --- WebAPI client instantiation: new CMCASClient(httpClient) ---
         for cap in RE_WEBAPI_CLIENT.captures_iter(line) {
-            let client_class = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let client_class = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             // Skip generic "HttpClient" -- that's the transport, not an API client
             if client_class == "HttpClient" || client_class == "WebClient" {
                 continue;
@@ -50,7 +50,10 @@ pub fn extract_external_service_calls(source: &str) -> Vec<ExternalServiceCall> 
         // --- Async method call with GetAwaiter: variable.XxxAsync(...).GetAwaiter ---
         for cap in RE_CLIENT_METHOD_GETAWAITER.captures_iter(line) {
             let _variable = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
-            let method_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let method_name = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             // Try to find the client class from the variable name by looking backwards
             // (or infer from the method name pattern)
             let key = format!("WebAPI_call:{}:{}", method_name, line_number);
@@ -82,7 +85,10 @@ pub fn extract_external_service_calls(source: &str) -> Vec<ExternalServiceCall> 
 
         // --- WCF service calls: new BarnabeSvc(), new ExploitationWS() ---
         for cap in RE_WCF_CALL.captures_iter(line) {
-            let client_class = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let client_class = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let key = format!("WCF:{}:{}", client_class, line_number);
             if seen.insert(key) {
                 results.push(ExternalServiceCall {
@@ -111,7 +117,11 @@ var foyerClient = new FoyerClient(httpClient);
 var foyer = foyerClient.MembresduFoyerGetAsync(nia).GetAwaiter().GetResult();
 "#;
         let calls = extract_external_service_calls(source);
-        assert!(calls.len() >= 2, "Expected at least 2 external service calls, got {}", calls.len());
+        assert!(
+            calls.len() >= 2,
+            "Expected at least 2 external service calls, got {}",
+            calls.len()
+        );
         assert!(calls.iter().any(|c| c.client_class == "CMCASClient"));
         assert!(calls.iter().any(|c| c.client_class == "FoyerClient"));
     }
@@ -124,8 +134,12 @@ var ws = new ExploitationWS();
 "#;
         let calls = extract_external_service_calls(source);
         assert_eq!(calls.len(), 2);
-        assert!(calls.iter().any(|c| c.client_class == "BarnabeSvc" && c.service_type == "WCF"));
-        assert!(calls.iter().any(|c| c.client_class == "ExploitationWS" && c.service_type == "WCF"));
+        assert!(calls
+            .iter()
+            .any(|c| c.client_class == "BarnabeSvc" && c.service_type == "WCF"));
+        assert!(calls
+            .iter()
+            .any(|c| c.client_class == "ExploitationWS" && c.service_type == "WCF"));
     }
 
     #[test]

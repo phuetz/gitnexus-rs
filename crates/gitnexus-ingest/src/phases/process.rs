@@ -68,7 +68,11 @@ pub fn detect_processes(graph: &mut KnowledgeGraph) -> Result<usize, crate::Inge
     // Find and score entry points
     let mut entry_points = find_entry_points(graph, &func_callees, &func_callers);
     tracing::debug!("Found {} entry point candidates", entry_points.len());
-    entry_points.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    entry_points.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     entry_points.truncate(200);
 
     // Trace processes from each entry point using the function-level graph
@@ -156,10 +160,7 @@ pub fn detect_processes(graph: &mut KnowledgeGraph) -> Result<usize, crate::Inge
 /// Adjacency lists for CALLS edges.
 fn build_call_adjacency(
     graph: &KnowledgeGraph,
-) -> (
-    HashMap<String, Vec<String>>,
-    HashMap<String, Vec<String>>,
-) {
+) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<String>>) {
     let mut callees_of: HashMap<String, Vec<String>> = HashMap::new();
     let mut callers_of: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -204,7 +205,10 @@ fn build_function_call_graph(
                 .filter(|r| r.rel_type == RelationshipType::Defines && r.source_id == *source_id)
                 .filter(|r| {
                     graph.get_node(&r.target_id).is_some_and(|n| {
-                        matches!(n.label, NodeLabel::Function | NodeLabel::Method | NodeLabel::Constructor)
+                        matches!(
+                            n.label,
+                            NodeLabel::Function | NodeLabel::Method | NodeLabel::Constructor
+                        )
                     })
                 })
                 .map(|r| r.target_id.clone())
@@ -213,11 +217,20 @@ fn build_function_call_graph(
             for func_id in &file_functions {
                 for target in targets {
                     let is_func_target = graph.get_node(target).is_some_and(|n| {
-                        matches!(n.label, NodeLabel::Function | NodeLabel::Method | NodeLabel::Constructor)
+                        matches!(
+                            n.label,
+                            NodeLabel::Function | NodeLabel::Method | NodeLabel::Constructor
+                        )
                     });
                     if is_func_target && func_id != target {
-                        func_callees.entry(func_id.clone()).or_default().push(target.clone());
-                        func_callers.entry(target.clone()).or_default().push(func_id.clone());
+                        func_callees
+                            .entry(func_id.clone())
+                            .or_default()
+                            .push(target.clone());
+                        func_callers
+                            .entry(target.clone())
+                            .or_default()
+                            .push(func_id.clone());
                     }
                 }
             }
@@ -225,8 +238,14 @@ fn build_function_call_graph(
             // Direct Function→Function
             for target in targets {
                 if source_id != target {
-                    func_callees.entry(source_id.clone()).or_default().push(target.clone());
-                    func_callers.entry(target.clone()).or_default().push(source_id.clone());
+                    func_callees
+                        .entry(source_id.clone())
+                        .or_default()
+                        .push(target.clone());
+                    func_callers
+                        .entry(target.clone())
+                        .or_default()
+                        .push(source_id.clone());
                 }
             }
         }
@@ -318,10 +337,7 @@ struct ProcessTrace {
 }
 
 /// BFS trace from an entry point, respecting depth and branching limits.
-fn bfs_trace(
-    start_id: &str,
-    callees_of: &HashMap<String, Vec<String>>,
-) -> Vec<ProcessTrace> {
+fn bfs_trace(start_id: &str, callees_of: &HashMap<String, Vec<String>>) -> Vec<ProcessTrace> {
     /// Hard cap on total traces per BFS to bound exponential blowup. Replaces
     /// the previous edge-dedup which silently dropped valid paths whenever a
     /// directed edge was reused in a different prefix within the same BFS.
@@ -426,10 +442,7 @@ fn deduplicate_traces(mut traces: Vec<ProcessTrace>) -> Vec<ProcessTrace> {
         // Check if this trace is a subset of an already-kept trace
         let is_subset = kept.iter().any(|existing| {
             trace.steps.len() < existing.steps.len()
-                && trace
-                    .steps
-                    .iter()
-                    .all(|step| existing.steps.contains(step))
+                && trace.steps.iter().all(|step| existing.steps.contains(step))
         });
 
         // Only mark the pair as "seen" when we actually kept a trace for it.
@@ -664,7 +677,11 @@ mod tests {
         // Should produce a trace without repeating nodes
         for trace in &traces {
             let unique: HashSet<&String> = trace.steps.iter().collect();
-            assert_eq!(unique.len(), trace.steps.len(), "Trace should not contain cycles");
+            assert_eq!(
+                unique.len(),
+                trace.steps.len(),
+                "Trace should not contain cycles"
+            );
         }
     }
 }

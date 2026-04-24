@@ -48,8 +48,8 @@ fn resolve_rb(path: &str, ctx: &ResolveCtx<'_>) -> ImportResult {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{ImportConfigs, SuffixIndex};
+    use super::*;
     use std::collections::HashSet;
 
     fn make_ctx<'a>(

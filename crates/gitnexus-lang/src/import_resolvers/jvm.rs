@@ -26,9 +26,7 @@ fn resolve_jvm(raw_path: &str, ctx: &ResolveCtx<'_>, primary_ext: &str) -> Impor
     }
 
     // Strip `static ` prefix for static imports
-    let path = cleaned
-        .strip_prefix("static ")
-        .unwrap_or(&cleaned);
+    let path = cleaned.strip_prefix("static ").unwrap_or(&cleaned);
 
     // Strip Kotlin alias: `com.example.User as U` -> `com.example.User`
     let path = if let Some(pos) = path.find(" as ") {
@@ -81,8 +79,8 @@ fn resolve_jvm(raw_path: &str, ctx: &ResolveCtx<'_>, primary_ext: &str) -> Impor
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{ImportConfigs, SuffixIndex};
+    use super::*;
     use std::collections::HashSet;
 
     fn make_ctx<'a>(

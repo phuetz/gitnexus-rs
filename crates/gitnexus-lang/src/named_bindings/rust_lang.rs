@@ -64,7 +64,11 @@ pub fn extract(import_text: &str) -> Option<Vec<NamedBinding>> {
                     bindings.push(NamedBinding::new(part, part));
                 }
             }
-            return if bindings.is_empty() { None } else { Some(bindings) };
+            return if bindings.is_empty() {
+                None
+            } else {
+                Some(bindings)
+            };
         }
     }
 

@@ -8,39 +8,31 @@ use super::types::AjaxCallInfo;
 // ─── Compiled regexes for AJAX patterns ─────────────────────────────────
 
 /// $.ajax({...type: "POST"...url: '/Controller/Action'...}) or similar
-static RE_AJAX_CALL: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\$\.\s*ajax\s*\("#).unwrap()
-});
+static RE_AJAX_CALL: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\$\.\s*ajax\s*\("#).unwrap());
 
 /// type/method inside $.ajax options: type: "POST" or method: "GET"
-static RE_AJAX_TYPE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?:type|method)\s*:\s*["'](\w+)["']"#).unwrap()
-});
+static RE_AJAX_TYPE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?:type|method)\s*:\s*["'](\w+)["']"#).unwrap());
 
 /// url inside $.ajax options: url: '/Controller/Action' or url: "/Controller/Action"
-static RE_AJAX_URL: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"url\s*:\s*["']([^"']+)["']"#).unwrap()
-});
+static RE_AJAX_URL: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"url\s*:\s*["']([^"']+)["']"#).unwrap());
 
 /// $.post('/Controller/Action', ...)
-static RE_JQUERY_POST: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\$\.\s*post\s*\(\s*["']([^"']+)["']"#).unwrap()
-});
+static RE_JQUERY_POST: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"\$\.\s*post\s*\(\s*["']([^"']+)["']"#).unwrap());
 
 /// $.get('/Controller/Action', ...)
-static RE_JQUERY_GET: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\$\.\s*get\s*\(\s*["']([^"']+)["']"#).unwrap()
-});
+static RE_JQUERY_GET: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"\$\.\s*get\s*\(\s*["']([^"']+)["']"#).unwrap());
 
 /// @Url.Action("Action", "Controller")
-static RE_URL_ACTION: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"@?Url\.Action\s*\(\s*"(\w+)"\s*,\s*"(\w+)""#).unwrap()
-});
+static RE_URL_ACTION: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"@?Url\.Action\s*\(\s*"(\w+)"\s*,\s*"(\w+)""#).unwrap());
 
 /// fetch('/Controller/Action') or fetch("/Controller/Action")
-static RE_FETCH: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"fetch\s*\(\s*["']([^"']+)["']"#).unwrap()
-});
+static RE_FETCH: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"fetch\s*\(\s*["']([^"']+)["']"#).unwrap());
 
 /// $.getJSON('/Controller/Action', ...)
 static RE_GETJSON: Lazy<Regex> = Lazy::new(|| {

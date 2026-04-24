@@ -148,7 +148,12 @@ fn parse_single_file(file: &FileEntry, lang: SupportedLanguage) -> FileParsed {
     let query = match Query::new(&ts_language, query_str) {
         Ok(q) => q,
         Err(e) => {
-            warn!("Query compilation failed for {} ({}): {}", file.path, lang.as_str(), e);
+            warn!(
+                "Query compilation failed for {} ({}): {}",
+                file.path,
+                lang.as_str(),
+                e
+            );
             return FileParsed {
                 nodes: Vec::new(),
                 relationships: Vec::new(),
@@ -180,7 +185,9 @@ fn parse_single_file(file: &FileEntry, lang: SupportedLanguage) -> FileParsed {
         let mut captures: HashMap<&str, (&str, tree_sitter::Node)> = HashMap::new();
         let mut multi_captures: HashMap<&str, Vec<&str>> = HashMap::new();
         for capture in m.captures {
-            let Some(name) = capture_names.get(capture.index as usize) else { continue };
+            let Some(name) = capture_names.get(capture.index as usize) else {
+                continue;
+            };
             if let Ok(text) = capture.node.utf8_text(content_bytes) {
                 captures.insert(name, (text, capture.node));
                 multi_captures.entry(name).or_default().push(text);
@@ -374,7 +381,9 @@ fn process_razor_extras(
                                 HashMap::new();
                             let mut multi_captures: HashMap<&str, Vec<&str>> = HashMap::new();
                             for capture in m.captures {
-                                let Some(name) = capture_names.get(capture.index as usize) else { continue };
+                                let Some(name) = capture_names.get(capture.index as usize) else {
+                                    continue;
+                                };
                                 if let Ok(text) = capture.node.utf8_text(content_bytes) {
                                     captures.insert(name, (text, capture.node));
                                     multi_captures.entry(name).or_default().push(text);
@@ -908,8 +917,10 @@ fn process_match(
         );
     }
     // --- Imports ---
-    else if captures.contains_key("import") || captures.contains_key("import.source")
-        || captures.contains_key("import.path") || captures.contains_key("import.name")
+    else if captures.contains_key("import")
+        || captures.contains_key("import.source")
+        || captures.contains_key("import.path")
+        || captures.contains_key("import.name")
     {
         extract_import(captures, file, lang, extracted);
     }
@@ -922,9 +933,12 @@ fn process_match(
         extract_new_call(captures, file, file_node_id, extracted);
     }
     // --- Heritage ---
-    else if captures.contains_key("heritage.extends") || captures.contains_key("heritage.implements")
-        || captures.contains_key("heritage.trait") || captures.contains_key("heritage.embeds")
-        || captures.contains_key("heritage.conforms") || captures.contains_key("heritage.protocol")
+    else if captures.contains_key("heritage.extends")
+        || captures.contains_key("heritage.implements")
+        || captures.contains_key("heritage.trait")
+        || captures.contains_key("heritage.embeds")
+        || captures.contains_key("heritage.conforms")
+        || captures.contains_key("heritage.protocol")
         || captures.contains_key("heritage.uses_trait")
     {
         extract_heritage(captures, multi_captures, file, extracted);
@@ -991,7 +1005,10 @@ fn create_definition_node(
         .unwrap_or(start_line);
 
     // Compute cyclomatic complexity for callable nodes
-    let complexity = if matches!(label, NodeLabel::Method | NodeLabel::Function | NodeLabel::Constructor) {
+    let complexity = if matches!(
+        label,
+        NodeLabel::Method | NodeLabel::Function | NodeLabel::Constructor
+    ) {
         // Walk up to the definition node (parent of the name node) to get the full body
         let def_node = node.parent().unwrap_or(*node);
         Some(compute_complexity(def_node, file.content.as_bytes()))
@@ -1017,8 +1034,13 @@ fn create_definition_node(
     nodes.push(graph_node);
 
     // Create nesting edges: Class -> Method/Property/Constructor
-    if matches!(label, NodeLabel::Method | NodeLabel::Property | NodeLabel::Constructor) {
-        if let Some(class_node_id) = find_enclosing_class_id(node, &file.path, file.content.as_bytes()) {
+    if matches!(
+        label,
+        NodeLabel::Method | NodeLabel::Property | NodeLabel::Constructor
+    ) {
+        if let Some(class_node_id) =
+            find_enclosing_class_id(node, &file.path, file.content.as_bytes())
+        {
             let rel_type = if label == NodeLabel::Property {
                 RelationshipType::HasProperty
             } else {
@@ -1063,19 +1085,18 @@ fn compute_complexity(node: tree_sitter::Node, content: &[u8]) -> u32 {
 }
 
 /// Recursively walk the AST via TreeCursor counting decision points.
-fn walk_tree_for_complexity(
-    cursor: &mut tree_sitter::TreeCursor,
-    content: &[u8],
-    cc: &mut u32,
-) {
+fn walk_tree_for_complexity(cursor: &mut tree_sitter::TreeCursor, content: &[u8], cc: &mut u32) {
     let kind = cursor.node().kind();
     match kind {
         // Branching
         "if_statement" | "if_expression" => *cc += 1,
 
         // Loops
-        "for_statement" | "for_expression" | "foreach_statement"
-        | "for_in_statement" | "for_each_statement"
+        "for_statement"
+        | "for_expression"
+        | "foreach_statement"
+        | "for_in_statement"
+        | "for_each_statement"
         | "enhanced_for_statement" => *cc += 1,
 
         "while_statement" | "while_expression" => *cc += 1,
@@ -1359,10 +1380,15 @@ fn extract_call(
         if let Some((call_name, _)) = captures.get("call.name") {
             // Original capture pattern - determine form from context
             // If there's a receiver/object capture, it's a member call
-            let receiver = captures.get("call.object")
+            let receiver = captures
+                .get("call.object")
                 .or_else(|| captures.get("assignment.receiver"))
                 .map(|(t, _)| t.to_string());
-            let form = if receiver.is_some() { CallForm::Member } else { CallForm::Free };
+            let form = if receiver.is_some() {
+                CallForm::Member
+            } else {
+                CallForm::Free
+            };
             (call_name.to_string(), form, receiver)
         } else if let Some((method_name, _)) = captures.get("call.method") {
             let receiver = captures.get("call.object").map(|(t, _)| t.to_string());
@@ -1387,7 +1413,10 @@ fn extract_call(
     if let Some(routed) = provider.route_call(&called_name, call_text) {
         use gitnexus_lang::call_routing::CallRoutingResult;
         match routed {
-            CallRoutingResult::Import { import_path, is_relative } => {
+            CallRoutingResult::Import {
+                import_path,
+                is_relative,
+            } => {
                 // The Ruby resolver treats a path as relative only if it
                 // starts with `./` or `../`. `require_relative 'models/user'`
                 // (without the dot prefix) is also relative in Ruby — anchor
@@ -1418,7 +1447,9 @@ fn extract_call(
     }
 
     // Count args
-    let arg_count = captures.get("call.args").map(|(text, _)| count_parameters(text));
+    let arg_count = captures
+        .get("call.args")
+        .map(|(text, _)| count_parameters(text));
 
     // Resolve enclosing method as call source (fallback to file node)
     let source_id = captures
@@ -1451,12 +1482,16 @@ fn extract_new_call(
         .map(|(text, _)| text.to_string());
 
     if let Some(name) = constructor_name {
-        let arg_count = captures.get("new.args").map(|(text, _)| count_parameters(text));
+        let arg_count = captures
+            .get("new.args")
+            .map(|(text, _)| count_parameters(text));
 
         let source_id = captures
             .get("new.constructor")
             .or_else(|| captures.get("new.type"))
-            .and_then(|(_, node)| find_enclosing_method_id(node, &file.path, file.content.as_bytes()))
+            .and_then(|(_, node)| {
+                find_enclosing_method_id(node, &file.path, file.content.as_bytes())
+            })
             .unwrap_or_else(|| file_node_id.to_string());
 
         extracted.calls.push(ExtractedCall {
@@ -1488,7 +1523,9 @@ fn extract_heritage(
 
     let push_all = |key: &str, kind: &str, extracted: &mut ExtractedData| {
         let Some(ref cls) = class_name else { return };
-        let Some(items) = multi_captures.get(key) else { return };
+        let Some(items) = multi_captures.get(key) else {
+            return;
+        };
         for item in items {
             extracted.heritage.push(ExtractedHeritage {
                 file_path: file.path.clone(),
@@ -1544,10 +1581,7 @@ fn extract_assignment(
 ///
 /// This provides higher-confidence library detection than source-level patterns because
 /// .csproj files contain the definitive list of NuGet dependencies with exact versions.
-pub fn detect_csproj_components(
-    graph: &mut KnowledgeGraph,
-    repo_path: &std::path::Path,
-) {
+pub fn detect_csproj_components(graph: &mut KnowledgeGraph, repo_path: &std::path::Path) {
     use gitnexus_lang::component_detection::ComponentDetector;
     use ignore::WalkBuilder;
 
@@ -1602,10 +1636,7 @@ pub fn detect_csproj_components(
 
             // Add Library node if not present
             if graph.get_node(&lib_id).is_none() {
-                let mut desc = format!(
-                    "{} — {}",
-                    component.vendor, component.category
-                );
+                let mut desc = format!("{} — {}", component.vendor, component.category);
                 if let Some(ref ver) = component.detected_version {
                     desc.push_str(&format!(" (v{})", ver));
                 }
@@ -1638,38 +1669,36 @@ pub fn detect_csproj_components(
 
 /// Build symbol table from the current graph state.
 pub fn build_symbol_table(graph: &KnowledgeGraph, table: &mut SymbolTable) {
-    graph.for_each_node(|node| {
-        match node.label {
-            NodeLabel::Function
-            | NodeLabel::Method
-            | NodeLabel::Constructor
-            | NodeLabel::Class
-            | NodeLabel::Interface
-            | NodeLabel::Struct
-            | NodeLabel::Trait
-            | NodeLabel::Enum
-            | NodeLabel::Variable
-            | NodeLabel::Property
-            | NodeLabel::TypeAlias
-            | NodeLabel::Const
-            | NodeLabel::Static
-            | NodeLabel::Macro => {
-                let def = SymbolDefinition {
-                    node_id: node.id.clone(),
-                    file_path: node.properties.file_path.clone(),
-                    symbol_type: node.label,
-                    parameter_count: node.properties.parameter_count,
-                    required_parameter_count: None,
-                    parameter_types: None,
-                    return_type: node.properties.return_type.clone(),
-                    declared_type: None,
-                    owner_id: None,
-                    is_exported: node.properties.is_exported.unwrap_or(false),
-                };
-                table.add(node.properties.name.clone(), def);
-            }
-            _ => {}
+    graph.for_each_node(|node| match node.label {
+        NodeLabel::Function
+        | NodeLabel::Method
+        | NodeLabel::Constructor
+        | NodeLabel::Class
+        | NodeLabel::Interface
+        | NodeLabel::Struct
+        | NodeLabel::Trait
+        | NodeLabel::Enum
+        | NodeLabel::Variable
+        | NodeLabel::Property
+        | NodeLabel::TypeAlias
+        | NodeLabel::Const
+        | NodeLabel::Static
+        | NodeLabel::Macro => {
+            let def = SymbolDefinition {
+                node_id: node.id.clone(),
+                file_path: node.properties.file_path.clone(),
+                symbol_type: node.label,
+                parameter_count: node.properties.parameter_count,
+                required_parameter_count: None,
+                parameter_types: None,
+                return_type: node.properties.return_type.clone(),
+                declared_type: None,
+                owner_id: None,
+                is_exported: node.properties.is_exported.unwrap_or(false),
+            };
+            table.add(node.properties.name.clone(), def);
         }
+        _ => {}
     });
 
     // Populate owner_id from HasMethod / HasProperty edges so that

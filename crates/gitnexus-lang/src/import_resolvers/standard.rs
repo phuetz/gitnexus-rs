@@ -49,8 +49,8 @@ pub fn resolve(raw_path: &str, file_path: &str, ctx: &ResolveCtx<'_>) -> ImportR
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{ImportConfigs, SuffixIndex};
+    use super::*;
     use std::collections::{HashMap, HashSet};
 
     fn make_ctx<'a>(
@@ -88,9 +88,7 @@ mod tests {
 
     #[test]
     fn test_path_alias() {
-        let files = vec![
-            "src/components/Button.tsx".to_string(),
-        ];
+        let files = vec!["src/components/Button.tsx".to_string()];
         let index = SuffixIndex::build(&files, &files);
         let mut ts_paths = HashMap::new();
         ts_paths.insert("@/*".to_string(), vec!["src/*".to_string()]);

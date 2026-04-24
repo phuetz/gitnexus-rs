@@ -4,9 +4,9 @@
 //! No I/O, no mutation, no external state — easy to test, cheap to call from
 //! both MCP tools and Tauri commands.
 
-pub mod cycles;
 pub mod clones;
 pub mod complexity;
+pub mod cycles;
 pub mod graph_diff;
 
 pub use graph_diff::{diff_graphs, EdgeKey, GraphDiff, ModifiedNode};

@@ -37,12 +37,12 @@ pub fn process_heritage(
         ctx.enable_cache(&heritage.file_path);
 
         // Resolve the class
-        let class_id = if let Some(resolved) = ctx.resolve(&heritage.class_name, &heritage.file_path)
-        {
-            resolved.candidates.first().map(|c| c.node_id.clone())
-        } else {
-            None
-        };
+        let class_id =
+            if let Some(resolved) = ctx.resolve(&heritage.class_name, &heritage.file_path) {
+                resolved.candidates.first().map(|c| c.node_id.clone())
+            } else {
+                None
+            };
 
         // Resolve the parent
         let parent_id =
@@ -59,10 +59,9 @@ pub fn process_heritage(
                 "trait" | "heritage.trait" | "uses" => RelationshipType::Implements,
                 _ => {
                     // Check language-specific interface patterns
-                    let lang =
-                        gitnexus_core::config::languages::SupportedLanguage::from_filename(
-                            &heritage.file_path,
-                        );
+                    let lang = gitnexus_core::config::languages::SupportedLanguage::from_filename(
+                        &heritage.file_path,
+                    );
                     if let Some(lang) = lang {
                         let provider = get_provider(lang);
                         if let Some(pattern) = provider.interface_name_pattern() {

@@ -23,8 +23,8 @@ pub fn resolve(raw_path: &str, file_path: &str, ctx: &ResolveCtx<'_>) -> ImportR
     // Determine if this is a file path (require/include) or a namespace (use).
     // Check on the raw (un-normalized) input so backslash namespace separators
     // don't get confused with forward-slash file path separators.
-    let is_file_path = (raw_trimmed.contains('/') && !raw_trimmed.contains('\\'))
-        || raw_trimmed.ends_with(".php");
+    let is_file_path =
+        (raw_trimmed.contains('/') && !raw_trimmed.contains('\\')) || raw_trimmed.ends_with(".php");
 
     if is_file_path {
         let cleaned = raw_trimmed.replace('\\', "/");
@@ -85,8 +85,8 @@ pub fn resolve(raw_path: &str, file_path: &str, ctx: &ResolveCtx<'_>) -> ImportR
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{ImportConfigs, SuffixIndex};
+    use super::*;
     use std::collections::{HashMap, HashSet};
 
     fn make_ctx<'a>(

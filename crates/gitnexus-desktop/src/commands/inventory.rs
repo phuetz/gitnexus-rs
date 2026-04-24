@@ -154,9 +154,7 @@ pub async fn list_endpoints(
 }
 
 #[tauri::command]
-pub async fn list_db_tables(
-    state: State<'_, AppState>,
-) -> Result<Vec<DbTableSummary>, String> {
+pub async fn list_db_tables(state: State<'_, AppState>) -> Result<Vec<DbTableSummary>, String> {
     let (graph, _, _, _) = state.get_repo(None).await?;
 
     // Pre-index HasColumn targets by source (DbEntity).
@@ -278,7 +276,11 @@ pub async fn get_endpoint_handler(
 
     let endpoint_summary = ApiEndpointSummary {
         node_id: endpoint_node.id.clone(),
-        http_method: endpoint_node.properties.http_method.clone().unwrap_or_default(),
+        http_method: endpoint_node
+            .properties
+            .http_method
+            .clone()
+            .unwrap_or_default(),
         route: endpoint_node
             .properties
             .route
@@ -296,8 +298,7 @@ pub async fn get_endpoint_handler(
     let handler_id = graph
         .iter_relationships()
         .find(|r| {
-            matches!(r.rel_type, RelationshipType::HandledBy)
-                && r.source_id == endpoint_node.id
+            matches!(r.rel_type, RelationshipType::HandledBy) && r.source_id == endpoint_node.id
         })
         .map(|r| r.target_id.clone())
         .or_else(|| endpoint_node.properties.handler_id.clone());

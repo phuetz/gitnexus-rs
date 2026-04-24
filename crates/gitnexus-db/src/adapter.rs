@@ -188,10 +188,7 @@ impl DatabaseBackend for StubDbBackend {
                             .unwrap_or(false)
                     })
                     .collect();
-                info!(
-                    "StubDbBackend: found {} CSV files to load",
-                    csv_files.len()
-                );
+                info!("StubDbBackend: found {} CSV files to load", csv_files.len());
             }
             Err(e) => {
                 warn!("StubDbBackend: CSV directory not found: {e}");

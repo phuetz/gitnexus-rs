@@ -1,15 +1,15 @@
 //! The `rag-import` command: ingest external documentation for GraphRAG.
 
-use std::path::Path;
 use anyhow::Result;
 use colored::Colorize;
 use regex::Regex;
+use std::path::Path;
 use walkdir::WalkDir;
 
 use gitnexus_core::graph::{NodeLabel, NodeProperties, RelationshipType};
 use gitnexus_db::snapshot;
-use gitnexus_search::embeddings::{generate_embeddings, EmbeddingConfig};
 use gitnexus_rag::chunk_document;
+use gitnexus_search::embeddings::{generate_embeddings, EmbeddingConfig};
 
 /// Minimum symbol name length to consider for mention matching.
 /// Names shorter than this (e.g., "i", "get", "set") produce too many false positives.
@@ -21,7 +21,10 @@ pub fn run(docs_dir: &str, repo_path_str: Option<&str>) -> Result<()> {
     let snap_path = snapshot::snapshot_path(&storage.storage_path);
 
     if !snap_path.exists() {
-        println!("{} No index found. Run 'gitnexus analyze' first.", "ERROR".red());
+        println!(
+            "{} No index found. Run 'gitnexus analyze' first.",
+            "ERROR".red()
+        );
         return Ok(());
     }
 
@@ -30,7 +33,11 @@ pub fn run(docs_dir: &str, repo_path_str: Option<&str>) -> Result<()> {
 
     let docs_path = Path::new(docs_dir);
     if !docs_path.exists() {
-        println!("{} Documentation directory not found: {}", "ERROR".red(), docs_dir);
+        println!(
+            "{} Documentation directory not found: {}",
+            "ERROR".red(),
+            docs_dir
+        );
         return Ok(());
     }
 
@@ -41,15 +48,23 @@ pub fn run(docs_dir: &str, repo_path_str: Option<&str>) -> Result<()> {
         println!("  Cleared {} existing RAG nodes", removed);
     }
 
-    println!("{} Ingesting documentation from {}...", "->".cyan(), docs_dir);
+    println!(
+        "{} Ingesting documentation from {}...",
+        "->".cyan(),
+        docs_dir
+    );
 
     // Filter relevant nodes for semantic matching.
     // Only match against main symbols to avoid false positives.
     let mut known_symbols: Vec<(String, Regex)> = Vec::new();
     for node in graph.iter_nodes() {
         match node.label {
-            NodeLabel::Class | NodeLabel::Function | NodeLabel::Method
-            | NodeLabel::Interface | NodeLabel::Service | NodeLabel::Controller
+            NodeLabel::Class
+            | NodeLabel::Function
+            | NodeLabel::Method
+            | NodeLabel::Interface
+            | NodeLabel::Service
+            | NodeLabel::Controller
             | NodeLabel::Struct => {
                 if node.properties.name.len() >= MIN_SYMBOL_NAME_LEN {
                     let pattern = format!(r"\b{}\b", regex::escape(&node.properties.name));
@@ -211,6 +226,9 @@ pub fn run(docs_dir: &str, repo_path_str: Option<&str>) -> Result<()> {
     snapshot::save_snapshot(&graph, &snap_path)
         .map_err(|e| anyhow::anyhow!("Failed to save graph: {}", e))?;
 
-    println!("{} Successfully ingested documentation for GraphRAG.", "OK".green());
+    println!(
+        "{} Successfully ingested documentation for GraphRAG.",
+        "OK".green()
+    );
     Ok(())
 }

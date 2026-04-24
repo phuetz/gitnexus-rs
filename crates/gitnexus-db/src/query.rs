@@ -103,20 +103,19 @@ pub fn is_write_query(query: &str) -> bool {
             search_start = pos + 1;
 
             // Left boundary: start of string or preceded by whitespace/paren/brace/semicolon
-            let left_ok = pos == 0 || matches!(
-                bytes[pos - 1],
-                b' ' | b'\n' | b'\t' | b'(' | b'{' | b';'
-            );
+            let left_ok =
+                pos == 0 || matches!(bytes[pos - 1], b' ' | b'\n' | b'\t' | b'(' | b'{' | b';');
             if !left_ok {
                 continue;
             }
 
             // Right boundary: end of string or followed by whitespace/paren/brace/semicolon
             let end_pos = pos + pattern_len;
-            let right_ok = end_pos >= bytes.len() || matches!(
-                bytes[end_pos],
-                b' ' | b'\n' | b'\t' | b'(' | b')' | b'{' | b'}' | b';'
-            );
+            let right_ok = end_pos >= bytes.len()
+                || matches!(
+                    bytes[end_pos],
+                    b' ' | b'\n' | b'\t' | b'(' | b')' | b'{' | b'}' | b';'
+                );
             if right_ok {
                 return true;
             }
@@ -148,10 +147,7 @@ mod tests {
         assert_eq!(escape_cypher_string("hello"), "hello");
         assert_eq!(escape_cypher_string("it's"), "it\\'s");
         assert_eq!(escape_cypher_string("line\nbreak"), "line\\nbreak");
-        assert_eq!(
-            escape_cypher_string(r#"say "hi""#),
-            r#"say \"hi\""#
-        );
+        assert_eq!(escape_cypher_string(r#"say "hi""#), r#"say \"hi\""#);
         assert_eq!(escape_cypher_string("back\\slash"), "back\\\\slash");
         assert_eq!(escape_cypher_string("null\x00byte"), "nullbyte");
     }
@@ -195,9 +191,7 @@ mod tests {
         ));
         // Comments OUTSIDE strings still get stripped, so a write keyword
         // hidden in a real comment is not flagged.
-        assert!(!is_write_query(
-            "// CREATE (n:File)\nMATCH (n) RETURN n"
-        ));
+        assert!(!is_write_query("// CREATE (n:File)\nMATCH (n) RETURN n"));
     }
 
     #[test]

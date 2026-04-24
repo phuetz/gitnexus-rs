@@ -15,6 +15,5 @@ pub async fn execute_cypher(
     // Read-only is enforced by the parser: it only accepts MATCH and CALL
     // statements, rejecting CREATE/DELETE/MERGE/SET/DROP/REMOVE at parse time.
     let stmt = cypher::parse(&query).map_err(|e| format!("Parse error: {}", e))?;
-    cypher::execute(&stmt, &graph, &indexes, &fts_index)
-        .map_err(|e| format!("Query error: {}", e))
+    cypher::execute(&stmt, &graph, &indexes, &fts_index).map_err(|e| format!("Query error: {}", e))
 }

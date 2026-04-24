@@ -73,12 +73,7 @@ impl JsonRpcResponse {
 
     /// Create a "method not found" error response.
     pub fn method_not_found(id: Value, method: &str) -> Self {
-        Self::error(
-            id,
-            -32601,
-            format!("Method not found: {method}"),
-            None,
-        )
+        Self::error(id, -32601, format!("Method not found: {method}"), None)
     }
 
     /// Create an "invalid params" error response.
@@ -113,7 +108,8 @@ mod tests {
 
     #[test]
     fn test_response_success() {
-        let resp = JsonRpcResponse::success(Value::Number(1.into()), serde_json::json!({"ok": true}));
+        let resp =
+            JsonRpcResponse::success(Value::Number(1.into()), serde_json::json!({"ok": true}));
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"result\""));
         assert!(!json.contains("\"error\""));
@@ -121,12 +117,8 @@ mod tests {
 
     #[test]
     fn test_response_error() {
-        let resp = JsonRpcResponse::error(
-            Value::Number(1.into()),
-            -32601,
-            "Not found".into(),
-            None,
-        );
+        let resp =
+            JsonRpcResponse::error(Value::Number(1.into()), -32601, "Not found".into(), None);
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"error\""));
         assert!(!json.contains("\"result\""));
@@ -134,7 +126,8 @@ mod tests {
 
     #[test]
     fn test_notification_deserialize() {
-        let json = r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}"#;
+        let json =
+            r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}"#;
         let notif: JsonRpcNotification = serde_json::from_str(json).unwrap();
         assert_eq!(notif.method, "notifications/cancelled");
     }

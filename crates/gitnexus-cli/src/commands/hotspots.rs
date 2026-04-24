@@ -15,8 +15,8 @@ pub fn run(since_days: u32, path: Option<&str>, json: bool) -> anyhow::Result<()
         None => std::env::current_dir()?,
     };
 
-    let hotspots = analyze_hotspots(&repo_path, since_days)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let hotspots =
+        analyze_hotspots(&repo_path, since_days).map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if hotspots.is_empty() {
         if json {

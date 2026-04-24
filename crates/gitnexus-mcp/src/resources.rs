@@ -125,12 +125,10 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
             // Match by exact name first; fall back to path that ends with
             // `/repo_name` (or `\repo_name`) on a segment boundary so a
             // user passing "foo" doesn't accidentally select "myfoo".
-            e.name.eq_ignore_ascii_case(repo_name)
-                || {
-                    let path_lower = e.path.to_lowercase().replace('\\', "/");
-                    path_lower == lower
-                        || path_lower.ends_with(&format!("/{}", lower))
-                }
+            e.name.eq_ignore_ascii_case(repo_name) || {
+                let path_lower = e.path.to_lowercase().replace('\\', "/");
+                path_lower == lower || path_lower.ends_with(&format!("/{}", lower))
+            }
         })?;
 
         let snap_path = std::path::Path::new(&entry.storage_path).join("graph.bin");
@@ -142,23 +140,32 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
             "schema" => {
                 let mut label_counts = std::collections::HashMap::new();
                 for node in graph.iter_nodes() {
-                    *label_counts.entry(node.label.as_str().to_string()).or_insert(0u32) += 1;
+                    *label_counts
+                        .entry(node.label.as_str().to_string())
+                        .or_insert(0u32) += 1;
                 }
                 let mut rel_counts = std::collections::HashMap::new();
                 for rel in graph.iter_relationships() {
-                    *rel_counts.entry(rel.rel_type.as_str().to_string()).or_insert(0u32) += 1;
+                    *rel_counts
+                        .entry(rel.rel_type.as_str().to_string())
+                        .or_insert(0u32) += 1;
                 }
                 let text = serde_json::to_string_pretty(&json!({
                     "nodeLabels": label_counts,
                     "relationshipTypes": rel_counts,
                 }))
                 .unwrap_or_default();
-                Some(json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }))
+                Some(
+                    json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }),
+                )
             }
             "stats" => {
                 let node_count = graph.iter_nodes().count();
                 let edge_count = graph.iter_relationships().count();
-                let file_count = graph.iter_nodes().filter(|n| n.label == NodeLabel::File).count();
+                let file_count = graph
+                    .iter_nodes()
+                    .filter(|n| n.label == NodeLabel::File)
+                    .count();
                 let text = serde_json::to_string_pretty(&json!({
                     "nodes": node_count,
                     "edges": edge_count,
@@ -166,7 +173,9 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
                     "density": if node_count > 0 { edge_count as f64 / node_count as f64 } else { 0.0 },
                 }))
                 .unwrap_or_default();
-                Some(json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }))
+                Some(
+                    json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }),
+                )
             }
             "communities" => {
                 let communities: Vec<Value> = graph
@@ -182,7 +191,9 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
                     })
                     .collect();
                 let text = serde_json::to_string_pretty(&communities).unwrap_or_default();
-                Some(json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }))
+                Some(
+                    json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }),
+                )
             }
             "processes" => {
                 let processes: Vec<Value> = graph
@@ -196,7 +207,9 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
                     })
                     .collect();
                 let text = serde_json::to_string_pretty(&processes).unwrap_or_default();
-                Some(json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }))
+                Some(
+                    json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }),
+                )
             }
             "files" => {
                 // gitnexus://repos/{repo}/files/{path}
@@ -204,9 +217,9 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
                 if file_path.contains("..") {
                     return None;
                 }
-                let node = graph.iter_nodes().find(|n| {
-                    n.label == NodeLabel::File && n.properties.file_path == file_path
-                });
+                let node = graph
+                    .iter_nodes()
+                    .find(|n| n.label == NodeLabel::File && n.properties.file_path == file_path);
                 match node {
                     Some(n) => {
                         let text = serde_json::to_string_pretty(&json!({
@@ -217,7 +230,9 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
                             "endLine": n.properties.end_line,
                         }))
                         .unwrap_or_default();
-                        Some(json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }))
+                        Some(
+                            json!({ "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }] }),
+                        )
                     }
                     None => None,
                 }
@@ -294,7 +309,10 @@ mod tests {
     fn test_read_repos_empty_registry() {
         let result = read_resource("gitnexus://repos", &[]);
         assert!(result.is_some());
-        let text = result.unwrap()["contents"][0]["text"].as_str().unwrap().to_string();
+        let text = result.unwrap()["contents"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
         assert_eq!(text, "[]");
     }
 

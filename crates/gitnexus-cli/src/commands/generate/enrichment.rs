@@ -13,7 +13,6 @@ use tracing::{debug, warn};
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 
-
 // ─── LLM Enrichment ────────────────────────────────────────────────────
 
 #[derive(serde::Deserialize)]
@@ -258,9 +257,17 @@ fn save_queue(queue_path: &Path, entries: &[QueueEntry]) -> Result<()> {
 /// Prints a countdown so the user knows the process is alive.
 pub(super) fn sleep_until_hhmm(hhmm: &str) -> Result<()> {
     let mut parts = hhmm.splitn(2, ':');
-    let hour: u32 = parts.next().unwrap_or("").trim().parse()
+    let hour: u32 = parts
+        .next()
+        .unwrap_or("")
+        .trim()
+        .parse()
         .map_err(|_| anyhow::anyhow!("--retry-at : format attendu HH:MM, reçu '{}'", hhmm))?;
-    let minute: u32 = parts.next().unwrap_or("").trim().parse()
+    let minute: u32 = parts
+        .next()
+        .unwrap_or("")
+        .trim()
+        .parse()
         .map_err(|_| anyhow::anyhow!("--retry-at : format attendu HH:MM, reçu '{}'", hhmm))?;
     if hour > 23 || minute > 59 {
         anyhow::bail!("--retry-at : heure invalide '{}' (plage 00:00–23:59)", hhmm);
@@ -269,9 +276,7 @@ pub(super) fn sleep_until_hhmm(hhmm: &str) -> Result<()> {
     // Current local time expressed as seconds-since-midnight, without pulling
     // in extra chrono traits.  Format gives us "HH:MM:SS".
     let now_fmt = chrono::Local::now().format("%H:%M:%S").to_string();
-    let now_parts: Vec<u32> = now_fmt.split(':')
-        .map(|s| s.parse().unwrap_or(0))
-        .collect();
+    let now_parts: Vec<u32> = now_fmt.split(':').map(|s| s.parse().unwrap_or(0)).collect();
     let current_secs = now_parts.get(0).copied().unwrap_or(0) * 3600
         + now_parts.get(1).copied().unwrap_or(0) * 60
         + now_parts.get(2).copied().unwrap_or(0);
@@ -288,7 +293,11 @@ pub(super) fn sleep_until_hhmm(hhmm: &str) -> Result<()> {
     let m = (diff_secs % 3600) / 60;
     println!(
         "{} En attente jusqu'à {:02}:{:02} ({:02}h {:02}min)… Ctrl+C pour annuler.",
-        "→".cyan(), hour, minute, h, m
+        "→".cyan(),
+        hour,
+        minute,
+        h,
+        m
     );
 
     std::thread::sleep(std::time::Duration::from_secs(diff_secs));
@@ -393,10 +402,7 @@ fn dump_debug_raw(page_path: &Path, raw: &str) {
         .unwrap_or("unknown");
     let out = dir.join(format!("{stem}.raw.txt"));
     if std::fs::write(&out, raw).is_ok() {
-        tracing::debug!(
-            "enrichment: dumped raw LLM response to {}",
-            out.display()
-        );
+        tracing::debug!("enrichment: dumped raw LLM response to {}", out.display());
     }
 }
 
@@ -408,7 +414,9 @@ fn atomic_write_page(page_path: &Path, content: &str) -> std::io::Result<()> {
     // Use a sibling file in the same directory to stay on the same
     // volume — std::fs::rename is only atomic within a filesystem.
     let tmp = match (page_path.parent(), page_path.file_name()) {
-        (Some(parent), Some(name)) => parent.join(format!("{}.enriching.tmp", name.to_string_lossy())),
+        (Some(parent), Some(name)) => {
+            parent.join(format!("{}.enriching.tmp", name.to_string_lossy()))
+        }
         _ => page_path.with_extension("enriching.tmp"),
     };
     std::fs::write(&tmp, content)?;
@@ -421,9 +429,11 @@ pub(crate) fn load_llm_config() -> Option<LlmConfig> {
     let candidates = [
         std::env::var("USERPROFILE").ok(),
         std::env::var("HOME").ok(),
-        std::env::var("HOMEDRIVE")
-            .ok()
-            .and_then(|d| std::env::var("HOMEPATH").ok().map(|p| format!("{}{}", d, p))),
+        std::env::var("HOMEDRIVE").ok().and_then(|d| {
+            std::env::var("HOMEPATH")
+                .ok()
+                .map(|p| format!("{}{}", d, p))
+        }),
     ];
 
     for candidate in candidates.iter().flatten() {
@@ -611,13 +621,11 @@ struct ProvenanceValidation {
 // ─── Page Classification ──────────────────────────────────────────────
 
 fn classify_page(page_path: &Path) -> PageType {
-    let name = page_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
-    
+    let name = page_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+
     // Check for parent directory "processes"
-    let is_process = page_path.parent()
+    let is_process = page_path
+        .parent()
         .and_then(|p| p.file_name())
         .is_some_and(|n| n == "processes");
 
@@ -663,10 +671,14 @@ fn has_whole_word(haystack: &str, needle: &str) -> bool {
         if let Some(rel) = haystack[i..].find(needle) {
             let idx = i + rel;
             let end = idx + nlen;
-            let before_ok = idx == 0
-                || { let b = bytes[idx - 1]; !b.is_ascii_alphanumeric() && b != b'_' };
-            let after_ok = end >= bytes.len()
-                || { let b = bytes[end]; !b.is_ascii_alphanumeric() && b != b'_' };
+            let before_ok = idx == 0 || {
+                let b = bytes[idx - 1];
+                !b.is_ascii_alphanumeric() && b != b'_'
+            };
+            let after_ok = end >= bytes.len() || {
+                let b = bytes[end];
+                !b.is_ascii_alphanumeric() && b != b'_'
+            };
             if before_ok && after_ok {
                 return true;
             }
@@ -700,7 +712,12 @@ fn score_evidence(node: &GraphNode, page_path: &Path, page_content: &str) -> f64
         }
     }
 
-    let body_lower: String = page_content.lines().skip(1).collect::<Vec<_>>().join("\n").to_lowercase();
+    let body_lower: String = page_content
+        .lines()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_lowercase();
     for line in page_content.lines().skip(1) {
         let lower = line.to_lowercase();
         // +2.0 if name appears as whole word in a ## heading
@@ -716,7 +733,12 @@ fn score_evidence(node: &GraphNode, page_path: &Path, page_content: &str) -> f64
 
     // +1.0 if node's file_path contains the page filename stem
     if let Some(stem) = page_path.file_stem().and_then(|s| s.to_str()) {
-        if node.properties.file_path.to_lowercase().contains(&stem.to_lowercase()) {
+        if node
+            .properties
+            .file_path
+            .to_lowercase()
+            .contains(&stem.to_lowercase())
+        {
             score += 1.0;
         }
     }
@@ -772,7 +794,11 @@ fn collect_evidence(
                 })
                 .collect();
             candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            candidates.into_iter().take(max_evidence).map(|(n, _)| n).collect()
+            candidates
+                .into_iter()
+                .take(max_evidence)
+                .map(|(n, _)| n)
+                .collect()
         }
         PageType::Service => {
             let mut candidates: Vec<(&GraphNode, f64)> = graph
@@ -781,7 +807,11 @@ fn collect_evidence(
                 .map(|n| (n, score_evidence(n, page_path, page_content)))
                 .collect();
             candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            candidates.into_iter().take(max_evidence).map(|(n, _)| n).collect()
+            candidates
+                .into_iter()
+                .take(max_evidence)
+                .map(|(n, _)| n)
+                .collect()
         }
         PageType::DataModel => {
             let mut candidates: Vec<(&GraphNode, f64)> = graph
@@ -790,7 +820,11 @@ fn collect_evidence(
                 .map(|n| (n, score_evidence(n, page_path, page_content)))
                 .collect();
             candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            candidates.into_iter().take(max_evidence).map(|(n, _)| n).collect()
+            candidates
+                .into_iter()
+                .take(max_evidence)
+                .map(|(n, _)| n)
+                .collect()
         }
         PageType::ExternalService => {
             let mut candidates: Vec<(&GraphNode, f64)> = graph
@@ -799,7 +833,11 @@ fn collect_evidence(
                 .map(|n| (n, score_evidence(n, page_path, page_content)))
                 .collect();
             candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            candidates.into_iter().take(max_evidence.min(15)).map(|(n, _)| n).collect()
+            candidates
+                .into_iter()
+                .take(max_evidence.min(15))
+                .map(|(n, _)| n)
+                .collect()
         }
         _ => {
             // For overview/architecture: combine degree + relevance score
@@ -815,7 +853,11 @@ fn collect_evidence(
                 })
                 .collect();
             nodes.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            nodes.into_iter().take(max_evidence.min(15)).map(|(n, _)| n).collect()
+            nodes
+                .into_iter()
+                .take(max_evidence.min(15))
+                .map(|(n, _)| n)
+                .collect()
         }
     };
 
@@ -915,7 +957,8 @@ fn section_content_slice<'a>(content: &'a str, section_key: &str) -> &'a str {
         let anchor = format!("<!-- GNX:{}:{} -->", kind, section_key);
         if let Some(pos) = content.find(&anchor) {
             let before = &content[..pos];
-            let start = before.rfind("<!-- GNX:")
+            let start = before
+                .rfind("<!-- GNX:")
                 .and_then(|p| before[p..].find("-->").map(|rel| p + rel + 3))
                 .unwrap_or(0);
             return content[start..pos].trim();
@@ -963,7 +1006,11 @@ fn call_structured_llm(
                         }
                     } else {
                         let body_text = resp.text().unwrap_or_else(|_| String::from("<no body>"));
-                        let short = if body_text.len() > 500 { &body_text[..500] } else { &body_text };
+                        let short = if body_text.len() > 500 {
+                            &body_text[..500]
+                        } else {
+                            &body_text
+                        };
                         return Err(anyhow::anyhow!("HTTP {} body={}", status, short));
                     }
                 }
@@ -985,9 +1032,12 @@ fn call_structured_llm(
 
 /// Parse a raw LLM JSON string into T, stripping optional markdown fences.
 fn parse_llm_json<T: for<'de> serde::Deserialize<'de>>(raw: &str) -> Option<T> {
-    let s = raw.trim()
-        .trim_start_matches("```json").trim_start_matches("```")
-        .trim_end_matches("```").trim();
+    let s = raw
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
     serde_json::from_str(s).ok()
 }
 
@@ -1006,9 +1056,17 @@ fn enrich_lead_closing(
         "Écris en français technique professionnel."
     };
     let ev_ids: Vec<&str> = evidence.iter().take(5).map(|e| e.id.as_str()).collect();
-    let ev_ctx: String = evidence.iter().take(5)
-        .map(|e| format!("[{}] {} ({})\n```\n{}\n```", e.id, e.title, e.kind, e.excerpt))
-        .collect::<Vec<_>>().join("\n\n");
+    let ev_ctx: String = evidence
+        .iter()
+        .take(5)
+        .map(|e| {
+            format!(
+                "[{}] {} ({})\n```\n{}\n```",
+                e.id, e.title, e.kind, e.excerpt
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
     let page_preview: String = page_content.lines().take(40).collect::<Vec<_>>().join("\n");
     let system = format!(
         "Tu es un rédacteur technique senior. {}\n\
@@ -1058,22 +1116,40 @@ fn enrich_single_section(
     let required_hint = if required_fields.is_empty() {
         String::new()
     } else if enrich_lang == "en" {
-        format!("\nIMPORTANT: these fields MUST be non-null: {}.", required_fields.join(", "))
+        format!(
+            "\nIMPORTANT: these fields MUST be non-null: {}.",
+            required_fields.join(", ")
+        )
     } else {
-        format!("\nIMPORTANT : ces champs DOIVENT être non-null : {}.", required_fields.join(", "))
+        format!(
+            "\nIMPORTANT : ces champs DOIVENT être non-null : {}.",
+            required_fields.join(", ")
+        )
     };
     // Prefer evidence nodes mentioned in the section content
-    let mut scored: Vec<(&EvidenceRef, usize)> = evidence.iter()
+    let mut scored: Vec<(&EvidenceRef, usize)> = evidence
+        .iter()
         .map(|e| (e, section_content.matches(e.title.as_str()).count()))
         .collect();
     scored.sort_by(|a, b| b.1.cmp(&a.1));
     let top_ev: Vec<&EvidenceRef> = scored.into_iter().take(5).map(|(e, _)| e).collect();
     let ev_ids: Vec<&str> = top_ev.iter().map(|e| e.id.as_str()).collect();
-    let ev_ctx: String = top_ev.iter()
-        .map(|e| format!("[{}] {} ({})\n```\n{}\n```", e.id, e.title, e.kind, e.excerpt))
-        .collect::<Vec<_>>().join("\n\n");
+    let ev_ctx: String = top_ev
+        .iter()
+        .map(|e| {
+            format!(
+                "[{}] {} ({})\n```\n{}\n```",
+                e.id, e.title, e.kind, e.excerpt
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
     // Limit section content to 3 KB to keep input small
-    let snippet = if section_content.len() > 3_000 { &section_content[..3_000] } else { section_content };
+    let snippet = if section_content.len() > 3_000 {
+        &section_content[..3_000]
+    } else {
+        section_content
+    };
     let system = format!(
         "Tu es un rédacteur technique senior. {}\n\
          Génère un SectionAugment JSON pour la section '{}' de cette page de type {:?}.\n\
@@ -1084,7 +1160,13 @@ fn enrich_single_section(
          \"warning\": null ou \"avertissement\", \"developer_tip\": null ou \"conseil\", \
          \"code_example\": null ou \"snippet\", \"architecture_note\": null ou \"note\", \
          \"source_ids\": []}}\n\nSOURCES :\n{}",
-        lang_instr, section_key, page_type, ev_ids.join(", "), required_hint, section_key, ev_ctx
+        lang_instr,
+        section_key,
+        page_type,
+        ev_ids.join(", "),
+        required_hint,
+        section_key,
+        ev_ctx
     );
     let mut body = serde_json::json!({
         "model": config.model,
@@ -1102,12 +1184,19 @@ fn enrich_single_section(
         body["reasoning_effort"] = serde_json::Value::String(effort);
     }
     let raw = call_structured_llm(page_path, &body, config, 90)?;
-    Ok(parse_llm_json::<SectionAugment>(&raw).unwrap_or_else(|| SectionAugment {
-        section_key: Some(section_key.to_string()),
-        intro: None, warning: None, developer_tip: None,
-        code_example: None, code_example_language: None,
-        architecture_note: None, see_also: Vec::new(), source_ids: Vec::new(),
-    }))
+    Ok(
+        parse_llm_json::<SectionAugment>(&raw).unwrap_or_else(|| SectionAugment {
+            section_key: Some(section_key.to_string()),
+            intro: None,
+            warning: None,
+            developer_tip: None,
+            code_example: None,
+            code_example_language: None,
+            architecture_note: None,
+            see_also: Vec::new(),
+            source_ids: Vec::new(),
+        }),
+    )
 }
 
 /// Extract the injection+validation+write logic so both the monolithic and
@@ -1147,7 +1236,9 @@ fn inject_enrichment(
             }
         }
         for aug in &payload.section_augments {
-            let Some(section_key) = aug.section_key.as_deref() else { continue };
+            let Some(section_key) = aug.section_key.as_deref() else {
+                continue;
+            };
             let anchor = format!("<!-- GNX:INTRO:{} -->", section_key);
             if line.contains(&anchor) {
                 if let Some(intro) = &aug.intro {
@@ -1167,16 +1258,21 @@ fn inject_enrichment(
                     enriched.push_str(&format!("```{}\n{}\n```\n\n", lang, code));
                 }
                 if enrich_citations && !aug.source_ids.is_empty() {
-                    let sources: Vec<String> = aug.source_ids.iter()
+                    let sources: Vec<String> = aug
+                        .source_ids
+                        .iter()
                         .filter_map(|sid| evidence.iter().find(|e| e.id == *sid))
-                        .map(|e| if let Some(sl) = e.start_line {
-                            format!("`{}` (L{})", e.file_path, sl)
-                        } else {
-                            format!("`{}`", e.file_path)
+                        .map(|e| {
+                            if let Some(sl) = e.start_line {
+                                format!("`{}` (L{})", e.file_path, sl)
+                            } else {
+                                format!("`{}`", e.file_path)
+                            }
                         })
                         .collect();
                     if !sources.is_empty() {
-                        enriched.push_str(&format!("*Sources : {}*\n\n", sources.join(" \u{00b7} ")));
+                        enriched
+                            .push_str(&format!("*Sources : {}*\n\n", sources.join(" \u{00b7} ")));
                     }
                 }
             }
@@ -1191,7 +1287,9 @@ fn inject_enrichment(
             }
         }
         for aug in &payload.section_augments {
-            let Some(sk) = aug.section_key.as_deref() else { continue };
+            let Some(sk) = aug.section_key.as_deref() else {
+                continue;
+            };
             if line.contains(&format!("<!-- GNX:ARCH_NOTE:{} -->", sk)) {
                 if let Some(note) = &aug.architecture_note {
                     enriched.push_str(&format!("> [!NOTE]\n> **Architecture :** {}\n\n", note));
@@ -1208,20 +1306,36 @@ fn inject_enrichment(
             if let Some(summary) = &payload.closing_summary {
                 enriched.push_str(&format!(
                     "\n---\n\n{} {}\n\n",
-                    if enrich_lang == "en" { "**Summary:**" } else { "**En r\u{00e9}sum\u{00e9} :**" },
+                    if enrich_lang == "en" {
+                        "**Summary:**"
+                    } else {
+                        "**En r\u{00e9}sum\u{00e9} :**"
+                    },
                     summary
                 ));
             }
             if !payload.related_pages.is_empty() {
-                let docs_dir = page_path.parent().and_then(|p| {
-                    if p.file_name().map(|n| n == "modules" || n == "processes").unwrap_or(false) {
-                        p.parent()
-                    } else { Some(p) }
-                }).unwrap_or(page_path.parent().unwrap_or(page_path));
+                let docs_dir = page_path
+                    .parent()
+                    .and_then(|p| {
+                        if p.file_name()
+                            .map(|n| n == "modules" || n == "processes")
+                            .unwrap_or(false)
+                        {
+                            p.parent()
+                        } else {
+                            Some(p)
+                        }
+                    })
+                    .unwrap_or(page_path.parent().unwrap_or(page_path));
                 let valid_stems: std::collections::HashSet<String> = {
                     let mut s = std::collections::HashSet::new();
                     for subdir in &["", "modules", "processes"] {
-                        let dir = if subdir.is_empty() { docs_dir.to_path_buf() } else { docs_dir.join(subdir) };
+                        let dir = if subdir.is_empty() {
+                            docs_dir.to_path_buf()
+                        } else {
+                            docs_dir.join(subdir)
+                        };
                         if let Ok(entries) = std::fs::read_dir(&dir) {
                             for entry in entries.flatten() {
                                 let p = entry.path();
@@ -1235,16 +1349,28 @@ fn inject_enrichment(
                     }
                     s
                 };
-                let valid_related: Vec<&String> = payload.related_pages.iter().filter(|p| {
-                    let stem = p.trim_end_matches(".md").split('/').last().unwrap_or(p);
-                    let ok = valid_stems.contains(&stem.to_lowercase());
-                    if !ok { tracing::warn!("enrichment: related_page '{}' not found — skipping", p); }
-                    ok
-                }).collect();
+                let valid_related: Vec<&String> = payload
+                    .related_pages
+                    .iter()
+                    .filter(|p| {
+                        let stem = p.trim_end_matches(".md").split('/').last().unwrap_or(p);
+                        let ok = valid_stems.contains(&stem.to_lowercase());
+                        if !ok {
+                            tracing::warn!("enrichment: related_page '{}' not found — skipping", p);
+                        }
+                        ok
+                    })
+                    .collect();
                 if !valid_related.is_empty() {
                     enriched.push_str("<div class=\"related-pages\">\n");
-                    enriched.push_str(&format!("<div class=\"related-pages-title\">{}</div>\n",
-                        if enrich_lang == "en" { "See Also" } else { "Voir aussi" }));
+                    enriched.push_str(&format!(
+                        "<div class=\"related-pages-title\">{}</div>\n",
+                        if enrich_lang == "en" {
+                            "See Also"
+                        } else {
+                            "Voir aussi"
+                        }
+                    ));
                     for p in valid_related {
                         let stem = p.trim_end_matches(".md");
                         let display = stem.split('/').last().unwrap_or(stem);
@@ -1273,7 +1399,11 @@ fn inject_enrichment(
 
     atomic_write_page(page_path, &enriched)?;
 
-    let page_id = page_path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
+    let page_id = page_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
     Ok(ProvenanceEntry {
         page_id,
         model: model.to_string(),
@@ -1281,7 +1411,9 @@ fn inject_enrichment(
         evidence_refs: evidence,
         validation: ProvenanceValidation {
             is_valid: invalid_ids.is_empty(),
-            issues: if invalid_ids.is_empty() { vec![] } else {
+            issues: if invalid_ids.is_empty() {
+                vec![]
+            } else {
                 vec![format!("Invalid source IDs: {}", invalid_ids.join(", "))]
             },
         },
@@ -1302,7 +1434,9 @@ fn enrich_page_sectioned(
     enrich_citations: bool,
 ) -> Result<Option<ProvenanceEntry>> {
     let content = std::fs::read_to_string(page_path)?;
-    if content.len() < 100 { return Ok(None); }
+    if content.len() < 100 {
+        return Ok(None);
+    }
 
     let page_type = classify_page(page_path);
     let evidence = collect_evidence(graph, page_path, repo_path, profile.max_evidence, &content);
@@ -1319,11 +1453,15 @@ fn enrich_page_sectioned(
         ("GNX:EXAMPLE:", "EXAMPLE"),
     ] {
         for line in content.lines() {
-            if !line.contains(prefix) { continue; }
+            if !line.contains(prefix) {
+                continue;
+            }
             if let Some(after) = line.split(prefix).nth(1) {
                 if let Some(key) = after.split("-->").next() {
                     let k = key.trim().to_string();
-                    if k.is_empty() { continue; }
+                    if k.is_empty() {
+                        continue;
+                    }
                     let kinds = key_anchors.entry(k.clone()).or_default();
                     if !kinds.contains(&kind) {
                         kinds.push(kind);
@@ -1338,8 +1476,14 @@ fn enrich_page_sectioned(
 
     // Call 0: lead + closing
     let lead_payload = enrich_lead_closing(
-        page_path, &content, &evidence, config, &page_type, enrich_lang,
-    ).unwrap_or_default();
+        page_path,
+        &content,
+        &evidence,
+        config,
+        &page_type,
+        enrich_lang,
+    )
+    .unwrap_or_default();
 
     // Calls 1..N: one per section
     let mut section_augments: Vec<SectionAugment> = Vec::new();
@@ -1348,27 +1492,47 @@ fn enrich_page_sectioned(
         let slice = section_content_slice(&content, section_key);
         let empty = Vec::new();
         let kinds = key_anchors.get(section_key).unwrap_or(&empty);
-        let required_fields: Vec<&str> = kinds.iter().map(|k| match *k {
-            "INTRO" => "intro",
-            "TIP" => "developer_tip",
-            "ARCH_NOTE" => "architecture_note",
-            "EXAMPLE" => "code_example",
-            _ => "",
-        }).filter(|s| !s.is_empty()).collect();
+        let required_fields: Vec<&str> = kinds
+            .iter()
+            .map(|k| match *k {
+                "INTRO" => "intro",
+                "TIP" => "developer_tip",
+                "ARCH_NOTE" => "architecture_note",
+                "EXAMPLE" => "code_example",
+                _ => "",
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
         tracing::info!(
             "enrichment: section {}/{} '{}' anchors={:?} for {}",
-            i + 1, total, section_key, kinds, page_path.display()
+            i + 1,
+            total,
+            section_key,
+            kinds,
+            page_path.display()
         );
         let aug = enrich_single_section(
-            page_path, section_key, slice, &evidence, config, &page_type, enrich_lang,
+            page_path,
+            section_key,
+            slice,
+            &evidence,
+            config,
+            &page_type,
+            enrich_lang,
             &required_fields,
-        ).unwrap_or_else(|e| {
+        )
+        .unwrap_or_else(|e| {
             warn!("enrichment: section '{}' skipped ({})", section_key, e);
             SectionAugment {
                 section_key: Some(section_key.clone()),
-                intro: None, warning: None, developer_tip: None,
-                code_example: None, code_example_language: None,
-                architecture_note: None, see_also: Vec::new(), source_ids: Vec::new(),
+                intro: None,
+                warning: None,
+                developer_tip: None,
+                code_example: None,
+                code_example_language: None,
+                architecture_note: None,
+                see_also: Vec::new(),
+                source_ids: Vec::new(),
             }
         });
         section_augments.push(aug);
@@ -1376,7 +1540,9 @@ fn enrich_page_sectioned(
 
     let payload = EnrichedPayload {
         lead: lead_payload.lead,
-        what_text: None, why_text: None, who_text: None,
+        what_text: None,
+        why_text: None,
+        who_text: None,
         section_augments,
         related_pages: lead_payload.related_pages,
         relevant_source_ids: Vec::new(),
@@ -1384,7 +1550,13 @@ fn enrich_page_sectioned(
     };
 
     let prov = inject_enrichment(
-        page_path, &content, &payload, evidence, enrich_citations, enrich_lang, &config.model,
+        page_path,
+        &content,
+        &payload,
+        evidence,
+        enrich_citations,
+        enrich_lang,
+        &config.model,
     )?;
     Ok(Some(prov))
 }
@@ -1508,7 +1680,15 @@ fn enrich_page_structured(
 
     // Large pages: use per-section LLM calls to stay under the 65K token output cap.
     if content.len() >= 50_000 {
-        return enrich_page_sectioned(page_path, graph, config, repo_path, profile, enrich_lang, enrich_citations);
+        return enrich_page_sectioned(
+            page_path,
+            graph,
+            config,
+            repo_path,
+            profile,
+            enrich_lang,
+            enrich_citations,
+        );
     }
 
     let page_type = classify_page(page_path);
@@ -1572,10 +1752,7 @@ fn enrich_page_structured(
     ];
 
     // Call LLM
-    let url = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     // Phase 3 addendum — max_tokens floor.
     //
     // The empirical phase-3 smoke run on Alise revealed that the
@@ -1727,7 +1904,9 @@ fn enrich_page_structured(
                         let snippet: String = err_body.chars().take(200).collect();
                         warn!("LLM HTTP {} — {}", status, snippet);
 
-                        if status_u16 == 503 || status_u16 == 429 || status_u16 == 499
+                        if status_u16 == 503
+                            || status_u16 == 429
+                            || status_u16 == 499
                             || (status_u16 >= 500 && status_u16 < 600)
                         {
                             if status_u16 == 503 || status_u16 >= 500 {
@@ -1751,7 +1930,8 @@ fn enrich_page_structured(
                                     let nanos = std::time::SystemTime::now()
                                         .duration_since(std::time::UNIX_EPOCH)
                                         .map(|d| d.subsec_nanos())
-                                        .unwrap_or(42) as u64;
+                                        .unwrap_or(42)
+                                        as u64;
                                     // LCG: produces a value in 0..999 per-call
                                     let r = nanos
                                         .wrapping_mul(6364136223846793005)
@@ -1764,9 +1944,10 @@ fn enrich_page_structured(
                                     let factor_permille = if status_u16 == 429 {
                                         1000 + r * 200 / 1000 // 1000..1199
                                     } else {
-                                        700 + r * 600 / 1000  // 700..1299
+                                        700 + r * 600 / 1000 // 700..1299
                                     };
-                                    (base_ms * factor_permille / 1000).min(MAX_DELAY_MS + MAX_DELAY_MS / 3)
+                                    (base_ms * factor_permille / 1000)
+                                        .min(MAX_DELAY_MS + MAX_DELAY_MS / 3)
                                 };
                                 debug!(
                                     "Retry {}/{} for {} — status={}, backoff={}ms (base={}ms jitter={}ms)",
@@ -1850,9 +2031,8 @@ fn enrich_page_structured(
             // Tier 2 — try JSON repair before burning an LLM call.
             match jsonrepair::repair_json(json_str, &jsonrepair::Options::default())
                 .ok()
-                .and_then(|fixed| {
-                    serde_json::from_str::<EnrichedPayload>(&fixed).ok()
-                }) {
+                .and_then(|fixed| serde_json::from_str::<EnrichedPayload>(&fixed).ok())
+            {
                 Some(repaired) => {
                     tracing::info!(
                         "enrichment: repaired malformed JSON for {} (serde error: {})",
@@ -1881,8 +2061,7 @@ fn enrich_page_structured(
                         .and_then(|s| s.to_str())
                         .unwrap_or("unknown")
                         .to_string();
-                    let fallback_content =
-                        std::fs::read_to_string(page_path).unwrap_or_default();
+                    let fallback_content = std::fs::read_to_string(page_path).unwrap_or_default();
                     return Ok(Some(ProvenanceEntry {
                         page_id,
                         model: config.model.clone(),
@@ -1891,7 +2070,7 @@ fn enrich_page_structured(
                         validation: ProvenanceValidation {
                             is_valid: true,
                             issues: vec![
-                                "Freeform fallback used (JSON parse + repair failed)".to_string(),
+                                "Freeform fallback used (JSON parse + repair failed)".to_string()
                             ],
                         },
                         content_hash: format!("{:x}", hash_simple(&fallback_content)),
@@ -1913,8 +2092,16 @@ fn enrich_page_structured(
         ));
     }
 
-    inject_enrichment(page_path, &content, &payload, evidence, enrich_citations, enrich_lang, &config.model)
-        .map(Some)
+    inject_enrichment(
+        page_path,
+        &content,
+        &payload,
+        evidence,
+        enrich_citations,
+        enrich_lang,
+        &config.model,
+    )
+    .map(Some)
 }
 
 // ─── Freeform Enrichment (legacy fallback) ────────────────────────────
@@ -1987,10 +2174,7 @@ CONTENU À ENRICHIR :"#,
     ];
 
     // Call LLM
-    let url = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     // Phase 4 / scope 7.1 — freeform also honors the max_tokens floor
     // and the dynamic timeout. Freeform is a last-resort fallback
     // that runs when structured mode fails, so giving it the same
@@ -2097,7 +2281,10 @@ CONTENU À ENRICHIR :"#,
 
     // Validation: enriched must be at least 50% of original length
     if enriched.len() < content.len() / 2 {
-        println!("    {} Enriched content too short, keeping original", "SKIP".yellow());
+        println!(
+            "    {} Enriched content too short, keeping original",
+            "SKIP".yellow()
+        );
         return Ok(());
     }
 
@@ -2105,7 +2292,10 @@ CONTENU À ENRICHIR :"#,
     let orig_pipes = content.chars().filter(|c| *c == '|').count();
     let enrich_pipes = enriched.chars().filter(|c| *c == '|').count();
     if orig_pipes > 5 && enrich_pipes < orig_pipes / 2 {
-        println!("    {} Tables lost in enrichment, keeping original", "SKIP".yellow());
+        println!(
+            "    {} Tables lost in enrichment, keeping original",
+            "SKIP".yellow()
+        );
         return Ok(());
     }
 
@@ -2158,10 +2348,7 @@ DOCUMENT ORIGINAL (pour comparaison) :
     ];
 
     // Call LLM for review
-    let url = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     // Phase 4 — the review pass also needs headroom. Use the same
     // floor as structured enrichment; reviews are usually shorter
     // than the initial rewrite but can still hit the 8k wall when
@@ -2245,7 +2432,10 @@ fn retry_queued_pages(
     for entry in pending.iter_mut() {
         let page_path = docs_dir.join(&entry.page_path);
         if !page_path.exists() {
-            warn!("enrichment: queue entry '{}' not found on disk — dropping", entry.page_path);
+            warn!(
+                "enrichment: queue entry '{}' not found on disk — dropping",
+                entry.page_path
+            );
             continue;
         }
 
@@ -2257,9 +2447,21 @@ fn retry_queued_pages(
         print!("  {} {}…", "LLM".cyan(), entry.page_name);
         std::io::stdout().flush().ok();
 
-        match enrich_page_structured(&page_path, graph, config, repo_path, profile, enrich_lang, enrich_citations) {
+        match enrich_page_structured(
+            &page_path,
+            graph,
+            config,
+            repo_path,
+            profile,
+            enrich_lang,
+            enrich_citations,
+        ) {
             Ok(Some(prov)) => {
-                println!(" {} (retry ok, {} evidence)", "OK".green(), prov.evidence_refs.len());
+                println!(
+                    " {} (retry ok, {} evidence)",
+                    "OK".green(),
+                    prov.evidence_refs.len()
+                );
                 let enriched_hash = get_page_hash(&page_path);
                 write_cache(cache_dir, page_name, &enriched_hash);
                 provenance_entries.push(prov);
@@ -2311,7 +2513,10 @@ pub(super) fn run_enrichment_queue_only(
     let config = match load_llm_config() {
         Some(cfg) => cfg,
         None => {
-            println!("{} Aucune config LLM. Créez ~/.gitnexus/chat-config.json.", "WARN".yellow());
+            println!(
+                "{} Aucune config LLM. Créez ~/.gitnexus/chat-config.json.",
+                "WARN".yellow()
+            );
             return Ok(());
         }
     };
@@ -2337,7 +2542,10 @@ pub(super) fn run_enrichment_queue_only(
     for entry in pending.iter_mut() {
         let page_path = docs_dir.join(&entry.page_path);
         if !page_path.exists() {
-            warn!("enrichment: queue entry '{}' not found on disk — dropping", entry.page_path);
+            warn!(
+                "enrichment: queue entry '{}' not found on disk — dropping",
+                entry.page_path
+            );
             continue;
         }
 
@@ -2349,7 +2557,15 @@ pub(super) fn run_enrichment_queue_only(
         print!("  {} {}…", "LLM".cyan(), entry.page_name);
         std::io::stdout().flush().ok();
 
-        match enrich_page_structured(&page_path, graph, &config, repo_path, &profile, enrich_lang, enrich_citations) {
+        match enrich_page_structured(
+            &page_path,
+            graph,
+            &config,
+            repo_path,
+            &profile,
+            enrich_lang,
+            enrich_citations,
+        ) {
             Ok(Some(prov)) => {
                 println!(" {} ({} evidence)", "OK".green(), prov.evidence_refs.len());
                 let enriched_hash = get_page_hash(&page_path);
@@ -2419,7 +2635,9 @@ pub(super) fn run_enrichment_if_enabled(
             println!("  {{");
             println!("    \"provider\": \"gemini\",");
             println!("    \"api_key\": \"YOUR_API_KEY\",");
-            println!("    \"base_url\": \"https://generativelanguage.googleapis.com/v1beta/openai\",");
+            println!(
+                "    \"base_url\": \"https://generativelanguage.googleapis.com/v1beta/openai\","
+            );
             println!("    \"model\": \"gemini-2.5-flash\",");
             println!("    \"max_tokens\": 8192,");
             println!("    \"reasoning_effort\": \"high\"");
@@ -2505,7 +2723,10 @@ pub(super) fn run_enrichment_if_enabled(
     });
 
     for page_path in &pages {
-        let name = page_path.file_name().map(|f| f.to_string_lossy()).unwrap_or_else(|| "unknown".into());
+        let name = page_path
+            .file_name()
+            .map(|f| f.to_string_lossy())
+            .unwrap_or_else(|| "unknown".into());
         let page_name = page_path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -2526,13 +2747,17 @@ pub(super) fn run_enrichment_if_enabled(
         let original_content = std::fs::read_to_string(page_path).unwrap_or_default();
         let page_type = classify_page(page_path);
 
-        match enrich_page_structured(page_path, graph, &config, repo_path, &profile, enrich_lang, enrich_citations) {
+        match enrich_page_structured(
+            page_path,
+            graph,
+            &config,
+            repo_path,
+            &profile,
+            enrich_lang,
+            enrich_citations,
+        ) {
             Ok(Some(prov)) => {
-                println!(
-                    " {} ({} evidence)",
-                    "OK".green(),
-                    prov.evidence_refs.len()
-                );
+                println!(" {} ({} evidence)", "OK".green(), prov.evidence_refs.len());
                 // Remove from failure queue if it was there.
                 pending_queue.retain(|q| q.page_name != page_name);
                 provenance_entries.push(prov);
@@ -2575,7 +2800,8 @@ pub(super) fn run_enrichment_if_enabled(
                     .unwrap_or(page_path)
                     .to_string_lossy()
                     .replace('\\', "/");
-                if let Some(existing) = pending_queue.iter_mut().find(|q| q.page_name == page_name) {
+                if let Some(existing) = pending_queue.iter_mut().find(|q| q.page_name == page_name)
+                {
                     existing.attempts += 1;
                     existing.last_error = e.to_string();
                 } else {
@@ -2601,17 +2827,36 @@ pub(super) fn run_enrichment_if_enabled(
             let mut still_failed: Vec<QueueEntry> = Vec::new();
             for entry in pending_queue.iter_mut() {
                 let page_path = docs_dir.join(&entry.page_path);
-                if !page_path.exists() { continue; }
-                let page_name = page_path.file_stem().and_then(|s| s.to_str()).unwrap_or(&entry.page_name);
+                if !page_path.exists() {
+                    continue;
+                }
+                let page_name = page_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&entry.page_name);
                 print!("  {} {}…", "LLM".cyan(), entry.page_name);
                 std::io::stdout().flush().ok();
-                match enrich_page_structured(&page_path, graph, &config, repo_path, &profile, enrich_lang, enrich_citations) {
+                match enrich_page_structured(
+                    &page_path,
+                    graph,
+                    &config,
+                    repo_path,
+                    &profile,
+                    enrich_lang,
+                    enrich_citations,
+                ) {
                     Ok(Some(prov)) => {
-                        println!(" {} (retry ok, {} evidence)", "OK".green(), prov.evidence_refs.len());
+                        println!(
+                            " {} (retry ok, {} evidence)",
+                            "OK".green(),
+                            prov.evidence_refs.len()
+                        );
                         write_cache(&cache_dir, page_name, &get_page_hash(&page_path));
                         provenance_entries.push(prov);
                     }
-                    Ok(None) => { println!(" {} (too small)", "SKIP".yellow()); }
+                    Ok(None) => {
+                        println!(" {} (too small)", "SKIP".yellow());
+                    }
                     Err(e) => {
                         println!(" {} ({})", "FAIL".red(), e);
                         entry.attempts += 1;
@@ -2677,12 +2922,18 @@ mod tests {
 
     #[test]
     fn test_classify_page_architecture() {
-        assert_eq!(classify_page(Path::new("architecture.md")), PageType::Architecture);
+        assert_eq!(
+            classify_page(Path::new("architecture.md")),
+            PageType::Architecture
+        );
     }
 
     #[test]
     fn test_classify_page_controller() {
-        assert_eq!(classify_page(Path::new("ctrl-dossierscontroller.md")), PageType::Controller);
+        assert_eq!(
+            classify_page(Path::new("ctrl-dossierscontroller.md")),
+            PageType::Controller
+        );
     }
 
     #[test]
@@ -2692,12 +2943,18 @@ mod tests {
 
     #[test]
     fn test_classify_page_data_model() {
-        assert_eq!(classify_page(Path::new("data-alisev2entities.md")), PageType::DataModel);
+        assert_eq!(
+            classify_page(Path::new("data-alisev2entities.md")),
+            PageType::DataModel
+        );
     }
 
     #[test]
     fn test_classify_page_external() {
-        assert_eq!(classify_page(Path::new("external-services.md")), PageType::ExternalService);
+        assert_eq!(
+            classify_page(Path::new("external-services.md")),
+            PageType::ExternalService
+        );
     }
 
     #[test]
@@ -2827,7 +3084,8 @@ mod tests {
 
     #[test]
     fn test_atomic_write_page_overwrites_atomically() {
-        let root = std::env::temp_dir().join(format!("gitnexus-atomic-test-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("gitnexus-atomic-test-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let page = root.join("page.md");
 
@@ -2857,7 +3115,11 @@ mod tests {
         dump_debug_raw(&page, "not a valid json response");
 
         let dump = docs_dir.join("_meta").join("debug").join("broken.raw.txt");
-        assert!(dump.exists(), "debug dump not written at {}", dump.display());
+        assert!(
+            dump.exists(),
+            "debug dump not written at {}",
+            dump.display()
+        );
         assert_eq!(
             std::fs::read_to_string(&dump).unwrap(),
             "not a valid json response"
@@ -2873,19 +3135,12 @@ mod tests {
         let schema = enriched_payload_schema();
         assert_eq!(schema["type"], "object");
         // Top-level properties exist and are typed.
-        assert_eq!(
-            schema["properties"]["section_augments"]["type"],
-            "array"
-        );
-        assert_eq!(
-            schema["properties"]["related_pages"]["type"],
-            "array"
-        );
+        assert_eq!(schema["properties"]["section_augments"]["type"], "array");
+        assert_eq!(schema["properties"]["related_pages"]["type"], "array");
         assert_eq!(schema["properties"]["lead"]["type"], "string");
         // Nested section_augments[].section_key is a string.
         assert_eq!(
-            schema["properties"]["section_augments"]["items"]["properties"]
-                ["section_key"]["type"],
+            schema["properties"]["section_augments"]["items"]["properties"]["section_key"]["type"],
             "string"
         );
     }
@@ -2902,8 +3157,7 @@ mod tests {
             "related_pages": null,
             "relevant_source_ids": null
         }"#;
-        let p: EnrichedPayload =
-            serde_json::from_str(json).expect("parse should tolerate nulls");
+        let p: EnrichedPayload = serde_json::from_str(json).expect("parse should tolerate nulls");
         assert_eq!(p.lead.as_deref(), Some("x"));
         assert!(p.section_augments.is_empty());
         assert!(p.related_pages.is_empty());
@@ -2956,10 +3210,7 @@ mod tests {
         let parsed: EnrichedPayload =
             serde_json::from_str(&fixed).expect("repaired JSON should parse");
         assert_eq!(parsed.lead.as_deref(), Some("hello"));
-        assert_eq!(
-            parsed.related_pages,
-            vec!["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(parsed.related_pages, vec!["a".to_string(), "b".to_string()]);
     }
 
     #[test]

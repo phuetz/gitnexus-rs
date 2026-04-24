@@ -96,9 +96,9 @@ impl StdioTransport {
             .ok_or_else(|| McpError::Transport("Invalid Content-Length header".into()))?
             .trim();
 
-        let length: usize = length_str
-            .parse()
-            .map_err(|_| McpError::Transport(format!("Invalid Content-Length value: {length_str}")))?;
+        let length: usize = length_str.parse().map_err(|_| {
+            McpError::Transport(format!("Invalid Content-Length value: {length_str}"))
+        })?;
 
         const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
         if length > MAX_MESSAGE_SIZE {
@@ -136,8 +136,7 @@ impl StdioTransport {
             .await
             .map_err(|e| McpError::Transport(e.to_string()))?;
 
-        let message =
-            String::from_utf8(body).map_err(|e| McpError::Transport(e.to_string()))?;
+        let message = String::from_utf8(body).map_err(|e| McpError::Transport(e.to_string()))?;
 
         Ok(Some(message))
     }

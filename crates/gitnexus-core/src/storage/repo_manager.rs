@@ -53,7 +53,10 @@ pub struct RegistryEntry {
 
 /// Get the `.gitnexus` storage path for a repository.
 pub fn get_storage_path(repo_path: &Path) -> PathBuf {
-    repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf()).join(GITNEXUS_DIR)
+    repo_path
+        .canonicalize()
+        .unwrap_or_else(|_| repo_path.to_path_buf())
+        .join(GITNEXUS_DIR)
 }
 
 /// Get paths to key storage files.
@@ -296,7 +299,9 @@ fn dirs_or_home() -> PathBuf {
 
 fn paths_equal(a: &str, b: &Path) -> bool {
     let a_path = Path::new(a);
-    let a_canon = a_path.canonicalize().unwrap_or_else(|_| a_path.to_path_buf());
+    let a_canon = a_path
+        .canonicalize()
+        .unwrap_or_else(|_| a_path.to_path_buf());
     let b_canon = b.canonicalize().unwrap_or_else(|_| b.to_path_buf());
 
     #[cfg(target_os = "windows")]

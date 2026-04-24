@@ -184,7 +184,10 @@ fn parse_node_pattern(pair: Pair<Rule>) -> Result<NodePattern, ParseError> {
                 label = Some(ident.as_str().to_string());
             }
             Rule::prop_filter => {
-                for prop_pair in inner.into_inner().filter(|p| p.as_rule() == Rule::prop_pair) {
+                for prop_pair in inner
+                    .into_inner()
+                    .filter(|p| p.as_rule() == Rule::prop_pair)
+                {
                     let mut pp_inner = prop_pair.into_inner();
                     let key = pp_inner.next().unwrap().as_str().to_string();
                     let val = parse_value(pp_inner.next().unwrap())?;
@@ -237,18 +240,14 @@ fn parse_rel_pattern(pair: Pair<Rule>) -> Result<RelPattern, ParseError> {
                             .filter(|p| p.as_rule() == Rule::integer)
                             .collect();
                         if ints.len() == 2 {
-                            min_hops = Some(
-                                ints[0]
-                                    .as_str()
-                                    .parse()
-                                    .map_err(|_| ParseError::InvalidInt(ints[0].as_str().into()))?,
-                            );
-                            max_hops = Some(
-                                ints[1]
-                                    .as_str()
-                                    .parse()
-                                    .map_err(|_| ParseError::InvalidInt(ints[1].as_str().into()))?,
-                            );
+                            min_hops =
+                                Some(ints[0].as_str().parse().map_err(|_| {
+                                    ParseError::InvalidInt(ints[0].as_str().into())
+                                })?);
+                            max_hops =
+                                Some(ints[1].as_str().parse().map_err(|_| {
+                                    ParseError::InvalidInt(ints[1].as_str().into())
+                                })?);
                         }
                         // bare `*` means unbounded (0..inf), leave both None
                     }
@@ -400,7 +399,12 @@ fn parse_add_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         let op = match op_pair.as_str() {
             "+" => BinaryOperator::Add,
             "-" => BinaryOperator::Sub,
-            _ => return Err(ParseError::UnexpectedRule(format!("add_op: {}", op_pair.as_str()))),
+            _ => {
+                return Err(ParseError::UnexpectedRule(format!(
+                    "add_op: {}",
+                    op_pair.as_str()
+                )))
+            }
         };
         left = Expr::BinaryOp {
             left: Box::new(left),

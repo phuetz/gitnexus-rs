@@ -19,19 +19,19 @@
 use std::sync::Arc;
 
 use axum::{
-    routing::post,
-    Json,
     extract::State,
-    http::{StatusCode, Method, HeaderValue, header},
-    response::Sse,
+    http::{header, HeaderValue, Method, StatusCode},
     response::sse::{Event, KeepAlive},
     response::IntoResponse,
+    response::Sse,
+    routing::post,
+    Json,
 };
-use tower_http::services::ServeDir;
-use tower_http::cors::CorsLayer;
-use tokio::sync::Mutex;
 use serde::Deserialize;
 use std::convert::Infallible;
+use tokio::sync::Mutex;
+use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 
 use gitnexus_mcp::backend::local::LocalBackend;
 use gitnexus_mcp::transport::http::{mcp_http_router, SharedBackend};
@@ -111,7 +111,12 @@ async fn chat_handler(
         .iter()
         .find(|e| e.name == payload.repo)
         .or_else(|| registry.first())
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "No repository found. Run 'gitnexus analyze' first.".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "No repository found. Run 'gitnexus analyze' first.".to_string(),
+            )
+        })?;
 
     let repo_path = repo_entry.path.clone();
     drop(backend_guard);
@@ -139,14 +144,18 @@ async fn chat_handler(
         let augmented_question = if history_context.is_empty() {
             question.clone()
         } else {
-            format!("{}\n\n---\n*Contexte de la conversation précédente :*\n{}", question, history_context)
+            format!(
+                "{}\n\n---\n*Contexte de la conversation précédente :*\n{}",
+                question, history_context
+            )
         };
 
         let stream_cb = Box::new(move |delta: &str| {
             let _ = tx_chunk.send(Ok::<Event, Infallible>(Event::default().data(delta)));
         });
 
-        let result = super::ask::ask_question(&augmented_question, Some(&repo_path), Some(stream_cb));
+        let result =
+            super::ask::ask_question(&augmented_question, Some(&repo_path), Some(stream_cb));
 
         // Send [DONE] sentinel so clients know the stream has ended
         match result {

@@ -43,10 +43,7 @@ impl SymbolTable {
             .push(Arc::clone(&arc));
 
         // Global index
-        self.global_index
-            .entry(name)
-            .or_default()
-            .push(arc);
+        self.global_index.entry(name).or_default().push(arc);
     }
 
     /// Register a field/property owned by a class/struct.
@@ -91,7 +88,9 @@ impl SymbolTable {
             self.callable_index = Some(index);
         }
         // Safety: callable_index is always set above when None
-        self.callable_index.as_ref().expect("callable_index populated above")
+        self.callable_index
+            .as_ref()
+            .expect("callable_index populated above")
     }
 
     /// Total symbol count.
@@ -218,8 +217,14 @@ mod tests {
     #[test]
     fn test_multiple_definitions() {
         let mut table = SymbolTable::new();
-        table.add("User".to_string(), make_def("Class:a:User", "a.ts", NodeLabel::Class));
-        table.add("User".to_string(), make_def("Class:b:User", "b.ts", NodeLabel::Class));
+        table.add(
+            "User".to_string(),
+            make_def("Class:a:User", "a.ts", NodeLabel::Class),
+        );
+        table.add(
+            "User".to_string(),
+            make_def("Class:b:User", "b.ts", NodeLabel::Class),
+        );
 
         let global = table.lookup_global("User").unwrap();
         assert_eq!(global.len(), 2);
@@ -249,10 +254,7 @@ mod tests {
         );
 
         // Capture an Arc cloned out of file_index BEFORE the update.
-        let pre_arc = table
-            .lookup_in_file("a.ts", "handleLogin")
-            .unwrap()[0]
-            .clone();
+        let pre_arc = table.lookup_in_file("a.ts", "handleLogin").unwrap()[0].clone();
         assert_eq!(pre_arc.owner_id, None);
 
         table.set_owner_id("Function:a:handleLogin", "Class:a:LoginCtrl".to_string());
@@ -269,8 +271,14 @@ mod tests {
     #[test]
     fn test_callable_index() {
         let mut table = SymbolTable::new();
-        table.add("foo".to_string(), make_def("f1", "a.ts", NodeLabel::Function));
-        table.add("bar".to_string(), make_def("v1", "a.ts", NodeLabel::Variable));
+        table.add(
+            "foo".to_string(),
+            make_def("f1", "a.ts", NodeLabel::Function),
+        );
+        table.add(
+            "bar".to_string(),
+            make_def("v1", "a.ts", NodeLabel::Variable),
+        );
         table.add("baz".to_string(), make_def("m1", "a.ts", NodeLabel::Method));
 
         let callables = table.callable_index();

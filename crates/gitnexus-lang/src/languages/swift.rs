@@ -28,7 +28,12 @@ impl LanguageProvider for SwiftProvider {
         export_detection::check_swift_export(node_text, node_type, ancestors)
     }
 
-    fn resolve_import<'a>(&self, raw_path: &str, file_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult {
+    fn resolve_import<'a>(
+        &self,
+        raw_path: &str,
+        file_path: &str,
+        ctx: &ResolveCtx<'a>,
+    ) -> ImportResult {
         swift_resolver::resolve(raw_path, file_path, ctx)
     }
 
@@ -74,9 +79,7 @@ fn wire_swift_implicit_imports(
     // unrelated files. Accept either separator defensively.
     let mut dir_groups: HashMap<String, Vec<&str>> = HashMap::new();
     for file in language_files {
-        let last_sep = file
-            .rfind('/')
-            .max(file.rfind('\\'));
+        let last_sep = file.rfind('/').max(file.rfind('\\'));
         let dir = last_sep.map(|i| &file[..i]).unwrap_or("");
         dir_groups.entry(dir.to_string()).or_default().push(file);
     }

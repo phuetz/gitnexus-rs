@@ -26,11 +26,7 @@ use zip::ZipWriter;
 
 /// Export all documentation as a single DOCX file.
 /// Reads `_index.json` to determine page order, then converts all Markdown files.
-pub fn export_docs_as_docx(
-    docs_dir: &Path,
-    output_path: &Path,
-    project_name: &str,
-) -> Result<()> {
+pub fn export_docs_as_docx(docs_dir: &Path, output_path: &Path, project_name: &str) -> Result<()> {
     // Read _index.json for ordered page list and stats
     let index_path = docs_dir.join("_index.json");
     let (ordered_files, stats) = if index_path.exists() {
@@ -45,7 +41,9 @@ pub fn export_docs_as_docx(
     };
 
     // Read all markdown files in order (with path traversal protection)
-    let docs_canonical = docs_dir.canonicalize().unwrap_or_else(|_| docs_dir.to_path_buf());
+    let docs_canonical = docs_dir
+        .canonicalize()
+        .unwrap_or_else(|_| docs_dir.to_path_buf());
     let mut md_files: Vec<(String, String, String)> = Vec::new(); // (id, title, content)
     for (id, title, filename) in &ordered_files {
         let path = docs_dir.join(filename);
@@ -54,7 +52,10 @@ pub fn export_docs_as_docx(
             Err(_) => continue, // file doesn't exist, skip
         };
         if !canonical.starts_with(&docs_canonical) {
-            eprintln!("Warning: skipping path outside docs directory: {}", filename);
+            eprintln!(
+                "Warning: skipping path outside docs directory: {}",
+                filename
+            );
             continue;
         }
         let content = std::fs::read_to_string(&canonical)?;
@@ -68,8 +69,8 @@ pub fn export_docs_as_docx(
     // Generate DOCX
     let file = std::fs::File::create(output_path)?;
     let mut zip = ZipWriter::new(file);
-    let options: SimpleFileOptions = FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options: SimpleFileOptions =
+        FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     // 1. [Content_Types].xml
     zip.start_file("[Content_Types].xml", options)?;
@@ -154,14 +155,30 @@ fn fallback_file_order() -> Vec<(String, String, String)> {
         ("overview", "Overview", "overview.md"),
         ("architecture", "Architecture", "architecture.md"),
         ("getting-started", "Getting Started", "getting-started.md"),
-        ("aspnet-controllers", "Controllers & Actions", "aspnet-controllers.md"),
+        (
+            "aspnet-controllers",
+            "Controllers & Actions",
+            "aspnet-controllers.md",
+        ),
         ("aspnet-routes", "API & Route Table", "aspnet-routes.md"),
         ("aspnet-entities", "Entity Data Model", "aspnet-entities.md"),
-        ("aspnet-data-model", "Entity Relationship Diagram", "aspnet-data-model.md"),
+        (
+            "aspnet-data-model",
+            "Entity Relationship Diagram",
+            "aspnet-data-model.md",
+        ),
         ("aspnet-views", "Views & Templates", "aspnet-views.md"),
         ("aspnet-areas", "MVC Areas", "aspnet-areas.md"),
-        ("aspnet-seq-http", "Sequence: HTTP Request Flow", "aspnet-seq-http.md"),
-        ("aspnet-seq-data", "Sequence: Data Access Flow", "aspnet-seq-data.md"),
+        (
+            "aspnet-seq-http",
+            "Sequence: HTTP Request Flow",
+            "aspnet-seq-http.md",
+        ),
+        (
+            "aspnet-seq-data",
+            "Sequence: Data Access Flow",
+            "aspnet-seq-data.md",
+        ),
     ];
     files
         .iter()
@@ -704,7 +721,11 @@ fn parse_table_row(line: &str) -> Vec<String> {
     let raw: Vec<String> = line.split('|').map(|s| s.trim().to_string()).collect();
     // Drop a single leading empty (from the opening `|`) and a single
     // trailing empty (from the closing `|`).
-    let start = if raw.first().is_some_and(|s| s.is_empty()) { 1 } else { 0 };
+    let start = if raw.first().is_some_and(|s| s.is_empty()) {
+        1
+    } else {
+        0
+    };
     let end = if raw.last().is_some_and(|s| s.is_empty()) {
         raw.len().saturating_sub(1)
     } else {
@@ -882,10 +903,12 @@ const RELS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?
 </Relationships>"#;
 
 fn generate_document_rels(links: &[(String, String)]) -> String {
-    let mut rels = String::from(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    let mut rels = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>"#);
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>"#,
+    );
 
     // Add hyperlink relationships
     for (rid, url) in links {

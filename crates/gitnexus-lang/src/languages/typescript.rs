@@ -26,7 +26,12 @@ impl LanguageProvider for TypeScriptProvider {
         export_detection::check_ts_export(node_text, node_type, ancestors)
     }
 
-    fn resolve_import<'a>(&self, raw_path: &str, file_path: &str, ctx: &ResolveCtx<'a>) -> ImportResult {
+    fn resolve_import<'a>(
+        &self,
+        raw_path: &str,
+        file_path: &str,
+        ctx: &ResolveCtx<'a>,
+    ) -> ImportResult {
         standard::resolve(raw_path, file_path, ctx)
     }
 

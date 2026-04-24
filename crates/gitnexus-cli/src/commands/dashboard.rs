@@ -13,13 +13,10 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    prelude::*,
-    widgets::*,
-};
+use ratatui::{prelude::*, widgets::*};
 
-use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
+use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::storage::repo_manager;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -142,21 +139,29 @@ impl App {
 
         // Build relationship indexes
         #[allow(clippy::type_complexity)]
-        let mut outgoing: HashMap<String, Vec<(String, RelationshipType, f64, Option<u32>)>> =
-            HashMap::new();
+        let mut outgoing: HashMap<
+            String,
+            Vec<(String, RelationshipType, f64, Option<u32>)>,
+        > = HashMap::new();
         #[allow(clippy::type_complexity)]
-        let mut incoming: HashMap<String, Vec<(String, RelationshipType, f64, Option<u32>)>> =
-            HashMap::new();
+        let mut incoming: HashMap<
+            String,
+            Vec<(String, RelationshipType, f64, Option<u32>)>,
+        > = HashMap::new();
 
         for rel in graph.iter_relationships() {
-            outgoing
-                .entry(rel.source_id.clone())
-                .or_default()
-                .push((rel.target_id.clone(), rel.rel_type, rel.confidence, rel.step));
-            incoming
-                .entry(rel.target_id.clone())
-                .or_default()
-                .push((rel.source_id.clone(), rel.rel_type, rel.confidence, rel.step));
+            outgoing.entry(rel.source_id.clone()).or_default().push((
+                rel.target_id.clone(),
+                rel.rel_type,
+                rel.confidence,
+                rel.step,
+            ));
+            incoming.entry(rel.target_id.clone()).or_default().push((
+                rel.source_id.clone(),
+                rel.rel_type,
+                rel.confidence,
+                rel.step,
+            ));
         }
 
         // Build file tree from graph nodes
@@ -187,7 +192,10 @@ impl App {
         for node in graph.iter_nodes() {
             if node.label == NodeLabel::Community {
                 communities.push(CommunityItem {
-                    name: node.properties.heuristic_label.clone()
+                    name: node
+                        .properties
+                        .heuristic_label
+                        .clone()
                         .or_else(|| Some(node.properties.name.clone()))
                         .unwrap_or_else(|| node.id.clone()),
                     id: node.id.clone(),
@@ -322,8 +330,7 @@ impl App {
                 format!("{}/", path)
             };
             for node in self.graph.iter_nodes() {
-                if is_symbol_label(node.label)
-                    && node.properties.file_path.starts_with(&dir_prefix)
+                if is_symbol_label(node.label) && node.properties.file_path.starts_with(&dir_prefix)
                 {
                     let lines = match (node.properties.start_line, node.properties.end_line) {
                         (Some(s), Some(e)) => format!("{s}-{e}"),
@@ -345,12 +352,12 @@ impl App {
                 for id in ids {
                     if let Some(node) = self.graph.get_node(id) {
                         if is_symbol_label(node.label) {
-                            let lines =
-                                match (node.properties.start_line, node.properties.end_line) {
-                                    (Some(s), Some(e)) => format!("{s}-{e}"),
-                                    (Some(s), None) => format!("{s}"),
-                                    _ => String::new(),
-                                };
+                            let lines = match (node.properties.start_line, node.properties.end_line)
+                            {
+                                (Some(s), Some(e)) => format!("{s}-{e}"),
+                                (Some(s), None) => format!("{s}"),
+                                _ => String::new(),
+                            };
                             self.symbols.push(SymbolItem {
                                 name: node.properties.name.clone(),
                                 label: node.label,
@@ -421,7 +428,10 @@ impl App {
             for (tgt_id, rel_type, _conf, _step) in rels {
                 if *rel_type == RelationshipType::MemberOf {
                     if let Some(node) = self.graph.get_node(tgt_id) {
-                        let label = node.properties.heuristic_label.clone()
+                        let label = node
+                            .properties
+                            .heuristic_label
+                            .clone()
                             .unwrap_or_else(|| node.properties.name.clone());
                         let count = node.properties.symbol_count.unwrap_or(0);
                         self.community_label = Some(format!("{label} ({count})"));
@@ -509,12 +519,12 @@ impl App {
                 if *rel_type == RelationshipType::MemberOf {
                     if let Some(node) = self.graph.get_node(src_id) {
                         if is_symbol_label(node.label) {
-                            let lines =
-                                match (node.properties.start_line, node.properties.end_line) {
-                                    (Some(s), Some(e)) => format!("{s}-{e}"),
-                                    (Some(s), None) => format!("{s}"),
-                                    _ => String::new(),
-                                };
+                            let lines = match (node.properties.start_line, node.properties.end_line)
+                            {
+                                (Some(s), Some(e)) => format!("{s}-{e}"),
+                                (Some(s), None) => format!("{s}"),
+                                _ => String::new(),
+                            };
                             self.community_members.push(SymbolItem {
                                 name: node.properties.name.clone(),
                                 label: node.label,
@@ -1072,21 +1082,21 @@ fn label_badge(label: NodeLabel) -> &'static str {
 
 fn label_color(label: NodeLabel) -> Color {
     match label {
-        NodeLabel::Function => Color::Indexed(39),   // blue
-        NodeLabel::Class => Color::Indexed(178),     // gold
-        NodeLabel::Method => Color::Indexed(75),     // light blue
-        NodeLabel::Struct => Color::Indexed(114),    // green
+        NodeLabel::Function => Color::Indexed(39),    // blue
+        NodeLabel::Class => Color::Indexed(178),      // gold
+        NodeLabel::Method => Color::Indexed(75),      // light blue
+        NodeLabel::Struct => Color::Indexed(114),     // green
         NodeLabel::Interface => Color::Indexed(141),  // purple
-        NodeLabel::Enum => Color::Indexed(208),      // orange
-        NodeLabel::Variable => Color::Indexed(252),  // gray
-        NodeLabel::Trait => Color::Indexed(170),     // magenta
-        NodeLabel::Impl => Color::Indexed(109),      // teal
-        NodeLabel::Const => Color::Indexed(228),     // yellow
+        NodeLabel::Enum => Color::Indexed(208),       // orange
+        NodeLabel::Variable => Color::Indexed(252),   // gray
+        NodeLabel::Trait => Color::Indexed(170),      // magenta
+        NodeLabel::Impl => Color::Indexed(109),       // teal
+        NodeLabel::Const => Color::Indexed(228),      // yellow
         NodeLabel::Constructor => Color::Indexed(75), // light blue
-        NodeLabel::Macro => Color::Indexed(196),     // red
-        NodeLabel::Route => Color::Indexed(48),      // bright green
-        NodeLabel::Tool => Color::Indexed(45),       // cyan
-        _ => Color::Indexed(252),                    // gray
+        NodeLabel::Macro => Color::Indexed(196),      // red
+        NodeLabel::Route => Color::Indexed(48),       // bright green
+        NodeLabel::Tool => Color::Indexed(45),        // cyan
+        _ => Color::Indexed(252),                     // gray
     }
 }
 
@@ -1144,9 +1154,9 @@ fn ui(f: &mut Frame, app: &mut App) {
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),     // title bar
-            Constraint::Min(5),        // body
-            Constraint::Length(3),     // status bar
+            Constraint::Length(3), // title bar
+            Constraint::Min(5),    // body
+            Constraint::Length(3), // status bar
         ])
         .split(size);
 
@@ -1169,16 +1179,20 @@ fn render_title_bar(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Indexed(240)))
-        .title(
-            Line::from(vec![
-                Span::styled(" GitNexus ", Style::default().fg(Color::Indexed(39)).add_modifier(Modifier::BOLD)),
-                Span::styled("Dashboard", Style::default().fg(Color::Indexed(75))),
-            ])
-        );
+        .title(Line::from(vec![
+            Span::styled(
+                " GitNexus ",
+                Style::default()
+                    .fg(Color::Indexed(39))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Dashboard", Style::default().fg(Color::Indexed(75))),
+        ]));
 
-    let paragraph = Paragraph::new(Line::from(vec![
-        Span::styled(title, Style::default().fg(Color::Indexed(250))),
-    ]))
+    let paragraph = Paragraph::new(Line::from(vec![Span::styled(
+        title,
+        Style::default().fg(Color::Indexed(250)),
+    )]))
     .block(block);
 
     f.render_widget(paragraph, area);
@@ -1188,9 +1202,9 @@ fn render_body(f: &mut Frame, app: &mut App, area: Rect) {
     let body_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(25),  // file tree
-            Constraint::Percentage(40),  // symbols
-            Constraint::Percentage(35),  // details
+            Constraint::Percentage(25), // file tree
+            Constraint::Percentage(40), // symbols
+            Constraint::Percentage(35), // details
         ])
         .split(area);
 
@@ -1210,28 +1224,34 @@ fn render_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        .title(
-            Line::from(vec![
-                Span::styled(" File Tree ", Style::default().fg(Color::Indexed(39)).add_modifier(Modifier::BOLD)),
-                Span::styled(
-                    format!("({})", app.file_tree.len()),
-                    Style::default().fg(Color::Indexed(245)),
-                ),
-            ])
-        );
+        .title(Line::from(vec![
+            Span::styled(
+                " File Tree ",
+                Style::default()
+                    .fg(Color::Indexed(39))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("({})", app.file_tree.len()),
+                Style::default().fg(Color::Indexed(245)),
+            ),
+        ]));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     if app.file_tree.is_empty() {
-        let msg = Paragraph::new("No files found")
-            .style(Style::default().fg(Color::Indexed(245)));
+        let msg = Paragraph::new("No files found").style(Style::default().fg(Color::Indexed(245)));
         f.render_widget(msg, inner);
         return;
     }
 
     let visible_height = inner.height as usize;
-    ensure_visible(app.file_selected, &mut app.file_scroll_offset, visible_height);
+    ensure_visible(
+        app.file_selected,
+        &mut app.file_scroll_offset,
+        visible_height,
+    );
 
     let items: Vec<Line> = app
         .file_tree
@@ -1242,7 +1262,11 @@ fn render_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
         .map(|(i, item)| {
             let indent = "  ".repeat(item.depth);
             let icon = if item.is_dir {
-                if item.expanded { "\u{25BC} " } else { "\u{25B6} " }
+                if item.expanded {
+                    "\u{25BC} "
+                } else {
+                    "\u{25B6} "
+                }
             } else {
                 "  "
             };
@@ -1258,7 +1282,10 @@ fn render_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
             };
 
             let style = if i == app.file_selected {
-                Style::default().bg(Color::Indexed(236)).fg(name_color).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(Color::Indexed(236))
+                    .fg(name_color)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(name_color)
             };
@@ -1299,20 +1326,16 @@ fn render_symbols_panel(f: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        .title(
-            Line::from(vec![
-                Span::styled(
-                    title_text,
-                    Style::default()
-                        .fg(if app.search_mode {
-                            Color::Indexed(228)
-                        } else {
-                            Color::Indexed(39)
-                        })
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ])
-        );
+        .title(Line::from(vec![Span::styled(
+            title_text,
+            Style::default()
+                .fg(if app.search_mode {
+                    Color::Indexed(228)
+                } else {
+                    Color::Indexed(39)
+                })
+                .add_modifier(Modifier::BOLD),
+        )]));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -1330,14 +1353,17 @@ fn render_symbols_panel(f: &mut Frame, app: &mut App, area: Rect) {
         } else {
             "Select a file to see symbols"
         };
-        let paragraph = Paragraph::new(msg)
-            .style(Style::default().fg(Color::Indexed(245)));
+        let paragraph = Paragraph::new(msg).style(Style::default().fg(Color::Indexed(245)));
         f.render_widget(paragraph, inner);
         return;
     }
 
     let visible_height = inner.height as usize;
-    ensure_visible(app.symbol_selected, &mut app.symbol_scroll_offset, visible_height);
+    ensure_visible(
+        app.symbol_selected,
+        &mut app.symbol_scroll_offset,
+        visible_height,
+    );
 
     let items: Vec<Line> = symbol_list
         .iter()
@@ -1349,13 +1375,18 @@ fn render_symbols_panel(f: &mut Frame, app: &mut App, area: Rect) {
             let color = label_color(sym.label);
 
             let style = if i == app.symbol_selected {
-                Style::default().bg(Color::Indexed(236)).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(Color::Indexed(236))
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
 
             Line::from(vec![
-                Span::styled(format!(" [{badge}] "), Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!(" [{badge}] "),
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(sym.name.clone(), style.fg(Color::Indexed(255))),
                 Span::styled(
                     if sym.lines.is_empty() {
@@ -1392,19 +1423,19 @@ fn render_communities_panel(f: &mut Frame, app: &mut App, area: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
-            .title(Line::from(vec![
-                Span::styled(
-                    format!(" Community: {community_name} "),
-                    Style::default().fg(Color::Indexed(178)).add_modifier(Modifier::BOLD),
-                ),
-            ]));
+            .title(Line::from(vec![Span::styled(
+                format!(" Community: {community_name} "),
+                Style::default()
+                    .fg(Color::Indexed(178))
+                    .add_modifier(Modifier::BOLD),
+            )]));
 
         let inner = block.inner(area);
         f.render_widget(block, area);
 
         if app.community_members.is_empty() {
-            let paragraph = Paragraph::new("No members found")
-                .style(Style::default().fg(Color::Indexed(245)));
+            let paragraph =
+                Paragraph::new("No members found").style(Style::default().fg(Color::Indexed(245)));
             f.render_widget(paragraph, inner);
             return;
         }
@@ -1426,12 +1457,17 @@ fn render_communities_panel(f: &mut Frame, app: &mut App, area: Rect) {
                 let badge = label_badge(sym.label);
                 let color = label_color(sym.label);
                 let style = if i == app.community_member_selected {
-                    Style::default().bg(Color::Indexed(236)).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .bg(Color::Indexed(236))
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 };
                 Line::from(vec![
-                    Span::styled(format!(" [{badge}] "), Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!(" [{badge}] "),
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(&sym.name, style.fg(Color::Indexed(255))),
                 ])
             })
@@ -1444,12 +1480,12 @@ fn render_communities_panel(f: &mut Frame, app: &mut App, area: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
-            .title(Line::from(vec![
-                Span::styled(
-                    format!(" Communities ({}) ", app.communities.len()),
-                    Style::default().fg(Color::Indexed(178)).add_modifier(Modifier::BOLD),
-                ),
-            ]));
+            .title(Line::from(vec![Span::styled(
+                format!(" Communities ({}) ", app.communities.len()),
+                Style::default()
+                    .fg(Color::Indexed(178))
+                    .add_modifier(Modifier::BOLD),
+            )]));
 
         let inner = block.inner(area);
         f.render_widget(block, area);
@@ -1476,7 +1512,9 @@ fn render_communities_panel(f: &mut Frame, app: &mut App, area: Rect) {
             .take(visible_height)
             .map(|(i, com)| {
                 let style = if i == app.community_selected {
-                    Style::default().bg(Color::Indexed(236)).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .bg(Color::Indexed(236))
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 };
@@ -1520,19 +1558,19 @@ fn render_processes_panel(f: &mut Frame, app: &mut App, area: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
-            .title(Line::from(vec![
-                Span::styled(
-                    format!(" Process: {process_name} "),
-                    Style::default().fg(Color::Indexed(48)).add_modifier(Modifier::BOLD),
-                ),
-            ]));
+            .title(Line::from(vec![Span::styled(
+                format!(" Process: {process_name} "),
+                Style::default()
+                    .fg(Color::Indexed(48))
+                    .add_modifier(Modifier::BOLD),
+            )]));
 
         let inner = block.inner(area);
         f.render_widget(block, area);
 
         if app.process_steps.is_empty() {
-            let paragraph = Paragraph::new("No steps found")
-                .style(Style::default().fg(Color::Indexed(245)));
+            let paragraph =
+                Paragraph::new("No steps found").style(Style::default().fg(Color::Indexed(245)));
             f.render_widget(paragraph, inner);
             return;
         }
@@ -1554,7 +1592,9 @@ fn render_processes_panel(f: &mut Frame, app: &mut App, area: Rect) {
                 let badge = label_badge(sym.label);
                 let color = label_color(sym.label);
                 let style = if i == app.process_step_selected {
-                    Style::default().bg(Color::Indexed(236)).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .bg(Color::Indexed(236))
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 };
@@ -1563,7 +1603,10 @@ fn render_processes_panel(f: &mut Frame, app: &mut App, area: Rect) {
                         format!(" {}. ", i + 1),
                         Style::default().fg(Color::Indexed(245)),
                     ),
-                    Span::styled(format!("[{badge}] "), Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("[{badge}] "),
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(&sym.name, style.fg(Color::Indexed(255))),
                 ])
             })
@@ -1576,12 +1619,12 @@ fn render_processes_panel(f: &mut Frame, app: &mut App, area: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
-            .title(Line::from(vec![
-                Span::styled(
-                    format!(" Processes ({}) ", app.processes.len()),
-                    Style::default().fg(Color::Indexed(48)).add_modifier(Modifier::BOLD),
-                ),
-            ]));
+            .title(Line::from(vec![Span::styled(
+                format!(" Processes ({}) ", app.processes.len()),
+                Style::default()
+                    .fg(Color::Indexed(48))
+                    .add_modifier(Modifier::BOLD),
+            )]));
 
         let inner = block.inner(area);
         f.render_widget(block, area);
@@ -1608,7 +1651,9 @@ fn render_processes_panel(f: &mut Frame, app: &mut App, area: Rect) {
             .take(visible_height)
             .map(|(i, proc)| {
                 let style = if i == app.process_selected {
-                    Style::default().bg(Color::Indexed(236)).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .bg(Color::Indexed(236))
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 };
@@ -1638,12 +1683,12 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        .title(Line::from(vec![
-            Span::styled(
-                " Details ",
-                Style::default().fg(Color::Indexed(39)).add_modifier(Modifier::BOLD),
-            ),
-        ]));
+        .title(Line::from(vec![Span::styled(
+            " Details ",
+            Style::default()
+                .fg(Color::Indexed(39))
+                .add_modifier(Modifier::BOLD),
+        )]));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -1671,7 +1716,9 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
         ),
         Span::styled(
             format!("[{}]", label_badge(symbol.label)),
-            Style::default().fg(label_color(symbol.label)).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(label_color(symbol.label))
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
     lines.push(Line::from(""));
@@ -1679,10 +1726,7 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
     // File path
     if !app.detail_file.is_empty() {
         lines.push(Line::from(vec![
-            Span::styled(
-                " File: ",
-                Style::default().fg(Color::Indexed(245)),
-            ),
+            Span::styled(" File: ", Style::default().fg(Color::Indexed(245))),
             Span::styled(
                 &app.detail_file,
                 Style::default().fg(file_color(&app.detail_file)),
@@ -1693,14 +1737,8 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
     // Line range
     if !app.detail_lines.is_empty() {
         lines.push(Line::from(vec![
-            Span::styled(
-                " Lines: ",
-                Style::default().fg(Color::Indexed(245)),
-            ),
-            Span::styled(
-                &app.detail_lines,
-                Style::default().fg(Color::Indexed(252)),
-            ),
+            Span::styled(" Lines: ", Style::default().fg(Color::Indexed(245))),
+            Span::styled(&app.detail_lines, Style::default().fg(Color::Indexed(252))),
         ]));
     }
 
@@ -1711,12 +1749,11 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
         lines.push(Line::from(vec![
             Span::styled(
                 " Community: ",
-                Style::default().fg(Color::Indexed(178)).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Indexed(178))
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                label.as_str(),
-                Style::default().fg(Color::Indexed(178)),
-            ),
+            Span::styled(label.as_str(), Style::default().fg(Color::Indexed(178))),
         ]));
         lines.push(Line::from(""));
     }
@@ -1725,7 +1762,9 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
     if !app.callers.is_empty() {
         lines.push(Line::from(Span::styled(
             format!(" Callers ({})", app.callers.len()),
-            Style::default().fg(Color::Indexed(114)).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Indexed(114))
+                .add_modifier(Modifier::BOLD),
         )));
         for caller in &app.callers {
             lines.push(Line::from(vec![
@@ -1740,7 +1779,9 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
     if !app.callees.is_empty() {
         lines.push(Line::from(Span::styled(
             format!(" Callees ({})", app.callees.len()),
-            Style::default().fg(Color::Indexed(75)).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Indexed(75))
+                .add_modifier(Modifier::BOLD),
         )));
         for callee in &app.callees {
             lines.push(Line::from(vec![
@@ -1755,7 +1796,9 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
     if !app.detail_extra.is_empty() {
         lines.push(Line::from(Span::styled(
             " Relationships",
-            Style::default().fg(Color::Indexed(141)).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Indexed(141))
+                .add_modifier(Modifier::BOLD),
         )));
         for (kind, target) in &app.detail_extra {
             lines.push(Line::from(vec![
@@ -1779,8 +1822,7 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
         )));
     }
 
-    let paragraph = Paragraph::new(lines)
-        .scroll((app.detail_scroll_offset as u16, 0));
+    let paragraph = Paragraph::new(lines).scroll((app.detail_scroll_offset as u16, 0));
     f.render_widget(paragraph, inner);
 }
 
@@ -1812,33 +1854,78 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         vec![
             Span::styled(" Type to search ", Style::default().fg(Color::Indexed(228))),
             Span::styled("| ", Style::default().fg(Color::Indexed(240))),
-            Span::styled("Esc", Style::default().fg(Color::Indexed(39)).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Esc",
+                Style::default()
+                    .fg(Color::Indexed(39))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Cancel ", Style::default().fg(Color::Indexed(250))),
             Span::styled("| ", Style::default().fg(Color::Indexed(240))),
-            Span::styled("Enter", Style::default().fg(Color::Indexed(39)).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Enter",
+                Style::default()
+                    .fg(Color::Indexed(39))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Confirm", Style::default().fg(Color::Indexed(250))),
         ]
     } else {
         vec![
-            Span::styled("Tab", Style::default().fg(Color::Indexed(39)).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Tab",
+                Style::default()
+                    .fg(Color::Indexed(39))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Panel ", Style::default().fg(Color::Indexed(250))),
             Span::styled("| ", Style::default().fg(Color::Indexed(240))),
-            Span::styled("j/k", Style::default().fg(Color::Indexed(39)).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "j/k",
+                Style::default()
+                    .fg(Color::Indexed(39))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Nav ", Style::default().fg(Color::Indexed(250))),
             Span::styled("| ", Style::default().fg(Color::Indexed(240))),
-            Span::styled("Enter", Style::default().fg(Color::Indexed(39)).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Enter",
+                Style::default()
+                    .fg(Color::Indexed(39))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Select ", Style::default().fg(Color::Indexed(250))),
             Span::styled("| ", Style::default().fg(Color::Indexed(240))),
-            Span::styled("/", Style::default().fg(Color::Indexed(39)).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "/",
+                Style::default()
+                    .fg(Color::Indexed(39))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Search ", Style::default().fg(Color::Indexed(250))),
             Span::styled("| ", Style::default().fg(Color::Indexed(240))),
-            Span::styled("c", Style::default().fg(Color::Indexed(178)).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "c",
+                Style::default()
+                    .fg(Color::Indexed(178))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Communities ", Style::default().fg(Color::Indexed(250))),
             Span::styled("| ", Style::default().fg(Color::Indexed(240))),
-            Span::styled("p", Style::default().fg(Color::Indexed(48)).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "p",
+                Style::default()
+                    .fg(Color::Indexed(48))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Processes ", Style::default().fg(Color::Indexed(250))),
             Span::styled("| ", Style::default().fg(Color::Indexed(240))),
-            Span::styled("q", Style::default().fg(Color::Indexed(196)).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "q",
+                Style::default()
+                    .fg(Color::Indexed(196))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Quit ", Style::default().fg(Color::Indexed(250))),
             Span::styled("| ", Style::default().fg(Color::Indexed(240))),
             Span::styled(

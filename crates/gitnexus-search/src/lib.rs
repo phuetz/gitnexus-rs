@@ -1,6 +1,6 @@
 pub mod bm25;
-pub mod hybrid;
 pub mod embeddings;
+pub mod hybrid;
 
 use bm25::BM25SearchResult;
 use gitnexus_db::adapter::DbAdapter;

@@ -3,7 +3,7 @@ use gitnexus_core::config::languages::SupportedLanguage;
 use crate::export_detection;
 use crate::import_resolvers::razor as razor_resolver;
 use crate::import_resolvers::types::{ImportResult, ResolveCtx};
-use crate::named_bindings::{types::NamedBinding, razor as razor_bindings};
+use crate::named_bindings::{razor as razor_bindings, types::NamedBinding};
 use crate::provider::{ImportSemantics, LanguageProvider, MroStrategy};
 use crate::queries;
 

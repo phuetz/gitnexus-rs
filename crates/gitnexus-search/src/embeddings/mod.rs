@@ -9,9 +9,9 @@ pub use types::{EmbeddingConfig, SemanticSearchResult};
 
 #[cfg(feature = "embeddings")]
 mod onnx {
-    use ort::session::Session;
-    use ort::session::builder::GraphOptimizationLevel;
     use ndarray::Array2;
+    use ort::session::builder::GraphOptimizationLevel;
+    use ort::session::Session;
     use std::path::Path;
 
     pub struct OnnxEmbedder {
@@ -57,19 +57,15 @@ mod onnx {
 /// `onnx::OnnxEmbedder::embed`). When the feature is enabled but inference
 /// is not yet wired, we emit a one-shot warning so users understand that
 /// semantic search will behave as BM25-only.
-pub fn generate_embeddings(
-    texts: &[String],
-    config: &EmbeddingConfig,
-) -> Vec<Vec<f32>> {
+pub fn generate_embeddings(texts: &[String], config: &EmbeddingConfig) -> Vec<Vec<f32>> {
     #[cfg(feature = "embeddings")]
     {
         use std::sync::atomic::{AtomicBool, Ordering};
         static WARNED: AtomicBool = AtomicBool::new(false);
         if let Some(model_path) = &config.model_path {
-            if let Ok(embedder) = onnx::OnnxEmbedder::new(
-                std::path::Path::new(model_path),
-                config.dimension,
-            ) {
+            if let Ok(embedder) =
+                onnx::OnnxEmbedder::new(std::path::Path::new(model_path), config.dimension)
+            {
                 let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
                 if let Ok(embeddings) = embedder.embed(&text_refs) {
                     if !WARNED.swap(true, Ordering::Relaxed) {
@@ -88,7 +84,10 @@ pub fn generate_embeddings(
     }
 
     // Fallback: zero vectors
-    texts.iter().map(|_| vec![0.0f32; config.dimension]).collect()
+    texts
+        .iter()
+        .map(|_| vec![0.0f32; config.dimension])
+        .collect()
 }
 
 /// Search for similar embeddings using cosine similarity.
@@ -114,7 +113,11 @@ pub fn search_semantic(
         })
         .collect();
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(limit);
 
     for (i, r) in results.iter_mut().enumerate() {
@@ -128,9 +131,21 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
-    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| (*x as f64) * (*y as f64)).sum();
-    let norm_a: f64 = a.iter().map(|x| (*x as f64) * (*x as f64)).sum::<f64>().sqrt();
-    let norm_b: f64 = b.iter().map(|x| (*x as f64) * (*x as f64)).sum::<f64>().sqrt();
+    let dot: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| (*x as f64) * (*y as f64))
+        .sum();
+    let norm_a: f64 = a
+        .iter()
+        .map(|x| (*x as f64) * (*x as f64))
+        .sum::<f64>()
+        .sqrt();
+    let norm_b: f64 = b
+        .iter()
+        .map(|x| (*x as f64) * (*x as f64))
+        .sum::<f64>()
+        .sqrt();
     if norm_a == 0.0 || norm_b == 0.0 {
         return 0.0;
     }
@@ -146,7 +161,10 @@ mod tests {
         let a = vec![1.0f32, 2.0, 3.0];
         let b = vec![1.0f32, 2.0, 3.0];
         let sim = cosine_similarity(&a, &b);
-        assert!((sim - 1.0).abs() < 1e-6, "identical vectors should have similarity ~1.0, got {sim}");
+        assert!(
+            (sim - 1.0).abs() < 1e-6,
+            "identical vectors should have similarity ~1.0, got {sim}"
+        );
     }
 
     #[test]
@@ -154,7 +172,10 @@ mod tests {
         let a = vec![1.0f32, 0.0, 0.0];
         let b = vec![0.0f32, 1.0, 0.0];
         let sim = cosine_similarity(&a, &b);
-        assert!(sim.abs() < 1e-6, "orthogonal vectors should have similarity ~0.0, got {sim}");
+        assert!(
+            sim.abs() < 1e-6,
+            "orthogonal vectors should have similarity ~0.0, got {sim}"
+        );
     }
 
     #[test]
@@ -162,7 +183,10 @@ mod tests {
         let a = vec![1.0f32, 0.0];
         let b = vec![-1.0f32, 0.0];
         let sim = cosine_similarity(&a, &b);
-        assert!((sim - (-1.0)).abs() < 1e-6, "opposite vectors should have similarity ~-1.0, got {sim}");
+        assert!(
+            (sim - (-1.0)).abs() < 1e-6,
+            "opposite vectors should have similarity ~-1.0, got {sim}"
+        );
     }
 
     #[test]
@@ -191,9 +215,9 @@ mod tests {
     fn test_search_semantic_ordering() {
         let query = vec![1.0f32, 0.0, 0.0];
         let stored = vec![
-            ("node_a".to_string(), vec![0.0f32, 1.0, 0.0]),  // orthogonal
-            ("node_b".to_string(), vec![1.0f32, 0.0, 0.0]),  // identical
-            ("node_c".to_string(), vec![0.5f32, 0.5, 0.0]),  // partial match
+            ("node_a".to_string(), vec![0.0f32, 1.0, 0.0]), // orthogonal
+            ("node_b".to_string(), vec![1.0f32, 0.0, 0.0]), // identical
+            ("node_c".to_string(), vec![0.5f32, 0.5, 0.0]), // partial match
         ];
 
         let results = search_semantic(&query, &stored, 10);

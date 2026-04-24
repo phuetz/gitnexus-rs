@@ -79,9 +79,7 @@ pub fn resolve(raw_path: &str, _file_path: &str, ctx: &ResolveCtx<'_>) -> Import
     // Try last path segment as directory name (fallback)
     if let Some(last_seg) = cleaned.rsplit('/').next() {
         if last_seg != local_path {
-            let files = ctx
-                .suffix_index
-                .get_files_in_dir_with_ext(last_seg, ".go");
+            let files = ctx.suffix_index.get_files_in_dir_with_ext(last_seg, ".go");
             if !files.is_empty() {
                 let non_test: Vec<String> = files
                     .into_iter()
@@ -104,8 +102,8 @@ pub fn resolve(raw_path: &str, _file_path: &str, ctx: &ResolveCtx<'_>) -> Import
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{ImportConfigs, SuffixIndex};
+    use super::*;
     use std::collections::HashSet;
 
     fn make_ctx<'a>(
@@ -138,11 +136,7 @@ mod tests {
         };
         let ctx = make_ctx(&files, &index, &configs);
 
-        match resolve(
-            "github.com/user/repo/internal/handler",
-            "cmd/main.go",
-            &ctx,
-        ) {
+        match resolve("github.com/user/repo/internal/handler", "cmd/main.go", &ctx) {
             ImportResult::Package { files, dir_suffix } => {
                 assert_eq!(dir_suffix, "internal/handler");
                 assert_eq!(files.len(), 2); // test file excluded

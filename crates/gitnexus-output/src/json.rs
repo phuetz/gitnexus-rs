@@ -84,10 +84,7 @@ impl OutputFormatter for JsonFormatter {
             .iter()
             .map(|(name, count)| {
                 let mut m = serde_json::Map::new();
-                m.insert(
-                    "name".to_string(),
-                    serde_json::Value::String(name.clone()),
-                );
+                m.insert("name".to_string(), serde_json::Value::String(name.clone()));
                 m.insert(
                     "count".to_string(),
                     serde_json::Value::Number(serde_json::Number::from(*count as u64)),

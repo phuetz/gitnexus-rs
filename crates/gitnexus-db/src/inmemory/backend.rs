@@ -69,10 +69,7 @@ impl Default for InMemoryBackend {
 
 impl DatabaseBackend for InMemoryBackend {
     fn open(&mut self, db_path: &Path) -> Result<()> {
-        info!(
-            "InMemoryBackend: opening database at {}",
-            db_path.display()
-        );
+        info!("InMemoryBackend: opening database at {}", db_path.display());
 
         // The db_path may be storage_path/db (the KuzuDB convention) while
         // the JSON snapshot lives at storage_path/graph.bin.  Try db_path
@@ -294,9 +291,7 @@ mod tests {
         let backend = InMemoryBackend::from_graph(graph);
 
         let results = backend
-            .execute_query(
-                "MATCH (n)-[:CALLS]->(m) WHERE n.name = 'handleLogin' RETURN m.name",
-            )
+            .execute_query("MATCH (n)-[:CALLS]->(m) WHERE n.name = 'handleLogin' RETURN m.name")
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["m.name"], "validateToken");

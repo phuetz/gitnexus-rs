@@ -12,18 +12,22 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
     let snap = gitnexus_db::snapshot::snapshot_path(&storage.storage_path);
 
     if !snap.exists() {
-        return Err(anyhow::anyhow!("No graph snapshot found. Run 'gitnexus analyze' first."));
+        return Err(anyhow::anyhow!(
+            "No graph snapshot found. Run 'gitnexus analyze' first."
+        ));
     }
 
     let graph = gitnexus_db::snapshot::load_snapshot(&snap)?;
     let lower = target.to_lowercase();
 
     // Find the target node — prefer Controller/Class/Service over Constructor/File
-    let mut matches: Vec<_> = graph.iter_nodes()
+    let mut matches: Vec<_> = graph
+        .iter_nodes()
         .filter(|n| n.properties.name.to_lowercase() == lower)
         .collect();
     if matches.is_empty() {
-        matches = graph.iter_nodes()
+        matches = graph
+            .iter_nodes()
             .filter(|n| n.properties.name.to_lowercase().contains(&lower))
             .collect();
     }
@@ -65,9 +69,14 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
         // `MemberOf` is still skipped because it is the inverse of
         // `HasMethod`, which is already walked in the other direction — we do
         // not want to double-walk the parent/child chain.
-        if matches!(rel.rel_type, RelationshipType::Contains
-            | RelationshipType::StepInProcess | RelationshipType::Defines
-            | RelationshipType::MemberOf | RelationshipType::BelongsToArea) {
+        if matches!(
+            rel.rel_type,
+            RelationshipType::Contains
+                | RelationshipType::StepInProcess
+                | RelationshipType::Defines
+                | RelationshipType::MemberOf
+                | RelationshipType::BelongsToArea
+        ) {
             continue;
         }
         outgoing
@@ -82,9 +91,10 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
 
     // Collect BFS seed IDs: start node + child methods (for Class/Service/Controller)
     let mut seed_ids: Vec<String> = vec![start_id.clone()];
-    if matches!(start_label, NodeLabel::Class | NodeLabel::Service
-        | NodeLabel::Interface | NodeLabel::Controller)
-    {
+    if matches!(
+        start_label,
+        NodeLabel::Class | NodeLabel::Service | NodeLabel::Interface | NodeLabel::Controller
+    ) {
         // For Controllers, also include the sibling Class node's children
         let mut source_ids = vec![start_id.clone()];
         if start_label == NodeLabel::Controller {
@@ -100,8 +110,12 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
 
         for rel in graph.iter_relationships() {
             if source_ids.contains(&rel.source_id)
-                && matches!(rel.rel_type, RelationshipType::HasMethod
-                    | RelationshipType::HasProperty | RelationshipType::HasAction)
+                && matches!(
+                    rel.rel_type,
+                    RelationshipType::HasMethod
+                        | RelationshipType::HasProperty
+                        | RelationshipType::HasAction
+                )
             {
                 seed_ids.push(rel.target_id.clone());
             }
@@ -111,7 +125,10 @@ pub async fn run(target: &str, repo: Option<&str>, direction: &str) -> anyhow::R
     let use_downstream = direction == "downstream" || direction == "both";
     let use_upstream = direction == "upstream" || direction == "both";
 
-    println!("Impact Analysis for '{}' (direction: {})", start_name, direction);
+    println!(
+        "Impact Analysis for '{}' (direction: {})",
+        start_name, direction
+    );
     println!("{}", "-".repeat(50));
 
     let max_depth = 5;

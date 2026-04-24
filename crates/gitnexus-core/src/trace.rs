@@ -20,8 +20,7 @@ static METHOD_RE: Lazy<Regex> =
 static PARAM_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"Variable '([^']+)'\s+\(Type:\s+[^)]+\)\s+=\s+(.*)").unwrap());
 
-static RESULT_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\] RESULT \| (.*)").unwrap());
+static RESULT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\] RESULT \| (.*)").unwrap());
 
 // ─── Trace parsing ─────────────────────────────────────────────────────
 
@@ -333,7 +332,11 @@ Variable 'id' (Type: Int32) = 42\n";
 
         // Fully qualified C# name: second-to-last segment is the class
         let id = resolve_method_node(&graph, &index, "MyApp.Services.MyService.DoWork").unwrap();
-        assert!(id.contains("MyService"), "Expected MyService node, got {}", id);
+        assert!(
+            id.contains("MyService"),
+            "Expected MyService node, got {}",
+            id
+        );
     }
 
     #[test]

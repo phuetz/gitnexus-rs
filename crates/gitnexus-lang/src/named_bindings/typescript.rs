@@ -54,7 +54,10 @@ pub fn extract(import_text: &str) -> Option<Vec<NamedBinding>> {
             continue;
         }
         // Strip optional `type` modifier in TS type-only imports.
-        let part = part.strip_prefix("type ").map(str::trim_start).unwrap_or(part);
+        let part = part
+            .strip_prefix("type ")
+            .map(str::trim_start)
+            .unwrap_or(part);
 
         // Check for "X as Y" pattern
         if let Some(as_pos) = part.find(" as ") {

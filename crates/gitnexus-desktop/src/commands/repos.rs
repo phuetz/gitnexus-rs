@@ -130,16 +130,14 @@ pub async fn analyze_repo(
         let file_entries = gitnexus_ingest::phases::structure::walk_repository(&repo_path)
             .map_err(|e| format!("Failed to walk repo for manifest: {}", e))?;
         let manifest = gitnexus_ingest::manifest::build_manifest_from_entries(&file_entries);
-        let manifest_file =
-            gitnexus_ingest::manifest::manifest_path(&storage_paths.storage_path);
+        let manifest_file = gitnexus_ingest::manifest::manifest_path(&storage_paths.storage_path);
         gitnexus_ingest::manifest::save_manifest(&manifest, &manifest_file)
             .map_err(|e| format!("Failed to save manifest: {}", e))?;
     }
 
     // Generate CSVs
     let csv_dir = storage_paths.storage_path.join("csv");
-    std::fs::create_dir_all(&csv_dir)
-        .map_err(|e| format!("Failed to create CSV dir: {}", e))?;
+    std::fs::create_dir_all(&csv_dir).map_err(|e| format!("Failed to create CSV dir: {}", e))?;
     csv_generator::generate_all_csvs(&result.graph, &repo_path, &csv_dir)
         .map_err(|e| format!("Failed to generate CSVs: {}", e))?;
 
@@ -217,10 +215,15 @@ pub async fn generate_docs(what: String, path: String) -> Result<String, String>
     // Validate path: must exist and be a directory
     let repo_path = std::path::Path::new(&path);
     if !repo_path.exists() || !repo_path.is_dir() {
-        return Err(format!("Invalid path: '{}' does not exist or is not a directory", path));
+        return Err(format!(
+            "Invalid path: '{}' does not exist or is not a directory",
+            path
+        ));
     }
     // Canonicalize to prevent path traversal via ..
-    let canonical_path = repo_path.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_path = repo_path
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
     let safe_path = canonical_path.to_string_lossy().to_string();
 
     let gitnexus_bin = find_gitnexus_binary()?;
@@ -235,12 +238,7 @@ pub async fn generate_docs(what: String, path: String) -> Result<String, String>
         .args(["generate", &what, "--path", &safe_path])
         .output()
         .await
-        .map_err(|e| {
-            format!(
-                "Failed to run '{}'. Error: {}",
-                gitnexus_bin, e
-            )
-        })?;
+        .map_err(|e| format!("Failed to run '{}'. Error: {}", gitnexus_bin, e))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -272,7 +270,11 @@ fn find_gitnexus_binary() -> Result<String, String> {
     // and the CLI binary is at target/debug/gitnexus.exe (same directory)
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(dir) = current_exe.parent() {
-            let sibling = dir.join(if cfg!(windows) { "gitnexus.exe" } else { "gitnexus" });
+            let sibling = dir.join(if cfg!(windows) {
+                "gitnexus.exe"
+            } else {
+                "gitnexus"
+            });
             if sibling.exists() {
                 return Ok(sibling.display().to_string());
             }

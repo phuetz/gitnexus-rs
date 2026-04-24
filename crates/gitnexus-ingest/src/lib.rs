@@ -1,12 +1,12 @@
-pub mod pipeline;
-pub mod phases;
-pub mod workers;
-pub mod type_env;
 pub mod ast_cache;
 pub mod grammar;
-pub mod utils;
-pub mod manifest;
 pub mod incremental;
+pub mod manifest;
+pub mod phases;
+pub mod pipeline;
+pub mod type_env;
+pub mod utils;
+pub mod workers;
 
 use thiserror::Error;
 

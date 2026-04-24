@@ -6,14 +6,12 @@ use regex::Regex;
 use super::types::*;
 
 /// Html.Kendo().Grid<Model>() or Html.Kendo().ComboBox()
-static RE_KENDO: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"Html\.\s*Kendo\s*\(\s*\)\s*\.\s*(\w+)(?:<(\w+)>)?"#).unwrap()
-});
+static RE_KENDO: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"Html\.\s*Kendo\s*\(\s*\)\s*\.\s*(\w+)(?:<(\w+)>)?"#).unwrap());
 
 /// Html.Telerik().Grid() -- older Telerik MVC Extensions syntax
-static RE_TELERIK: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"Html\.\s*Telerik\s*\(\s*\)\s*\.\s*(\w+)(?:<(\w+)>)?"#).unwrap()
-});
+static RE_TELERIK: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"Html\.\s*Telerik\s*\(\s*\)\s*\.\s*(\w+)(?:<(\w+)>)?"#).unwrap());
 
 /// Html.Telerik().DatePickerFor(m => m.Property) -- Telerik *For helpers with lambda bindings
 static RE_TELERIK_FOR: Lazy<Regex> = Lazy::new(|| {
@@ -29,14 +27,12 @@ static RE_DS_ACTION: Lazy<Regex> = Lazy::new(|| {
 
 // Legacy Telerik Extensions syntax: .Select("Action", "Controller"), .Insert(...), .Update(...), .Delete(...)
 static RE_DS_LEGACY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\.\s*(Select|Insert|Update|Delete)\s*\(\s*"(\w+)"\s*,\s*"(\w+)""#)
-        .unwrap()
+    Regex::new(r#"\.\s*(Select|Insert|Update|Delete)\s*\(\s*"(\w+)"\s*,\s*"(\w+)""#).unwrap()
 });
 
 /// Client events: .Events(e => e.OnChange("onGridChange")) or .On("change", "handler")
-static RE_CLIENT_EVENT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\.On(\w+)\s*\(\s*"(\w+)""#).unwrap()
-});
+static RE_CLIENT_EVENT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"\.On(\w+)\s*\(\s*"(\w+)""#).unwrap());
 
 /// Grid column binding: columns.Bound(e => e.PropertyName)
 static RE_COLUMN_BOUND: Lazy<Regex> = Lazy::new(|| {
@@ -46,14 +42,11 @@ static RE_COLUMN_BOUND: Lazy<Regex> = Lazy::new(|| {
 
 /// Grid column title: .Title("Some Title")
 static RE_COLUMN_TITLE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\.Title\(\s*"([^"]+)"\s*\)"#)
-        .expect("RE_COLUMN_TITLE regex must compile")
+    Regex::new(r#"\.Title\(\s*"([^"]+)"\s*\)"#).expect("RE_COLUMN_TITLE regex must compile")
 });
 
 /// jQuery Kendo widget initialization: .kendoGrid(, .kendoComboBox( etc.
-static RE_KENDO_JQUERY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\.\s*kendo(\w+)\s*\("#).unwrap()
-});
+static RE_KENDO_JQUERY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\.\s*kendo(\w+)\s*\("#).unwrap());
 
 /// Extract Telerik / Kendo UI component declarations from Razor or JavaScript source.
 pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
@@ -65,7 +58,10 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
 
         // --- Html.Kendo().Widget<T>() ---
         if let Some(cap) = RE_KENDO.captures(line) {
-            let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let component_type = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let model_type = cap.get(2).map(|m| m.as_str().to_string());
             let (ds_actions, events, columns) = scan_component_body(&lines, line_idx, 50);
 
@@ -84,7 +80,10 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
         // --- Html.Telerik().DatePickerFor(m => m.Property) etc. ---
         // Try the more specific *For regex first to capture the bound property name
         if let Some(cap) = RE_TELERIK_FOR.captures(line) {
-            let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let component_type = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let bound_property = cap.get(2).map(|m| m.as_str().to_string());
             let (ds_actions, events, columns) = scan_component_body(&lines, line_idx, 50);
 
@@ -103,7 +102,10 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
 
         // --- Html.Telerik().Widget() ---
         if let Some(cap) = RE_TELERIK.captures(line) {
-            let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let component_type = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let model_type = cap.get(2).map(|m| m.as_str().to_string());
             let (ds_actions, events, columns) = scan_component_body(&lines, line_idx, 50);
 
@@ -121,7 +123,10 @@ pub fn extract_telerik_components(source: &str) -> Vec<TelerikComponentInfo> {
 
         // --- jQuery: $(...).kendoGrid({ ... }) ---
         if let Some(cap) = RE_KENDO_JQUERY.captures(line) {
-            let component_type = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let component_type = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let (ds_actions, events, columns) = scan_component_body(&lines, line_idx, 50);
 
             results.push(TelerikComponentInfo {
@@ -144,7 +149,11 @@ fn scan_component_body(
     lines: &[&str],
     start: usize,
     lookahead: usize,
-) -> (Vec<DataSourceAction>, Vec<(String, String)>, Vec<GridColumnInfo>) {
+) -> (
+    Vec<DataSourceAction>,
+    Vec<(String, String)>,
+    Vec<GridColumnInfo>,
+) {
     let mut ds_actions = Vec::new();
     let mut events = Vec::new();
     let mut columns = Vec::new();
@@ -155,9 +164,18 @@ fn scan_component_body(
 
         // Kendo syntax: .Read(read => read.Action("Action", "Controller"))
         if let Some(cap) = RE_DS_ACTION.captures(line) {
-            let operation = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let action_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let controller_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let operation = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let action_name = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let controller_name = cap
+                .get(3)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             ds_actions.push(DataSourceAction {
                 operation,
                 controller_name,
@@ -172,9 +190,16 @@ fn scan_component_body(
                 "Insert" => "Create",
                 "Delete" => "Destroy",
                 other => other,
-            }.to_string();
-            let action_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let controller_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+            }
+            .to_string();
+            let action_name = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let controller_name = cap
+                .get(3)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             ds_actions.push(DataSourceAction {
                 operation,
                 controller_name,
@@ -183,14 +208,23 @@ fn scan_component_body(
         }
 
         if let Some(cap) = RE_CLIENT_EVENT.captures(line) {
-            let event_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let handler = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let event_name = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let handler = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             events.push((event_name, handler));
         }
 
         // Grid column bindings: columns.Bound(e => e.Property).Title("...").ClientTemplate(...)
         if let Some(cap) = RE_COLUMN_BOUND.captures(line) {
-            let property_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let property_name = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
 
             // Check same line and next line for .Title("...") and .ClientTemplate(
             let context = if i + 1 < end {
@@ -248,7 +282,11 @@ mod tests {
         assert_eq!(grid.model_type.as_deref(), Some("ProductViewModel"));
         assert_eq!(grid.data_source_actions.len(), 4);
 
-        let read = grid.data_source_actions.iter().find(|a| a.operation == "Read").unwrap();
+        let read = grid
+            .data_source_actions
+            .iter()
+            .find(|a| a.operation == "Read")
+            .unwrap();
         assert_eq!(read.action_name, "GetProducts");
         assert_eq!(read.controller_name, "Products");
     }
@@ -297,7 +335,11 @@ mod tests {
 )
 "#;
         let components = extract_telerik_components(source);
-        assert_eq!(components.len(), 1, "Should detect one Telerik Grid component");
+        assert_eq!(
+            components.len(),
+            1,
+            "Should detect one Telerik Grid component"
+        );
 
         let grid = &components[0];
         assert_eq!(grid.component_type, "Grid");
@@ -307,11 +349,17 @@ mod tests {
         // DataSource: .Select("GetExportElodieGrid", "Factures") -> Read action
         assert_eq!(grid.data_source_actions.len(), 1);
         assert_eq!(grid.data_source_actions[0].operation, "Read");
-        assert_eq!(grid.data_source_actions[0].action_name, "GetExportElodieGrid");
+        assert_eq!(
+            grid.data_source_actions[0].action_name,
+            "GetExportElodieGrid"
+        );
         assert_eq!(grid.data_source_actions[0].controller_name, "Factures");
 
         // Client events
-        assert!(grid.client_events.len() >= 2, "Should detect at least OnDataBinding and OnDataBound");
+        assert!(
+            grid.client_events.len() >= 2,
+            "Should detect at least OnDataBinding and OnDataBound"
+        );
     }
 
     #[test]
@@ -345,8 +393,14 @@ mod tests {
 
         let grid = &components[0];
         assert_eq!(grid.client_events.len(), 2);
-        assert!(grid.client_events.iter().any(|(e, h)| e == "Change" && h == "onGridChange"));
-        assert!(grid.client_events.iter().any(|(e, h)| e == "DataBound" && h == "onDataBound"));
+        assert!(grid
+            .client_events
+            .iter()
+            .any(|(e, h)| e == "Change" && h == "onGridChange"));
+        assert!(grid
+            .client_events
+            .iter()
+            .any(|(e, h)| e == "DataBound" && h == "onDataBound"));
     }
 
     #[test]
@@ -365,7 +419,10 @@ mod tests {
         let components = extract_telerik_components(source);
         assert_eq!(components[0].columns.len(), 4);
         assert_eq!(components[0].columns[0].property_name, "DateCréation");
-        assert_eq!(components[0].columns[0].title.as_deref(), Some("Date export"));
+        assert_eq!(
+            components[0].columns[0].title.as_deref(),
+            Some("Date export")
+        );
         assert!(components[0].columns[3].has_client_template);
     }
 

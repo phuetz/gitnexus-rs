@@ -28,4 +28,3 @@ pub async fn search_symbols(
         })
         .collect())
 }
-

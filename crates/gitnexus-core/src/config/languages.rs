@@ -131,16 +131,31 @@ mod tests {
 
     #[test]
     fn test_from_extension() {
-        assert_eq!(SupportedLanguage::from_extension(".ts"), Some(SupportedLanguage::TypeScript));
-        assert_eq!(SupportedLanguage::from_extension(".py"), Some(SupportedLanguage::Python));
-        assert_eq!(SupportedLanguage::from_extension(".rs"), Some(SupportedLanguage::Rust));
+        assert_eq!(
+            SupportedLanguage::from_extension(".ts"),
+            Some(SupportedLanguage::TypeScript)
+        );
+        assert_eq!(
+            SupportedLanguage::from_extension(".py"),
+            Some(SupportedLanguage::Python)
+        );
+        assert_eq!(
+            SupportedLanguage::from_extension(".rs"),
+            Some(SupportedLanguage::Rust)
+        );
         assert_eq!(SupportedLanguage::from_extension(".unknown"), None);
     }
 
     #[test]
     fn test_from_filename() {
-        assert_eq!(SupportedLanguage::from_filename("main.go"), Some(SupportedLanguage::Go));
-        assert_eq!(SupportedLanguage::from_filename("App.tsx"), Some(SupportedLanguage::TypeScript));
+        assert_eq!(
+            SupportedLanguage::from_filename("main.go"),
+            Some(SupportedLanguage::Go)
+        );
+        assert_eq!(
+            SupportedLanguage::from_filename("App.tsx"),
+            Some(SupportedLanguage::TypeScript)
+        );
         assert_eq!(SupportedLanguage::from_filename("README.md"), None);
     }
 

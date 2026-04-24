@@ -52,9 +52,7 @@ fn save(path: &std::path::Path, file: &SavedQueriesFile) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn saved_queries_list(
-    state: State<'_, AppState>,
-) -> Result<Vec<SavedQuery>, String> {
+pub async fn saved_queries_list(state: State<'_, AppState>) -> Result<Vec<SavedQuery>, String> {
     let storage = state.active_storage_path().await?;
     Ok(load(&queries_path(&storage)).queries)
 }
@@ -94,7 +92,8 @@ mod tests {
 
     #[test]
     fn test_save_load_upsert() {
-        let dir = std::env::temp_dir().join(format!("gitnexus-queries-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("gitnexus-queries-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("queries.json");
         let q = SavedQuery {
@@ -105,7 +104,9 @@ mod tests {
             tags: vec!["overview".into()],
             updated_at: 1,
         };
-        let file = SavedQueriesFile { queries: vec![q.clone()] };
+        let file = SavedQueriesFile {
+            queries: vec![q.clone()],
+        };
         save(&path, &file).unwrap();
         let loaded = load(&path);
         assert_eq!(loaded.queries.len(), 1);

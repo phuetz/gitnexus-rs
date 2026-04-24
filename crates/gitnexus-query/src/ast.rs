@@ -59,9 +59,9 @@ pub struct RelPattern {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Direction {
-    Right,    // -[]->>
-    Left,     // <<-[]-
-    Both,     // -[]-
+    Right, // -[]->>
+    Left,  // <<-[]-
+    Both,  // -[]-
 }
 
 // ─── Expressions ─────────────────────────────────────────────────────────

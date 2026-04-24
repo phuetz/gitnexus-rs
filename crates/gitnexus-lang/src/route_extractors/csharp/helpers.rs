@@ -97,7 +97,10 @@ pub(super) fn find_class_declaration(lines: &[&str], start: usize) -> Option<Cla
             let trimmed = lines[j].trim();
             if trimmed.starts_with('[') && trimmed.ends_with(']') {
                 attributes.push(
-                    trimmed.get(1..trimmed.len() - 1).unwrap_or_default().to_string(),
+                    trimmed
+                        .get(1..trimmed.len() - 1)
+                        .unwrap_or_default()
+                        .to_string(),
                 );
                 _attr_start = j;
             } else if trimmed.is_empty() || trimmed.starts_with("//") {
@@ -119,7 +122,11 @@ pub(super) fn find_class_declaration(lines: &[&str], start: usize) -> Option<Cla
     let name_end = after_class
         .find([':', '{', '<', ' '])
         .unwrap_or(after_class.len());
-    let name = after_class.get(..name_end).unwrap_or_default().trim().to_string();
+    let name = after_class
+        .get(..name_end)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
 
     if name.is_empty() {
         return None;
@@ -149,10 +156,10 @@ pub(super) fn find_class_declaration(lines: &[&str], start: usize) -> Option<Cla
 
     let mut base_classes = Vec::new();
     if let Some(colon_idx) = after_class_no_where.find(':') {
-        let bases_str = after_class_no_where.get(colon_idx + 1..).unwrap_or_default();
-        let bases_end = bases_str
-            .find(['{', '\n'])
-            .unwrap_or(bases_str.len());
+        let bases_str = after_class_no_where
+            .get(colon_idx + 1..)
+            .unwrap_or_default();
+        let bases_end = bases_str.find(['{', '\n']).unwrap_or(bases_str.len());
         for base in bases_str.get(..bases_end).unwrap_or_default().split(',') {
             let base_name = base.trim();
             // Handle generic base: Controller<T> -> Controller
@@ -226,7 +233,9 @@ pub(super) fn find_brace_bounds(lines: &[&str], start_line: usize) -> (usize, Op
 /// Check if any base class is a known controller base.
 pub(super) fn is_controller_class(base_classes: &[String]) -> bool {
     base_classes.iter().any(|b| {
-        CONTROLLER_BASE_CLASSES.iter().any(|cb| b == *cb || b.ends_with(cb))
+        CONTROLLER_BASE_CLASSES
+            .iter()
+            .any(|cb| b == *cb || b.ends_with(cb))
     })
 }
 
@@ -268,10 +277,28 @@ pub(super) fn extract_attribute_value(attributes: &[String], attr_name: &str) ->
 pub(super) fn is_primitive_type(name: &str) -> bool {
     matches!(
         name,
-        "int" | "long" | "string" | "bool" | "float" | "double" | "decimal"
-            | "byte" | "char" | "short" | "uint" | "ulong" | "ushort"
-            | "DateTime" | "Guid" | "int?" | "long?" | "bool?" | "Nullable"
-            | "CancellationToken" | "FormCollection" | "HttpPostedFileBase"
+        "int"
+            | "long"
+            | "string"
+            | "bool"
+            | "float"
+            | "double"
+            | "decimal"
+            | "byte"
+            | "char"
+            | "short"
+            | "uint"
+            | "ulong"
+            | "ushort"
+            | "DateTime"
+            | "Guid"
+            | "int?"
+            | "long?"
+            | "bool?"
+            | "Nullable"
+            | "CancellationToken"
+            | "FormCollection"
+            | "HttpPostedFileBase"
     )
 }
 
@@ -290,11 +317,7 @@ pub(super) fn extract_dbset(line: &str) -> Option<EntitySetInfo> {
 
             // Property name is after > and before {
             let after_type = after.get(type_end + 1..)?;
-            let prop_name = after_type
-                .split('{')
-                .next()?
-                .trim()
-                .to_string();
+            let prop_name = after_type.split('{').next()?.trim().to_string();
 
             if !entity_type.is_empty() && !prop_name.is_empty() {
                 return Some(EntitySetInfo {

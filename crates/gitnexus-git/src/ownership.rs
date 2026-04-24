@@ -25,11 +25,7 @@ pub enum OwnershipError {
 pub fn analyze_ownership(repo_path: &Path) -> Result<Vec<FileOwnership>, OwnershipError> {
     // Get commit info with author name, email, and associated files
     let log_output = Command::new("git")
-        .args([
-            "log",
-            "--pretty=format:COMMIT:%H %an <%ae>",
-            "--name-only",
-        ])
+        .args(["log", "--pretty=format:COMMIT:%H %an <%ae>", "--name-only"])
         .current_dir(repo_path)
         .output()
         .map_err(|e| OwnershipError::GitCommand(e.to_string()))?;
@@ -106,10 +102,7 @@ pub fn analyze_ownership(repo_path: &Path) -> Result<Vec<FileOwnership>, Ownersh
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        let primary_author = authors
-            .first()
-            .map(|a| a.name.clone())
-            .unwrap_or_default();
+        let primary_author = authors.first().map(|a| a.name.clone()).unwrap_or_default();
         let ownership_pct = authors.first().map(|a| a.pct).unwrap_or(0.0);
 
         ownerships.push(FileOwnership {

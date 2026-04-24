@@ -177,7 +177,13 @@ fn compute_source_hash(repo_path: &Path, file_path: &str, start: u32, end: u32) 
 }
 
 /// Read source code excerpt for the prompt (first N lines of the symbol).
-fn read_code_excerpt(repo_path: &Path, file_path: &str, start: u32, end: u32, max_lines: usize) -> String {
+fn read_code_excerpt(
+    repo_path: &Path,
+    file_path: &str,
+    start: u32,
+    end: u32,
+    max_lines: usize,
+) -> String {
     let full_path = repo_path.join(file_path);
     let content = match std::fs::read_to_string(&full_path) {
         Ok(c) => c,
@@ -219,8 +225,7 @@ fn select_candidates(
         let line_count = end_line - start_line;
 
         // Compute source hash
-        let source_hash = match compute_source_hash(repo_path, &p.file_path, start_line, end_line)
-        {
+        let source_hash = match compute_source_hash(repo_path, &p.file_path, start_line, end_line) {
             Some(h) => h,
             None => continue,
         };
@@ -233,15 +238,9 @@ fn select_candidates(
         }
 
         // Priority components
-        let hotspot_score = hotspot_map
-            .get(&p.file_path)
-            .copied()
-            .unwrap_or(0.0);
+        let hotspot_score = hotspot_map.get(&p.file_path).copied().unwrap_or(0.0);
 
-        let (incoming, outgoing) = coupling_map
-            .get(&node.id)
-            .copied()
-            .unwrap_or((0, 0));
+        let (incoming, outgoing) = coupling_map.get(&node.id).copied().unwrap_or((0, 0));
 
         let coupling_degree_norm = ((incoming + outgoing) as f64 / 20.0).min(1.0);
         let size_score = (line_count as f64 / 500.0).min(1.0);
@@ -287,7 +286,11 @@ fn select_candidates(
     }
 
     // Sort by priority descending
-    candidates.sort_by(|a, b| b.priority_score.partial_cmp(&a.priority_score).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.sort_by(|a, b| {
+        b.priority_score
+            .partial_cmp(&a.priority_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Apply max_symbols limit
     if config.max_symbols > 0 {
@@ -328,7 +331,10 @@ Risk score guidelines:
 
 fn build_batch_prompt(batch: &[&EnrichmentCandidate]) -> Vec<Message> {
     let mut user_parts = Vec::new();
-    user_parts.push(format!("Analyze these {} symbols from the codebase:\n", batch.len()));
+    user_parts.push(format!(
+        "Analyze these {} symbols from the codebase:\n",
+        batch.len()
+    ));
 
     for (i, candidate) in batch.iter().enumerate() {
         let line_count = candidate
@@ -628,10 +634,14 @@ pub async fn enrich_with_llm(
 
     stats.tokens_used_estimate = tokens_used;
 
-    send_progress(progress_tx, 100.0, &format!(
-        "Enriched {} symbols ({} batches, ~{} tokens)",
-        stats.symbols_enriched, stats.batches_sent, stats.tokens_used_estimate
-    ));
+    send_progress(
+        progress_tx,
+        100.0,
+        &format!(
+            "Enriched {} symbols ({} batches, ~{} tokens)",
+            stats.symbols_enriched, stats.batches_sent, stats.tokens_used_estimate
+        ),
+    );
 
     Ok(stats)
 }

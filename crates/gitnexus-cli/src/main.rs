@@ -91,6 +91,11 @@ enum Commands {
         /// ~/.gitnexus/chat-config.json. Returns only `limit` results.
         #[arg(long, default_value = "false")]
         rerank: bool,
+        /// Fuse BM25 with semantic (embedding) search via Reciprocal Rank
+        /// Fusion. Requires 'gitnexus embed' to have run first so
+        /// .gitnexus/embeddings.bin + embeddings.meta.json exist.
+        #[arg(long, default_value = "false")]
+        hybrid: bool,
     },
     /// Generate embeddings from the current snapshot and save to
     /// .gitnexus/embeddings.bin for semantic search fusion.
@@ -428,8 +433,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::List => commands::list::run(),
         Commands::Status => commands::status::run(),
         Commands::Clean { force, all } => commands::clean::run(force, all),
-        Commands::Query { query, repo, limit, rerank } => {
-            commands::query_cmd::run(&query, repo.as_deref(), limit, rerank).await
+        Commands::Query { query, repo, limit, rerank, hybrid } => {
+            commands::query_cmd::run(&query, repo.as_deref(), limit, rerank, hybrid).await
         }
         Commands::Embed {
             model,

@@ -156,7 +156,15 @@ pub async fn run(
         entries,
     };
     save_embeddings(&out_path, &store)?;
+
+    // Also write a sidecar meta.json with the full EmbeddingConfig so `gitnexus
+    // query --hybrid` can rebuild the embedder at query time without the user
+    // re-specifying --model / --tokenizer. Kept JSON-only so it's human-readable.
+    let meta_path = Path::new(&storage.storage_path).join("embeddings.meta.json");
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&cfg)?)?;
+
     println!("Saved to {}", out_path.display());
+    println!("Sidecar config at {}", meta_path.display());
     Ok(())
 }
 

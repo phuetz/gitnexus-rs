@@ -3048,7 +3048,19 @@ fn build_system_prompt(
          - **Honesty**: if the tools return nothing relevant, say *\"Aucune information trouvée \
            dans le graphe ni la documentation\"* rather than speculate.\n\
          - **Voir aussi**: end complex answers with a `## Voir aussi` (or `## See also`) section \
-           listing 3-5 related symbols/modules/docs the user might want to explore next.\n",
+           listing 3-5 related symbols/modules/docs the user might want to explore next.\n\n\
+         ## Canvas par type de question\n\n\
+         **TYPE A — Lookup** (où est X, what is X) :\n\
+         `## [Symbole] — Définition | Type | Localisation: Fichier.cs:ligne | Rôle | Appelé par | Voir aussi`\n\n\
+         **TYPE B — Functional** (comment fonctionne, expliquer le module) :\n\
+         `## Vue d'ensemble [depuis doc enrichie] | ## Diagramme d'appels [Mermaid] | ## Fonctionnement | ## Sources clés | ## Voir aussi`\n\n\
+         **TYPE C — Architecture** (vue d'ensemble, architecture globale) :\n\
+         `## Architecture globale [Mermaid] | ## Modules principaux [table] | ## Flux de données | ## Points d'entrée`\n\n\
+         **TYPE D — Algorithm** (comment calculé, comment généré, traitement) :\n\
+         OBLIGATOIRE: commencer par `## Organigramme : [Nom]` avec un `flowchart TD` Mermaid complet.\n\
+         Puis: `## Etapes détaillées [numérotées avec Fichier.cs:ligne] | ## Points d'attention`\n\n\
+         **TYPE E — Impact** (impact, dépendances, blast radius) :\n\
+         `## Blast radius: [Symbole] | Impactés en amont | Impactés en aval | ## Risque [LOW/MEDIUM/HIGH] | ## Recommandations`\n",
     );
 
     prompt

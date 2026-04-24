@@ -518,7 +518,7 @@ pub(crate) fn build_skeleton_flowchart(
     };
 
     lines.push(format!(
-        "    {}([\"🚀 {}{}\"])",
+        "    {}([\"START: {}{}\"])",
         start_san,
         escape_label(&start_node.properties.name),
         file_ref

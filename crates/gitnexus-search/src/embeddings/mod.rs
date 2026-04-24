@@ -5,8 +5,10 @@
 //! Otherwise, falls back to zero vectors so downstream code keeps working
 //! and semantic search silently degrades to BM25-only.
 
+pub mod store;
 pub mod types;
 
+pub use store::{load_embeddings, save_embeddings, EmbeddingHeader, EmbeddingStore};
 pub use types::{EmbeddingConfig, SemanticSearchResult};
 
 #[cfg(feature = "embeddings")]

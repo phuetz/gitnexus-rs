@@ -523,7 +523,12 @@ pub(crate) fn build_skeleton_flowchart(
         escape_label(&start_node.properties.name),
         file_ref
     ));
-    seen.insert(start_id.to_string());
+    // BUG FIX: only insert start_id into `seen` when it is NOT already method-like.
+    // When start_id IS a method, collect_methods returns [start_id], which would be
+    // immediately skipped as already-seen → one-node diagram with no chain.
+    if !is_method_like(start_node.label) {
+        seen.insert(start_id.to_string());
+    }
 
     // Collect methods and their callees (2 hops max, max 20 nodes)
     let methods = collect_methods(graph, indexes, start_id);

@@ -535,7 +535,7 @@ async fn execute_mcp_tool(
                     match gitnexus_db::inmemory::cypher::execute(&stmt, graph, indexes, fts_index) {
                         Ok(rows) => {
                             if rows.is_empty() {
-                                format!("Aucun processus métier trouvé pour '{}'.", query)
+                                format!("No business processes found for '{}'.", query)
                             } else {
                                 let json = serde_json::to_string_pretty(&rows).unwrap_or_default();
                                 format!(
@@ -544,10 +544,10 @@ async fn execute_mcp_tool(
                                 )
                             }
                         }
-                        Err(e) => format!("Erreur d'exécution : {}", e),
+                        Err(e) => format!("Execution error: {}", e),
                     }
                 }
-                Err(e) => format!("Erreur de parsing : {}", e),
+                Err(e) => format!("Parse error: {}", e),
             }
         }
 
@@ -1960,15 +1960,17 @@ fn collect_prefetch_method_names(
         }
 
         if let Some(callees) = indexes.outgoing.get(&method_id) {
-            for (callee_id, rel_type) in callees.iter().take(4) {
-                if !matches!(
-                    rel_type,
+            // BUG FIX: filter BEFORE take — otherwise non-Calls edges consume the
+            // 4-slot budget and real Calls edges beyond slot 4 are silently dropped.
+            for (callee_id, _rel_type) in callees.iter()
+                .filter(|(_, rel)| matches!(
+                    rel,
                     RelationshipType::Calls
                         | RelationshipType::CallsAction
                         | RelationshipType::CallsService
-                ) {
-                    continue;
-                }
+                ))
+                .take(4)
+            {
                 push_prefetch_method_name(callee_id, graph, &mut names, &mut seen_names);
                 if names.len() >= 5 {
                     break;
@@ -2321,7 +2323,12 @@ fn load_enriched_module_doc_page(module_name: &str, repo_path: &Path) -> String 
 
 /// Strip common code-role suffixes from a sanitized module name.
 fn strip_symbol_suffix(name: &str) -> Option<String> {
-    for suffix in ["controller", "service", "manager", "repository"] {
+    // BUG FIX: aligned with has_symbol_suffix — was missing 8 suffixes
+    // (provider, context, dbcontext, viewmodel, helper, factory + 2 more)
+    for suffix in [
+        "controller", "service", "manager", "repository",
+        "provider", "context", "dbcontext", "viewmodel", "helper", "factory",
+    ] {
         if let Some(base) = name.strip_suffix(suffix) {
             if !base.is_empty() {
                 return Some(base.trim_end_matches('-').to_string());

@@ -20,7 +20,7 @@ BM25 pool = top-20, reranker affiche top-5.
 | 9  | BM25 implementation | search_fts ✓ | search_fts ✓ | ❌ 503 3× | = |
 | 10 | detect dead code | mark_dead_code ✓ | mark_dead_code ✓ | ❌ 503 3× | = |
 | 11 | ingest pipeline orchestrate phases | run_pipeline ✓ | run_pipeline ✓ | ❌ 503 3× | = |
-| 12 | C# DI resolver | extract_di_registrations #1 | di.rs file #1 puis extract_di_registrations #2 | ✅ | ⚠️ légère régression |
+| 12 | C# DI resolver | extract_di_registrations #1 | di.rs file #1 puis extract_di_registrations #2 | ✅ | ⬆️ (où = fichier, donc #1 répond à la question) |
 | 13 | snapshot persistence format | save_snapshot ✓ | save_snapshot ✓ | ✅ | = (tail remix) |
 | 14 | chat streaming cancellation | chat_ask #1, chat_cancel #2 | chat_cancel #1, chat_ask #2 | ✅ | ⬆️ |
 | 15 | why is cxx-build version pinned | rien de pertinent | rien de pertinent | ✅ | = recall fail |
@@ -29,14 +29,19 @@ BM25 pool = top-20, reranker affiche top-5.
 
 **Sur les 15 requêtes totales :**
 - Gros gain (⬆️⬆️) : Q3, Q4, Q5, Q6, Q8 → **5/15 (33%)**
-- Gain léger (⬆️) : Q7, Q14 → **2/15 (13%)**
-- Neutre (=) : Q1, Q2, Q9, Q10, Q11, Q13, Q15 → **7/15 (47%)**
-- Régression légère (⚠️) : Q12 → **1/15 (7%)**
+- Gain léger (⬆️) : Q7, Q12, Q14 → **3/15 (20%)**
+- Neutre réel (=) : Q13 (BM25 déjà parfait), Q15 (recall fail) → 2/15
+- **Forcé neutre par 503 Gemini** (fallback BM25) : Q1, Q2, Q9, Q10, Q11 → 5/15
+- Régression : **0**
 
-**Sur les 9 requêtes où le reranker a effectivement répondu (Gemini up) :**
-- Amélioré : 7/9 (**78%**)
-- Neutre : 1/9
-- Régression : 1/9
+**Distinguons deux types de "neutre" :**
+- *Neutre réel* = le reranker a répondu mais n'a rien à améliorer (Q13) ou ne pouvait rien faire (Q15 recall fail)
+- *Forcé neutre* = Gemini a 503'd 3× de suite donc on est retombé sur BM25. Le reranker n'a pas eu l'occasion de s'exprimer.
+
+**Sur les 10 requêtes où le reranker a effectivement répondu (Gemini up) :**
+- Amélioré : 8/10 (**80%**)
+- Neutre : 2/10 (Q13 BM25 déjà parfait, Q15 recall fail)
+- Régression : 0/10
 
 ## Faits saillants
 
@@ -75,3 +80,15 @@ Recommandation :
 ## Vraie Phase F à garder en vue
 
 Le vrai point de la vidéo (subagents isolés dans le chat desktop) n'est pas adressé ici. C'est l'angle le plus différenciant si on veut vendre GitNexus comme "second brain" pour clients agile-up.com. À planifier sur une autre branche.
+
+## MCP / chat desktop wired (Phase 1.5)
+
+Le reranker est maintenant câblé AUSSI dans le MCP tool `search_code` via le paramètre opt-in `rerank: true`. Le chat desktop et les clients MCP (Claude Code, Codex) peuvent tous l'activer sans rebuild — il suffit de passer `rerank: true` dans les arguments. Fallback silencieux si la config LLM est absente. Reuse de la config `~/.gitnexus/chat-config.json` déjà chargée par l'enrichissement.
+
+## Queries françaises ajoutées au corpus
+
+Pour couvrir le cas d'usage Alise_v2 / agile-up.com (docs en français), `queries.txt` inclut maintenant :
+- "comment fonctionne la fusion RRF"
+- "où est gérée l'annulation du chat streaming"
+
+**Non runnées ce soir** — Gemini Flash 503'd à répétition et on conserve les crédits. À relancer quand l'API sera stable.

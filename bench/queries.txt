@@ -13,3 +13,5 @@ where is the C# DI resolver
 snapshot persistence format
 chat streaming cancellation
 why is cxx-build version pinned
+comment fonctionne la fusion RRF
+où est gérée l'annulation du chat streaming

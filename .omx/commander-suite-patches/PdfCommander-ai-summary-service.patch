@@ -1,0 +1,325 @@
+diff --git a/src/PdfCommander.Core/Services/AI/IAiSummaryService.cs b/src/PdfCommander.Core/Services/AI/IAiSummaryService.cs
+new file mode 100644
+index 0000000..42af91b
+--- /dev/null
++++ b/src/PdfCommander.Core/Services/AI/IAiSummaryService.cs
+@@ -0,0 +1,9 @@
++namespace PdfCommander.Core.Services.AI;
++
++public record AiSummaryResult(string Summary, int PageCount, int WordCount, string Provider, bool IsSuccess, string? Error);
++
++public interface IAiSummaryService
++{
++    Task<AiSummaryResult> SummarizePdfAsync(string pdfPath, CancellationToken ct = default);
++    Task<AiSummaryResult> SummarizeTextAsync(string text, int pageCount = 0, CancellationToken ct = default);
++}
+diff --git a/src/PdfCommander.Core/Services/AI/AiSummaryService.cs b/src/PdfCommander.Core/Services/AI/AiSummaryService.cs
+new file mode 100644
+index 0000000..3f4bf73
+--- /dev/null
++++ b/src/PdfCommander.Core/Services/AI/AiSummaryService.cs
+@@ -0,0 +1,130 @@
++using System.Text;
++using Microsoft.Extensions.Logging;
++using PdfCommander.Core.Services.Text;
++using PdfSharpCore.Pdf.IO;
++
++namespace PdfCommander.Core.Services.AI;
++
++public class AiSummaryService : IAiSummaryService
++{
++    private const int MaxPagesToExtract = 30;
++    private const int MaxContextCharacters = 12000;
++
++    private readonly IAiService _ai;
++    private readonly ITextExtractionService _textExtraction;
++    private readonly ILogger<AiSummaryService> _logger;
++
++    public AiSummaryService(
++        IAiService ai,
++        ITextExtractionService textExtraction,
++        ILogger<AiSummaryService> logger)
++    {
++        _ai = ai;
++        _textExtraction = textExtraction;
++        _logger = logger;
++    }
++
++    public async Task<AiSummaryResult> SummarizePdfAsync(string pdfPath, CancellationToken ct = default)
++    {
++        if (string.IsNullOrWhiteSpace(pdfPath))
++            throw new ArgumentException("A PDF path is required.", nameof(pdfPath));
++
++        if (!File.Exists(pdfPath))
++            throw new FileNotFoundException("PDF file not found.", pdfPath);
++
++        var extracted = await ExtractPdfTextAsync(pdfPath, ct);
++        return await SummarizeTextAsync(extracted.Text, extracted.PageCount, ct);
++    }
++
++    public async Task<AiSummaryResult> SummarizeTextAsync(string text, int pageCount = 0, CancellationToken ct = default)
++    {
++        if (string.IsNullOrWhiteSpace(text))
++        {
++            return new AiSummaryResult(
++                "",
++                pageCount,
++                0,
++                "",
++                false,
++                "Aucun texte extractible pour generer un resume.");
++        }
++
++        var context = Truncate(text, MaxContextCharacters);
++        const string question =
++            "Redige un resume du document en un seul paragraphe clair, sans liste a puces, en 120 mots maximum.";
++
++        var response = await _ai.AskAsync(context, question, ct);
++        if (!response.IsSuccess)
++        {
++            return new AiSummaryResult(
++                "",
++                pageCount,
++                0,
++                response.Provider,
++                false,
++                response.Error);
++        }
++
++        var summary = NormalizeOneParagraph(response.Text);
++        return new AiSummaryResult(
++            summary,
++            pageCount,
++            CountWords(summary),
++            response.Provider,
++            true,
++            null);
++    }
++
++    private async Task<(string Text, int PageCount)> ExtractPdfTextAsync(string pdfPath, CancellationToken ct)
++    {
++        using var doc = PdfReader.Open(pdfPath, PdfDocumentOpenMode.ReadOnly);
++        var pageCount = doc.PageCount;
++        var maxPages = Math.Min(pageCount, MaxPagesToExtract);
++        var builder = new StringBuilder();
++
++        for (var pageIndex = 0; pageIndex < maxPages; pageIndex++)
++        {
++            ct.ThrowIfCancellationRequested();
++
++            try
++            {
++                var pageText = await ExtractPageTextAsync(pdfPath, pageIndex, ct);
++                if (!string.IsNullOrWhiteSpace(pageText))
++                    builder.AppendLine(pageText);
++            }
++            catch (OperationCanceledException)
++            {
++                throw;
++            }
++            catch (Exception ex)
++            {
++                _logger.LogWarning(ex, "Failed to extract text from page {PageIndex} of {PdfPath}", pageIndex, pdfPath);
++            }
++        }
++
++        return (builder.ToString(), pageCount);
++    }
++
++    private async Task<string> ExtractPageTextAsync(string pdfPath, int pageIndex, CancellationToken ct)
++    {
++        var pageText = await _textExtraction.ExtractPageTextAsync(pdfPath, pageIndex, ct);
++        if (!string.IsNullOrWhiteSpace(pageText))
++            return pageText;
++
++        var blocks = await _textExtraction.ExtractTextWithPositionsAsync(pdfPath, pageIndex, ct);
++        return string.Join(" ", blocks.Select(block => block.Text));
++    }
++
++    private static string Truncate(string text, int maxCharacters)
++    {
++        return text.Length <= maxCharacters
++            ? text
++            : text[..maxCharacters];
++    }
++
++    private static string NormalizeOneParagraph(string text)
++    {
++        return string.Join(
++            " ",
++            text.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
++    }
++
++    private static int CountWords(string text)
++    {
++        return text.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Length;
++    }
++}
+diff --git a/src/PdfCommander.UI/App.axaml.cs b/src/PdfCommander.UI/App.axaml.cs
+index 60c4d4b..15795c7 100644
+--- a/src/PdfCommander.UI/App.axaml.cs
++++ b/src/PdfCommander.UI/App.axaml.cs
+@@ -168,6 +168,7 @@ public partial class App : Application
+ 
+         // QW-1: Assistant IA
+         services.AddSingleton<IAiService, AiService>();
++        services.AddSingleton<IAiSummaryService, AiSummaryService>();
+         services.AddSingleton<IOcrEnhancedService, OcrEnhancedService>();
+ 
+         // QW-3: Modèles de documents
+diff --git a/src/PdfCommander.Tests/AiSummaryServiceTests.cs b/src/PdfCommander.Tests/AiSummaryServiceTests.cs
+new file mode 100644
+index 0000000..00a8ca3
+--- /dev/null
++++ b/src/PdfCommander.Tests/AiSummaryServiceTests.cs
+@@ -0,0 +1,145 @@
++using FluentAssertions;
++using Microsoft.Extensions.Logging.Abstractions;
++using Moq;
++using PdfCommander.Core.Models;
++using PdfCommander.Core.Services.AI;
++using PdfCommander.Core.Services.Text;
++using PdfSharpCore.Pdf;
++using Xunit;
++
++namespace PdfCommander.Tests;
++
++public class AiSummaryServiceTests : IDisposable
++{
++    private readonly string _tempDir;
++
++    public AiSummaryServiceTests()
++    {
++        _tempDir = Path.Combine(Path.GetTempPath(), $"PdfCommanderSummary_{Guid.NewGuid():N}");
++        Directory.CreateDirectory(_tempDir);
++    }
++
++    public void Dispose()
++    {
++        try
++        {
++            Directory.Delete(_tempDir, recursive: true);
++        }
++        catch
++        {
++        }
++    }
++
++    [Fact]
++    public async Task SummarizeTextAsync_UsesAiAndReturnsOneParagraph()
++    {
++        var ai = CreateAiService("First line.\nSecond line.");
++        var textExtraction = new Mock<ITextExtractionService>();
++        var service = CreateService(ai.Object, textExtraction.Object);
++
++        var result = await service.SummarizeTextAsync("Source document text.", pageCount: 1);
++
++        result.IsSuccess.Should().BeTrue();
++        result.Summary.Should().Be("First line. Second line.");
++        result.PageCount.Should().Be(1);
++        result.Provider.Should().Be("test");
++        result.WordCount.Should().Be(4);
++        ai.Verify(x => x.AskAsync(
++            It.Is<string>(context => context.Contains("Source document text.")),
++            It.Is<string>(question => question.Contains("un seul paragraphe")),
++            It.IsAny<CancellationToken>()), Times.Once);
++    }
++
++    [Fact]
++    public async Task SummarizePdfAsync_ExtractsAllPagesBeforeCallingAi()
++    {
++        var pdfPath = CreatePdf(pageCount: 2);
++        var ai = CreateAiService("Combined summary.");
++        var textExtraction = CreateTextExtraction("First page text.", "Second page text.");
++        var service = CreateService(ai.Object, textExtraction.Object);
++
++        var result = await service.SummarizePdfAsync(pdfPath);
++
++        result.IsSuccess.Should().BeTrue();
++        result.PageCount.Should().Be(2);
++        result.Summary.Should().Be("Combined summary.");
++        ai.Verify(x => x.AskAsync(
++            It.Is<string>(context =>
++                context.Contains("First page text.") &&
++                context.Contains("Second page text.")),
++            It.IsAny<string>(),
++            It.IsAny<CancellationToken>()), Times.Once);
++        textExtraction.Verify(x => x.ExtractPageTextAsync(pdfPath, 0, It.IsAny<CancellationToken>()), Times.Once);
++        textExtraction.Verify(x => x.ExtractPageTextAsync(pdfPath, 1, It.IsAny<CancellationToken>()), Times.Once);
++    }
++
++    [Fact]
++    public async Task SummarizePdfAsync_WhenNoExtractableText_ReturnsFailureWithoutCallingAi()
++    {
++        var pdfPath = CreatePdf(pageCount: 1);
++        var ai = CreateAiService("Should not be used.");
++        var textExtraction = CreateTextExtraction("");
++        var service = CreateService(ai.Object, textExtraction.Object);
++
++        var result = await service.SummarizePdfAsync(pdfPath);
++
++        result.IsSuccess.Should().BeFalse();
++        result.Summary.Should().BeEmpty();
++        result.Error.Should().Contain("Aucun texte");
++        ai.Verify(x => x.AskAsync(
++            It.IsAny<string>(),
++            It.IsAny<string>(),
++            It.IsAny<CancellationToken>()), Times.Never);
++    }
++
++    private AiSummaryService CreateService(IAiService ai, ITextExtractionService textExtraction)
++    {
++        return new AiSummaryService(ai, textExtraction, NullLogger<AiSummaryService>.Instance);
++    }
++
++    private static Mock<IAiService> CreateAiService(string responseText)
++    {
++        var ai = new Mock<IAiService>();
++        ai.Setup(x => x.AskAsync(
++                It.IsAny<string>(),
++                It.IsAny<string>(),
++                It.IsAny<CancellationToken>()))
++            .ReturnsAsync(new AiResponse
++            {
++                Text = responseText,
++                IsSuccess = true,
++                Provider = "test",
++                Duration = TimeSpan.FromMilliseconds(1)
++            });
++
++        return ai;
++    }
++
++    private static Mock<ITextExtractionService> CreateTextExtraction(params string[] pageTexts)
++    {
++        var textExtraction = new Mock<ITextExtractionService>();
++        textExtraction.Setup(x => x.ExtractPageTextAsync(
++                It.IsAny<string>(),
++                It.IsAny<int>(),
++                It.IsAny<CancellationToken>()))
++            .Returns((string _, int pageIndex, CancellationToken _) =>
++                Task.FromResult(pageIndex >= 0 && pageIndex < pageTexts.Length ? pageTexts[pageIndex] : ""));
++
++        textExtraction.Setup(x => x.ExtractTextWithPositionsAsync(
++                It.IsAny<string>(),
++                It.IsAny<int>(),
++                It.IsAny<CancellationToken>()))
++            .ReturnsAsync(new List<PdfTextBlock>());
++
++        return textExtraction;
++    }
++
++    private string CreatePdf(int pageCount)
++    {
++        var path = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.pdf");
++        using var document = new PdfDocument();
++
++        for (var i = 0; i < pageCount; i++)
++        {
++            document.AddPage();
++        }
++
++        document.Save(path);
++        return path;
++    }
++}

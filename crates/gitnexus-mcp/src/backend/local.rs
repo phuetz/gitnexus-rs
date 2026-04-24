@@ -12,9 +12,10 @@ use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::storage::repo_manager::{self, RegistryEntry};
 use gitnexus_db::inmemory::cypher::GraphIndexes;
-use gitnexus_db::inmemory::fts::FtsIndex;
+use gitnexus_db::inmemory::fts::{FtsIndex, FtsResult};
 use gitnexus_db::pool::ConnectionPool;
 use gitnexus_db::query;
+use gitnexus_search::reranker::{Candidate, LlmReranker, Reranker};
 
 use crate::error::{McpError, Result};
 use crate::hints;
@@ -1879,6 +1880,13 @@ impl LocalBackend {
             })?;
         let repo_name = args["repo"].as_str();
         let limit = clamp_limit(args["limit"].as_u64(), 8, 20);
+        // Post-retrieval LLM reranking (opt-in). Requires ~/.gitnexus/chat-config.json.
+        // On config miss or reranker error we silently fall back to BM25 order — the
+        // user sees raw FTS results instead of an empty response.
+        let rerank = args
+            .get("rerank")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let entry = self.resolve_repo(repo_name)?;
         let repo_path = std::path::PathBuf::from(&entry.path);
@@ -1886,8 +1894,11 @@ impl LocalBackend {
             gitnexus_db::snapshot::snapshot_path(&std::path::PathBuf::from(&entry.storage_path));
         let (graph, indexes, fts) = self.load_cached_indexes(&snap_path)?;
 
-        // FTS search
-        let fts_results = fts.search(&graph, query_str, None, limit * 2);
+        // FTS search. When reranking, pull a wider pool so the LLM has room
+        // to reorder; otherwise stay close to `limit` to save work.
+        let pool_size = if rerank { limit.max(20) } else { limit * 2 };
+        let fts_results = fts.search(&graph, query_str, None, pool_size);
+        let fts_results = Self::maybe_rerank_fts(rerank, query_str, fts_results).await;
 
         // Also try name-contains fallback
         let mut seen = std::collections::HashSet::new();
@@ -1975,8 +1986,77 @@ impl LocalBackend {
                 "hint": hints::hint_for("search_code"),
                 "resultCount": results.len(),
                 "durationMs": duration.as_millis() as u64,
+                "reranked": rerank,
             }
         }))
+    }
+
+    /// Reorder FTS results via an LLM reranker when opt-in. Silently falls
+    /// back to the original BM25 order on any failure (missing config, HTTP
+    /// error, parse error, join panic). Never drops results.
+    async fn maybe_rerank_fts(
+        rerank: bool,
+        query_str: &str,
+        fts_results: Vec<FtsResult>,
+    ) -> Vec<FtsResult> {
+        if !rerank || fts_results.len() < 2 {
+            return fts_results;
+        }
+        let config = match crate::llm_config::load_llm_config() {
+            Some(c) => c,
+            None => {
+                tracing::warn!(
+                    "rerank=true but ~/.gitnexus/chat-config.json missing; using BM25 order"
+                );
+                return fts_results;
+            }
+        };
+        let candidates: Vec<Candidate> = fts_results
+            .iter()
+            .enumerate()
+            .map(|(i, r)| Candidate {
+                node_id: r.node_id.clone(),
+                name: r.name.clone(),
+                label: r.label.clone(),
+                file_path: r.file_path.clone(),
+                start_line: r.start_line,
+                end_line: r.end_line,
+                score: r.score,
+                rank: i + 1,
+                snippet: None,
+            })
+            .collect();
+
+        let reranker = LlmReranker::new(config.base_url, config.model, Some(config.api_key));
+        let q = query_str.to_string();
+        let reranked = match tokio::task::spawn_blocking(move || reranker.rerank(&q, candidates))
+            .await
+        {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, "reranker failed; using BM25 order");
+                return fts_results;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "reranker task join failed; using BM25 order");
+                return fts_results;
+            }
+        };
+
+        // Rebuild the FtsResult list in reranker order; any result the LLM
+        // omitted gets appended to the tail so nothing is silently lost.
+        let mut by_id: HashMap<String, FtsResult> = fts_results
+            .into_iter()
+            .map(|r| (r.node_id.clone(), r))
+            .collect();
+        let mut out = Vec::with_capacity(by_id.len());
+        for c in reranked {
+            if let Some(r) = by_id.remove(&c.node_id) {
+                out.push(r);
+            }
+        }
+        out.extend(by_id.into_values());
+        out
     }
 
     async fn tool_read_file(&mut self, args: &Value) -> Result<Value> {

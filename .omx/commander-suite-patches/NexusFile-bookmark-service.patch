@@ -1,0 +1,193 @@
+diff --git a/src/NexusFile.Core/Services/IBookmarkService.cs b/src/NexusFile.Core/Services/IBookmarkService.cs
+new file mode 100644
+index 0000000..b46f613
+--- /dev/null
++++ b/src/NexusFile.Core/Services/IBookmarkService.cs
+@@ -0,0 +1,9 @@
++namespace NexusFile.Core.Services;
++
++public interface IBookmarkService
++{
++    Bookmark Add(string name, string path);
++    bool Remove(string name);
++    IReadOnlyList<Bookmark> GetAll();
++    bool Rename(string oldName, string newName);
++}
+diff --git a/src/NexusFile.Core/Services/BookmarkService.cs b/src/NexusFile.Core/Services/BookmarkService.cs
+new file mode 100644
+index 0000000..fe7992d
+--- /dev/null
++++ b/src/NexusFile.Core/Services/BookmarkService.cs
+@@ -0,0 +1,159 @@
++using System.Text.Json;
++
++namespace NexusFile.Core.Services;
++
++public sealed record Bookmark(string Name, string Path, string Icon, DateTime CreatedAt);
++
++public sealed class BookmarkService : IBookmarkService
++{
++    private static readonly JsonSerializerOptions JsonOptions = new()
++    {
++        WriteIndented = true
++    };
++
++    private readonly object _gate = new();
++    private readonly string _bookmarksFile;
++    private readonly List<Bookmark> _bookmarks;
++
++    public BookmarkService()
++        : this(GetDefaultBookmarksFile())
++    {
++    }
++
++    public BookmarkService(string bookmarksFile)
++    {
++        if (string.IsNullOrWhiteSpace(bookmarksFile))
++            throw new ArgumentException("A bookmarks file path is required.", nameof(bookmarksFile));
++
++        _bookmarksFile = bookmarksFile;
++        _bookmarks = LoadBookmarks();
++    }
++
++    public Bookmark Add(string name, string path)
++    {
++        var normalizedName = RequireValue(name, nameof(name));
++        var normalizedPath = RequireValue(path, nameof(path));
++
++        lock (_gate)
++        {
++            if (ContainsName(normalizedName))
++                throw new InvalidOperationException($"A bookmark named '{normalizedName}' already exists.");
++
++            var bookmark = new Bookmark(
++                normalizedName,
++                normalizedPath,
++                ResolveIcon(normalizedPath),
++                DateTime.UtcNow);
++
++            _bookmarks.Add(bookmark);
++            SaveBookmarks();
++            return bookmark;
++        }
++    }
++
++    public bool Remove(string name)
++    {
++        var normalizedName = RequireValue(name, nameof(name));
++
++        lock (_gate)
++        {
++            var index = _bookmarks.FindIndex(bookmark =>
++                string.Equals(bookmark.Name, normalizedName, StringComparison.OrdinalIgnoreCase));
++
++            if (index < 0)
++                return false;
++
++            _bookmarks.RemoveAt(index);
++            SaveBookmarks();
++            return true;
++        }
++    }
++
++    public IReadOnlyList<Bookmark> GetAll()
++    {
++        lock (_gate)
++        {
++            return _bookmarks.ToList();
++        }
++    }
++
++    public bool Rename(string oldName, string newName)
++    {
++        var normalizedOldName = RequireValue(oldName, nameof(oldName));
++        var normalizedNewName = RequireValue(newName, nameof(newName));
++
++        lock (_gate)
++        {
++            var index = _bookmarks.FindIndex(bookmark =>
++                string.Equals(bookmark.Name, normalizedOldName, StringComparison.OrdinalIgnoreCase));
++
++            if (index < 0)
++                return false;
++
++            if (!string.Equals(normalizedOldName, normalizedNewName, StringComparison.OrdinalIgnoreCase)
++                && ContainsName(normalizedNewName))
++            {
++                throw new InvalidOperationException($"A bookmark named '{normalizedNewName}' already exists.");
++            }
++
++            var existing = _bookmarks[index];
++            _bookmarks[index] = existing with { Name = normalizedNewName };
++            SaveBookmarks();
++            return true;
++        }
++    }
++
++    private static string GetDefaultBookmarksFile()
++    {
++        var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
++        return System.IO.Path.Combine(appDataPath, "NexusFile", "bookmarks.json");
++    }
++
++    private List<Bookmark> LoadBookmarks()
++    {
++        try
++        {
++            if (!File.Exists(_bookmarksFile))
++                return [];
++
++            var json = File.ReadAllText(_bookmarksFile);
++            return JsonSerializer.Deserialize<List<Bookmark>>(json, JsonOptions) ?? [];
++        }
++        catch (JsonException)
++        {
++            return [];
++        }
++        catch (IOException)
++        {
++            return [];
++        }
++        catch (UnauthorizedAccessException)
++        {
++            return [];
++        }
++    }
++
++    private void SaveBookmarks()
++    {
++        var directory = System.IO.Path.GetDirectoryName(_bookmarksFile);
++        if (!string.IsNullOrEmpty(directory))
++            Directory.CreateDirectory(directory);
++
++        var tempFile = $"{_bookmarksFile}.tmp";
++        var json = JsonSerializer.Serialize(_bookmarks, JsonOptions);
++        File.WriteAllText(tempFile, json);
++        File.Move(tempFile, _bookmarksFile, overwrite: true);
++    }
++
++    private bool ContainsName(string name)
++    {
++        return _bookmarks.Any(bookmark =>
++            string.Equals(bookmark.Name, name, StringComparison.OrdinalIgnoreCase));
++    }
++
++    private static string RequireValue(string value, string paramName)
++    {
++        if (string.IsNullOrWhiteSpace(value))
++            throw new ArgumentException("Value cannot be empty.", paramName);
++
++        return value.Trim();
++    }
++
++    private static string ResolveIcon(string path)
++    {
++        if (Directory.Exists(path))
++            return "folder";
++
++        if (File.Exists(path))
++            return "file";
++
++        return "bookmark";
++    }
++}

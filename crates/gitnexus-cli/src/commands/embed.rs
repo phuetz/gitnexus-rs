@@ -168,19 +168,42 @@ pub async fn run(
     Ok(())
 }
 
+/// Max characters of `content` to include in the embedding input. Larger
+/// function bodies dilute the semantic signal — MiniLM/BGE are trained on
+/// sequences of ~128 tokens on average, and letting a 1000-line function
+/// fill the 512-token window means the name/description signal gets buried
+/// under boilerplate. 1000 chars ≈ 250 tokens leaves room for everything
+/// else in the prompt and captures the "gist" of the body (docstring +
+/// early returns + first branch typically).
+///
+/// Observed problem before this cap : `enrich_aspnet_mvc` (1000+ LOC)
+/// dropped out of top-5 on "ASP.NET MVC controller action extraction"
+/// under hybrid search when it was #4 under BM25 — the full body
+/// embedded a long `match` table that drifted off the query topic.
+const CONTENT_CHAR_CAP: usize = 1000;
+
 /// Build a short text snippet for embedding a node. Mirrors the fields BM25
-/// indexes so the two ranking paths see the same surface — plus `content`
-/// when available for the richer semantic signal on function bodies.
-/// The tokenizer truncates to max_tokens so overly long content is safe.
+/// indexes so the two ranking paths see the same surface — plus a capped
+/// excerpt of `content` for the richer semantic signal on function bodies.
 fn build_embedding_text(node: &gitnexus_core::graph::types::GraphNode) -> String {
-    let mut parts: Vec<&str> = Vec::with_capacity(4);
-    parts.push(node.properties.name.as_str());
-    parts.push(node.properties.file_path.as_str());
+    let mut parts: Vec<String> = Vec::with_capacity(4);
+    parts.push(node.properties.name.clone());
+    parts.push(node.properties.file_path.clone());
     if let Some(desc) = &node.properties.description {
-        parts.push(desc.as_str());
+        parts.push(desc.clone());
     }
     if let Some(content) = &node.properties.content {
-        parts.push(content.as_str());
+        let trimmed = content.trim();
+        if trimmed.len() > CONTENT_CHAR_CAP {
+            let mut cut = CONTENT_CHAR_CAP;
+            // Avoid splitting mid-UTF8 codepoint.
+            while cut > 0 && !trimmed.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            parts.push(trimmed[..cut].to_string());
+        } else {
+            parts.push(trimmed.to_string());
+        }
     }
     parts.join(" ")
 }

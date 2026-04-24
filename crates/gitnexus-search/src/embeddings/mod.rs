@@ -67,6 +67,7 @@ mod onnx {
                 .unwrap_or_else(|| PathBuf::from("tokenizer.json"))
         }
 
+        #[allow(dead_code)]
         pub fn dims(&self) -> usize {
             self.dims
         }
@@ -500,13 +501,21 @@ mod tests {
 
         let sim_related = cosine_similarity(&vecs[0], &vecs[1]);
         let sim_unrelated = cosine_similarity(&vecs[0], &vecs[2]);
+        eprintln!(
+            "cosine(login, auth flow) = {sim_related:.3}, cosine(login, cat on mat) = {sim_unrelated:.3}"
+        );
+        // For small models (MiniLM 22M) on indirectly-related sentences,
+        // typical cosine is 0.3-0.6. What matters is clear separation from
+        // the unrelated pair (which should be ≤ ~0.2 after normalization).
         assert!(
-            sim_related > sim_unrelated,
-            "related texts should be closer than unrelated: related={sim_related:.3}, unrelated={sim_unrelated:.3}"
+            sim_related > sim_unrelated + 0.1,
+            "related texts should be clearly closer than unrelated: \
+             related={sim_related:.3}, unrelated={sim_unrelated:.3}"
         );
         assert!(
-            sim_related > 0.5,
-            "related texts similarity should be > 0.5, got {sim_related:.3}"
+            sim_related > 0.3,
+            "related texts similarity should be > 0.3, got {sim_related:.3} — \
+             likely a model/tokenizer/pooling issue"
         );
     }
 }

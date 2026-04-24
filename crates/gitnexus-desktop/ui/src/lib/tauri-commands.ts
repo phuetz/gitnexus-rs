@@ -1035,9 +1035,11 @@ export const commands = {
   getSubgraph: (centerNodeId: string, depth?: number) =>
     invoke<GraphPayload>("get_subgraph", { centerNodeId, depth }),
 
-  // Search
-  searchSymbols: (query: string, limit?: number) =>
-    invoke<SearchResult[]>("search_symbols", { query, limit }),
+  // Search — `rerank` pulls BM25 top-20 through the configured LLM for a
+  // precision bump on ambiguous queries. Requires chat config; falls back
+  // silently to BM25 order if unavailable.
+  searchSymbols: (query: string, limit?: number, rerank?: boolean) =>
+    invoke<SearchResult[]>("search_symbols", { query, limit, rerank }),
 
   // Context
   getSymbolContext: (nodeId: string) =>

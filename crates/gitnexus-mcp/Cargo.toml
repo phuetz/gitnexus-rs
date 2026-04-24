@@ -10,7 +10,7 @@ description = "MCP server (stdio + HTTP), tools, resources for GitNexus"
 gitnexus-core.workspace = true
 gitnexus-db.workspace = true
 gitnexus-git = { workspace = true }
-gitnexus-search = { workspace = true, features = ["reranker-llm"] }
+gitnexus-search = { workspace = true, features = ["reranker-llm", "embeddings"] }
 tokio.workspace = true
 axum.workspace = true
 tower-http.workspace = true
@@ -20,5 +20,6 @@ thiserror.workspace = true
 tracing.workspace = true
 regex.workspace = true
 ignore.workspace = true
+anyhow.workspace = true
 
 [dev-dependencies]

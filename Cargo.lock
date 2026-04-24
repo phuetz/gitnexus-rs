@@ -1799,6 +1799,7 @@ dependencies = [
 name = "gitnexus-desktop"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "futures-util",
  "gitnexus-core",
@@ -1892,6 +1893,7 @@ dependencies = [
 name = "gitnexus-mcp"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "axum",
  "gitnexus-core",
  "gitnexus-db",

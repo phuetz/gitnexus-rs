@@ -1,0 +1,188 @@
+//! The `embed` command: generate embeddings from the indexed graph snapshot.
+//!
+//! Produces `<repo>/.gitnexus/embeddings.bin` using the given ONNX model. Each
+//! indexed Function / Class / Method / Interface / Struct / Trait / Enum /
+//! Module node contributes one vector, keyed by its node_id. The file is
+//! consumed by `gitnexus_search::search()` when RRF fusion is enabled.
+
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use anyhow::{anyhow, Result};
+use chrono::Utc;
+
+use gitnexus_core::graph::types::NodeLabel;
+use gitnexus_core::storage::repo_manager;
+use gitnexus_search::embeddings::{
+    generate_embeddings, save_embeddings, EmbeddingConfig, EmbeddingHeader, EmbeddingStore,
+};
+
+/// Labels we generate embeddings for — same symbols the FTS indexes plus
+/// DocChunk (GraphRAG). We skip File/Folder/raw structural nodes that BM25
+/// name-indexes but that have no meaningful textual content for embedding.
+const EMBED_LABELS: &[NodeLabel] = &[
+    NodeLabel::Function,
+    NodeLabel::Class,
+    NodeLabel::Method,
+    NodeLabel::Interface,
+    NodeLabel::Struct,
+    NodeLabel::Trait,
+    NodeLabel::Enum,
+    NodeLabel::Module,
+    NodeLabel::Type,
+    NodeLabel::Route,
+    NodeLabel::Controller,
+    NodeLabel::ControllerAction,
+    NodeLabel::Service,
+    NodeLabel::Repository,
+    NodeLabel::DocChunk,
+];
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run(
+    model: &str,
+    tokenizer: Option<&str>,
+    repo: Option<&str>,
+    dim: usize,
+    batch: usize,
+    max_tokens: usize,
+    no_token_type_ids: bool,
+) -> Result<()> {
+    let repo_path = resolve_repo_path(repo)?;
+    let storage = repo_manager::get_storage_paths(&repo_path);
+    let snap = gitnexus_db::snapshot::snapshot_path(&storage.storage_path);
+    if !snap.exists() {
+        return Err(anyhow!(
+            "No graph snapshot found at {}. Run 'gitnexus analyze' first.",
+            snap.display()
+        ));
+    }
+    let graph = gitnexus_db::snapshot::load_snapshot(&snap)?;
+
+    let model_path = PathBuf::from(model);
+    if !model_path.exists() {
+        return Err(anyhow!(
+            "ONNX model not found at {}",
+            model_path.display()
+        ));
+    }
+
+    let cfg = EmbeddingConfig {
+        model_name: model_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        dimension: dim,
+        max_tokens,
+        normalize: true,
+        batch_size: batch,
+        model_path: Some(model_path.to_string_lossy().into_owned()),
+        tokenizer_path: tokenizer.map(|s| s.to_string()),
+        needs_token_type_ids: !no_token_type_ids,
+    };
+
+    // Collect (node_id, text) pairs from the graph.
+    let mut tasks: Vec<(String, String)> = Vec::new();
+    for node in graph.iter_nodes() {
+        if !EMBED_LABELS.contains(&node.label) {
+            continue;
+        }
+        let text = build_embedding_text(node);
+        if text.is_empty() {
+            continue;
+        }
+        tasks.push((node.id.clone(), text));
+    }
+
+    if tasks.is_empty() {
+        return Err(anyhow!(
+            "No embeddable nodes in graph (labels: {:?}). \
+             Did 'gitnexus analyze' run successfully?",
+            EMBED_LABELS
+        ));
+    }
+    println!("Embedding {} symbols with {}…", tasks.len(), cfg.model_name);
+
+    let start = Instant::now();
+    let mut entries: Vec<(String, Vec<f32>)> = Vec::with_capacity(tasks.len());
+    let mut offset = 0;
+    while offset < tasks.len() {
+        let end = (offset + batch).min(tasks.len());
+        let texts: Vec<String> = tasks[offset..end].iter().map(|(_, t)| t.clone()).collect();
+        let vecs = generate_embeddings(&texts, &cfg);
+        if vecs.len() != texts.len() {
+            return Err(anyhow!(
+                "embedder returned {} vectors for {} inputs",
+                vecs.len(),
+                texts.len()
+            ));
+        }
+        for (i, v) in vecs.into_iter().enumerate() {
+            // Skip all-zero vectors — these indicate the fallback path fired
+            // (model or tokenizer missing, inference error). Saving them
+            // would pollute the similarity space with uniform-score matches.
+            if v.iter().all(|&x| x == 0.0) {
+                if entries.is_empty() {
+                    return Err(anyhow!(
+                        "embedder returned zero vectors — check --model path, \
+                         tokenizer.json presence, and --dim match"
+                    ));
+                }
+                continue;
+            }
+            entries.push((tasks[offset + i].0.clone(), v));
+        }
+        offset = end;
+        if offset % (batch * 10) == 0 || offset == tasks.len() {
+            println!("  {} / {} ({}s elapsed)",
+                offset, tasks.len(), start.elapsed().as_secs());
+        }
+    }
+    println!(
+        "Generated {} embeddings in {:.1}s",
+        entries.len(),
+        start.elapsed().as_secs_f64()
+    );
+
+    let out_path = Path::new(&storage.storage_path).join("embeddings.bin");
+    let store = EmbeddingStore {
+        header: EmbeddingHeader {
+            model_name: cfg.model_name.clone(),
+            dimension: cfg.dimension,
+            count: entries.len(),
+            generated_at: Utc::now().to_rfc3339(),
+        },
+        entries,
+    };
+    save_embeddings(&out_path, &store)?;
+    println!("Saved to {}", out_path.display());
+    Ok(())
+}
+
+/// Build a short text snippet for embedding a node. Mirrors the fields BM25
+/// indexes so the two ranking paths see the same surface — plus `content`
+/// when available for the richer semantic signal on function bodies.
+/// The tokenizer truncates to max_tokens so overly long content is safe.
+fn build_embedding_text(node: &gitnexus_core::graph::types::GraphNode) -> String {
+    let mut parts: Vec<&str> = Vec::with_capacity(4);
+    parts.push(node.properties.name.as_str());
+    parts.push(node.properties.file_path.as_str());
+    if let Some(desc) = &node.properties.description {
+        parts.push(desc.as_str());
+    }
+    if let Some(content) = &node.properties.content {
+        parts.push(content.as_str());
+    }
+    parts.join(" ")
+}
+
+fn resolve_repo_path(repo: Option<&str>) -> Result<PathBuf> {
+    match repo {
+        Some(r) => {
+            let p = Path::new(r);
+            Ok(p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
+        }
+        None => Ok(std::env::current_dir()?),
+    }
+}

@@ -92,6 +92,35 @@ enum Commands {
         #[arg(long, default_value = "false")]
         rerank: bool,
     },
+    /// Generate embeddings from the current snapshot and save to
+    /// .gitnexus/embeddings.bin for semantic search fusion.
+    #[command(
+        after_help = "Examples:\n  gitnexus embed --model ~/.gitnexus/models/all-MiniLM-L6-v2/model.onnx"
+    )]
+    Embed {
+        /// Path to the ONNX model (.onnx).
+        #[arg(short, long)]
+        model: String,
+        /// Path to tokenizer.json (default: next to the .onnx).
+        #[arg(short = 't', long)]
+        tokenizer: Option<String>,
+        /// Repository name or path.
+        #[arg(short, long)]
+        repo: Option<String>,
+        /// Embedding dimension (default 384 for MiniLM-L6-v2).
+        #[arg(long, default_value = "384")]
+        dim: usize,
+        /// Batch size for inference.
+        #[arg(long, default_value = "32")]
+        batch: usize,
+        /// Max token length per input.
+        #[arg(long, default_value = "512")]
+        max_tokens: usize,
+        /// Set for models that do NOT expect token_type_ids (some newer
+        /// embedding exports). Default is true (BERT-family).
+        #[arg(long, default_value = "false")]
+        no_token_type_ids: bool,
+    },
     /// 360-degree symbol view
     #[command(
         after_help = "Examples:\n  gitnexus context UserService\n  gitnexus context handleRequest --repo my-project"
@@ -401,6 +430,26 @@ async fn main() -> anyhow::Result<()> {
         Commands::Clean { force, all } => commands::clean::run(force, all),
         Commands::Query { query, repo, limit, rerank } => {
             commands::query_cmd::run(&query, repo.as_deref(), limit, rerank).await
+        }
+        Commands::Embed {
+            model,
+            tokenizer,
+            repo,
+            dim,
+            batch,
+            max_tokens,
+            no_token_type_ids,
+        } => {
+            commands::embed::run(
+                &model,
+                tokenizer.as_deref(),
+                repo.as_deref(),
+                dim,
+                batch,
+                max_tokens,
+                no_token_type_ids,
+            )
+            .await
         }
         Commands::Context { name, repo } => {
             commands::context_cmd::run(&name, repo.as_deref()).await

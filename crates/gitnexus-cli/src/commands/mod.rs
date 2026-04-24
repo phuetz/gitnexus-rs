@@ -8,6 +8,7 @@ pub mod coverage;
 pub mod cypher_cmd;
 pub mod dashboard;
 pub mod diagram;
+pub mod embed;
 pub mod export_docx;
 pub mod generate;
 pub mod generate_aspnet;

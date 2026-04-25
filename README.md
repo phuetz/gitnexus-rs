@@ -327,13 +327,13 @@ or Qwen3-Embedding (configurable via `--model`).
 gitnexus analyze D:\path\to\project
 
 # 2. Build embeddings (writes .gitnexus/embeddings.bin + embeddings.meta.json sidecar)
-gitnexus embed --path D:\path\to\project
-gitnexus embed --path D:\path\to\project --model ~/.gitnexus/models/bge-m3/model.onnx
-gitnexus embed --path D:\path\to\project --batch 32
+gitnexus embed --repo D:\path\to\project --model ~/.gitnexus/models/all-MiniLM-L6-v2/model.onnx
+gitnexus embed --repo D:\path\to\project --model ~/.gitnexus/models/bge-m3/model.onnx
+gitnexus embed --repo D:\path\to\project --model ~/.gitnexus/models/all-MiniLM-L6-v2/model.onnx --batch 16
 
 # 3. Query with hybrid retrieval; --rerank stacks an LLM reranker on top
-gitnexus query "where is request cancellation handled?" --hybrid
-gitnexus query "where is request cancellation handled?" --hybrid --rerank
+gitnexus query "where is request cancellation handled?" --hybrid --repo D:\path\to\project
+gitnexus query "where is request cancellation handled?" --hybrid --rerank --repo D:\path\to\project
 ```
 
 The LLM reranker reuses `~/.gitnexus/chat-config.json` and falls back gracefully

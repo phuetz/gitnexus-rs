@@ -268,13 +268,13 @@ français ou multilingues, préférer BGE-M3 ou Qwen3-Embedding (option `--model
 gitnexus analyze D:\chemin\vers\projet
 
 # 2. Générer les embeddings (écrit .gitnexus/embeddings.bin + embeddings.meta.json)
-gitnexus embed --path D:\chemin\vers\projet
-gitnexus embed --path D:\chemin\vers\projet --model ~/.gitnexus/models/bge-m3/model.onnx
-gitnexus embed --path D:\chemin\vers\projet --batch 32
+gitnexus embed --repo D:\chemin\vers\projet --model ~/.gitnexus/models/all-MiniLM-L6-v2/model.onnx
+gitnexus embed --repo D:\chemin\vers\projet --model ~/.gitnexus/models/bge-m3/model.onnx
+gitnexus embed --repo D:\chemin\vers\projet --model ~/.gitnexus/models/all-MiniLM-L6-v2/model.onnx --batch 16
 
 # 3. Rechercher en hybride ; --rerank ajoute le reranker LLM
-gitnexus query "où est gérée l'annulation du chat ?" --hybrid
-gitnexus query "où est gérée l'annulation du chat ?" --hybrid --rerank
+gitnexus query "où est gérée l'annulation du chat ?" --hybrid --repo D:\chemin\vers\projet
+gitnexus query "où est gérée l'annulation du chat ?" --hybrid --rerank --repo D:\chemin\vers\projet
 ```
 
 Le reranker LLM réutilise `~/.gitnexus/chat-config.json` et bascule automatiquement

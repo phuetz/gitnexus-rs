@@ -68,7 +68,7 @@ cargo clippy --workspace
 
 ```
 gitnexus-cli (binary: "gitnexus")
-  ├── gitnexus-mcp        (MCP server: 13 tools, stdio/HTTP transport, JSON-RPC 2.0)
+  ├── gitnexus-mcp        (MCP server: 27 tools, stdio/HTTP transport, JSON-RPC 2.0)
   ├── gitnexus-search      (Hybrid search: BM25 + optional ONNX semantic + RRF fusion)
   ├── gitnexus-db          (Database adapter: InMemory backend or optional KuzuDB)
   ├── gitnexus-ingest      (8-phase ingestion pipeline, parallel with rayon)
@@ -109,10 +109,13 @@ Uses rayon for parallel file processing with a 20MB chunk budget and LRU AST cac
 
 **Search** (`gitnexus-search`): Reciprocal Rank Fusion (K=60) merging BM25 lexical results with optional ONNX-based semantic embeddings. Optional LLM reranker (`reranker-llm` feature) post-processes top-K candidates by sending them to an OpenAI-compatible endpoint (reuses `~/.gitnexus/chat-config.json`). Gracefully degrades without any optional feature.
 
-**MCP** (`gitnexus-mcp`): Implements MCP protocol version 2024-11-05. Nineteen tools dispatched in `backend/local.rs`:
-- **Graph & query**: `list_repos`, `query`, `context`, `impact`, `detect_changes`, `rename`, `cypher`, `search_code`, `read_file`
-- **Analytics**: `hotspots`, `coupling`, `ownership`, `coverage`, `diagram`, `report`, `business`, `analyze_execution_trace`
+**MCP** (`gitnexus-mcp`): Implements MCP protocol version 2024-11-05. Twenty-seven tools dispatched in `backend/local.rs`:
+- **Graph & query**: `list_repos`, `query`, `context`, `impact`, `detect_changes`, `rename`, `cypher`, `search_code`, `read_file`, `find_cycles`, `find_similar_code`
+- **Analytics**: `hotspots`, `coupling`, `ownership`, `coverage`, `diagram`, `report`, `business`, `analyze_execution_trace`, `get_complexity`
+- **Codebase introspection**: `list_todos`, `list_endpoints`, `list_db_tables`, `list_env_vars`, `get_endpoint_handler`
 - **Agent support**: `get_insights`, `save_memory`
+
+Six prompts: `detect_impact`, `generate_map`, `analyze_hotspots`, `find_dead_code`, `trace_dependencies`, `describe_process`.
 
 Stdio and HTTP transports. `LocalBackend` coordinates registry loading and tool dispatch.
 
@@ -147,6 +150,9 @@ Stdio and HTTP transports. `LocalBackend` coordinates registry loading and tool 
 - **Pipeline phases**: Each phase in `crates/gitnexus-ingest/src/phases/` takes the graph and enriches it. Phases are sequential but file processing within each phase is parallel via rayon.
 - **Database adapter pattern**: `DatabaseBackend` trait in `crates/gitnexus-db/src/adapter.rs` abstracts storage. The in-memory backend is always available; KuzuDB is opt-in.
 - **Runtime data**: Indexed repos store data in `.gitnexus/` (meta.json, graph.bin, csv/).
+- **DOCX brand customisation** (`crates/gitnexus-cli/src/commands/export_docx.rs`): `BrandConfig` loaded from `~/.gitnexus/brand.json` (or `$GITNEXUS_BRAND_FILE`) overrides client_name / company_name / footer_text / document_title in header, footer, title page, and `docProps/{core,app}.xml`. Missing file = `agile-up.com` defaults — binary stays usable without setup.
+- **DOCX Mermaid rendering**: Code-fence ```mermaid``` blocks are POSTed to Kroki (`https://kroki.io/mermaid/png`, 15s timeout) and embedded as `<w:drawing>` images. PNG dimensions parsed from IHDR for aspect-ratio EMU sizing. Override URL via `GITNEXUS_KROKI_URL` or fall back to text via `GITNEXUS_MERMAID_PLACEHOLDER=1`. See `mermaid_to_xml` in `export_docx.rs`.
+- **Pre-delivery linter**: `gitnexus validate-docs --repo <project>` walks `.gitnexus/docs/**/*.md` and reports residual TODOs / unfilled `<!-- GNX:* -->` anchors / broken markdown links / short sections / missing §4 Algorithmes (Alise méthodo). Exits with code 2 on RED — usable as CI gate. Implemented in `crates/gitnexus-cli/src/commands/validate_docs.rs`.
 
 ## Gotchas
 
@@ -158,6 +164,7 @@ Stdio and HTTP transports. `LocalBackend` coordinates registry loading and tool 
 - **Sectioned enrichment anchors**: Pages >50KB are split into multiple LLM calls per anchor (`INTRO`, `SERVICES`, `ENTITIES`, etc.). Before the Phase A fix, only `INTRO` anchor was supported — non-INTRO anchors never triggered sectioned mode, causing systematic truncation on modules like `dossiers.md`. Fix is in `enrichment.rs` L1266-1331.
 - **LLM response cache**: Enrichment responses are cached in `<repo>/.gitnexus/docs/_meta/cache/llm/*.txt` keyed by MD5 of the full request body. A re-run reuses all cached responses gratis — extremely useful for retry with different models/settings without re-burning tokens.
 - **Gemini Flash output ceiling**: Gemini 2.5 Flash truncates at ~65K output tokens (`finish_reason: length`). On large pages this fires constantly. The fallback freeform parser recovers ~60% of truncated responses; the rest go to the auto retry queue with reduced scope. For quality runs on large repos, prefer Gemini 3.1 Pro Preview (65K native, fewer truncations).
+- **Big-context model fallback** (`LlmConfig::for_payload`, `enrichment.rs:1681`): set `big_context_model` (+ optional `big_context_threshold_bytes` default 40_000, `big_context_max_tokens`) in `~/.gitnexus/chat-config.json` to route huge pages through a long-context model (e.g. `gemini-2.5-pro`). All LLM calls for that page (sectioned, monolithic, freeform fallback, review pass) use the substituted model — designed to escape the Flash 65K ceiling without paying Pro tier on small pages. Substitution is no-op when the field is unset.
 - **Reranker output tolerance**: `LlmReranker::parse_indices` in `crates/gitnexus-search/src/reranker/llm.rs` must tolerate truncated JSON arrays (`[1, 2, 0` without closing bracket). Gemini Flash cuts mid-response when max_tokens hits the ceiling, and the salvage parser scans digit runs after `[` to recover indices. Do not tighten the parser to strict JSON — it will fail on real production output.
 - **Semantic search workflow**: 1) `gitnexus analyze <repo>` indexes the graph; 2) `gitnexus embed --model ~/.gitnexus/models/<model>/model.onnx` generates `.gitnexus/embeddings.bin` (+ `embeddings.meta.json` sidecar with the EmbeddingConfig); 3) `gitnexus query "foo" --hybrid` fuses BM25 with cosine top-K via RRF. `--rerank` can stack on top for LLM post-reranking. Default model for testing: `Xenova/all-MiniLM-L6-v2` (384d, English, ~90MB). For French content (Alise_v2 / agile-up.com) upgrade to BGE-M3 or Qwen3-Embedding.
 - **Embedding body dilution**: `gitnexus embed` uses `name + file_path + description + content` as input text. For very large functions (>500 lines) the body dilutes the sematic signal — observed on `enrich_aspnet_mvc` (1000+ LOC) which dropped out of top-5 for "ASP.NET MVC controller action extraction" under hybrid search when it was #4 under BM25. Truncating `content` to ~500 chars before embedding is a pending optimization.

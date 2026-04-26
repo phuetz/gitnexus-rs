@@ -14,6 +14,17 @@ pub struct LlmConfig {
     #[serde(alias = "baseUrl")]
     pub base_url: String,
     pub model: String,
+
+    // Optional big-context fallback fields. Not consumed by the MCP reranker
+    // today (rerank prompts are always small) but accepted here so a single
+    // chat-config.json edited for the CLI enrichment pipeline doesn't fail
+    // to deserialize when MCP loads the same file.
+    #[serde(default, alias = "bigContextModel", skip_serializing_if = "Option::is_none")]
+    pub big_context_model: Option<String>,
+    #[serde(default, alias = "bigContextThresholdBytes", skip_serializing_if = "Option::is_none")]
+    pub big_context_threshold_bytes: Option<usize>,
+    #[serde(default, alias = "bigContextMaxTokens", skip_serializing_if = "Option::is_none")]
+    pub big_context_max_tokens: Option<u32>,
 }
 
 /// Resolve `~/.gitnexus/chat-config.json` across OS home-dir env variations.

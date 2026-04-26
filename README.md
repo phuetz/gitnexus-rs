@@ -43,7 +43,7 @@ It's the difference between asking someone to **read a book** vs giving them the
 - **Page Feedback** -- Built-in feedback widget on every documentation page to track content quality and utility.
 - **Desktop App** -- Tauri v2 desktop application with interactive graph visualization, treemap view, intelligent chat, and command palette (Ctrl+K)
 - **Intelligent Chat** -- AI-powered code Q&A with streaming responses, query complexity analysis, multi-step research plans, and deep research mode. Supports Ollama, OpenAI, Anthropic, OpenRouter, and Gemini (with reasoning/thinking mode)
-- **MCP Server** -- 15 tools accessible to any MCP-compatible AI agent (Claude, Cursor, VS Code, etc.)
+- **MCP Server** -- 27 tools accessible to any MCP-compatible AI agent (Claude, Cursor, VS Code, etc.)
 - **Claude Code Skill** -- Built-in `/gitnexus` skill that lets Claude query the knowledge graph during your conversation, with automatic invocation on natural language questions
 - **Code Health Report** -- `gitnexus report` command combining hotspots, temporal coupling, ownership analysis, and graph metrics into a single health score (A-E)
 - **Hybrid Search** -- BM25 lexical search + optional ONNX semantic embeddings, fused with Reciprocal Rank Fusion. Optional LLM-based reranker for post-retrieval reordering with graceful fallback when the model is unavailable.
@@ -165,11 +165,17 @@ Create `~/.gitnexus/chat-config.json`:
   "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
   "model": "gemini-2.5-flash",
   "max_tokens": 8192,
-  "reasoning_effort": "high"
+  "reasoning_effort": "high",
+
+  "big_context_model": "gemini-2.5-pro",
+  "big_context_threshold_bytes": 40000,
+  "big_context_max_tokens": 131072
 }
 ```
 
 Supported providers: **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, no API key needed).
+
+The three optional `big_context_*` fields route huge pages (≥ `big_context_threshold_bytes` raw markdown, default 40 KB) through a long-context model to escape the Gemini 2.5 Flash 65K output ceiling that causes `finish_reason: length` truncations. All LLM calls for that page (sectioned, monolithic, freeform fallback, review pass) use the substituted model. Leave the fields unset for legacy single-model behavior.
 
 Validate your config:
 
@@ -218,11 +224,46 @@ gitnexus generate --path D:\path\to\project all
 
 # Generate specific formats
 gitnexus generate --path D:\path\to\project docs     # Markdown pages
-gitnexus generate --path D:\path\to\project docx     # Word document
-gitnexus generate --path D:\path\to\project context   # AGENTS.md only
-gitnexus generate --path D:\path\to\project wiki      # Wiki pages
-gitnexus generate --path D:\path\to\project skills    # Skill files
+gitnexus generate --path D:\path\to\project docx     # Word document (header + footer + brand)
+gitnexus generate --path D:\path\to\project pdf      # PDF (Puppeteer-based, from HTML)
+gitnexus generate --path D:\path\to\project context  # AGENTS.md only
+gitnexus generate --path D:\path\to\project wiki     # Wiki pages
+gitnexus generate --path D:\path\to\project skills   # Skill files
+gitnexus generate --path D:\path\to\project inject   # Re-inject LLM fragments without full regen
 ```
+
+### Word DOCX — brand customisation
+
+Generated `.docx` files now ship with a configurable header (client name + document title), a footer (brand text + auto-paginated `Page X / Y`), and Word `Fichier > Propriétés` metadata. Override the defaults via `~/.gitnexus/brand.json`:
+
+```json
+{
+  "client_name": "CCAS Alise",
+  "company_name": "agile-up.com",
+  "footer_text": "agile-up.com — Confidentiel — Ne pas diffuser",
+  "document_title": "Documentation Technique et Fonctionnelle"
+}
+```
+
+A missing or unparseable `brand.json` silently falls back to the legacy `agile-up.com` defaults — the binary stays usable without setup. Override the file location with `$GITNEXUS_BRAND_FILE`.
+
+Mermaid diagrams in the markdown source are rendered to PNG via [Kroki](https://kroki.io) and embedded inline in the `.docx`. Set `GITNEXUS_MERMAID_PLACEHOLDER=1` to keep the legacy text fallback (no network call), or `GITNEXUS_KROKI_URL=<url>` to point at a self-hosted Kroki instance.
+
+### Pre-delivery validation (`validate-docs`)
+
+Before sending a Word/HTML doc to a client, run the linter to catch issues that would embarrass us:
+
+```bash
+gitnexus validate-docs --repo D:\path\to\project
+gitnexus validate-docs --repo D:\path\to\project --json   # machine-readable report
+```
+
+Five checks at two severity levels:
+
+- **RED — blocks delivery**: residual `TODO` / `TBD` / `FIXME` / `XXX`, unfilled `<!-- GNX:* -->` anchors (means LLM enrichment silently failed), broken markdown links to missing files.
+- **YELLOW — should fix**: H1/H2 sections with under 50 prose words, Service / Controller pages missing a `§4 Algorithmes` heading (Alise v1.1 méthodo).
+
+The report is also written to `<docs_dir>/_meta/validation.json` for CI / scripted consumption. **Exits with code 2 if any RED issue is found** (otherwise 0) — wire it into your CI pipeline as a fail-fast gate.
 
 ### LLM Enrichment — resilience & off-peak retry
 
@@ -489,7 +530,7 @@ The skill is defined in `.claude/skills/gitnexus/SKILL.md` and works out of the 
 
 ### 2. MCP Server (for any AI agent)
 
-A standards-based [Model Context Protocol](https://modelcontextprotocol.io/) server exposing 7 tools. Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible agent.
+A standards-based [Model Context Protocol](https://modelcontextprotocol.io/) server exposing 27 tools. Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible agent.
 
 ```bash
 gitnexus mcp          # stdio transport
@@ -530,7 +571,7 @@ Workspace crates with a layered dependency flow:
 ```
 gitnexus-cli              CLI binary ("gitnexus")
   |
-  +-- gitnexus-mcp          MCP server (7 tools, stdio/HTTP, JSON-RPC 2.0)
+  +-- gitnexus-mcp          MCP server (27 tools, stdio/HTTP, JSON-RPC 2.0)
   +-- gitnexus-search        Hybrid search (BM25 + semantic + RRF)
   +-- gitnexus-db            Database adapter (in-memory or KuzuDB)
   +-- gitnexus-ingest        6-phase ingestion pipeline (parallel via rayon)

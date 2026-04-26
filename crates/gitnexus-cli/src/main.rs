@@ -383,6 +383,25 @@ enum Commands {
         #[arg(long)]
         trace: bool,
     },
+    /// Lint generated documentation before delivery (residual TODOs, broken
+    /// links, unfilled GNX anchors, missing §4 Algorithmes per Alise méthodo).
+    /// Exits with code 2 if any RED-severity issue is found.
+    #[command(
+        after_help = "Examples:\n  gitnexus validate-docs\n  gitnexus validate-docs --repo D:\\taf\\Alise_v2\n  gitnexus validate-docs --docs-dir D:\\taf\\Alise_v2\\livrables\\2026-04-26\n  gitnexus validate-docs --json"
+    )]
+    ValidateDocs {
+        /// Path to the repository (defaults to current directory)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Override the docs directory (default: <repo>/.gitnexus/docs).
+        /// Use this to validate a custom output directory, e.g. one set via
+        /// `gitnexus generate --output-dir`.
+        #[arg(long)]
+        docs_dir: Option<String>,
+        /// Output the JSON report to stdout instead of the colored console summary
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -552,5 +571,8 @@ async fn main() -> anyhow::Result<()> {
             json,
             trace,
         } => commands::coverage::run(target.as_deref(), path.as_deref(), json, trace),
+        Commands::ValidateDocs { repo, docs_dir, json } => {
+            commands::validate_docs::run(repo.as_deref(), docs_dir.as_deref(), json)
+        }
     }
 }

@@ -27,6 +27,9 @@ use zip::ZipWriter;
 /// Export all documentation as a single DOCX file.
 /// Reads `_index.json` to determine page order, then converts all Markdown files.
 pub fn export_docs_as_docx(docs_dir: &Path, output_path: &Path, project_name: &str) -> Result<()> {
+    // Brand overrides — silently falls back to defaults if no brand.json exists.
+    let brand = load_brand_config();
+
     // Read _index.json for ordered page list and stats
     let index_path = docs_dir.join("_index.json");
     let (ordered_files, stats) = if index_path.exists() {
@@ -88,15 +91,46 @@ pub fn export_docs_as_docx(docs_dir: &Path, output_path: &Path, project_name: &s
     zip.start_file("word/numbering.xml", options)?;
     zip.write_all(NUMBERING_XML.as_bytes())?;
 
-    // 6. word/document.xml (main content) and collect hyperlinks
-    let (document_xml, links) = generate_document_xml(project_name, &md_files, &stats);
+    // 6. word/document.xml (main content) and collect hyperlinks + images
+    let (document_xml, links, images) =
+        generate_document_xml(project_name, &md_files, &stats, &brand);
     zip.start_file("word/document.xml", options)?;
     zip.write_all(document_xml.as_bytes())?;
 
-    // 3. word/_rels/document.xml.rels (with dynamic hyperlinks)
-    let doc_rels_xml = generate_document_rels(&links);
+    // 3. word/_rels/document.xml.rels (with dynamic hyperlinks + image rels)
+    let doc_rels_xml = generate_document_rels(&links, &images);
     zip.start_file("word/_rels/document.xml.rels", options)?;
     zip.write_all(doc_rels_xml.as_bytes())?;
+
+    // 6b. word/media/imageN.png — Mermaid diagrams rendered to PNG by Kroki.
+    // No-op when no diagrams were rendered (placeholder fallback path).
+    for img in &images {
+        zip.start_file(format!("word/media/image{}.png", img.index), options)?;
+        zip.write_all(&img.png_bytes)?;
+    }
+    if !images.is_empty() {
+        eprintln!(
+            "OK Embedded {} Mermaid diagrams as PNG (largest: {} px wide)",
+            images.len(),
+            images.iter().map(|i| i.dimensions.0).max().unwrap_or(0)
+        );
+    }
+
+    // 7. word/header1.xml (rId3 — first page suppressed via <w:titlePg/>)
+    zip.start_file("word/header1.xml", options)?;
+    zip.write_all(generate_header_xml(project_name, &brand).as_bytes())?;
+
+    // 8. word/footer1.xml (rId4 — paginated via PAGE / NUMPAGES fields)
+    zip.start_file("word/footer1.xml", options)?;
+    zip.write_all(generate_footer_xml(&brand).as_bytes())?;
+
+    // 9. docProps/core.xml (Word "Fichier > Propriétés" core metadata)
+    zip.start_file("docProps/core.xml", options)?;
+    zip.write_all(generate_core_props_xml(project_name, &brand).as_bytes())?;
+
+    // 10. docProps/app.xml (Application + Company in Détails panel)
+    zip.start_file("docProps/app.xml", options)?;
+    zip.write_all(generate_app_props_xml(&brand).as_bytes())?;
 
     zip.finish()?;
     Ok(())
@@ -192,12 +226,14 @@ fn generate_document_xml(
     project_name: &str,
     md_files: &[(String, String, String)],
     stats: &DocStats,
-) -> (String, Vec<(String, String)>) {
+    brand: &BrandConfig,
+) -> (String, Vec<(String, String)>, Vec<MermaidImage>) {
     let mut body = String::new();
     let mut links = Vec::new();
+    let mut images: Vec<MermaidImage> = Vec::new();
 
     // ── Title page ──
-    body.push_str(&title_page(project_name, stats));
+    body.push_str(&title_page(project_name, stats, brand));
     body.push_str(PAGE_BREAK);
 
     // ── Table of contents ──
@@ -206,7 +242,7 @@ fn generate_document_xml(
 
     // ── Document body: each markdown file as a section ──
     for (i, (_id, _title, content)) in md_files.iter().enumerate() {
-        let (ooxml, doc_links) = markdown_to_ooxml(content);
+        let (ooxml, doc_links) = markdown_to_ooxml(content, &mut images);
         body.push_str(&ooxml);
         links.extend(doc_links);
         // Page break between sections (but not after last)
@@ -230,29 +266,33 @@ fn generate_document_xml(
   <w:body>
 {body}
     <w:sectPr>
+      <w:headerReference w:type="default" r:id="rId3"/>
+      <w:footerReference w:type="default" r:id="rId4"/>
       <w:pgSz w:w="11906" w:h="16838"/>
       <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>
+      <w:titlePg/>
     </w:sectPr>
   </w:body>
 </w:document>"#
     );
-    (doc_xml, links)
+    (doc_xml, links, images)
 }
 
 const PAGE_BREAK: &str = r#"<w:p><w:r><w:br w:type="page"/></w:r></w:p>"#;
 
-fn title_page(project_name: &str, stats: &DocStats) -> String {
+fn title_page(project_name: &str, stats: &DocStats, brand: &BrandConfig) -> String {
     let date = chrono::Local::now().format("%d/%m/%Y").to_string();
+    let display_project = brand.client_name.as_deref().unwrap_or(project_name);
     let mut s = format!(
         r#"
     <w:p><w:pPr><w:spacing w:before="3000"/><w:jc w:val="center"/></w:pPr>
       <w:r><w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:b/><w:sz w:val="60"/><w:color w:val="1B3A6B"/></w:rPr>
-        <w:t>{}</w:t>
+        <w:t>{project}</w:t>
       </w:r>
     </w:p>
     <w:p><w:pPr><w:spacing w:before="200"/><w:jc w:val="center"/></w:pPr>
       <w:r><w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:sz w:val="32"/><w:color w:val="4472C4"/></w:rPr>
-        <w:t>Documentation Technique et Fonctionnelle</w:t>
+        <w:t>{subtitle}</w:t>
       </w:r>
     </w:p>
     <w:p><w:pPr><w:spacing w:before="120"/><w:jc w:val="center"/></w:pPr>
@@ -260,7 +300,8 @@ fn title_page(project_name: &str, stats: &DocStats) -> String {
         <w:t xml:space="preserve">Audit de code automatise — {date}</w:t>
       </w:r>
     </w:p>"#,
-        xml_escape(project_name),
+        project = xml_escape(display_project),
+        subtitle = xml_escape(brand.document_title()),
         date = date
     );
 
@@ -349,7 +390,13 @@ fn toc_field() -> String {
 
 /// Convert Markdown content to OOXML paragraphs.
 /// Returns (ooxml_string, vec_of_links) where links are (rId, url) pairs.
-fn markdown_to_ooxml(markdown: &str) -> (String, Vec<(String, String)>) {
+/// `images` accumulates Mermaid PNGs across all pages — its length is the
+/// global image counter (1-based) and must keep growing across calls so
+/// rIdImg<N> stays unique.
+fn markdown_to_ooxml(
+    markdown: &str,
+    images: &mut Vec<MermaidImage>,
+) -> (String, Vec<(String, String)>) {
     let mut result = String::new();
     let mut links = Vec::new();
     let lines: Vec<&str> = markdown.lines().collect();
@@ -421,7 +468,7 @@ fn markdown_to_ooxml(markdown: &str) -> (String, Vec<(String, String)>) {
             i += 1; // skip closing ```
 
             if lang == "mermaid" {
-                result.push_str(&mermaid_placeholder(&code_lines.join("\n")));
+                result.push_str(&mermaid_to_xml(&code_lines.join("\n"), images));
             } else {
                 result.push_str(&code_block(&code_lines.join("\n"), &lang));
             }
@@ -583,11 +630,20 @@ fn code_block(code: &str, lang: &str) -> String {
     result
 }
 
-fn mermaid_placeholder(code: &str) -> String {
-    let mut result = String::new();
+/// One Mermaid diagram rendered to PNG and waiting to be ZIPped under
+/// `word/media/imageN.png`. The `index` is 1-based and matches both the
+/// filename suffix and the `rIdImg<N>` referenced from document.xml.
+struct MermaidImage {
+    index: usize,
+    png_bytes: Vec<u8>,
+    /// (width_px, height_px) read from the PNG IHDR — used to keep the
+    /// embedded `<wp:extent>` aspect-ratio correct.
+    dimensions: (u32, u32),
+}
 
-    // Determine diagram type for a better label
-    let diagram_type = if code.starts_with("sequenceDiagram") {
+/// Diagram type label, used in fallback placeholder and as alt-text.
+fn mermaid_diagram_label(code: &str) -> &'static str {
+    if code.starts_with("sequenceDiagram") {
         "Diagramme de Sequence"
     } else if code.starts_with("erDiagram") {
         "Diagramme Entite-Relation"
@@ -599,28 +655,114 @@ fn mermaid_placeholder(code: &str) -> String {
         "Diagramme de Flux"
     } else {
         "Diagramme Mermaid"
-    };
+    }
+}
 
-    // Header with diagram type icon
+/// Convert a Mermaid code block to either an embedded PNG (best case) or
+/// the legacy text placeholder (fallback when rendering is disabled / fails).
+///
+/// Rendering is ON by default via Kroki HTTP. Set `GITNEXUS_MERMAID_PLACEHOLDER=1`
+/// to force the legacy text-only behavior (useful offline or for CI snapshots).
+fn mermaid_to_xml(code: &str, images: &mut Vec<MermaidImage>) -> String {
+    let label = mermaid_diagram_label(code);
+
+    // Opt-out: force placeholder. Useful when the host has no network access
+    // or the user wants the deterministic text output for diffing.
+    let force_placeholder = std::env::var("GITNEXUS_MERMAID_PLACEHOLDER")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if !force_placeholder {
+        match render_mermaid_via_kroki(code) {
+            Ok(png_bytes) => {
+                let dimensions = png_dimensions(&png_bytes).unwrap_or((1200, 800));
+                let next_index = images.len() + 1;
+                let drawing = drawing_xml(next_index, dimensions, label);
+                images.push(MermaidImage {
+                    index: next_index,
+                    png_bytes,
+                    dimensions,
+                });
+                return drawing;
+            }
+            Err(e) => {
+                eprintln!(
+                    "Warning: Mermaid render failed ({}). Falling back to text placeholder. \
+                     Set GITNEXUS_MERMAID_PLACEHOLDER=1 to silence.",
+                    e
+                );
+            }
+        }
+    }
+
+    mermaid_placeholder_xml(code, label)
+}
+
+/// Legacy text-only rendering — kept as fallback when Kroki is unavailable.
+fn mermaid_placeholder_xml(code: &str, label: &str) -> String {
+    let mut result = String::new();
     result.push_str(&format!(
-        r#"<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="E8F0FE"/><w:spacing w:after="60"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="4472C4"/><w:bottom w:val="single" w:sz="4" w:space="4" w:color="4472C4"/></w:pBdr></w:pPr><w:r><w:rPr><w:b/><w:color w:val="1B3A6B"/><w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">  {diagram_type}</w:t></w:r></w:p>"#,
+        r#"<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="E8F0FE"/><w:spacing w:after="60"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="4472C4"/><w:bottom w:val="single" w:sz="4" w:space="4" w:color="4472C4"/></w:pBdr></w:pPr><w:r><w:rPr><w:b/><w:color w:val="1B3A6B"/><w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">  {label}</w:t></w:r></w:p>"#,
     ));
-
-    // Instruction
     result.push_str(
         r#"<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="E8F0FE"/><w:spacing w:after="60"/></w:pPr><w:r><w:rPr><w:i/><w:sz w:val="18"/><w:color w:val="666666"/></w:rPr><w:t xml:space="preserve">Copiez le code ci-dessous dans mermaid.live ou un viewer Mermaid pour voir le rendu visuel.</w:t></w:r></w:p>"#,
     );
-
-    // Source code with slightly different background
     for line in code.lines() {
         result.push_str(&format!(
             r#"<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="E8F0FE"/><w:spacing w:after="0"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz w:val="16"/><w:color w:val="3366AA"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r></w:p>"#,
             xml_escape(line)
         ));
     }
-    // Spacer
     result.push_str(r#"<w:p><w:pPr><w:spacing w:after="120"/></w:pPr></w:p>"#);
     result
+}
+
+/// POST a Mermaid source to Kroki and get back the rendered PNG bytes.
+/// 15s timeout per diagram — Kroki is fast (~500ms) but spikes happen.
+fn render_mermaid_via_kroki(code: &str) -> Result<Vec<u8>> {
+    let url = std::env::var("GITNEXUS_KROKI_URL")
+        .unwrap_or_else(|_| "https://kroki.io/mermaid/png".to_string());
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| anyhow::anyhow!("kroki client: {}", e))?;
+    let resp = client
+        .post(&url)
+        .header("Content-Type", "text/plain")
+        .body(code.to_string())
+        .send()
+        .map_err(|e| anyhow::anyhow!("kroki request: {}", e))?;
+    if !resp.status().is_success() {
+        anyhow::bail!("kroki HTTP {}", resp.status());
+    }
+    Ok(resp.bytes()?.to_vec())
+}
+
+/// Parse PNG width/height from the IHDR chunk. Returns None for non-PNG
+/// or truncated input. The 8-byte signature is followed by a 4-byte chunk
+/// length, the "IHDR" chunk type, then width (BE u32) and height (BE u32).
+fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 24 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let w = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+    let h = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+    Some((w, h))
+}
+
+/// Build the `<w:drawing>` paragraph that embeds an image referenced by
+/// `rIdImg<index>`. Width is capped at ~6.3 inches (page-width minus margins);
+/// height scales by the PNG's aspect ratio. EMU = English Metric Units, the
+/// OOXML coordinate system (1 inch = 914 400 EMU; 1 px @96dpi = 9 525 EMU).
+fn drawing_xml(index: usize, (w_px, h_px): (u32, u32), alt_text: &str) -> String {
+    const MAX_WIDTH_EMU: u64 = 5_731_510; // ~6.27 inches, fits A4 with 1.5" margins
+    let aspect = if w_px == 0 { 1.0 } else { h_px as f64 / w_px as f64 };
+    let width_emu = MAX_WIDTH_EMU;
+    let height_emu = ((width_emu as f64) * aspect).round() as u64;
+    let alt = xml_escape(alt_text);
+    format!(
+        r#"<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="120" w:after="120"/></w:pPr><w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="{width_emu}" cy="{height_emu}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="{index}" name="Diagramme {index}" descr="{alt}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="{index}" name="Diagramme {index}" descr="{alt}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rIdImg{index}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{width_emu}" cy="{height_emu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>"#
+    )
 }
 
 const HORIZONTAL_RULE: &str = r#"<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="CCCCCC"/></w:pBdr><w:spacing w:before="200" w:after="200"/></w:pPr></w:p>"#;
@@ -892,23 +1034,48 @@ const CONTENT_TYPES_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalo
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
   <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+  <Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
+  <Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
 </Types>"#;
 
 const RELS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
 </Relationships>"#;
 
-fn generate_document_rels(links: &[(String, String)]) -> String {
+fn generate_document_rels(links: &[(String, String)], images: &[MermaidImage]) -> String {
+    // rId1/rId2 stay on styles/numbering for backwards-compat (these were the
+    // only ids before headers/footers were added). rId3/rId4 are the header
+    // and footer references — `generate_document_xml`'s <w:sectPr> hardcodes
+    // these same ids, so don't renumber without updating both sites.
+    // Image rels use the dedicated `rIdImg<N>` namespace so they never
+    // collide with hyperlink rIds (which use a different counter).
     let mut rels = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>"#,
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
+  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>"#,
     );
+
+    // Image relationships — must precede hyperlinks because <w:drawing>
+    // resolves r:embed against this same rels file.
+    for img in images {
+        rels.push_str(&format!(
+            r#"
+  <Relationship Id="rIdImg{idx}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image{idx}.png"/>"#,
+            idx = img.index
+        ));
+    }
 
     // Add hyperlink relationships
     for (rid, url) in links {
@@ -921,6 +1088,217 @@ fn generate_document_rels(links: &[(String, String)]) -> String {
 
     rels.push_str("\n</Relationships>");
     rels
+}
+
+// ─── Header / Footer / DocProps generators ────────────────────────────
+
+// ─── Brand customisation (Jour 5a) ─────────────────────────────────────
+
+/// Per-delivery branding overrides. Loaded from `~/.gitnexus/brand.json`
+/// (or `$GITNEXUS_BRAND_FILE` if set). All fields are optional — a missing
+/// file simply yields the legacy "agile-up.com" defaults so the binary
+/// stays usable without any setup.
+///
+/// Example brand.json:
+/// ```json
+/// {
+///   "client_name": "CCAS Alise",
+///   "company_name": "agile-up.com",
+///   "footer_text": "agile-up.com — Confidentiel — Ne pas diffuser",
+///   "document_title": "Documentation Technique et Fonctionnelle"
+/// }
+/// ```
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct BrandConfig {
+    pub client_name: Option<String>,
+    pub company_name: Option<String>,
+    pub footer_text: Option<String>,
+    pub document_title: Option<String>,
+}
+
+impl BrandConfig {
+    /// Effective company name — used in docProps and the default footer.
+    fn company(&self) -> &str {
+        self.company_name.as_deref().unwrap_or("agile-up.com")
+    }
+    /// Effective document subtitle, shown on the title page and in the header.
+    fn document_title(&self) -> &str {
+        self.document_title
+            .as_deref()
+            .unwrap_or("Documentation Technique et Fonctionnelle")
+    }
+    /// Effective footer text on the left side of every page.
+    fn footer_text(&self) -> String {
+        match &self.footer_text {
+            Some(t) => t.clone(),
+            None => format!("{} — Confidentiel", self.company()),
+        }
+    }
+}
+
+/// Load brand overrides from `$GITNEXUS_BRAND_FILE` if set, otherwise from
+/// `~/.gitnexus/brand.json`. Missing or malformed file returns defaults.
+fn load_brand_config() -> BrandConfig {
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(env_path) = std::env::var("GITNEXUS_BRAND_FILE") {
+        candidates.push(std::path::PathBuf::from(env_path));
+    }
+    for var in ["USERPROFILE", "HOME"] {
+        if let Ok(home) = std::env::var(var) {
+            candidates.push(std::path::PathBuf::from(home).join(".gitnexus").join("brand.json"));
+        }
+    }
+    for path in candidates {
+        if path.exists() {
+            if let Ok(raw) = std::fs::read_to_string(&path) {
+                if let Ok(cfg) = serde_json::from_str::<BrandConfig>(&raw) {
+                    return cfg;
+                } else {
+                    eprintln!(
+                        "Warning: brand.json at {} could not be parsed — using defaults.",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+    BrandConfig::default()
+}
+
+/// Page header — references `rId3` defined in `generate_document_rels`.
+/// Layout: client name (or project, fallback) on the left in italic gray,
+/// document title (typically "Documentation Technique et Fonctionnelle")
+/// on the right in bold blue. A thin bottom border separates the header
+/// band from the body.
+fn generate_header_xml(project_name: &str, brand: &BrandConfig) -> String {
+    let left = brand
+        .client_name
+        .as_deref()
+        .unwrap_or(project_name);
+    let right = brand.document_title();
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:p>
+    <w:pPr>
+      <w:tabs>
+        <w:tab w:val="right" w:pos="9026"/>
+      </w:tabs>
+      <w:pBdr>
+        <w:bottom w:val="single" w:sz="6" w:space="1" w:color="1B3A6B"/>
+      </w:pBdr>
+      <w:spacing w:after="60"/>
+    </w:pPr>
+    <w:r>
+      <w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:i/><w:sz w:val="18"/><w:color w:val="555555"/></w:rPr>
+      <w:t>{left}</w:t>
+    </w:r>
+    <w:r><w:tab/></w:r>
+    <w:r>
+      <w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:b/><w:sz w:val="18"/><w:color w:val="1B3A6B"/></w:rPr>
+      <w:t>{right}</w:t>
+    </w:r>
+  </w:p>
+</w:hdr>"#,
+        left = xml_escape(left),
+        right = xml_escape(right),
+    )
+}
+
+/// Page footer — references `rId4` defined in `generate_document_rels`.
+/// Layout: brand footer text (left, gray italic) ─── tab ───
+/// "Page X / Y" using Word PAGE + NUMPAGES fields (right, gray).
+fn generate_footer_xml(brand: &BrandConfig) -> String {
+    let left = xml_escape(&brand.footer_text());
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:p>
+    <w:pPr>
+      <w:tabs>
+        <w:tab w:val="right" w:pos="9026"/>
+      </w:tabs>
+      <w:pBdr>
+        <w:top w:val="single" w:sz="4" w:space="1" w:color="BFBFBF"/>
+      </w:pBdr>
+      <w:spacing w:before="60"/>
+    </w:pPr>
+    <w:r>
+      <w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:i/><w:sz w:val="16"/><w:color w:val="888888"/></w:rPr>
+      <w:t>{left}</w:t>
+    </w:r>
+    <w:r><w:tab/></w:r>
+    <w:r>
+      <w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr>
+      <w:t xml:space="preserve">Page </w:t>
+    </w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:t>1</w:t></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>
+    <w:r>
+      <w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr>
+      <w:t xml:space="preserve"> / </w:t>
+    </w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:instrText xml:space="preserve"> NUMPAGES </w:instrText></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:t>1</w:t></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>
+  </w:p>
+</w:ftr>"#
+    )
+}
+
+/// Word "Fichier > Propriétés" core metadata. Visible in both Word and File
+/// Explorer's right-click > Properties > Details panel.
+fn generate_core_props_xml(project_name: &str, brand: &BrandConfig) -> String {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let display_project = brand.client_name.as_deref().unwrap_or(project_name);
+    let creator = format!("GitNexus ({})", brand.company());
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+                   xmlns:dc="http://purl.org/dc/elements/1.1/"
+                   xmlns:dcterms="http://purl.org/dc/terms/"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>{project} — {subtitle}</dc:title>
+  <dc:subject>Audit de code et documentation automatisée</dc:subject>
+  <dc:creator>{creator}</dc:creator>
+  <cp:lastModifiedBy>GitNexus</cp:lastModifiedBy>
+  <cp:revision>1</cp:revision>
+  <dcterms:created xsi:type="dcterms:W3CDTF">{now}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">{now}</dcterms:modified>
+  <cp:keywords>documentation, audit, code intelligence, gitnexus, {company}</cp:keywords>
+</cp:coreProperties>"#,
+        project = xml_escape(display_project),
+        subtitle = xml_escape(brand.document_title()),
+        creator = xml_escape(&creator),
+        company = xml_escape(brand.company()),
+        now = now
+    )
+}
+
+/// Extended properties — Application identifies the producer in
+/// "Fichier > Propriétés > Détails > Application", Company branded
+/// from `BrandConfig`.
+fn generate_app_props_xml(brand: &BrandConfig) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+            xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>GitNexus — Code Intelligence Engine</Application>
+  <Company>{company}</Company>
+  <AppVersion>0.1.0</AppVersion>
+  <DocSecurity>0</DocSecurity>
+  <ScaleCrop>false</ScaleCrop>
+  <SharedDoc>false</SharedDoc>
+  <HyperlinksChanged>false</HyperlinksChanged>
+  <LinksUpToDate>false</LinksUpToDate>
+</Properties>"#,
+        company = xml_escape(brand.company())
+    )
 }
 
 fn generate_styles_xml() -> String {

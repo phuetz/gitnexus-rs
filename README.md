@@ -46,7 +46,7 @@ It's the difference between asking someone to **read a book** vs giving them the
 - **MCP Server** -- 15 tools accessible to any MCP-compatible AI agent (Claude, Cursor, VS Code, etc.)
 - **Claude Code Skill** -- Built-in `/gitnexus` skill that lets Claude query the knowledge graph during your conversation, with automatic invocation on natural language questions
 - **Code Health Report** -- `gitnexus report` command combining hotspots, temporal coupling, ownership analysis, and graph metrics into a single health score (A-E)
-- **Hybrid Search** -- BM25 lexical search + optional ONNX semantic embeddings, fused with Reciprocal Rank Fusion
+- **Hybrid Search** -- BM25 lexical search + optional ONNX semantic embeddings, fused with Reciprocal Rank Fusion. Optional LLM-based reranker for post-retrieval reordering with graceful fallback when the model is unavailable.
 - **Blast Radius Analysis** -- Trace upstream callers, downstream callees, and transitive impact of any symbol
 - **Interactive Modes** -- REPL shell, TUI dashboard, file watcher with auto-reindex
 - **Pluggable Storage** -- In-memory backend (default) or KuzuDB graph database
@@ -145,9 +145,14 @@ cargo build --release -p gitnexus-cli --features gitnexus-cli/kuzu-backend
 # With ONNX semantic search (hybrid BM25 + embeddings)
 cargo build --release -p gitnexus-cli --features gitnexus-search/embeddings
 
-# With both
-cargo build --release -p gitnexus-cli --features gitnexus-cli/kuzu-backend,gitnexus-search/embeddings
+# With LLM reranker (post-processes top-K candidates via OpenAI-compatible API)
+cargo build --release -p gitnexus-cli --features gitnexus-search/reranker-llm
+
+# With everything (KuzuDB + embeddings + reranker)
+cargo build --release -p gitnexus-cli --features gitnexus-cli/kuzu-backend,gitnexus-search/embeddings,gitnexus-search/reranker-llm
 ```
+
+> **Note:** the default `gitnexus-cli` build already enables `embeddings` and `reranker-llm`. The lines above are explicit feature toggles for downstream crates that opt in à la carte.
 
 ### LLM Configuration (for `ask` and `--enrich`)
 
@@ -291,8 +296,14 @@ gitnexus ask "which controllers call the Erable WebAPI?" --path D:\taf\Alise_v2
 ### Search & Explore
 
 ```bash
-# Natural language search
+# Natural language search (BM25 only by default)
 gitnexus query "authentication middleware"
+
+# Hybrid search: BM25 + semantic embeddings fused via Reciprocal Rank Fusion
+gitnexus query "authentication middleware" --hybrid
+
+# Add LLM reranker on top of either BM25 or hybrid (post-retrieval reordering)
+gitnexus query "authentication middleware" --hybrid --rerank
 
 # 360-degree symbol context (callers, callees, imports, hierarchy)
 gitnexus context UserService
@@ -303,6 +314,32 @@ gitnexus impact handleRequest --direction both
 # Raw Cypher query
 gitnexus cypher "MATCH (n:Function) RETURN n.name LIMIT 10"
 ```
+
+### Semantic search workflow
+
+To enable `--hybrid`, you first need to generate embeddings for the indexed graph.
+The default model is `Xenova/all-MiniLM-L6-v2` (384d, ~90 MB), suitable for English
+and most Latin-script content. For French or multilingual corpora, consider BGE-M3
+or Qwen3-Embedding (configurable via `--model`).
+
+```bash
+# 1. Index the codebase as usual
+gitnexus analyze D:\path\to\project
+
+# 2. Build embeddings (writes .gitnexus/embeddings.bin + embeddings.meta.json sidecar)
+gitnexus embed --repo D:\path\to\project --model ~/.gitnexus/models/all-MiniLM-L6-v2/model.onnx
+gitnexus embed --repo D:\path\to\project --model ~/.gitnexus/models/bge-m3/model.onnx
+gitnexus embed --repo D:\path\to\project --model ~/.gitnexus/models/all-MiniLM-L6-v2/model.onnx --batch 16
+
+# 3. Query with hybrid retrieval; --rerank stacks an LLM reranker on top
+gitnexus query "where is request cancellation handled?" --hybrid --repo D:\path\to\project
+gitnexus query "where is request cancellation handled?" --hybrid --rerank --repo D:\path\to\project
+```
+
+The LLM reranker reuses `~/.gitnexus/chat-config.json` and falls back gracefully
+to the non-reranked result list when the model is unavailable (network error,
+truncated response, malformed JSON), so search remains usable even if the
+reranking step fails.
 
 ### Interactive modes
 
@@ -561,7 +598,8 @@ The desktop app communicates with the Rust backend via Tauri IPC:
 | Flag | Default | Requires | Description |
 |------|---------|----------|-------------|
 | `kuzu-backend` | off | CMake 3.15+, C++ compiler | Persistent KuzuDB graph database backend (for repos too large for RAM) |
-| `embeddings` | off | ONNX Runtime | Semantic search via ONNX embeddings, fused with BM25 via Reciprocal Rank Fusion |
+| `embeddings` | off | ONNX Runtime, HF tokenizers | Semantic search via ONNX embeddings, fused with BM25 via Reciprocal Rank Fusion. Enabled by default in the `gitnexus-cli` build. |
+| `reranker-llm` | off | OpenAI-compatible LLM API | LLM-based post-retrieval reranker; reuses `~/.gitnexus/chat-config.json`; falls back gracefully on API failure. Enabled by default in the `gitnexus-cli` build. |
 | `kotlin` | on | - | Kotlin tree-sitter grammar |
 | `swift` | on | - | Swift tree-sitter grammar |
 

@@ -12,9 +12,15 @@ use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::storage::repo_manager::{self, RegistryEntry};
 use gitnexus_db::inmemory::cypher::GraphIndexes;
-use gitnexus_db::inmemory::fts::FtsIndex;
+use gitnexus_db::inmemory::fts::{FtsIndex, FtsResult};
 use gitnexus_db::pool::ConnectionPool;
 use gitnexus_db::query;
+use gitnexus_search::bm25::BM25SearchResult;
+use gitnexus_search::embeddings::{
+    generate_embeddings, load_embeddings, search_semantic, EmbeddingConfig,
+};
+use gitnexus_search::hybrid;
+use gitnexus_search::reranker::{Candidate, LlmReranker, Reranker};
 
 use crate::error::{McpError, Result};
 use crate::hints;
@@ -1879,15 +1885,37 @@ impl LocalBackend {
             })?;
         let repo_name = args["repo"].as_str();
         let limit = clamp_limit(args["limit"].as_u64(), 8, 20);
+        // Post-retrieval LLM reranking (opt-in). Requires ~/.gitnexus/chat-config.json.
+        // On config miss or reranker error we silently fall back to BM25 order.
+        let rerank = args
+            .get("rerank")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        // Hybrid BM25 + semantic RRF fusion (opt-in). Requires `gitnexus embed`
+        // to have populated .gitnexus/embeddings.bin + embeddings.meta.json.
+        let hybrid_mode = args
+            .get("hybrid")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let entry = self.resolve_repo(repo_name)?;
         let repo_path = std::path::PathBuf::from(&entry.path);
-        let snap_path =
-            gitnexus_db::snapshot::snapshot_path(&std::path::PathBuf::from(&entry.storage_path));
+        let storage_path = std::path::PathBuf::from(&entry.storage_path);
+        let snap_path = gitnexus_db::snapshot::snapshot_path(&storage_path);
         let (graph, indexes, fts) = self.load_cached_indexes(&snap_path)?;
 
-        // FTS search
-        let fts_results = fts.search(&graph, query_str, None, limit * 2);
+        let pool_size = if rerank || hybrid_mode {
+            limit.max(20)
+        } else {
+            limit * 2
+        };
+        let fts_results = fts.search(&graph, query_str, None, pool_size);
+        // Order matters: hybrid fusion first (so the LLM reranker sees a
+        // pool enriched with semantic matches), then LLM rerank.
+        let fts_results =
+            Self::maybe_hybrid_fuse(hybrid_mode, query_str, &graph, &storage_path, fts_results)
+                .await;
+        let fts_results = Self::maybe_rerank_fts(rerank, query_str, fts_results).await;
 
         // Also try name-contains fallback
         let mut seen = std::collections::HashSet::new();
@@ -1975,8 +2003,183 @@ impl LocalBackend {
                 "hint": hints::hint_for("search_code"),
                 "resultCount": results.len(),
                 "durationMs": duration.as_millis() as u64,
+                "reranked": rerank,
+                "hybrid": hybrid_mode,
             }
         }))
+    }
+
+    /// Fuse BM25 results with semantic (embedding) top-K via Reciprocal Rank
+    /// Fusion. Silently falls back to the original BM25 order on any failure
+    /// (missing embeddings file, missing meta, inference error). Never drops
+    /// results — the `fused` output is a reordered superset of the input.
+    async fn maybe_hybrid_fuse(
+        hybrid_mode: bool,
+        query_str: &str,
+        graph: &std::sync::Arc<gitnexus_core::graph::KnowledgeGraph>,
+        storage_path: &std::path::Path,
+        fts_results: Vec<FtsResult>,
+    ) -> Vec<FtsResult> {
+        if !hybrid_mode || fts_results.len() < 2 {
+            return fts_results;
+        }
+        let emb_path = storage_path.join("embeddings.bin");
+        let meta_path = storage_path.join("embeddings.meta.json");
+        if !emb_path.exists() || !meta_path.exists() {
+            tracing::warn!(
+                "hybrid=true but embeddings files missing at {} — run 'gitnexus embed' first; using BM25 order",
+                storage_path.display()
+            );
+            return fts_results;
+        }
+
+        let query_str = query_str.to_string();
+        let graph = graph.clone();
+        let emb_path = emb_path.clone();
+        let meta_path = meta_path.clone();
+        let fts_clone = fts_results.clone();
+
+        // ONNX inference is blocking; run on the blocking pool.
+        let outcome = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<FtsResult>> {
+            let cfg: EmbeddingConfig =
+                serde_json::from_str(&std::fs::read_to_string(&meta_path)?)?;
+            let store = load_embeddings(&emb_path)?;
+            if store.header.dimension != cfg.dimension {
+                anyhow::bail!(
+                    "embeddings.bin dim {} differs from meta dim {}",
+                    store.header.dimension,
+                    cfg.dimension
+                );
+            }
+            let q_vecs = generate_embeddings(&[query_str.clone()], &cfg);
+            let q_vec = q_vecs
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("generate_embeddings returned no output"))?;
+            if q_vec.iter().all(|&v| v == 0.0) {
+                anyhow::bail!("query embedding is all zeros (model/tokenizer missing?)");
+            }
+            let stored: Vec<(String, Vec<f32>)> = store.entries;
+            let top_k = fts_clone.len();
+            let mut semantic_results = search_semantic(&q_vec, &stored, top_k);
+            for s in &mut semantic_results {
+                if let Some(n) = graph.get_node(&s.node_id) {
+                    s.file_path = n.properties.file_path.clone();
+                    s.name = n.properties.name.clone();
+                    s.label = format!("{:?}", n.label);
+                    s.start_line = n.properties.start_line;
+                    s.end_line = n.properties.end_line;
+                }
+            }
+            let bm25_wrapped: Vec<BM25SearchResult> = fts_clone
+                .iter()
+                .enumerate()
+                .map(|(i, r)| BM25SearchResult {
+                    file_path: r.file_path.clone(),
+                    score: r.score,
+                    rank: i + 1,
+                    node_id: r.node_id.clone(),
+                    name: r.name.clone(),
+                    label: r.label.clone(),
+                    start_line: r.start_line,
+                    end_line: r.end_line,
+                })
+                .collect();
+            let fused = hybrid::merge_with_rrf(&bm25_wrapped, &semantic_results, top_k);
+            Ok(fused
+                .into_iter()
+                .map(|h| FtsResult {
+                    node_id: h.node_id,
+                    score: h.score,
+                    name: h.name,
+                    file_path: h.file_path,
+                    label: h.label,
+                    start_line: h.start_line,
+                    end_line: h.end_line,
+                })
+                .collect())
+        })
+        .await;
+
+        match outcome {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, "hybrid fuse failed; using BM25 order");
+                fts_results
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "hybrid fuse task panicked; using BM25 order");
+                fts_results
+            }
+        }
+    }
+
+    /// Reorder FTS results via an LLM reranker when opt-in. Silently falls
+    /// back to the original BM25 order on any failure (missing config, HTTP
+    /// error, parse error, join panic). Never drops results.
+    async fn maybe_rerank_fts(
+        rerank: bool,
+        query_str: &str,
+        fts_results: Vec<FtsResult>,
+    ) -> Vec<FtsResult> {
+        if !rerank || fts_results.len() < 2 {
+            return fts_results;
+        }
+        let config = match crate::llm_config::load_llm_config() {
+            Some(c) => c,
+            None => {
+                tracing::warn!(
+                    "rerank=true but ~/.gitnexus/chat-config.json missing; using BM25 order"
+                );
+                return fts_results;
+            }
+        };
+        let candidates: Vec<Candidate> = fts_results
+            .iter()
+            .enumerate()
+            .map(|(i, r)| Candidate {
+                node_id: r.node_id.clone(),
+                name: r.name.clone(),
+                label: r.label.clone(),
+                file_path: r.file_path.clone(),
+                start_line: r.start_line,
+                end_line: r.end_line,
+                score: r.score,
+                rank: i + 1,
+                snippet: None,
+            })
+            .collect();
+
+        let reranker = LlmReranker::new(config.base_url, config.model, Some(config.api_key));
+        let q = query_str.to_string();
+        let reranked = match tokio::task::spawn_blocking(move || reranker.rerank(&q, candidates))
+            .await
+        {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, "reranker failed; using BM25 order");
+                return fts_results;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "reranker task join failed; using BM25 order");
+                return fts_results;
+            }
+        };
+
+        // Rebuild the FtsResult list in reranker order; any result the LLM
+        // omitted gets appended to the tail so nothing is silently lost.
+        let mut by_id: HashMap<String, FtsResult> = fts_results
+            .into_iter()
+            .map(|r| (r.node_id.clone(), r))
+            .collect();
+        let mut out = Vec::with_capacity(by_id.len());
+        for c in reranked {
+            if let Some(r) = by_id.remove(&c.node_id) {
+                out.push(r);
+            }
+        }
+        out.extend(by_id.into_values());
+        out
     }
 
     async fn tool_read_file(&mut self, args: &Value) -> Result<Value> {

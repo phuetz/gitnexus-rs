@@ -107,7 +107,7 @@ Uses rayon for parallel file processing with a 20MB chunk budget and LRU AST cac
 
 **DB** (`gitnexus-db`): `DatabaseBackend` trait with `InMemoryBackend` (default, includes simple Cypher executor and BM25 FTS) and `KuzuDbBackend` (feature-gated via `kuzu-backend`). Schema defines 56 node tables with a unified `CodeRelation` relationship table. Persistence via bincode snapshots (`graph.bin`). Query results returned as `Vec<serde_json::Value>`.
 
-**Search** (`gitnexus-search`): Reciprocal Rank Fusion (K=60) merging BM25 lexical results with optional ONNX-based semantic embeddings. Gracefully degrades without the `embeddings` feature.
+**Search** (`gitnexus-search`): Reciprocal Rank Fusion (K=60) merging BM25 lexical results with optional ONNX-based semantic embeddings. Optional LLM reranker (`reranker-llm` feature) post-processes top-K candidates by sending them to an OpenAI-compatible endpoint (reuses `~/.gitnexus/chat-config.json`). Gracefully degrades without any optional feature.
 
 **MCP** (`gitnexus-mcp`): Implements MCP protocol version 2024-11-05. Nineteen tools dispatched in `backend/local.rs`:
 - **Graph & query**: `list_repos`, `query`, `context`, `impact`, `detect_changes`, `rename`, `cypher`, `search_code`, `read_file`
@@ -131,7 +131,8 @@ Stdio and HTTP transports. `LocalBackend` coordinates registry loading and tool 
 | `kuzu-backend` | gitnexus-db, gitnexus-cli | off | Real KuzuDB graph database backend |
 | `kotlin` | gitnexus-ingest | on | Kotlin tree-sitter grammar |
 | `swift` | gitnexus-ingest | on | Swift tree-sitter grammar |
-| `embeddings` | gitnexus-search | off | ONNX Runtime semantic search |
+| `embeddings` | gitnexus-search | off | ONNX Runtime semantic search with tokenizers (HF); real inference on MiniLM/BGE models; enabled by default in gitnexus-cli |
+| `reranker-llm` | gitnexus-search | off | LLM-based reranker for post-retrieval reordering; enabled by default in gitnexus-cli |
 
 ## Key Design Patterns
 
@@ -157,6 +158,11 @@ Stdio and HTTP transports. `LocalBackend` coordinates registry loading and tool 
 - **Sectioned enrichment anchors**: Pages >50KB are split into multiple LLM calls per anchor (`INTRO`, `SERVICES`, `ENTITIES`, etc.). Before the Phase A fix, only `INTRO` anchor was supported — non-INTRO anchors never triggered sectioned mode, causing systematic truncation on modules like `dossiers.md`. Fix is in `enrichment.rs` L1266-1331.
 - **LLM response cache**: Enrichment responses are cached in `<repo>/.gitnexus/docs/_meta/cache/llm/*.txt` keyed by MD5 of the full request body. A re-run reuses all cached responses gratis — extremely useful for retry with different models/settings without re-burning tokens.
 - **Gemini Flash output ceiling**: Gemini 2.5 Flash truncates at ~65K output tokens (`finish_reason: length`). On large pages this fires constantly. The fallback freeform parser recovers ~60% of truncated responses; the rest go to the auto retry queue with reduced scope. For quality runs on large repos, prefer Gemini 3.1 Pro Preview (65K native, fewer truncations).
+- **Reranker output tolerance**: `LlmReranker::parse_indices` in `crates/gitnexus-search/src/reranker/llm.rs` must tolerate truncated JSON arrays (`[1, 2, 0` without closing bracket). Gemini Flash cuts mid-response when max_tokens hits the ceiling, and the salvage parser scans digit runs after `[` to recover indices. Do not tighten the parser to strict JSON — it will fail on real production output.
+- **Semantic search workflow**: 1) `gitnexus analyze <repo>` indexes the graph; 2) `gitnexus embed --model ~/.gitnexus/models/<model>/model.onnx` generates `.gitnexus/embeddings.bin` (+ `embeddings.meta.json` sidecar with the EmbeddingConfig); 3) `gitnexus query "foo" --hybrid` fuses BM25 with cosine top-K via RRF. `--rerank` can stack on top for LLM post-reranking. Default model for testing: `Xenova/all-MiniLM-L6-v2` (384d, English, ~90MB). For French content (Alise_v2 / agile-up.com) upgrade to BGE-M3 or Qwen3-Embedding.
+- **Embedding body dilution**: `gitnexus embed` uses `name + file_path + description + content` as input text. For very large functions (>500 lines) the body dilutes the sematic signal — observed on `enrich_aspnet_mvc` (1000+ LOC) which dropped out of top-5 for "ASP.NET MVC controller action extraction" under hybrid search when it was #4 under BM25. Truncating `content` to ~500 chars before embedding is a pending optimization.
+- **ort 2.0.0-rc.12 + ndarray version skew**: `ort` ships with its own vendored `ndarray` version that differs from the workspace's 0.16, so `Tensor::from_array(Array2)` fails to resolve `OwnedTensorArrayData`. Use the tuple form `Tensor::from_array((shape: [i64; N], vec: Vec<T>))` instead — works regardless of which ndarray the workspace pulls. See `crates/gitnexus-search/src/embeddings/mod.rs`.
+- **Reranker config duplication**: `LlmConfig` + `load_llm_config` exist in three places (`gitnexus-cli`, `gitnexus-mcp`, `gitnexus-desktop` uses its own `ChatConfig`). Acceptable tech debt until a fourth caller appears — at that point promote to `gitnexus-core::llm::config`.
 
 ## Rust Version and Toolchain
 

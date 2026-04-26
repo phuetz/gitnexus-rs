@@ -344,7 +344,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         // ── New tools (search_code, read_file, get_insights, save_memory) ──
         ToolDefinition {
             name: "search_code",
-            description: "Full-text search across the codebase. Returns matching code symbols with actual source code snippets, callers, and callees. More detailed than `query` which returns graph metadata only.",
+            description: "Full-text search across the codebase. Returns matching code symbols with actual source code snippets, callers, and callees. More detailed than `query` which returns graph metadata only. Pass `rerank: true` for post-retrieval LLM reranking (requires ~/.gitnexus/chat-config.json) and/or `hybrid: true` to fuse BM25 with semantic embeddings via RRF (requires running `gitnexus embed` first). Both fall back gracefully to plain BM25 on any failure.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -360,6 +360,16 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                         "type": "number",
                         "description": "Maximum results (default: 8, max: 20)",
                         "default": 8
+                    },
+                    "rerank": {
+                        "type": "boolean",
+                        "description": "Post-process top-20 BM25 with an LLM reranker (default: false)",
+                        "default": false
+                    },
+                    "hybrid": {
+                        "type": "boolean",
+                        "description": "Fuse BM25 with semantic embeddings via Reciprocal Rank Fusion. Requires `gitnexus embed` to have populated .gitnexus/embeddings.bin (default: false).",
+                        "default": false
                     }
                 },
                 "required": ["query"],

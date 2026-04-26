@@ -46,7 +46,7 @@ C'est la différence entre demander à quelqu'un de **lire un livre** et lui don
 - **Serveur MCP** — 15 outils accessibles à tout agent IA compatible MCP (Claude, Cursor, VS Code, etc.)
 - **Skill Claude Code** — Skill `/gitnexus` intégré qui permet à Claude d'interroger le graphe de connaissances pendant votre conversation, avec invocation automatique sur les questions en langage naturel
 - **Rapport de Santé du Code** — Commande `gitnexus report` combinant hotspots, couplage temporel, ownership et métriques du graphe en un score de santé (A-E)
-- **Recherche Hybride** — Recherche lexicale BM25 + embeddings sémantiques ONNX optionnels, fusionnés par Reciprocal Rank Fusion
+- **Recherche Hybride** — Recherche lexicale BM25 + embeddings sémantiques ONNX optionnels, fusionnés par Reciprocal Rank Fusion. Reranker LLM optionnel pour réordonner les résultats en post-traitement, avec repli automatique si le modèle est indisponible.
 - **Analyse d'Impact** — Trace les appelants amont, les appelés aval et l'impact transitif de tout symbole
 - **Modes Interactifs** — Shell REPL, dashboard TUI, surveillance de fichiers avec réindexation automatique
 - **Stockage Modulaire** — Backend en mémoire (par défaut) ou base de données graphe KuzuDB
@@ -145,9 +145,14 @@ cargo build --release -p gitnexus-cli --features gitnexus-cli/kuzu-backend
 # Avec la recherche sémantique ONNX (BM25 + embeddings hybrides)
 cargo build --release -p gitnexus-cli --features gitnexus-search/embeddings
 
-# Avec les deux
-cargo build --release -p gitnexus-cli --features gitnexus-cli/kuzu-backend,gitnexus-search/embeddings
+# Avec le reranker LLM (post-traitement via API OpenAI-compatible)
+cargo build --release -p gitnexus-cli --features gitnexus-search/reranker-llm
+
+# Avec tout (KuzuDB + embeddings + reranker)
+cargo build --release -p gitnexus-cli --features gitnexus-cli/kuzu-backend,gitnexus-search/embeddings,gitnexus-search/reranker-llm
 ```
+
+> **Note :** la build par défaut de `gitnexus-cli` active déjà `embeddings` et `reranker-llm`. Les commandes ci-dessus sont des activations explicites pour les crates qui consomment la lib à la carte.
 
 ### Configuration LLM (pour `ask` et `--enrich`)
 
@@ -232,8 +237,14 @@ gitnexus ask "quels controllers appellent le WebAPI Erable ?" --path D:\taf\Alis
 ### Rechercher & Explorer
 
 ```bash
-# Recherche en langage naturel
+# Recherche en langage naturel (BM25 par défaut)
 gitnexus query "middleware d'authentification"
+
+# Recherche hybride : BM25 + embeddings sémantiques fusionnés via Reciprocal Rank Fusion
+gitnexus query "middleware d'authentification" --hybrid
+
+# Ajouter le reranker LLM par-dessus (BM25 ou hybride)
+gitnexus query "middleware d'authentification" --hybrid --rerank
 
 # Contexte 360° d'un symbole (appelants, appelés, imports, hiérarchie)
 gitnexus context UserService
@@ -244,6 +255,32 @@ gitnexus impact handleRequest --direction both
 # Requête Cypher brute
 gitnexus cypher "MATCH (n:Function) RETURN n.name LIMIT 10"
 ```
+
+### Workflow recherche sémantique
+
+Pour activer `--hybrid`, il faut d'abord générer les embeddings du graphe indexé.
+Le modèle par défaut est `Xenova/all-MiniLM-L6-v2` (384d, ~90 Mo), adapté à
+l'anglais et à la plupart des contenus en alphabet latin. Pour les corpus
+français ou multilingues, préférer BGE-M3 ou Qwen3-Embedding (option `--model`).
+
+```bash
+# 1. Indexer le code comme d'habitude
+gitnexus analyze D:\chemin\vers\projet
+
+# 2. Générer les embeddings (écrit .gitnexus/embeddings.bin + embeddings.meta.json)
+gitnexus embed --repo D:\chemin\vers\projet --model ~/.gitnexus/models/all-MiniLM-L6-v2/model.onnx
+gitnexus embed --repo D:\chemin\vers\projet --model ~/.gitnexus/models/bge-m3/model.onnx
+gitnexus embed --repo D:\chemin\vers\projet --model ~/.gitnexus/models/all-MiniLM-L6-v2/model.onnx --batch 16
+
+# 3. Rechercher en hybride ; --rerank ajoute le reranker LLM
+gitnexus query "où est gérée l'annulation du chat ?" --hybrid --repo D:\chemin\vers\projet
+gitnexus query "où est gérée l'annulation du chat ?" --hybrid --rerank --repo D:\chemin\vers\projet
+```
+
+Le reranker LLM réutilise `~/.gitnexus/chat-config.json` et bascule automatiquement
+sur la liste de résultats non rerankée si le modèle ne répond pas (erreur réseau,
+réponse tronquée, JSON malformé) — la recherche reste utilisable même quand
+l'étape de reranking échoue.
 
 ### Modes interactifs
 

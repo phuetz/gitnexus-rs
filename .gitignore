@@ -1,5 +1,14 @@
 # Rust
 /target
+# Codex build tree — mirrors target/ under a different name, created by
+# Codex sessions sharing this workspace. Contains tree-sitter generated
+# `flag_check.c`, tokenizer tables, and thousands of artifacts that
+# pollute `gitnexus analyze` if indexed.
+/target-codex
+/.codex-target
+# Session artefacts: omx Codex output + playwright MCP cache
+/.omx
+/.playwright-mcp
 
 # GitNexus generated
 .gitnexus/

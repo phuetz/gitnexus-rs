@@ -1035,9 +1035,16 @@ export const commands = {
   getSubgraph: (centerNodeId: string, depth?: number) =>
     invoke<GraphPayload>("get_subgraph", { centerNodeId, depth }),
 
-  // Search
-  searchSymbols: (query: string, limit?: number) =>
-    invoke<SearchResult[]>("search_symbols", { query, limit }),
+  // Search — `rerank` pulls BM25 top-20 through the configured LLM for a
+  // precision bump on ambiguous queries. `hybrid` fuses BM25 with semantic
+  // embeddings via Reciprocal Rank Fusion (requires prior `gitnexus embed`).
+  // Both fall back silently to BM25 order if prerequisites are missing.
+  searchSymbols: (
+    query: string,
+    limit?: number,
+    rerank?: boolean,
+    hybrid?: boolean,
+  ) => invoke<SearchResult[]>("search_symbols", { query, limit, rerank, hybrid }),
 
   // Context
   getSymbolContext: (nodeId: string) =>

@@ -15,7 +15,7 @@ use gitnexus_core::graph::KnowledgeGraph;
 
 // ─── LLM Enrichment ────────────────────────────────────────────────────
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone)]
 pub(crate) struct LlmConfig {
     #[allow(dead_code)]
     pub(crate) provider: String,
@@ -33,6 +33,53 @@ pub(crate) struct LlmConfig {
     pub(crate) max_tokens: u32,
     #[serde(default, alias = "reasoningEffort")]
     pub(crate) reasoning_effort: String,
+
+    // Big-context fallback (Jour 1 roadmap doc-livrable-Alise).
+    // When a page exceeds `big_context_threshold_bytes`, all its LLM calls
+    // are routed to `big_context_model` with `big_context_max_tokens` instead
+    // of the default model — designed to escape the Gemini 2.5 Flash 65K
+    // output ceiling that truncated 64 / 201 pages on the 2026-04-20 Alise
+    // delivery. Default threshold is 40 000 bytes (≈ controllers / large
+    // services that overflow Flash). All three fields are optional; if
+    // `big_context_model` is unset, no routing happens (legacy behavior).
+    #[serde(default, alias = "bigContextModel")]
+    pub(crate) big_context_model: Option<String>,
+    #[serde(default, alias = "bigContextThresholdBytes")]
+    pub(crate) big_context_threshold_bytes: Option<usize>,
+    #[serde(default, alias = "bigContextMaxTokens")]
+    pub(crate) big_context_max_tokens: Option<u32>,
+}
+
+impl LlmConfig {
+    /// Default page-size threshold for triggering the big-context model when
+    /// the user hasn't set `big_context_threshold_bytes` explicitly. Picked
+    /// empirically from the Alise 2026-04-20 SKIP analysis: pages ≥ 40 KB
+    /// raw markdown were the cohort that hit `finish_reason=length` on Flash.
+    pub(crate) const BIG_CONTEXT_DEFAULT_THRESHOLD: usize = 40_000;
+
+    /// Return a config tailored to a given payload size. If the payload is
+    /// large enough and a `big_context_model` is configured, returns an owned
+    /// clone with the big-context model and max_tokens substituted in.
+    /// Otherwise returns the original config borrowed (zero allocation).
+    ///
+    /// Use at the top of any per-page enrichment dispatcher so all downstream
+    /// LLM calls inherit the routing decision automatically.
+    pub(crate) fn for_payload(&self, payload_size: usize) -> std::borrow::Cow<'_, Self> {
+        let threshold = self
+            .big_context_threshold_bytes
+            .unwrap_or(Self::BIG_CONTEXT_DEFAULT_THRESHOLD);
+        match (&self.big_context_model, payload_size >= threshold) {
+            (Some(big_model), true) if !big_model.is_empty() => {
+                let mut derived = self.clone();
+                derived.model = big_model.clone();
+                if let Some(max_t) = self.big_context_max_tokens {
+                    derived.max_tokens = max_t;
+                }
+                std::borrow::Cow::Owned(derived)
+            }
+            _ => std::borrow::Cow::Borrowed(self),
+        }
+    }
 }
 
 // ─── Enrichment Profiles ─────────────────────────────────────────────
@@ -1677,6 +1724,13 @@ fn enrich_page_structured(
     if content.len() < 100 {
         return Ok(None);
     }
+
+    // Jour 1 roadmap: route the entire page (sectioned, monolithic, freeform
+    // fallback, and review pass) through the big-context model when the raw
+    // markdown is large enough to risk Flash truncation. The substitution is
+    // a no-op when `big_context_model` is unset in chat-config.json.
+    let effective_config = config.for_payload(content.len());
+    let config = effective_config.as_ref();
 
     // Large pages: use per-section LLM calls to stay under the 65K token output cap.
     if content.len() >= 50_000 {

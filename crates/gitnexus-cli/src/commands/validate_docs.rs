@@ -52,15 +52,23 @@ pub struct ValidationReport {
     pub pages: Vec<PageReport>,
 }
 
-pub fn run(repo_path: Option<&str>, json: bool) -> Result<()> {
+pub fn run(repo_path: Option<&str>, docs_dir_override: Option<&str>, json: bool) -> Result<()> {
     let repo = match repo_path {
         Some(p) => PathBuf::from(p),
         None => std::env::current_dir().context("cwd")?,
     };
-    let docs_dir = repo.join(".gitnexus").join("docs");
+    // `--docs-dir` lets us validate the LIVRABLES output dir or any other
+    // generated docs tree, not just the canonical `.gitnexus/docs/` location.
+    // Useful right after `gitnexus generate docx --output-dir <livrables>` to
+    // gate delivery on the actual artefact, not the source dir.
+    let docs_dir = match docs_dir_override {
+        Some(d) => PathBuf::from(d),
+        None => repo.join(".gitnexus").join("docs"),
+    };
     if !docs_dir.exists() {
         anyhow::bail!(
-            "No documentation found at {}. Run `gitnexus generate docs` first.",
+            "No documentation found at {}. Run `gitnexus generate docs` first \
+             (or pass --docs-dir to point at an explicit location).",
             docs_dir.display()
         );
     }

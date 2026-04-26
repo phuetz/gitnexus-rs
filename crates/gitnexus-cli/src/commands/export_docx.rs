@@ -88,15 +88,29 @@ pub fn export_docs_as_docx(docs_dir: &Path, output_path: &Path, project_name: &s
     zip.start_file("word/numbering.xml", options)?;
     zip.write_all(NUMBERING_XML.as_bytes())?;
 
-    // 6. word/document.xml (main content) and collect hyperlinks
-    let (document_xml, links) = generate_document_xml(project_name, &md_files, &stats);
+    // 6. word/document.xml (main content) and collect hyperlinks + images
+    let (document_xml, links, images) = generate_document_xml(project_name, &md_files, &stats);
     zip.start_file("word/document.xml", options)?;
     zip.write_all(document_xml.as_bytes())?;
 
-    // 3. word/_rels/document.xml.rels (with dynamic hyperlinks)
-    let doc_rels_xml = generate_document_rels(&links);
+    // 3. word/_rels/document.xml.rels (with dynamic hyperlinks + image rels)
+    let doc_rels_xml = generate_document_rels(&links, &images);
     zip.start_file("word/_rels/document.xml.rels", options)?;
     zip.write_all(doc_rels_xml.as_bytes())?;
+
+    // 6b. word/media/imageN.png — Mermaid diagrams rendered to PNG by Kroki.
+    // No-op when no diagrams were rendered (placeholder fallback path).
+    for img in &images {
+        zip.start_file(format!("word/media/image{}.png", img.index), options)?;
+        zip.write_all(&img.png_bytes)?;
+    }
+    if !images.is_empty() {
+        eprintln!(
+            "OK Embedded {} Mermaid diagrams as PNG (largest: {} px wide)",
+            images.len(),
+            images.iter().map(|i| i.dimensions.0).max().unwrap_or(0)
+        );
+    }
 
     // 7. word/header1.xml (rId3 — first page suppressed via <w:titlePg/>)
     zip.start_file("word/header1.xml", options)?;
@@ -208,9 +222,10 @@ fn generate_document_xml(
     project_name: &str,
     md_files: &[(String, String, String)],
     stats: &DocStats,
-) -> (String, Vec<(String, String)>) {
+) -> (String, Vec<(String, String)>, Vec<MermaidImage>) {
     let mut body = String::new();
     let mut links = Vec::new();
+    let mut images: Vec<MermaidImage> = Vec::new();
 
     // ── Title page ──
     body.push_str(&title_page(project_name, stats));
@@ -222,7 +237,7 @@ fn generate_document_xml(
 
     // ── Document body: each markdown file as a section ──
     for (i, (_id, _title, content)) in md_files.iter().enumerate() {
-        let (ooxml, doc_links) = markdown_to_ooxml(content);
+        let (ooxml, doc_links) = markdown_to_ooxml(content, &mut images);
         body.push_str(&ooxml);
         links.extend(doc_links);
         // Page break between sections (but not after last)
@@ -255,7 +270,7 @@ fn generate_document_xml(
   </w:body>
 </w:document>"#
     );
-    (doc_xml, links)
+    (doc_xml, links, images)
 }
 
 const PAGE_BREAK: &str = r#"<w:p><w:r><w:br w:type="page"/></w:r></w:p>"#;
@@ -368,7 +383,13 @@ fn toc_field() -> String {
 
 /// Convert Markdown content to OOXML paragraphs.
 /// Returns (ooxml_string, vec_of_links) where links are (rId, url) pairs.
-fn markdown_to_ooxml(markdown: &str) -> (String, Vec<(String, String)>) {
+/// `images` accumulates Mermaid PNGs across all pages — its length is the
+/// global image counter (1-based) and must keep growing across calls so
+/// rIdImg<N> stays unique.
+fn markdown_to_ooxml(
+    markdown: &str,
+    images: &mut Vec<MermaidImage>,
+) -> (String, Vec<(String, String)>) {
     let mut result = String::new();
     let mut links = Vec::new();
     let lines: Vec<&str> = markdown.lines().collect();
@@ -440,7 +461,7 @@ fn markdown_to_ooxml(markdown: &str) -> (String, Vec<(String, String)>) {
             i += 1; // skip closing ```
 
             if lang == "mermaid" {
-                result.push_str(&mermaid_placeholder(&code_lines.join("\n")));
+                result.push_str(&mermaid_to_xml(&code_lines.join("\n"), images));
             } else {
                 result.push_str(&code_block(&code_lines.join("\n"), &lang));
             }
@@ -602,11 +623,20 @@ fn code_block(code: &str, lang: &str) -> String {
     result
 }
 
-fn mermaid_placeholder(code: &str) -> String {
-    let mut result = String::new();
+/// One Mermaid diagram rendered to PNG and waiting to be ZIPped under
+/// `word/media/imageN.png`. The `index` is 1-based and matches both the
+/// filename suffix and the `rIdImg<N>` referenced from document.xml.
+struct MermaidImage {
+    index: usize,
+    png_bytes: Vec<u8>,
+    /// (width_px, height_px) read from the PNG IHDR — used to keep the
+    /// embedded `<wp:extent>` aspect-ratio correct.
+    dimensions: (u32, u32),
+}
 
-    // Determine diagram type for a better label
-    let diagram_type = if code.starts_with("sequenceDiagram") {
+/// Diagram type label, used in fallback placeholder and as alt-text.
+fn mermaid_diagram_label(code: &str) -> &'static str {
+    if code.starts_with("sequenceDiagram") {
         "Diagramme de Sequence"
     } else if code.starts_with("erDiagram") {
         "Diagramme Entite-Relation"
@@ -618,28 +648,114 @@ fn mermaid_placeholder(code: &str) -> String {
         "Diagramme de Flux"
     } else {
         "Diagramme Mermaid"
-    };
+    }
+}
 
-    // Header with diagram type icon
+/// Convert a Mermaid code block to either an embedded PNG (best case) or
+/// the legacy text placeholder (fallback when rendering is disabled / fails).
+///
+/// Rendering is ON by default via Kroki HTTP. Set `GITNEXUS_MERMAID_PLACEHOLDER=1`
+/// to force the legacy text-only behavior (useful offline or for CI snapshots).
+fn mermaid_to_xml(code: &str, images: &mut Vec<MermaidImage>) -> String {
+    let label = mermaid_diagram_label(code);
+
+    // Opt-out: force placeholder. Useful when the host has no network access
+    // or the user wants the deterministic text output for diffing.
+    let force_placeholder = std::env::var("GITNEXUS_MERMAID_PLACEHOLDER")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if !force_placeholder {
+        match render_mermaid_via_kroki(code) {
+            Ok(png_bytes) => {
+                let dimensions = png_dimensions(&png_bytes).unwrap_or((1200, 800));
+                let next_index = images.len() + 1;
+                let drawing = drawing_xml(next_index, dimensions, label);
+                images.push(MermaidImage {
+                    index: next_index,
+                    png_bytes,
+                    dimensions,
+                });
+                return drawing;
+            }
+            Err(e) => {
+                eprintln!(
+                    "Warning: Mermaid render failed ({}). Falling back to text placeholder. \
+                     Set GITNEXUS_MERMAID_PLACEHOLDER=1 to silence.",
+                    e
+                );
+            }
+        }
+    }
+
+    mermaid_placeholder_xml(code, label)
+}
+
+/// Legacy text-only rendering — kept as fallback when Kroki is unavailable.
+fn mermaid_placeholder_xml(code: &str, label: &str) -> String {
+    let mut result = String::new();
     result.push_str(&format!(
-        r#"<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="E8F0FE"/><w:spacing w:after="60"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="4472C4"/><w:bottom w:val="single" w:sz="4" w:space="4" w:color="4472C4"/></w:pBdr></w:pPr><w:r><w:rPr><w:b/><w:color w:val="1B3A6B"/><w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">  {diagram_type}</w:t></w:r></w:p>"#,
+        r#"<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="E8F0FE"/><w:spacing w:after="60"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="4472C4"/><w:bottom w:val="single" w:sz="4" w:space="4" w:color="4472C4"/></w:pBdr></w:pPr><w:r><w:rPr><w:b/><w:color w:val="1B3A6B"/><w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">  {label}</w:t></w:r></w:p>"#,
     ));
-
-    // Instruction
     result.push_str(
         r#"<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="E8F0FE"/><w:spacing w:after="60"/></w:pPr><w:r><w:rPr><w:i/><w:sz w:val="18"/><w:color w:val="666666"/></w:rPr><w:t xml:space="preserve">Copiez le code ci-dessous dans mermaid.live ou un viewer Mermaid pour voir le rendu visuel.</w:t></w:r></w:p>"#,
     );
-
-    // Source code with slightly different background
     for line in code.lines() {
         result.push_str(&format!(
             r#"<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="E8F0FE"/><w:spacing w:after="0"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz w:val="16"/><w:color w:val="3366AA"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r></w:p>"#,
             xml_escape(line)
         ));
     }
-    // Spacer
     result.push_str(r#"<w:p><w:pPr><w:spacing w:after="120"/></w:pPr></w:p>"#);
     result
+}
+
+/// POST a Mermaid source to Kroki and get back the rendered PNG bytes.
+/// 15s timeout per diagram — Kroki is fast (~500ms) but spikes happen.
+fn render_mermaid_via_kroki(code: &str) -> Result<Vec<u8>> {
+    let url = std::env::var("GITNEXUS_KROKI_URL")
+        .unwrap_or_else(|_| "https://kroki.io/mermaid/png".to_string());
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| anyhow::anyhow!("kroki client: {}", e))?;
+    let resp = client
+        .post(&url)
+        .header("Content-Type", "text/plain")
+        .body(code.to_string())
+        .send()
+        .map_err(|e| anyhow::anyhow!("kroki request: {}", e))?;
+    if !resp.status().is_success() {
+        anyhow::bail!("kroki HTTP {}", resp.status());
+    }
+    Ok(resp.bytes()?.to_vec())
+}
+
+/// Parse PNG width/height from the IHDR chunk. Returns None for non-PNG
+/// or truncated input. The 8-byte signature is followed by a 4-byte chunk
+/// length, the "IHDR" chunk type, then width (BE u32) and height (BE u32).
+fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 24 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let w = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+    let h = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+    Some((w, h))
+}
+
+/// Build the `<w:drawing>` paragraph that embeds an image referenced by
+/// `rIdImg<index>`. Width is capped at ~6.3 inches (page-width minus margins);
+/// height scales by the PNG's aspect ratio. EMU = English Metric Units, the
+/// OOXML coordinate system (1 inch = 914 400 EMU; 1 px @96dpi = 9 525 EMU).
+fn drawing_xml(index: usize, (w_px, h_px): (u32, u32), alt_text: &str) -> String {
+    const MAX_WIDTH_EMU: u64 = 5_731_510; // ~6.27 inches, fits A4 with 1.5" margins
+    let aspect = if w_px == 0 { 1.0 } else { h_px as f64 / w_px as f64 };
+    let width_emu = MAX_WIDTH_EMU;
+    let height_emu = ((width_emu as f64) * aspect).round() as u64;
+    let alt = xml_escape(alt_text);
+    format!(
+        r#"<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="120" w:after="120"/></w:pPr><w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="{width_emu}" cy="{height_emu}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="{index}" name="Diagramme {index}" descr="{alt}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="{index}" name="Diagramme {index}" descr="{alt}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rIdImg{index}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{width_emu}" cy="{height_emu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>"#
+    )
 }
 
 const HORIZONTAL_RULE: &str = r#"<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="CCCCCC"/></w:pBdr><w:spacing w:before="200" w:after="200"/></w:pPr></w:p>"#;
@@ -911,6 +1027,7 @@ const CONTENT_TYPES_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalo
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
   <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
@@ -927,11 +1044,13 @@ const RELS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?
   <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
 </Relationships>"#;
 
-fn generate_document_rels(links: &[(String, String)]) -> String {
+fn generate_document_rels(links: &[(String, String)], images: &[MermaidImage]) -> String {
     // rId1/rId2 stay on styles/numbering for backwards-compat (these were the
     // only ids before headers/footers were added). rId3/rId4 are the header
     // and footer references — `generate_document_xml`'s <w:sectPr> hardcodes
     // these same ids, so don't renumber without updating both sites.
+    // Image rels use the dedicated `rIdImg<N>` namespace so they never
+    // collide with hyperlink rIds (which use a different counter).
     let mut rels = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -940,6 +1059,16 @@ fn generate_document_rels(links: &[(String, String)]) -> String {
   <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
   <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>"#,
     );
+
+    // Image relationships — must precede hyperlinks because <w:drawing>
+    // resolves r:embed against this same rels file.
+    for img in images {
+        rels.push_str(&format!(
+            r#"
+  <Relationship Id="rIdImg{idx}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image{idx}.png"/>"#,
+            idx = img.index
+        ));
+    }
 
     // Add hyperlink relationships
     for (rid, url) in links {

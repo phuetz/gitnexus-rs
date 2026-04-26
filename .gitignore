@@ -6,6 +6,9 @@
 # pollute `gitnexus analyze` if indexed.
 /target-codex
 /.codex-target
+# Session artefacts: omx Codex output + playwright MCP cache
+/.omx
+/.playwright-mcp
 
 # GitNexus generated
 .gitnexus/

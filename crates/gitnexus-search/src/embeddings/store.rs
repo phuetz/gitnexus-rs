@@ -150,23 +150,12 @@ pub fn load_embeddings(path: &Path) -> io::Result<EmbeddingStore> {
 mod tests {
     use super::*;
     use std::io::Write;
-
-    fn tmp_dir() -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!(
-            "gitnexus-emb-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&p).unwrap();
-        p
-    }
+    use tempfile::TempDir;
 
     #[test]
     fn roundtrip_basic() {
-        let dir = tmp_dir();
-        let path = dir.join("emb.bin");
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("emb.bin");
         let store = EmbeddingStore {
             header: EmbeddingHeader {
                 model_name: "test".into(),
@@ -187,13 +176,12 @@ mod tests {
             assert_eq!(a.0, b.0);
             assert_eq!(a.1, b.1);
         }
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn roundtrip_empty_corpus() {
-        let dir = tmp_dir();
-        let path = dir.join("emb.bin");
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("emb.bin");
         let store = EmbeddingStore {
             header: EmbeddingHeader {
                 model_name: "test".into(),
@@ -207,13 +195,12 @@ mod tests {
         let loaded = load_embeddings(&path).unwrap();
         assert_eq!(loaded.header.count, 0);
         assert!(loaded.entries.is_empty());
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn bad_magic_is_rejected() {
-        let dir = tmp_dir();
-        let path = dir.join("bad.bin");
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("bad.bin");
         {
             let mut f = File::create(&path).unwrap();
             f.write_all(b"XXXXXXXX").unwrap();
@@ -221,13 +208,12 @@ mod tests {
         }
         let err = load_embeddings(&path).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn mismatched_count_rejected_on_save() {
-        let dir = tmp_dir();
-        let path = dir.join("emb.bin");
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("emb.bin");
         let store = EmbeddingStore {
             header: EmbeddingHeader {
                 model_name: "test".into(),
@@ -239,13 +225,12 @@ mod tests {
         };
         let err = save_embeddings(&path, &store).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn dim_mismatch_rejected_on_save() {
-        let dir = tmp_dir();
-        let path = dir.join("emb.bin");
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("emb.bin");
         let store = EmbeddingStore {
             header: EmbeddingHeader {
                 model_name: "test".into(),
@@ -257,13 +242,12 @@ mod tests {
         };
         let err = save_embeddings(&path, &store).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn truncated_body_fails_load() {
-        let dir = tmp_dir();
-        let path = dir.join("emb.bin");
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("emb.bin");
         let store = EmbeddingStore {
             header: EmbeddingHeader {
                 model_name: "test".into(),
@@ -287,6 +271,5 @@ mod tests {
             err.kind(),
             io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData
         ));
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

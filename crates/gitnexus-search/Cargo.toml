@@ -26,3 +26,4 @@ embeddings = ["ort", "ndarray", "tokenizers"]
 reranker-llm = ["reqwest"]
 
 [dev-dependencies]
+tempfile = "3"

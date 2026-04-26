@@ -43,7 +43,7 @@ C'est la différence entre demander à quelqu'un de **lire un livre** et lui don
 - **Feedback par Page** — Widget de feedback intégré sur chaque page pour suivre la qualité et l'utilité du contenu.
 - **Application Desktop** — Application Tauri v2 avec visualisation interactive du graphe, vue treemap, chat intelligent et palette de commandes (Ctrl+K)
 - **Chat Intelligent** — Q&A de code assisté par IA avec réponses en streaming, analyse de complexité des requêtes, plans de recherche multi-étapes et mode recherche approfondie. Supporte Ollama, OpenAI, Anthropic, OpenRouter et Gemini (avec mode raisonnement)
-- **Serveur MCP** — 15 outils accessibles à tout agent IA compatible MCP (Claude, Cursor, VS Code, etc.)
+- **Serveur MCP** — 27 outils accessibles à tout agent IA compatible MCP (Claude, Cursor, VS Code, etc.)
 - **Skill Claude Code** — Skill `/gitnexus` intégré qui permet à Claude d'interroger le graphe de connaissances pendant votre conversation, avec invocation automatique sur les questions en langage naturel
 - **Rapport de Santé du Code** — Commande `gitnexus report` combinant hotspots, couplage temporel, ownership et métriques du graphe en un score de santé (A-E)
 - **Recherche Hybride** — Recherche lexicale BM25 + embeddings sémantiques ONNX optionnels, fusionnés par Reciprocal Rank Fusion. Reranker LLM optionnel pour réordonner les résultats en post-traitement, avec repli automatique si le modèle est indisponible.
@@ -165,11 +165,17 @@ Créer `~/.gitnexus/chat-config.json` :
   "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
   "model": "gemini-2.5-flash",
   "max_tokens": 8192,
-  "reasoning_effort": "high"
+  "reasoning_effort": "high",
+
+  "big_context_model": "gemini-2.5-pro",
+  "big_context_threshold_bytes": 40000,
+  "big_context_max_tokens": 131072
 }
 ```
 
 Fournisseurs supportés : **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, pas de clé API nécessaire).
+
+Les trois champs optionnels `big_context_*` routent les pages volumineuses (≥ `big_context_threshold_bytes` de markdown brut, défaut 40 Ko) vers un modèle long-contexte pour échapper au plafond de 65K tokens en sortie de Gemini 2.5 Flash qui provoque les troncatures `finish_reason: length`. Tous les appels LLM pour cette page (mode sectionné, monolithique, fallback freeform, passe de revue) utilisent le modèle de substitution. Laisser ces champs vides conserve le comportement mono-modèle historique.
 
 Valider votre configuration :
 
@@ -220,11 +226,46 @@ gitnexus generate --path D:\chemin\vers\projet all
 
 # Générer des formats spécifiques
 gitnexus generate --path D:\chemin\vers\projet docs     # Pages Markdown
-gitnexus generate --path D:\chemin\vers\projet docx     # Document Word
-gitnexus generate --path D:\chemin\vers\projet context   # AGENTS.md uniquement
-gitnexus generate --path D:\chemin\vers\projet wiki      # Pages wiki
-gitnexus generate --path D:\chemin\vers\projet skills    # Fichiers skills
+gitnexus generate --path D:\chemin\vers\projet docx     # Document Word (header + footer + brand)
+gitnexus generate --path D:\chemin\vers\projet pdf      # PDF (basé Puppeteer, depuis l'HTML)
+gitnexus generate --path D:\chemin\vers\projet context  # AGENTS.md uniquement
+gitnexus generate --path D:\chemin\vers\projet wiki     # Pages wiki
+gitnexus generate --path D:\chemin\vers\projet skills   # Fichiers skills
+gitnexus generate --path D:\chemin\vers\projet inject   # Re-injecter les fragments LLM sans tout regénérer
 ```
+
+### Word DOCX — personnalisation client
+
+Les `.docx` générés embarquent désormais un en-tête configurable (nom client + titre du document), un pied de page (texte de marque + pagination automatique `Page X / Y`), et les métadonnées Word `Fichier > Propriétés`. Pour surcharger les défauts, créer `~/.gitnexus/brand.json` :
+
+```json
+{
+  "client_name": "CCAS Alise",
+  "company_name": "agile-up.com",
+  "footer_text": "agile-up.com — Confidentiel — Ne pas diffuser",
+  "document_title": "Documentation Technique et Fonctionnelle"
+}
+```
+
+Un `brand.json` absent ou mal formé bascule silencieusement vers les défauts `agile-up.com` — le binaire reste utilisable sans configuration. Surcharger l'emplacement du fichier via `$GITNEXUS_BRAND_FILE`.
+
+Les diagrammes Mermaid présents dans le markdown source sont rendus en PNG via [Kroki](https://kroki.io) et embarqués inline dans le `.docx`. Définir `GITNEXUS_MERMAID_PLACEHOLDER=1` pour conserver le fallback texte historique (sans appel réseau), ou `GITNEXUS_KROKI_URL=<url>` pour pointer sur une instance Kroki self-hostée.
+
+### Validation pré-livraison (`validate-docs`)
+
+Avant d'envoyer un document Word/HTML à un client, lancer le linter pour repérer ce qui pourrait nous embarrasser :
+
+```bash
+gitnexus validate-docs --repo D:\chemin\vers\projet
+gitnexus validate-docs --repo D:\chemin\vers\projet --json   # rapport JSON
+```
+
+Cinq vérifications à deux niveaux de sévérité :
+
+- **ROUGE — bloque la livraison** : `TODO` / `TBD` / `FIXME` / `XXX` résiduels, anchors `<!-- GNX:* -->` non remplies (signe que l'enrichissement LLM a échoué silencieusement), liens markdown vers fichiers inexistants.
+- **JAUNE — à corriger** : sections H1/H2 contenant moins de 50 mots, pages Service / Controller sans en-tête `§4 Algorithmes` (méthodo Alise v1.1).
+
+Le rapport est aussi écrit dans `<docs_dir>/_meta/validation.json` pour intégration CI / scripts. **Sortie avec code 2 si une issue ROUGE est trouvée** (sinon 0) — à câbler en gate fail-fast dans votre pipeline CI.
 
 ### Interroger le code
 
@@ -406,7 +447,7 @@ Le skill est défini dans `.claude/skills/gitnexus/SKILL.md` et fonctionne direc
 
 ### 2. Serveur MCP (pour tout agent IA)
 
-Un serveur [Model Context Protocol](https://modelcontextprotocol.io/) standard exposant 7 outils. Compatible avec Claude Desktop, Cursor, VS Code Copilot, et tout agent MCP.
+Un serveur [Model Context Protocol](https://modelcontextprotocol.io/) standard exposant 27 outils. Compatible avec Claude Desktop, Cursor, VS Code Copilot, et tout agent MCP.
 
 ```bash
 gitnexus mcp          # transport stdio

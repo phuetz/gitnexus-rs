@@ -28,4 +28,5 @@ pub mod status;
 pub mod trace_doc;
 pub mod trace_files;
 pub mod trace_import;
+pub mod validate_docs;
 pub mod watch;

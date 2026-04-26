@@ -98,6 +98,22 @@ pub fn export_docs_as_docx(docs_dir: &Path, output_path: &Path, project_name: &s
     zip.start_file("word/_rels/document.xml.rels", options)?;
     zip.write_all(doc_rels_xml.as_bytes())?;
 
+    // 7. word/header1.xml (rId3 — first page suppressed via <w:titlePg/>)
+    zip.start_file("word/header1.xml", options)?;
+    zip.write_all(generate_header_xml(project_name).as_bytes())?;
+
+    // 8. word/footer1.xml (rId4 — paginated via PAGE / NUMPAGES fields)
+    zip.start_file("word/footer1.xml", options)?;
+    zip.write_all(FOOTER_XML.as_bytes())?;
+
+    // 9. docProps/core.xml (Word "Fichier > Propriétés" core metadata)
+    zip.start_file("docProps/core.xml", options)?;
+    zip.write_all(generate_core_props_xml(project_name).as_bytes())?;
+
+    // 10. docProps/app.xml (Application + Company in Détails panel)
+    zip.start_file("docProps/app.xml", options)?;
+    zip.write_all(APP_PROPS_XML.as_bytes())?;
+
     zip.finish()?;
     Ok(())
 }
@@ -230,8 +246,11 @@ fn generate_document_xml(
   <w:body>
 {body}
     <w:sectPr>
+      <w:headerReference w:type="default" r:id="rId3"/>
+      <w:footerReference w:type="default" r:id="rId4"/>
       <w:pgSz w:w="11906" w:h="16838"/>
       <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>
+      <w:titlePg/>
     </w:sectPr>
   </w:body>
 </w:document>"#
@@ -895,19 +914,31 @@ const CONTENT_TYPES_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalo
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
   <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+  <Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
+  <Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
 </Types>"#;
 
 const RELS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
 </Relationships>"#;
 
 fn generate_document_rels(links: &[(String, String)]) -> String {
+    // rId1/rId2 stay on styles/numbering for backwards-compat (these were the
+    // only ids before headers/footers were added). rId3/rId4 are the header
+    // and footer references — `generate_document_xml`'s <w:sectPr> hardcodes
+    // these same ids, so don't renumber without updating both sites.
     let mut rels = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>"#,
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
+  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>"#,
     );
 
     // Add hyperlink relationships
@@ -922,6 +953,120 @@ fn generate_document_rels(links: &[(String, String)]) -> String {
     rels.push_str("\n</Relationships>");
     rels
 }
+
+// ─── Header / Footer / DocProps generators ────────────────────────────
+
+/// Page header — references `rId3` defined in `generate_document_rels`.
+/// Layout: project name (italic, gray, left) ─── tab ─── "Documentation Technique"
+/// (right, blue). A thin bottom border separates the header band from the body.
+fn generate_header_xml(project_name: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:p>
+    <w:pPr>
+      <w:tabs>
+        <w:tab w:val="right" w:pos="9026"/>
+      </w:tabs>
+      <w:pBdr>
+        <w:bottom w:val="single" w:sz="6" w:space="1" w:color="1B3A6B"/>
+      </w:pBdr>
+      <w:spacing w:after="60"/>
+    </w:pPr>
+    <w:r>
+      <w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:i/><w:sz w:val="18"/><w:color w:val="555555"/></w:rPr>
+      <w:t>{project}</w:t>
+    </w:r>
+    <w:r><w:tab/></w:r>
+    <w:r>
+      <w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:b/><w:sz w:val="18"/><w:color w:val="1B3A6B"/></w:rPr>
+      <w:t>Documentation Technique</w:t>
+    </w:r>
+  </w:p>
+</w:hdr>"#,
+        project = xml_escape(project_name)
+    )
+}
+
+/// Page footer — references `rId4` defined in `generate_document_rels`.
+/// Layout: "agile-up.com — Confidentiel" (left, gray italic) ─── tab ───
+/// "Page X / Y" using Word PAGE + NUMPAGES fields (right, gray).
+const FOOTER_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:p>
+    <w:pPr>
+      <w:tabs>
+        <w:tab w:val="right" w:pos="9026"/>
+      </w:tabs>
+      <w:pBdr>
+        <w:top w:val="single" w:sz="4" w:space="1" w:color="BFBFBF"/>
+      </w:pBdr>
+      <w:spacing w:before="60"/>
+    </w:pPr>
+    <w:r>
+      <w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:i/><w:sz w:val="16"/><w:color w:val="888888"/></w:rPr>
+      <w:t>agile-up.com — Confidentiel</w:t>
+    </w:r>
+    <w:r><w:tab/></w:r>
+    <w:r>
+      <w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr>
+      <w:t xml:space="preserve">Page </w:t>
+    </w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:t>1</w:t></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>
+    <w:r>
+      <w:rPr><w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr>
+      <w:t xml:space="preserve"> / </w:t>
+    </w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:instrText xml:space="preserve"> NUMPAGES </w:instrText></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:t>1</w:t></w:r>
+    <w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>
+  </w:p>
+</w:ftr>"#;
+
+/// Word "Fichier > Propriétés" core metadata. Visible in both Word and File
+/// Explorer's right-click > Properties > Details panel.
+fn generate_core_props_xml(project_name: &str) -> String {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+                   xmlns:dc="http://purl.org/dc/elements/1.1/"
+                   xmlns:dcterms="http://purl.org/dc/terms/"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>{project} — Documentation Technique et Fonctionnelle</dc:title>
+  <dc:subject>Audit de code et documentation automatisée</dc:subject>
+  <dc:creator>GitNexus (agile-up.com)</dc:creator>
+  <cp:lastModifiedBy>GitNexus</cp:lastModifiedBy>
+  <cp:revision>1</cp:revision>
+  <dcterms:created xsi:type="dcterms:W3CDTF">{now}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">{now}</dcterms:modified>
+  <cp:keywords>documentation, audit, code intelligence, gitnexus, agile-up</cp:keywords>
+</cp:coreProperties>"#,
+        project = xml_escape(project_name),
+        now = now
+    )
+}
+
+/// Extended properties — Application identifies the producer in
+/// "Fichier > Propriétés > Détails > Application".
+const APP_PROPS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+            xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>GitNexus — Code Intelligence Engine</Application>
+  <Company>agile-up.com</Company>
+  <AppVersion>0.1.0</AppVersion>
+  <DocSecurity>0</DocSecurity>
+  <ScaleCrop>false</ScaleCrop>
+  <SharedDoc>false</SharedDoc>
+  <HyperlinksChanged>false</HyperlinksChanged>
+  <LinksUpToDate>false</LinksUpToDate>
+</Properties>"#;
 
 fn generate_styles_xml() -> String {
     r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

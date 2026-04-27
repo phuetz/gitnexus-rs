@@ -48,6 +48,63 @@ pub(crate) struct LlmConfig {
     pub(crate) big_context_threshold_bytes: Option<usize>,
     #[serde(default, alias = "bigContextMaxTokens")]
     pub(crate) big_context_max_tokens: Option<u32>,
+
+    // Enrichment knobs — extracted from hardcoded constants so re-tuning a
+    // run on a project doesn't require a `cargo build --release` (1m30s).
+    // All fields optional; absent block = exact same behavior as before.
+    #[serde(default)]
+    pub(crate) enrichment: Option<EnrichmentConfig>,
+}
+
+/// Enrichment knobs exposed via `chat-config.json`. Every field is `Option<>`
+/// so an absent block — or a partial one — falls back to the hardcoded
+/// defaults that were the only available values before this struct existed.
+#[derive(serde::Deserialize, Clone, Default)]
+pub(crate) struct EnrichmentConfig {
+    /// Per-section LLM max_tokens (lead/closing call, single-section call).
+    /// Hardcoded default: 4096. Raise to ~8192 if section calls are getting
+    /// truncated on big controllers; lower to 2048 to save tokens on small pages.
+    #[serde(default, alias = "sectionMaxTokens")]
+    pub(crate) section_max_tokens: Option<u32>,
+    /// Floor applied to `config.max_tokens` for the monolithic + freeform
+    /// enrichment paths. Hardcoded default: 65_536 (Gemini 2.5 Flash hard cap).
+    /// Lower this if you're routing through a model with a smaller output ceiling.
+    #[serde(default, alias = "monolithicMaxTokensFloor")]
+    pub(crate) monolithic_max_tokens_floor: Option<u32>,
+    /// Cap on the section-content snippet sent to the per-section LLM call.
+    /// Hardcoded default: 3000 bytes. Raise if your sections need more context
+    /// preserved before the snippet truncates.
+    #[serde(default, alias = "sectionContentSnippetBytes")]
+    pub(crate) section_content_snippet_bytes: Option<usize>,
+}
+
+impl LlmConfig {
+    /// Hardcoded defaults — kept here so callers stay terse and the defaults
+    /// are documented in one place.
+    pub(crate) const DEFAULT_SECTION_MAX_TOKENS: u32 = 4096;
+    pub(crate) const DEFAULT_MONOLITHIC_MAX_TOKENS_FLOOR: u32 = 65_536;
+    pub(crate) const DEFAULT_SECTION_CONTENT_SNIPPET_BYTES: usize = 3_000;
+
+    pub(crate) fn section_max_tokens(&self) -> u32 {
+        self.enrichment
+            .as_ref()
+            .and_then(|e| e.section_max_tokens)
+            .unwrap_or(Self::DEFAULT_SECTION_MAX_TOKENS)
+    }
+
+    pub(crate) fn monolithic_max_tokens_floor(&self) -> u32 {
+        self.enrichment
+            .as_ref()
+            .and_then(|e| e.monolithic_max_tokens_floor)
+            .unwrap_or(Self::DEFAULT_MONOLITHIC_MAX_TOKENS_FLOOR)
+    }
+
+    pub(crate) fn section_content_snippet_bytes(&self) -> usize {
+        self.enrichment
+            .as_ref()
+            .and_then(|e| e.section_content_snippet_bytes)
+            .unwrap_or(Self::DEFAULT_SECTION_CONTENT_SNIPPET_BYTES)
+    }
 }
 
 impl LlmConfig {
@@ -1129,7 +1186,7 @@ fn enrich_lead_closing(
             {"role": "system", "content": system},
             {"role": "user", "content": format!("Page (début) :\n\n{}", page_preview)},
         ],
-        "max_tokens": 4096u32,
+        "max_tokens": config.section_max_tokens(),
         "temperature": 0.3,
         "stream": false,
         "response_format": {"type": "json_object"},
@@ -1191,9 +1248,10 @@ fn enrich_single_section(
         })
         .collect::<Vec<_>>()
         .join("\n\n");
-    // Limit section content to 3 KB to keep input small
-    let snippet = if section_content.len() > 3_000 {
-        &section_content[..3_000]
+    // Limit section content to keep input small. Default cap = 3 KB.
+    let snippet_cap = config.section_content_snippet_bytes();
+    let snippet = if section_content.len() > snippet_cap {
+        &section_content[..snippet_cap]
     } else {
         section_content
     };
@@ -1221,7 +1279,7 @@ fn enrich_single_section(
             {"role": "system", "content": system},
             {"role": "user", "content": format!("Contenu de la section '{}' :\n\n{}", section_key, snippet)},
         ],
-        "max_tokens": 4096u32,
+        "max_tokens": config.section_max_tokens(),
         "temperature": 0.3,
         "stream": false,
         "response_format": {"type": "json_object"},
@@ -1830,7 +1888,7 @@ fn enrich_page_structured(
     // outputs. 65_536 is the hard cap of Gemini 2.5 Flash, so it
     // gives us every byte the API can deliver. The dynamic timeout
     // helper scales to ~466 s automatically for that budget.
-    let max_tokens_floor: u32 = 65_536;
+    let max_tokens_floor: u32 = config.monolithic_max_tokens_floor();
     let max_tokens = config.max_tokens.max(max_tokens_floor);
     let mut body = serde_json::json!({
         "model": config.model,
@@ -2239,7 +2297,7 @@ CONTENU À ENRICHIR :"#,
     // outputs. 65_536 is the hard cap of Gemini 2.5 Flash, so it
     // gives us every byte the API can deliver. The dynamic timeout
     // helper scales to ~466 s automatically for that budget.
-    let max_tokens_floor: u32 = 65_536;
+    let max_tokens_floor: u32 = config.monolithic_max_tokens_floor();
     let max_tokens = config.max_tokens.max(max_tokens_floor);
     let mut body = json!({
         "model": config.model,
@@ -2413,7 +2471,7 @@ DOCUMENT ORIGINAL (pour comparaison) :
     // outputs. 65_536 is the hard cap of Gemini 2.5 Flash, so it
     // gives us every byte the API can deliver. The dynamic timeout
     // helper scales to ~466 s automatically for that budget.
-    let max_tokens_floor: u32 = 65_536;
+    let max_tokens_floor: u32 = config.monolithic_max_tokens_floor();
     let max_tokens = config.max_tokens.max(max_tokens_floor);
     let body = serde_json::json!({
         "model": config.model,
@@ -3354,5 +3412,68 @@ mod tests {
         assert_eq!(get_profile("quality").min_gap_ms, 0);
         assert_eq!(get_profile("strict").max_retries, 2);
         assert_eq!(get_profile("strict").min_gap_ms, 0);
+    }
+
+    fn parse_llm_config(json: &str) -> LlmConfig {
+        serde_json::from_str(json).expect("LlmConfig parse failed")
+    }
+
+    #[test]
+    fn enrichment_knobs_default_when_block_absent() {
+        let cfg = parse_llm_config(
+            r#"{
+                "provider": "gemini",
+                "apiKey": "k",
+                "baseUrl": "https://example",
+                "model": "gemini-2.5-flash",
+                "maxTokens": 8192
+            }"#,
+        );
+        assert!(cfg.enrichment.is_none());
+        assert_eq!(cfg.section_max_tokens(), 4096);
+        assert_eq!(cfg.monolithic_max_tokens_floor(), 65_536);
+        assert_eq!(cfg.section_content_snippet_bytes(), 3_000);
+    }
+
+    #[test]
+    fn enrichment_knobs_override_when_block_present() {
+        let cfg = parse_llm_config(
+            r#"{
+                "provider": "gemini",
+                "apiKey": "k",
+                "baseUrl": "https://example",
+                "model": "gemini-2.5-flash",
+                "maxTokens": 8192,
+                "enrichment": {
+                    "sectionMaxTokens": 2048,
+                    "monolithicMaxTokensFloor": 32768,
+                    "sectionContentSnippetBytes": 6000
+                }
+            }"#,
+        );
+        assert_eq!(cfg.section_max_tokens(), 2048);
+        assert_eq!(cfg.monolithic_max_tokens_floor(), 32_768);
+        assert_eq!(cfg.section_content_snippet_bytes(), 6_000);
+    }
+
+    #[test]
+    fn enrichment_knobs_partial_override_keeps_other_defaults() {
+        let cfg = parse_llm_config(
+            r#"{
+                "provider": "gemini",
+                "apiKey": "k",
+                "baseUrl": "https://example",
+                "model": "gemini-2.5-flash",
+                "maxTokens": 8192,
+                "enrichment": {
+                    "sectionMaxTokens": 8192
+                }
+            }"#,
+        );
+        assert_eq!(cfg.section_max_tokens(), 8192);
+        // Other knobs fall back to hardcoded defaults — partial override
+        // is the common case (tune one knob without retyping the others).
+        assert_eq!(cfg.monolithic_max_tokens_floor(), 65_536);
+        assert_eq!(cfg.section_content_snippet_bytes(), 3_000);
     }
 }

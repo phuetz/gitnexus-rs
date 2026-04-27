@@ -1,9 +1,29 @@
 //! The `ask` command: ask questions about the codebase using graph + LLM.
+//!
+//! Retrieval uses the same BM25 → hybrid RRF (when `embeddings.bin` exists) →
+//! LLM rerank pipeline as `gitnexus query --hybrid --rerank`.  The primitive
+//! substring-scoring loop has been replaced by this pipeline to address the
+//! "isolated semantic search / no reranking" failure modes identified in the
+//! agile-up.com 2026 RAG postmortem.
+
+use std::path::Path;
 
 use anyhow::Result;
 use colored::Colorize;
-
+use gitnexus_core::graph::{types::GraphNode, KnowledgeGraph};
+use gitnexus_db::inmemory::fts::{FtsIndex, FtsResult};
 use gitnexus_db::snapshot;
+use gitnexus_search::bm25::BM25SearchResult;
+use gitnexus_search::embeddings::{generate_embeddings, load_embeddings, search_semantic, EmbeddingConfig};
+use gitnexus_search::hybrid;
+use gitnexus_search::reranker::{Candidate, LlmReranker, Reranker};
+
+/// Number of nodes passed as context to the LLM.
+const CONTEXT_LIMIT: usize = 10;
+
+/// Retrieval pool size — pull a larger set before reranking so the LLM can
+/// reorder a meaningful candidate pool before we truncate to CONTEXT_LIMIT.
+const RERANK_CANDIDATE_POOL: usize = 20;
 
 pub fn run(question: &str, path: Option<&str>) -> Result<()> {
     let (answer, top_nodes) = ask_question(
@@ -42,7 +62,7 @@ pub fn ask_question(
     question: &str,
     path: Option<&str>,
     stream_cb: Option<StreamCallback>,
-) -> Result<(String, Vec<(gitnexus_core::graph::types::GraphNode, f64)>)> {
+) -> Result<(String, Vec<(GraphNode, f64)>)> {
     let repo_path = if let Some(p) = path {
         std::path::PathBuf::from(p)
     } else {
@@ -72,40 +92,28 @@ pub fn ask_question(
     let graph = snapshot::load_snapshot(&snap_path)
         .map_err(|e| anyhow::anyhow!("Failed to load graph: {}", e))?;
 
-    // Search the graph for relevant symbols
-    let query_lower = question.to_lowercase();
-    let mut relevant_nodes: Vec<(&gitnexus_core::graph::types::GraphNode, f64)> = Vec::new();
+    // --- BM25 → optional hybrid RRF (replaces the old substring-scoring loop) ---
+    let fused = retrieve_bm25_hybrid(question, &graph, &storage_path, CONTEXT_LIMIT)?;
 
-    for node in graph.iter_nodes() {
-        let name_lower = node.properties.name.to_lowercase();
-        let file_lower = node.properties.file_path.to_lowercase();
-
-        let mut score = 0.0;
-        for word in query_lower.split_whitespace() {
-            if name_lower.contains(word) {
-                score += 2.0;
-            }
-            if file_lower.contains(word) {
-                score += 0.5;
-            }
-            if let Some(desc) = &node.properties.description {
-                if desc.to_lowercase().contains(word) {
-                    score += 1.0;
-                }
-            }
-            if let Some(content) = &node.properties.content {
-                if content.to_lowercase().contains(word) {
-                    score += 1.0;
-                }
-            }
-        }
-        if score > 0.0 {
-            relevant_nodes.push((node, score));
-        }
+    if fused.is_empty() {
+        return Ok((String::new(), Vec::new()));
     }
 
-    relevant_nodes.sort_by(|a, b| b.1.total_cmp(&a.1));
-    let top_nodes = &relevant_nodes[..relevant_nodes.len().min(10)];
+    // --- LLM rerank (graceful fallback if endpoint is unreachable) ---
+    let candidates = match run_reranker(question, &fused, &config) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Warning: reranker failed, falling back to pre-rerank order: {e}");
+            fts_to_candidates(&fused)
+        }
+    };
+
+    // Resolve candidates to (GraphNode, score), honouring CONTEXT_LIMIT.
+    let top_nodes: Vec<(GraphNode, f64)> = candidates
+        .into_iter()
+        .take(CONTEXT_LIMIT)
+        .filter_map(|c| graph.get_node(&c.node_id).map(|n| (n.clone(), c.score)))
+        .collect();
 
     if top_nodes.is_empty() {
         return Ok((String::new(), Vec::new()));
@@ -113,7 +121,7 @@ pub fn ask_question(
 
     // Build context from top nodes
     let mut context = String::new();
-    for (node, _score) in top_nodes {
+    for (node, _score) in &top_nodes {
         context.push_str(&format!(
             "**{}** ({}) in `{}`\n",
             node.properties.name,
@@ -228,6 +236,224 @@ pub fn ask_question(
         }
     }
 
-    let top_nodes_vec = top_nodes.iter().map(|(n, s)| ((*n).clone(), *s)).collect();
-    Ok((full_answer, top_nodes_vec))
+    Ok((full_answer, top_nodes))
+}
+
+// ─── Retrieval helpers ──────────────────────────────────────────────────
+
+/// BM25 → optional semantic RRF fusion.
+///
+/// Returns the fused FtsResult list (BM25-only on any embeddings error).
+/// Exposed for testing: callers that need retrieval without the LLM context
+/// step can call this directly.
+pub fn retrieve_bm25_hybrid(
+    query: &str,
+    graph: &KnowledgeGraph,
+    storage_path: &Path,
+    limit: usize,
+) -> anyhow::Result<Vec<FtsResult>> {
+    let fts = FtsIndex::build(graph);
+    let pool = limit.max(RERANK_CANDIDATE_POOL);
+    let bm25 = fts.search(graph, query, None, pool);
+    match run_hybrid(query, &bm25, graph, storage_path, pool) {
+        Ok(r) => Ok(r),
+        Err(_) => Ok(bm25),
+    }
+}
+
+fn fts_to_candidates(bm25: &[FtsResult]) -> Vec<Candidate> {
+    bm25.iter()
+        .enumerate()
+        .map(|(i, r)| Candidate {
+            node_id: r.node_id.clone(),
+            name: r.name.clone(),
+            label: r.label.clone(),
+            file_path: r.file_path.clone(),
+            start_line: r.start_line,
+            end_line: r.end_line,
+            score: r.score,
+            rank: i + 1,
+            snippet: None,
+        })
+        .collect()
+}
+
+fn run_hybrid(
+    query: &str,
+    bm25: &[FtsResult],
+    graph: &KnowledgeGraph,
+    storage_path: &Path,
+    top_k: usize,
+) -> anyhow::Result<Vec<FtsResult>> {
+    let emb_path = storage_path.join("embeddings.bin");
+    let meta_path = storage_path.join("embeddings.meta.json");
+    if !emb_path.exists() || !meta_path.exists() {
+        return Err(anyhow::anyhow!("embeddings not found"));
+    }
+    let cfg: EmbeddingConfig = serde_json::from_str(&std::fs::read_to_string(&meta_path)?)?;
+    let store = load_embeddings(&emb_path)?;
+    if store.header.dimension != cfg.dimension {
+        return Err(anyhow::anyhow!(
+            "embeddings.bin dim {} differs from meta dim {}",
+            store.header.dimension,
+            cfg.dimension
+        ));
+    }
+
+    let q_vecs = generate_embeddings(&[query.to_string()], &cfg);
+    let q_vec = q_vecs
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("generate_embeddings returned no output"))?;
+    if q_vec.iter().all(|&v| v == 0.0) {
+        return Err(anyhow::anyhow!(
+            "query embedding is all zeros — model path or tokenizer likely missing"
+        ));
+    }
+
+    let stored: Vec<(String, Vec<f32>)> = store.entries;
+    let mut semantic_results = search_semantic(&q_vec, &stored, top_k);
+    for s in &mut semantic_results {
+        if let Some(n) = graph.get_node(&s.node_id) {
+            s.file_path = n.properties.file_path.clone();
+            s.name = n.properties.name.clone();
+            s.label = format!("{:?}", n.label);
+            s.start_line = n.properties.start_line;
+            s.end_line = n.properties.end_line;
+        }
+    }
+
+    let bm25_wrapped: Vec<BM25SearchResult> = bm25
+        .iter()
+        .enumerate()
+        .map(|(i, r)| BM25SearchResult {
+            file_path: r.file_path.clone(),
+            score: r.score,
+            rank: i + 1,
+            node_id: r.node_id.clone(),
+            name: r.name.clone(),
+            label: r.label.clone(),
+            start_line: r.start_line,
+            end_line: r.end_line,
+        })
+        .collect();
+
+    let fused = hybrid::merge_with_rrf(&bm25_wrapped, &semantic_results, top_k);
+
+    Ok(fused
+        .into_iter()
+        .map(|h| FtsResult {
+            node_id: h.node_id,
+            score: h.score,
+            name: h.name,
+            file_path: h.file_path,
+            label: h.label,
+            start_line: h.start_line,
+            end_line: h.end_line,
+        })
+        .collect())
+}
+
+fn run_reranker(
+    query: &str,
+    fts: &[FtsResult],
+    config: &super::generate::LlmConfig,
+) -> anyhow::Result<Vec<Candidate>> {
+    let candidates = fts_to_candidates(fts);
+    let reranker = LlmReranker::new(
+        config.base_url.clone(),
+        config.model.clone(),
+        Some(config.api_key.clone()),
+    )
+    .with_max_candidates(RERANK_CANDIDATE_POOL);
+    reranker.rerank(query, candidates)
+}
+
+// ─── Tests ──────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gitnexus_core::graph::{types::*, KnowledgeGraph};
+
+    fn make_node(id: &str, name: &str, file: &str, label: NodeLabel) -> GraphNode {
+        GraphNode {
+            id: id.to_string(),
+            label,
+            properties: NodeProperties {
+                name: name.to_string(),
+                file_path: file.to_string(),
+                description: Some(format!("{name} description")),
+                start_line: Some(1),
+                end_line: Some(10),
+                ..Default::default()
+            },
+        }
+    }
+
+    fn fixture_graph() -> KnowledgeGraph {
+        let mut g = KnowledgeGraph::new();
+        g.add_node(make_node(
+            "Function:src/auth.rs:authenticate",
+            "authenticate",
+            "src/auth.rs",
+            NodeLabel::Function,
+        ));
+        g.add_node(make_node(
+            "Function:src/auth.rs:validate_token",
+            "validate_token",
+            "src/auth.rs",
+            NodeLabel::Function,
+        ));
+        g.add_node(make_node(
+            "Function:src/db.rs:query_users",
+            "query_users",
+            "src/db.rs",
+            NodeLabel::Function,
+        ));
+        g.add_node(make_node(
+            "Class:src/user.rs:UserService",
+            "UserService",
+            "src/user.rs",
+            NodeLabel::Class,
+        ));
+        g
+    }
+
+    #[test]
+    fn retrieve_bm25_returns_relevant_nodes() {
+        let graph = fixture_graph();
+        // Use a temp dir with no embeddings.bin so it falls back to BM25-only.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let results = retrieve_bm25_hybrid("authenticate user token", &graph, tmp.path(), 5)
+            .expect("retrieve should not fail");
+
+        // BM25 should surface auth-related nodes before unrelated ones.
+        assert!(
+            !results.is_empty(),
+            "expected at least one result for 'authenticate user token'"
+        );
+        let top_name = &results[0].name;
+        assert!(
+            top_name == "authenticate" || top_name == "validate_token",
+            "expected auth node at top, got '{top_name}'"
+        );
+    }
+
+    #[test]
+    fn retrieve_bm25_no_embeddings_does_not_error() {
+        let graph = fixture_graph();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // Should degrade gracefully to BM25 when embeddings.bin is absent.
+        let result = retrieve_bm25_hybrid("query database", &graph, tmp.path(), 10);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn retrieve_bm25_empty_graph_returns_empty() {
+        let graph = KnowledgeGraph::new();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let results = retrieve_bm25_hybrid("anything", &graph, tmp.path(), 5).unwrap();
+        assert!(results.is_empty());
+    }
 }

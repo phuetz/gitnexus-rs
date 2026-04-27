@@ -177,6 +177,27 @@ Fournisseurs supportés : **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**,
 
 Les trois champs optionnels `big_context_*` routent les pages volumineuses (≥ `big_context_threshold_bytes` de markdown brut, défaut 40 Ko) vers un modèle long-contexte pour échapper au plafond de 65K tokens en sortie de Gemini 2.5 Flash qui provoque les troncatures `finish_reason: length`. Tous les appels LLM pour cette page (mode sectionné, monolithique, fallback freeform, passe de revue) utilisent le modèle de substitution. Laisser ces champs vides conserve le comportement mono-modèle historique.
 
+#### Tuner l'enrichissement sans recompiler
+
+Les constantes qui imposaient auparavant un `cargo build --release` pour être ajustées sont désormais surchargeables via un bloc `enrichment` optionnel. Tous les champs sont optionnels — omettre un champ (ou le bloc entier) conserve le comportement historique :
+
+```json
+{
+  "enrichment": {
+    "sectionMaxTokens": 4096,
+    "monolithicMaxTokensFloor": 65536,
+    "sectionContentSnippetBytes": 3000,
+    "profiles": {
+      "fast":    { "maxEvidence": 10, "maxRetries": 8, "timeoutSecs": 60,  "minGapMs": 500, "useJsonSchema": false },
+      "quality": { "maxEvidence": 20, "maxRetries": 1, "timeoutSecs": 180, "minGapMs": 0,   "useJsonSchema": true },
+      "strict":  { "maxEvidence": 30, "maxRetries": 2, "timeoutSecs": 300, "minGapMs": 0,   "useJsonSchema": true }
+    }
+  }
+}
+```
+
+Cas courants : baisser `sectionMaxTokens` pour économiser des tokens sur les petites pages ; augmenter `quality.timeoutSecs` si Gemini ralentit aux heures de pointe européennes ; augmenter `fast.maxEvidence` pour des brouillons plus riches. Les valeurs ci-dessus sont les défauts codés en dur.
+
 Valider votre configuration :
 
 ```bash

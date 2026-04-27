@@ -51,3 +51,6 @@ uuid.workspace = true
 walkdir.workspace = true
 # JSON repair fallback for malformed LLM responses (phase 3 enrichment hardening)
 jsonrepair = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

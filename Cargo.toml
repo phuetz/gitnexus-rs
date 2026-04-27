@@ -112,7 +112,11 @@ tree-sitter-swift = "0.7"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # ONNX Runtime
-ort = "2.0.0-rc.12"
+# `alternative-backend` disables the default `download-binaries` feature so the
+# build script does not attempt to fetch the prebuilt .so from cdn.pyke.io.
+# Production deployments that need real inference should set ORT_DYLIB_PATH or
+# ORT_LIB_LOCATION to the ONNX Runtime 1.24.x shared library instead.
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "tracing", "alternative-backend"] }
 ndarray = "0.16"
 
 # HuggingFace tokenizer (for MiniLM / BGE embedding tokenization)

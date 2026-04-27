@@ -18,7 +18,7 @@ mod skills;
 mod utils;
 mod wiki;
 
-pub(crate) use enrichment::load_llm_config;
+pub(crate) use enrichment::{load_llm_config, LlmConfig};
 
 use std::path::Path;
 

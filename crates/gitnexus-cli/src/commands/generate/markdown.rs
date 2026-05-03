@@ -624,7 +624,8 @@ pub(super) fn parse_md_image(line: &str) -> Option<String> {
     let alt = &trimmed[2..alt_end];
     let rest = &trimmed[alt_end + 2..];
     let paren_end = rest.rfind(')')?;
-    let url_part = rest[..paren_end].split('"')
+    let url_part = rest[..paren_end]
+        .split('"')
         .next()
         .unwrap_or(&rest[..paren_end])
         .trim();

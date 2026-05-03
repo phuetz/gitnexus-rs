@@ -1528,7 +1528,11 @@ fn inject_enrichment(
                     .related_pages
                     .iter()
                     .filter(|p| {
-                        let stem = p.trim_end_matches(".md").split('/').next_back().unwrap_or(p);
+                        let stem = p
+                            .trim_end_matches(".md")
+                            .split('/')
+                            .next_back()
+                            .unwrap_or(p);
                         let ok = valid_stems.contains(&stem.to_lowercase());
                         if !ok {
                             tracing::warn!("enrichment: related_page '{}' not found — skipping", p);

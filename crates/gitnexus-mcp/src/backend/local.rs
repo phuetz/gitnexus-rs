@@ -482,18 +482,17 @@ impl LocalBackend {
         let mut incoming: Vec<Value> = Vec::new();
         for rel in graph.iter_relationships() {
             let rel_type = rel.rel_type.as_str();
-            if rel.source_id == node_id
-                && outgoing_seen.insert((rel_type, rel.target_id.clone())) {
-                    let target_name = graph
-                        .get_node(&rel.target_id)
-                        .map(|n| n.properties.name.clone())
-                        .unwrap_or_default();
-                    outgoing.push(json!({
-                        "rel": rel_type,
-                        "target": target_name,
-                        "targetId": rel.target_id,
-                    }));
-                }
+            if rel.source_id == node_id && outgoing_seen.insert((rel_type, rel.target_id.clone())) {
+                let target_name = graph
+                    .get_node(&rel.target_id)
+                    .map(|n| n.properties.name.clone())
+                    .unwrap_or_default();
+                outgoing.push(json!({
+                    "rel": rel_type,
+                    "target": target_name,
+                    "targetId": rel.target_id,
+                }));
+            }
             if rel.target_id == node_id && incoming_seen.insert((rel_type, rel.source_id.clone())) {
                 let source_name = graph
                     .get_node(&rel.source_id)
@@ -2040,8 +2039,7 @@ impl LocalBackend {
 
         // ONNX inference is blocking; run on the blocking pool.
         let outcome = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<FtsResult>> {
-            let cfg: EmbeddingConfig =
-                serde_json::from_str(&std::fs::read_to_string(&meta_path)?)?;
+            let cfg: EmbeddingConfig = serde_json::from_str(&std::fs::read_to_string(&meta_path)?)?;
             let store = load_embeddings(&emb_path)?;
             if store.header.dimension != cfg.dimension {
                 anyhow::bail!(
@@ -2151,19 +2149,18 @@ impl LocalBackend {
 
         let reranker = LlmReranker::new(config.base_url, config.model, Some(config.api_key));
         let q = query_str.to_string();
-        let reranked = match tokio::task::spawn_blocking(move || reranker.rerank(&q, candidates))
-            .await
-        {
-            Ok(Ok(r)) => r,
-            Ok(Err(e)) => {
-                tracing::warn!(error = %e, "reranker failed; using BM25 order");
-                return fts_results;
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "reranker task join failed; using BM25 order");
-                return fts_results;
-            }
-        };
+        let reranked =
+            match tokio::task::spawn_blocking(move || reranker.rerank(&q, candidates)).await {
+                Ok(Ok(r)) => r,
+                Ok(Err(e)) => {
+                    tracing::warn!(error = %e, "reranker failed; using BM25 order");
+                    return fts_results;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "reranker task join failed; using BM25 order");
+                    return fts_results;
+                }
+            };
 
         // Rebuild the FtsResult list in reranker order; any result the LLM
         // omitted gets appended to the tail so nothing is silently lost.

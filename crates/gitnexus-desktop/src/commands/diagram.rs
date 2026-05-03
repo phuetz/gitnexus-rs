@@ -547,7 +547,8 @@ pub(crate) fn build_skeleton_flowchart(
         seen.insert(method_id.clone());
 
         let method_san = sanitize(method_id);
-        let file_ref = if let Some(fname) = method_node.properties.file_path.split('/').next_back() {
+        let file_ref = if let Some(fname) = method_node.properties.file_path.split('/').next_back()
+        {
             format!(
                 "\\n{}:{}",
                 fname,

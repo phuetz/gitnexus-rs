@@ -451,7 +451,7 @@ pub(super) fn sleep_until_hhmm(hhmm: &str) -> Result<()> {
     // in extra chrono traits.  Format gives us "HH:MM:SS".
     let now_fmt = chrono::Local::now().format("%H:%M:%S").to_string();
     let now_parts: Vec<u32> = now_fmt.split(':').map(|s| s.parse().unwrap_or(0)).collect();
-    let current_secs = now_parts.get(0).copied().unwrap_or(0) * 3600
+    let current_secs = now_parts.first().copied().unwrap_or(0) * 3600
         + now_parts.get(1).copied().unwrap_or(0) * 60
         + now_parts.get(2).copied().unwrap_or(0);
     let target_secs = hour * 3600 + minute * 60;
@@ -1528,7 +1528,7 @@ fn inject_enrichment(
                     .related_pages
                     .iter()
                     .filter(|p| {
-                        let stem = p.trim_end_matches(".md").split('/').last().unwrap_or(p);
+                        let stem = p.trim_end_matches(".md").split('/').next_back().unwrap_or(p);
                         let ok = valid_stems.contains(&stem.to_lowercase());
                         if !ok {
                             tracing::warn!("enrichment: related_page '{}' not found — skipping", p);
@@ -1548,7 +1548,7 @@ fn inject_enrichment(
                     ));
                     for p in valid_related {
                         let stem = p.trim_end_matches(".md");
-                        let display = stem.split('/').last().unwrap_or(stem);
+                        let display = stem.split('/').next_back().unwrap_or(stem);
                         let safe_stem = stem.replace('"', "&quot;").replace('\'', "&#39;");
                         let safe_display = display.replace('<', "&lt;").replace('>', "&gt;");
                         enriched.push_str(&format!(
@@ -2089,7 +2089,7 @@ fn enrich_page_structured(
                         if status_u16 == 503
                             || status_u16 == 429
                             || status_u16 == 499
-                            || (status_u16 >= 500 && status_u16 < 600)
+                            || (500..600).contains(&status_u16)
                         {
                             if status_u16 == 503 || status_u16 >= 500 {
                                 consecutive_503 += 1;

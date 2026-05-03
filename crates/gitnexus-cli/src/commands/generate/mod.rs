@@ -360,7 +360,7 @@ pub fn run(
                 if count == 1 { "" } else { "s" }
             );
             // Regenerate HTML to reflect the new content
-            let repo_name = repo_path
+            let _repo_name = repo_path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("Project");

@@ -482,8 +482,8 @@ impl LocalBackend {
         let mut incoming: Vec<Value> = Vec::new();
         for rel in graph.iter_relationships() {
             let rel_type = rel.rel_type.as_str();
-            if rel.source_id == node_id {
-                if outgoing_seen.insert((rel_type, rel.target_id.clone())) {
+            if rel.source_id == node_id
+                && outgoing_seen.insert((rel_type, rel.target_id.clone())) {
                     let target_name = graph
                         .get_node(&rel.target_id)
                         .map(|n| n.properties.name.clone())
@@ -494,7 +494,6 @@ impl LocalBackend {
                         "targetId": rel.target_id,
                     }));
                 }
-            }
             if rel.target_id == node_id && incoming_seen.insert((rel_type, rel.source_id.clone())) {
                 let source_name = graph
                     .get_node(&rel.source_id)

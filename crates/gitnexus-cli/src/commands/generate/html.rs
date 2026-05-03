@@ -266,7 +266,7 @@ pub(super) fn generate_html_site(
         .iter()
         .map(|(id, (title, html))| {
             let page_type = classify_page_from_id(id);
-            let stem = id.split('/').last().unwrap_or(id);
+            let stem = id.split('/').next_back().unwrap_or(id);
             let enriched = provenance_ids.contains(id) || provenance_ids.contains(stem);
             json!({
                 "id": id,
@@ -390,7 +390,7 @@ pub(super) fn strip_html_tags(html: &str) -> String {
 
 /// Classify a page ID into a display type for search filtering.
 fn classify_page_from_id(id: &str) -> &'static str {
-    let name = id.split('/').last().unwrap_or(id);
+    let name = id.split('/').next_back().unwrap_or(id);
     if name.starts_with("ctrl-") {
         "Controller"
     } else if name.starts_with("data-") || name.contains("model") {

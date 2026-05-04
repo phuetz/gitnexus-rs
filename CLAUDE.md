@@ -12,10 +12,10 @@ Alternative open-source à Open WebUI sans contrainte de licence fair-source.
 
 ## Stack
 
-- Vite 7 + React 19 + TypeScript strict (`erasableSyntaxOnly` activé)
+- Vite 7 + React 19 + TypeScript strict (`"strict": true` + `erasableSyntaxOnly` + `noUnusedLocals/Parameters`)
 - Tailwind CSS v4 (via `@tailwindcss/vite`, pas de `tailwind.config.js`)
 - Zustand + persist (localStorage)
-- react-markdown + remark-gfm
+- react-markdown + remark-gfm (Shiki prévu V2)
 - lucide-react (icônes)
 
 ## Build / Dev

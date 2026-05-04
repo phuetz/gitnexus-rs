@@ -14,7 +14,7 @@ sans contrainte de licence "fair-source".
 - **Vite 7** + **React 19** + **TypeScript strict**
 - **Tailwind CSS v4** (via `@tailwindcss/vite`, plus de `tailwind.config.js`)
 - **Zustand** (state + persist localStorage)
-- **react-markdown** + `remark-gfm` (rendu markdown GitHub-flavored)
+- **react-markdown** + `remark-gfm` (rendu markdown GitHub-flavored — Shiki coloration syntaxique prévue V2)
 - **lucide-react** (icônes)
 - **License MIT** (commercial-friendly, contrairement à OWUI)
 

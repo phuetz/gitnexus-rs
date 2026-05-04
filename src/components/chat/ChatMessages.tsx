@@ -36,10 +36,12 @@ export function ChatMessages() {
               {SUGGESTIONS.map(({ icon: Icon, label, prompt }) => (
                 <button
                   key={label}
+                  type="button"
                   onClick={() => setInputDraft(prompt)}
+                  aria-label={`Suggestion : ${prompt}`}
                   className="group flex items-start gap-3 rounded-xl border border-neutral-800 bg-neutral-900/40 p-4 text-left transition hover:border-neutral-700 hover:bg-neutral-900"
                 >
-                  <Icon size={18} className="mt-0.5 shrink-0 text-purple-400" />
+                  <Icon size={18} className="mt-0.5 shrink-0 text-purple-400" aria-hidden="true" />
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-neutral-200">{label}</div>
                     <div className="mt-1 text-xs text-neutral-500 line-clamp-2 group-hover:text-neutral-400">
@@ -56,7 +58,7 @@ export function ChatMessages() {
   }
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto">
+    <div ref={scrollRef} className="h-full overflow-y-auto" role="log" aria-live="polite" aria-relevant="additions text">
       <div className="mx-auto max-w-3xl divide-y divide-neutral-900">
         {session.messages.map((m) => (
           <ChatMessage key={m.id} message={m} />

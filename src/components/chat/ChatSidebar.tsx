@@ -13,10 +13,11 @@ export function ChatSidebar() {
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-neutral-900 bg-neutral-950/40">
       <div className="border-b border-neutral-900 p-3">
         <button
+          type="button"
           onClick={() => createSession()}
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-sm text-neutral-200 transition hover:bg-neutral-800"
         >
-          <Plus size={14} />
+          <Plus size={14} aria-hidden="true" />
           Nouvelle conversation
         </button>
       </div>
@@ -38,16 +39,18 @@ export function ChatSidebar() {
                   : 'text-neutral-400 hover:bg-neutral-900/80'
               )}
             >
-              <MessageSquare size={14} className="shrink-0 opacity-60" />
+              <MessageSquare size={14} className="shrink-0 opacity-60" aria-hidden="true" />
               <span className="flex-1 truncate">{session.title}</span>
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   deleteSession(session.id);
                 }}
+                aria-label={`Supprimer la conversation "${session.title}"`}
                 className="opacity-0 transition group-hover:opacity-100 hover:text-red-400"
               >
-                <Trash2 size={14} />
+                <Trash2 size={14} aria-hidden="true" />
               </button>
             </div>
           ))

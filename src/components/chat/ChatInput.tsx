@@ -46,26 +46,32 @@ export function ChatInput() {
               ? `Pose ta question sur ${selectedRepo}… (Shift+Entrée = newline)`
               : 'Sélectionne un projet en haut à droite avant de poser ta question…'
           }
+          aria-label="Message à envoyer au chat"
+          aria-busy={isStreaming}
           className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600"
           style={{ minHeight: MIN_HEIGHT }}
           disabled={isStreaming}
         />
         {isStreaming ? (
           <button
+            type="button"
             onClick={cancel}
+            aria-label="Annuler la requête en cours"
             className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-600 text-white transition hover:bg-red-500"
             title="Annuler"
           >
-            <Square size={14} fill="currentColor" />
+            <Square size={14} fill="currentColor" aria-hidden="true" />
           </button>
         ) : (
           <button
+            type="button"
             onClick={submit}
             disabled={!value.trim() || !selectedRepo}
+            aria-label="Envoyer le message"
             className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-600 text-white transition hover:bg-purple-500 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-600"
             title="Envoyer (Entrée)"
           >
-            <Send size={16} />
+            <Send size={16} aria-hidden="true" />
           </button>
         )}
       </div>

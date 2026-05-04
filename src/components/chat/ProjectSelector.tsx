@@ -49,15 +49,19 @@ export function ProjectSelector() {
   return (
     <div className="relative">
       <button
+        type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-label="Sélectionner le projet à interroger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
         className={clsx(
           'flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/60 px-3 py-1.5 text-sm transition hover:bg-neutral-800',
           error ? 'text-amber-300' : 'text-neutral-200'
         )}
       >
-        {error ? <AlertCircle size={14} /> : <FolderOpen size={14} className="text-neutral-500" />}
+        {error ? <AlertCircle size={14} aria-hidden="true" /> : <FolderOpen size={14} className="text-neutral-500" aria-hidden="true" />}
         <span className="max-w-[240px] truncate">{label}</span>
-        <ChevronDown size={14} className="opacity-60" />
+        <ChevronDown size={14} className="opacity-60" aria-hidden="true" />
       </button>
 
       {open && (
@@ -67,14 +71,16 @@ export function ProjectSelector() {
               Projets indexés
             </span>
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 void fetchRepos();
               }}
+              aria-label="Rafraîchir la liste des projets"
               className="text-neutral-500 transition hover:text-neutral-300"
               title="Rafraîchir"
             >
-              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
             </button>
           </div>
 

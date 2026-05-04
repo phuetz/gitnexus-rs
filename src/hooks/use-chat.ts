@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { useChatStore } from '../stores/chat-store';
-import { mcpClient, type ChatHistoryMessage } from '../api/mcp-client';
+import { mcpClient, ChatStreamError, type ChatHistoryMessage } from '../api/mcp-client';
 import type { Message } from '../types/chat';
 
 const newId = () => crypto.randomUUID();
@@ -88,9 +88,13 @@ export function useChat() {
         }
       } catch (err) {
         const aborted = err instanceof DOMException && err.name === 'AbortError';
+        const isStreamErr = err instanceof ChatStreamError;
+        const msg = err instanceof Error ? err.message : String(err);
         const reason = aborted
-          ? '_Requête annulée._'
-          : `_Erreur :_ ${err instanceof Error ? err.message : String(err)}\n\nVérifie que le serveur tourne : \`gitnexus serve --port 3000\` (ou ajuste \`VITE_MCP_URL\` dans \`.env.local\`).`;
+          ? '> ⚠️ _Requête annulée._'
+          : isStreamErr
+            ? `> ❌ **Erreur serveur** : ${msg}`
+            : `> ❌ **Erreur** : ${msg}\n>\n> Vérifie que le serveur tourne : \`gitnexus serve --port 3000\` (ou ajuste \`VITE_MCP_URL\` dans \`.env.local\`).`;
         updateMessage(sessionId, assistantId, acc ? `${acc}\n\n${reason}` : reason);
       } finally {
         abortRef.current = null;

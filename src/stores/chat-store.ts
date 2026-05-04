@@ -7,6 +7,7 @@ interface ChatState {
   currentSessionId: string | null;
   isStreaming: boolean;
   selectedRepo: string | null;
+  inputDraft: string;
 
   createSession: (title?: string) => string;
   selectSession: (id: string) => void;
@@ -17,6 +18,7 @@ interface ChatState {
   updateMessage: (sessionId: string, messageId: string, content: string) => void;
   setStreaming: (streaming: boolean) => void;
   setSelectedRepo: (repo: string | null) => void;
+  setInputDraft: (text: string) => void;
 
   getCurrentSession: () => Session | null;
 }
@@ -30,6 +32,7 @@ export const useChatStore = create<ChatState>()(
       currentSessionId: null,
       isStreaming: false,
       selectedRepo: null,
+      inputDraft: '',
 
       createSession: (title = 'Nouvelle conversation') => {
         const id = newId();
@@ -95,6 +98,7 @@ export const useChatStore = create<ChatState>()(
 
       setStreaming: (streaming) => set({ isStreaming: streaming }),
       setSelectedRepo: (repo) => set({ selectedRepo: repo }),
+      setInputDraft: (text) => set({ inputDraft: text }),
 
       getCurrentSession: () => {
         const { sessions, currentSessionId } = get();

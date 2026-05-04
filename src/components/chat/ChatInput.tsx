@@ -1,17 +1,36 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Send, Square } from 'lucide-react';
 import { useChat } from '../../hooks/use-chat';
 import { useChatStore } from '../../stores/chat-store';
+
+const MIN_HEIGHT = 44;
+const MAX_HEIGHT = 200;
 
 export function ChatInput() {
   const [value, setValue] = useState('');
   const { sendMessage, cancel, isStreaming } = useChat();
   const selectedRepo = useChatStore((s) => s.selectedRepo);
+  const draft = useChatStore((s) => s.inputDraft);
+  const setDraft = useChatStore((s) => s.setInputDraft);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (draft && draft !== value) setValue(draft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
+
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, ta.scrollHeight))}px`;
+  }, [value]);
 
   const submit = () => {
     if (!value.trim() || isStreaming) return;
     void sendMessage(value);
     setValue('');
+    setDraft('');
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -25,16 +44,20 @@ export function ChatInput() {
     <div className="border-t border-neutral-900 bg-neutral-950/60 p-4">
       <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-xl border border-neutral-800 bg-neutral-900/60 p-2 focus-within:border-neutral-700">
         <textarea
+          ref={taRef}
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setDraft(e.target.value);
+          }}
           onKeyDown={onKeyDown}
-          rows={1}
           placeholder={
             selectedRepo
               ? `Pose ta question sur ${selectedRepo}… (Shift+Entrée = newline)`
               : 'Sélectionne un projet en haut à droite avant de poser ta question…'
           }
-          className="max-h-48 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600"
+          className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600"
+          style={{ minHeight: MIN_HEIGHT }}
           disabled={isStreaming}
         />
         {isStreaming ? (

@@ -13,6 +13,13 @@ export interface ChatHistoryMessage {
   content: string;
 }
 
+export class ChatStreamError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ChatStreamError';
+  }
+}
+
 export class MCPClient {
   readonly baseUrl: string;
   readonly token?: string;
@@ -65,36 +72,84 @@ export class MCPClient {
     const decoder = new TextDecoder();
     let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    let eventType: string | null = null;
+    let dataLines: string[] = [];
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-
-      for (const rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (payload === '[DONE]') return;
-        if (!payload) continue;
-
-        try {
-          const obj = JSON.parse(payload);
-          const text =
-            (typeof obj === 'string' && obj) ||
-            obj?.delta ||
-            obj?.text ||
-            obj?.content ||
-            obj?.choices?.[0]?.delta?.content ||
-            '';
-          if (text) onDelta(String(text));
-        } catch {
-          if (payload && payload !== '[DONE]') onDelta(payload);
-        }
+    const flush = () => {
+      if (dataLines.length === 0) {
+        eventType = null;
+        return;
       }
+      const payload = dataLines.join('\n');
+      dataLines = [];
+      const ev = eventType;
+      eventType = null;
+
+      if (payload === '[DONE]') {
+        throw new SseDone();
+      }
+      if (ev === 'error') {
+        throw new ChatStreamError(payload.replace(/^Error:\s*/i, ''));
+      }
+
+      try {
+        const obj = JSON.parse(payload);
+        const text =
+          (typeof obj === 'string' && obj) ||
+          obj?.delta ||
+          obj?.text ||
+          obj?.content ||
+          obj?.choices?.[0]?.delta?.content ||
+          '';
+        if (text) onDelta(String(text));
+      } catch {
+        onDelta(payload);
+      }
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          buffer += '\n\n';
+        } else {
+          buffer += decoder.decode(value, { stream: true });
+        }
+
+        let nl: number;
+        while ((nl = buffer.indexOf('\n')) !== -1) {
+          const rawLine = buffer.slice(0, nl).replace(/\r$/, '');
+          buffer = buffer.slice(nl + 1);
+
+          if (rawLine === '') {
+            flush();
+            continue;
+          }
+
+          if (rawLine.startsWith(':')) continue;
+
+          const colon = rawLine.indexOf(':');
+          const field = colon === -1 ? rawLine : rawLine.slice(0, colon);
+          let val = colon === -1 ? '' : rawLine.slice(colon + 1);
+          if (val.startsWith(' ')) val = val.slice(1);
+
+          if (field === 'data') dataLines.push(val);
+          else if (field === 'event') eventType = val;
+        }
+
+        if (done) return;
+      }
+    } catch (e) {
+      if (e instanceof SseDone) return;
+      throw e;
     }
+  }
+}
+
+class SseDone extends Error {
+  constructor() {
+    super('done');
+    this.name = 'SseDone';
   }
 }
 

@@ -231,6 +231,17 @@ export interface ChatSearchCapabilities {
   vectorCount?: number;
 }
 
+/** One MCP prompt template — surfaced in the UI as a one-click recipe. */
+export interface McpPromptDefinition {
+  name: string;
+  description: string;
+  arguments: Array<{
+    name: string;
+    description: string;
+    required: boolean;
+  }>;
+}
+
 /** Descriptor for an agent/MCP tool surfaced to the chat UI. */
 export interface ChatToolDescriptor {
   name: string;
@@ -1107,6 +1118,12 @@ export const commands = {
     invoke<void>("chat_cancel"),
   chatSearchCapabilities: () =>
     invoke<ChatSearchCapabilities>("chat_search_capabilities"),
+  /** List the 6 MCP prompt templates (`detect_impact`, `generate_map`, …). */
+  listChatPrompts: () =>
+    invoke<{ prompts: McpPromptDefinition[] }>("list_chat_prompts"),
+  /** Render an MCP prompt to plain text — paste into the chat input. */
+  getChatPrompt: (name: string, args: Record<string, string>) =>
+    invoke<string>("get_chat_prompt", { name, args }),
 
   // Chat Intelligence (Executor)
   chatExecuteStep: (planId: string, stepId: string) =>

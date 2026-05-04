@@ -1753,6 +1753,42 @@ pub async fn list_chat_tools() -> Result<Vec<ChatToolDescriptor>, String> {
     Ok(build_tool_descriptors())
 }
 
+/// Surface the 6 MCP prompts (`detect_impact`, `generate_map`,
+/// `analyze_hotspots`, `find_dead_code`, `trace_dependencies`,
+/// `describe_process`) as ready-to-paste templates. Each one encodes a
+/// validated tool-chain (e.g. analyze_hotspots → hotspots + coupling +
+/// ownership → recommend refactor priorities) — exposing them to the UI
+/// lets the chat reuse those chains instead of re-inventing the orchestration
+/// in `chat_planner`.
+#[tauri::command]
+pub async fn list_chat_prompts() -> Result<serde_json::Value, String> {
+    Ok(gitnexus_mcp::prompts::prompt_definitions())
+}
+
+/// Render a named MCP prompt to plain text. The UI pastes the result into
+/// the chat input as the user's first message — the LLM then follows the
+/// embedded "Please: 1. use X tool 2. use Y tool…" recipe naturally via
+/// the existing tool-calling loop.
+#[tauri::command]
+pub async fn get_chat_prompt(name: String, args: serde_json::Value) -> Result<String, String> {
+    let rendered = gitnexus_mcp::prompts::get_prompt(&name, &args)
+        .ok_or_else(|| format!("Unknown MCP prompt: '{}'", name))?;
+    rendered
+        .get("messages")
+        .and_then(|m| m.as_array())
+        .and_then(|a| a.first())
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            format!(
+                "MCP prompt '{}' returned an unexpected envelope shape",
+                name
+            )
+        })
+}
+
 /// Report whether the active repo's chat is running with embeddings (hybrid
 /// BM25+semantic search) or in BM25-only fallback. The UI uses this to show
 /// an actionable banner — a degraded chat ought to look different from a

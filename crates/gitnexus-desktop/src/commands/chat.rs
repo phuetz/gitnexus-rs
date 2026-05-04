@@ -15,7 +15,10 @@ use tauri::{AppHandle, Emitter, State};
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_db::inmemory::fts::FtsIndex;
+use gitnexus_mcp::backend::local::LocalBackend;
 use gitnexus_search::embeddings::{EmbeddingConfig, EmbeddingStore};
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::state::AppState;
 use crate::types::{ChatConfig, ChatRequest, ChatResponse, ChatSource};
@@ -206,6 +209,7 @@ async fn execute_mcp_tool(
     fts_index: &FtsIndex,
     embeddings: Option<&EmbeddingStore>,
     embeddings_config: Option<&EmbeddingConfig>,
+    mcp_backend: Option<&Arc<TokioMutex<LocalBackend>>>,
 ) -> String {
     let parsed = serde_json::from_str::<serde_json::Value>(args).unwrap_or_default();
 
@@ -607,8 +611,66 @@ async fn execute_mcp_tool(
             }
         }
 
-        _ => format!("Error: unknown tool '{}'", name),
+        // ── Extended MCP tools (hotspots, coupling, ownership, coverage,
+        //    report, business, find_cycles, find_similar_code, list_todos,
+        //    get_complexity, list_endpoints, list_db_tables, list_env_vars,
+        //    get_endpoint_handler, detect_changes, analyze_execution_trace,
+        //    get_insights, rename) — delegated to LocalBackend.
+        _ => match mcp_backend {
+            Some(backend) => dispatch_via_local_backend(backend, name, args, repo_path).await,
+            None => format!("Error: unknown tool '{}'", name),
+        },
     }
+}
+
+/// Forward a tool call to the shared `LocalBackend` so the chat surfaces the
+/// full 27-tool MCP catalogue without re-implementing each one. Auto-injects
+/// the active repo path into `args.repo` when missing — the chat already knows
+/// which repo is active, so making the LLM specify it on every call would just
+/// be friction.
+async fn dispatch_via_local_backend(
+    backend: &Arc<TokioMutex<LocalBackend>>,
+    name: &str,
+    args_str: &str,
+    repo_path: &Path,
+) -> String {
+    let mut args: serde_json::Value =
+        serde_json::from_str(args_str).unwrap_or_else(|_| serde_json::json!({}));
+    if !args.is_object() {
+        args = serde_json::json!({});
+    }
+    if let Some(obj) = args.as_object_mut() {
+        if !obj.contains_key("repo") {
+            obj.insert(
+                "repo".to_string(),
+                serde_json::Value::String(repo_path.to_string_lossy().to_string()),
+            );
+        }
+    }
+
+    let mut backend_lock = backend.lock().await;
+    match backend_lock.call_tool(name, &args).await {
+        Ok(response) => extract_mcp_text(&response),
+        Err(e) => format!("Error from MCP tool '{}': {}", name, e),
+    }
+}
+
+/// Pull the human-readable text out of an MCP tool response envelope
+/// (`{"content": [{"type": "text", "text": "..."}]}`). Falls back to the
+/// stringified JSON when the envelope shape is unexpected, so the LLM still
+/// gets *something* useful instead of an empty response.
+fn extract_mcp_text(response: &serde_json::Value) -> String {
+    if let Some(text) = response
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|a| a.first())
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+    {
+        return text.to_string();
+    }
+    serde_json::to_string_pretty(response)
+        .unwrap_or_else(|_| "Error: failed to format MCP response".to_string())
 }
 
 /// Execute a Cypher query and format a compact JSON result for prompt injection.
@@ -663,6 +725,8 @@ pub async fn chat_ask(
     let repo_path = PathBuf::from(&repo_path_str);
     let emb_ref = embeddings.as_deref();
     let emb_cfg_ref = embeddings_config.as_deref();
+    let mcp_backend = Arc::clone(&state.mcp_backend);
+    let mcp_ref = Some(&mcp_backend);
 
     // 2. Classify the question → determines canvas + pre-fetch strategy
     let question_type = classify_question(&request.question);
@@ -694,6 +758,7 @@ pub async fn chat_ask(
         &repo_path,
         emb_ref,
         emb_cfg_ref,
+        mcp_ref,
     )
     .await;
 
@@ -1066,6 +1131,7 @@ pub async fn chat_ask(
                     &fts_index,
                     emb_ref,
                     emb_cfg_ref,
+                    mcp_ref,
                 )
                 .await;
                 let _ = app.emit("tool_execution_end", "search_code".to_string());
@@ -1120,6 +1186,7 @@ pub async fn chat_ask(
                 &fts_index,
                 emb_ref,
                 emb_cfg_ref,
+                mcp_ref,
             )
             .await;
             let _ = app.emit("tool_execution_end", tc.name.clone());
@@ -1406,6 +1473,206 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
                 "required": ["fact", "scope"]
             }),
         },
+        // ── Extended MCP tools (delegated to LocalBackend) ─────────────
+        // These hit the full 27-tool gitnexus-mcp catalogue rather than
+        // re-implementing every analytic. Adding a tool here makes the LLM
+        // aware of it; the dispatch fallback in `execute_mcp_tool` does the
+        // routing. Keep parameters terse — verbose schemas eat prompt budget.
+        ChatToolDescriptor {
+            name: "hotspots".to_string(),
+            description: "Top files by churn over the last N days (refactor candidates).".to_string(),
+            category: "git".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "since_days": { "type": "number", "description": "Lookback window in days (default 90)" },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "coupling".to_string(),
+            description: "Files that change together over git history (temporal coupling).".to_string(),
+            category: "git".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "min_shared": { "type": "number", "description": "Minimum shared commits to consider coupled (default 3)" },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "ownership".to_string(),
+            description: "Per-file author distribution (who wrote/maintains what).".to_string(),
+            category: "git".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "coverage".to_string(),
+            description: "Tracing instrumentation coverage and dead-code candidates (zero callers).".to_string(),
+            category: "quality".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "report".to_string(),
+            description: "Codebase health score (A-E grade) with sub-scores.".to_string(),
+            category: "quality".to_string(),
+            parameters: serde_json::json!({ "type": "object", "properties": {} }),
+        },
+        ChatToolDescriptor {
+            name: "business".to_string(),
+            description: "Documented business processes (workflows, payments, mass mail, etc.).".to_string(),
+            category: "domain".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "find_cycles".to_string(),
+            description: "Strongly-connected components (Tarjan) — circular import or call cycles.".to_string(),
+            category: "quality".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "scope": { "type": "string", "enum": ["imports", "calls"] },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "find_similar_code".to_string(),
+            description: "Detect near-duplicate code via Rabin-Karp + Jaccard similarity.".to_string(),
+            category: "quality".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "threshold": { "type": "number", "description": "Min Jaccard similarity (default 0.9)" },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "list_todos".to_string(),
+            description: "TODO / FIXME / HACK / XXX markers across the codebase.".to_string(),
+            category: "inventory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string", "enum": ["TODO", "FIXME", "HACK", "XXX"] },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "get_complexity".to_string(),
+            description: "Cyclomatic complexity statistics (averages, percentiles, top-N hot spots).".to_string(),
+            category: "quality".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "list_endpoints".to_string(),
+            description: "REST/GraphQL endpoints (Express, FastAPI, Flask, Spring, ASP.NET MVC, …).".to_string(),
+            category: "inventory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "framework": { "type": "string" },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "list_db_tables".to_string(),
+            description: "Database tables (SQL migrations, Prisma, SQLAlchemy, TypeORM, EF6, …).".to_string(),
+            category: "inventory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "list_env_vars".to_string(),
+            description: "Environment variables declared vs. used (audit).".to_string(),
+            category: "inventory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "audit": { "type": "boolean", "description": "If true, surface declared-but-unused vars" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "get_endpoint_handler".to_string(),
+            description: "Resolve an endpoint route to its handler method + degree-1 call neighborhood.".to_string(),
+            category: "inventory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "route": { "type": "string" },
+                    "method": { "type": "string", "description": "GET/POST/…" }
+                },
+                "required": ["route"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "detect_changes".to_string(),
+            description: "Parse a git diff, run upstream BFS, classify risk (none/low/medium/high).".to_string(),
+            category: "git".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "diff": { "type": "string", "description": "Unified diff text" },
+                    "since": { "type": "string", "description": "Git ref to diff against (e.g. 'HEAD~1', 'main')" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "get_insights".to_string(),
+            description: "Per-symbol insights: complexity, dead-code flag, tracing, smells, design patterns, risk.".to_string(),
+            category: "analysis".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string" }
+                },
+                "required": ["symbol"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "rename".to_string(),
+            description: "Multi-file rename (graph-confirmed + text-search fallback). Dry-run by default.".to_string(),
+            category: "edit".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "from": { "type": "string" },
+                    "to": { "type": "string" },
+                    "dry_run": { "type": "boolean", "description": "Preview without writing (default true)" }
+                },
+                "required": ["from", "to"]
+            }),
+        },
     ]
 }
 
@@ -1474,6 +1741,7 @@ pub async fn chat_retry_tool(
     let (graph, indexes, fts_index, embeddings, embeddings_config, repo_path_str) =
         state.get_repo_with_embeddings(None).await?;
     let repo_path = PathBuf::from(&repo_path_str);
+    let mcp_backend = Arc::clone(&state.mcp_backend);
 
     // Pick the arg source in order: new_args overrides prior_args;
     // empty/invalid strings fall back to `{}` so the tool still runs.
@@ -1505,6 +1773,7 @@ pub async fn chat_retry_tool(
         &fts_index,
         embeddings.as_deref(),
         embeddings_config.as_deref(),
+        Some(&mcp_backend),
     )
     .await;
     let duration_ms = start.elapsed().as_millis() as u64;
@@ -2144,6 +2413,7 @@ async fn prefetch_for_type(
     repo_path: &std::path::Path,
     embeddings: Option<&EmbeddingStore>,
     embeddings_config: Option<&EmbeddingConfig>,
+    mcp_backend: Option<&Arc<TokioMutex<LocalBackend>>>,
 ) -> String {
     let mut pre = String::new();
 
@@ -2184,6 +2454,7 @@ async fn prefetch_for_type(
             fts_index,
             embeddings,
             embeddings_config,
+            mcp_backend,
         )
         .await;
         if doc_result.len() > 50 && !doc_result.contains("[]") {
@@ -2216,6 +2487,7 @@ async fn prefetch_for_type(
                         fts_index,
                         embeddings,
                         embeddings_config,
+                        mcp_backend,
                     )
                     .await;
                     if process_flow.len() > 50
@@ -2240,6 +2512,7 @@ async fn prefetch_for_type(
                     fts_index,
                     embeddings,
                     embeddings_config,
+                    mcp_backend,
                 )
                 .await;
                 if ctx.len() > 50 {
@@ -2258,6 +2531,7 @@ async fn prefetch_for_type(
                         fts_index,
                         embeddings,
                         embeddings_config,
+                        mcp_backend,
                     )
                     .await;
                     if diag.len() > 30 {
@@ -2313,6 +2587,7 @@ async fn prefetch_for_type(
                 fts_index,
                 embeddings,
                 embeddings_config,
+                mcp_backend,
             )
             .await;
             if communities.len() > 30 {
@@ -2331,6 +2606,7 @@ async fn prefetch_for_type(
                     fts_index,
                     embeddings,
                     embeddings_config,
+                    mcp_backend,
                 )
                 .await;
                 if diag.len() > 30 {
@@ -2351,6 +2627,7 @@ async fn prefetch_for_type(
                     fts_index,
                     embeddings,
                     embeddings_config,
+                    mcp_backend,
                 )
                 .await;
                 if impact.len() > 50 {

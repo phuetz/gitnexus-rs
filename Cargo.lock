@@ -1806,6 +1806,7 @@ dependencies = [
  "gitnexus-db",
  "gitnexus-git",
  "gitnexus-ingest",
+ "gitnexus-mcp",
  "gitnexus-output",
  "gitnexus-search",
  "ignore",

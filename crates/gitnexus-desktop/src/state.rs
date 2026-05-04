@@ -13,6 +13,7 @@ use gitnexus_core::storage::repo_manager::{self, RegistryEntry};
 use gitnexus_db::inmemory::cypher::GraphIndexes;
 use gitnexus_db::inmemory::fts::FtsIndex;
 use gitnexus_db::snapshot;
+use gitnexus_mcp::backend::local::LocalBackend;
 use gitnexus_search::embeddings::{EmbeddingConfig, EmbeddingStore};
 use gitnexus_search::fusion;
 use tokio::sync::{Mutex, RwLock};
@@ -56,6 +57,12 @@ pub struct AppState {
     chat_config: RwLock<Option<ChatConfig>>,
     /// Cancellation flag — set to true to abort the current streaming chat request.
     pub cancel_flag: Arc<AtomicBool>,
+    /// Shared MCP backend used by the chat to fall back to the full 27-tool
+    /// surface (`hotspots`, `coupling`, `coverage`, `find_cycles`, …) when the
+    /// LLM invokes a tool the chat hasn't custom-implemented. Wrapped in a
+    /// Tokio Mutex because `LocalBackend::call_tool` takes `&mut self` for its
+    /// internal snapshot/indexes/fts caches.
+    pub mcp_backend: Arc<Mutex<LocalBackend>>,
 }
 
 impl Default for AppState {
@@ -67,6 +74,14 @@ impl Default for AppState {
 impl AppState {
     /// Create a new empty state.
     pub fn new() -> Self {
+        // Best-effort init of the MCP backend's registry. A registry-load
+        // failure here just means the backend starts empty — the chat can
+        // still call tools that don't require a `repo` arg, and the registry
+        // will be re-loaded by the desktop's own `load_registry()` flow.
+        let mut backend = LocalBackend::new();
+        if let Err(e) = backend.init() {
+            tracing::warn!(error = %e, "LocalBackend init failed — chat MCP fallback may be empty until a repo is added");
+        }
         Self {
             repos: RwLock::new(HashMap::new()),
             registry: RwLock::new(Vec::new()),
@@ -74,6 +89,7 @@ impl AppState {
             load_lock: Mutex::new(()),
             chat_config: RwLock::new(None),
             cancel_flag: Arc::new(AtomicBool::new(false)),
+            mcp_backend: Arc::new(Mutex::new(backend)),
         }
     }
 
@@ -81,6 +97,11 @@ impl AppState {
     pub async fn load_registry(&self) -> Result<Vec<RegistryEntry>, String> {
         let entries = repo_manager::read_registry().map_err(|e| e.to_string())?;
         *self.registry.write().await = entries.clone();
+        // Keep the MCP backend's view in sync so chat tool fallbacks can
+        // resolve newly-added repos by name.
+        if let Err(e) = self.mcp_backend.lock().await.init() {
+            tracing::warn!(error = %e, "failed to refresh LocalBackend registry");
+        }
         Ok(entries)
     }
 

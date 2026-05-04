@@ -586,6 +586,60 @@ async fn execute_mcp_tool(
             read_full_method(symbol, graph, repo_path).await
         }
 
+        // ── recall_memory ────────────────────────────────────────
+        // The LLM has `save_memory` but no way to query what's already there
+        // — without this, persisted facts are write-only from its point of
+        // view and only surface via the system prompt's pre-injected memory
+        // context. Adding a query path lets the agent ask "do I already know
+        // X about this codebase?" before redoing work.
+        "recall_memory" => {
+            let query = parsed
+                .get("query")
+                .and_then(|q| q.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_lowercase();
+            let scope_arg = parsed
+                .get("scope")
+                .and_then(|s| s.as_str())
+                .unwrap_or("all");
+
+            let mut matches: Vec<(String, String)> = Vec::new();
+            let scopes_to_check: &[gitnexus_core::memory::MemoryScope] = match scope_arg {
+                "global" => &[gitnexus_core::memory::MemoryScope::Global],
+                "project" => &[gitnexus_core::memory::MemoryScope::Project],
+                _ => &[
+                    gitnexus_core::memory::MemoryScope::Global,
+                    gitnexus_core::memory::MemoryScope::Project,
+                ],
+            };
+
+            for scope in scopes_to_check {
+                let label = match scope {
+                    gitnexus_core::memory::MemoryScope::Global => "global",
+                    gitnexus_core::memory::MemoryScope::Project => "project",
+                };
+                let store = gitnexus_core::memory::MemoryStore::load(*scope, Some(repo_path));
+                for fact in &store.facts {
+                    if query.is_empty() || fact.to_lowercase().contains(&query) {
+                        matches.push((label.to_string(), fact.clone()));
+                    }
+                }
+            }
+
+            if matches.is_empty() {
+                if query.is_empty() {
+                    return "No facts saved yet (use save_memory to record one).".to_string();
+                }
+                return format!("No saved facts matching '{}'.", query);
+            }
+            let mut out = format!("Found {} saved fact(s):\n\n", matches.len());
+            for (scope, fact) in matches {
+                out.push_str(&format!("- [{}] {}\n", scope, fact));
+            }
+            out
+        }
+
         // ── save_memory ──────────────────────────────────────────
         "save_memory" => {
             let fact = match parsed.get("fact").and_then(|f| f.as_str()) {
@@ -1398,12 +1452,12 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
         },
         ChatToolDescriptor {
             name: "execute_cypher".to_string(),
-            description: "Read-only Cypher query against the graph (MATCH/CALL only).".to_string(),
+            description: "Read-only Cypher against the in-memory graph. SUPPORTED: MATCH (n:Label) / MATCH (n)-[r:TYPE]->(m), WHERE with =, <>, !=, CONTAINS, STARTS WITH, ENDS WITH, AND, OR, NOT, RETURN (with DISTINCT), ORDER BY, LIMIT, count(n), CALL QUERY_FTS_INDEX('table', 'query'). NOT supported: IN, COUNT(r) AS alias, GROUP BY, OPTIONAL MATCH, map literals {k:v}, UNWIND, multi-statement queries. Stick to a single-pattern MATCH + WHERE + RETURN — anything fancier will fail to parse.".to_string(),
             category: "query".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string" }
+                    "query": { "type": "string", "description": "Cypher in the supported subset above. Example: MATCH (n:Function) WHERE n.name CONTAINS 'auth' AND NOT n.filePath ENDS WITH '.test.ts' RETURN DISTINCT n.name, n.filePath ORDER BY n.name LIMIT 20" }
                 },
                 "required": ["query"]
             }),
@@ -1471,6 +1525,18 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
                     "scope": { "type": "string", "enum": ["global", "project"] }
                 },
                 "required": ["fact", "scope"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "recall_memory".to_string(),
+            description: "Query previously-saved facts by keyword (case-insensitive substring). Symmetric of save_memory — use before redoing work to check what's already known.".to_string(),
+            category: "memory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Keyword to match against saved facts. Empty string returns all." },
+                    "scope": { "type": "string", "enum": ["global", "project", "all"], "description": "Which scope to search (default 'all')" }
+                }
             }),
         },
         // ── Extended MCP tools (delegated to LocalBackend) ─────────────

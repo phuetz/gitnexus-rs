@@ -274,8 +274,7 @@ mod tests {
 
     #[test]
     fn parse_indices_with_prose() {
-        let arr =
-            LlmReranker::parse_indices("Here are the ranked indices: [4, 2, 0].", 5).unwrap();
+        let arr = LlmReranker::parse_indices("Here are the ranked indices: [4, 2, 0].", 5).unwrap();
         assert_eq!(arr, vec![4, 2, 0]);
     }
 

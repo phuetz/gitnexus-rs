@@ -452,9 +452,13 @@ async fn main() -> anyhow::Result<()> {
         Commands::List => commands::list::run(),
         Commands::Status => commands::status::run(),
         Commands::Clean { force, all } => commands::clean::run(force, all),
-        Commands::Query { query, repo, limit, rerank, hybrid } => {
-            commands::query_cmd::run(&query, repo.as_deref(), limit, rerank, hybrid).await
-        }
+        Commands::Query {
+            query,
+            repo,
+            limit,
+            rerank,
+            hybrid,
+        } => commands::query_cmd::run(&query, repo.as_deref(), limit, rerank, hybrid).await,
         Commands::Embed {
             model,
             tokenizer,
@@ -571,8 +575,10 @@ async fn main() -> anyhow::Result<()> {
             json,
             trace,
         } => commands::coverage::run(target.as_deref(), path.as_deref(), json, trace),
-        Commands::ValidateDocs { repo, docs_dir, json } => {
-            commands::validate_docs::run(repo.as_deref(), docs_dir.as_deref(), json)
-        }
+        Commands::ValidateDocs {
+            repo,
+            docs_dir,
+            json,
+        } => commands::validate_docs::run(repo.as_deref(), docs_dir.as_deref(), json),
     }
 }

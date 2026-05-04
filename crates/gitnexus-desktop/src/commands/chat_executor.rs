@@ -950,31 +950,47 @@ fn build_sources_from_results(
 
         // FIX: use pre-built indexes (O(degree)) instead of iter_relationships() (O(E)).
         // For a 20k-edge graph with 15 sources, this reduces 600k iterations to ~hundreds.
-        let callees: Vec<String> = indexes.outgoing
+        let callees: Vec<String> = indexes
+            .outgoing
             .get(node_id)
-            .map(|edges| edges.iter()
-                .filter(|(_, rel)| *rel == RelationshipType::Calls)
-                .filter_map(|(tid, _)| graph.get_node(tid).map(|n| n.properties.name.clone()))
-                .take(10)
-                .collect())
+            .map(|edges| {
+                edges
+                    .iter()
+                    .filter(|(_, rel)| *rel == RelationshipType::Calls)
+                    .filter_map(|(tid, _)| graph.get_node(tid).map(|n| n.properties.name.clone()))
+                    .take(10)
+                    .collect()
+            })
             .unwrap_or_default();
 
-        let callers: Vec<String> = indexes.incoming
+        let callers: Vec<String> = indexes
+            .incoming
             .get(node_id)
-            .map(|edges| edges.iter()
-                .filter(|(_, rel)| *rel == RelationshipType::Calls)
-                .filter_map(|(sid, _)| graph.get_node(sid).map(|n| n.properties.name.clone()))
-                .take(10)
-                .collect())
+            .map(|edges| {
+                edges
+                    .iter()
+                    .filter(|(_, rel)| *rel == RelationshipType::Calls)
+                    .filter_map(|(sid, _)| graph.get_node(sid).map(|n| n.properties.name.clone()))
+                    .take(10)
+                    .collect()
+            })
             .unwrap_or_default();
 
-        let community = indexes.outgoing
+        let community = indexes
+            .outgoing
             .get(node_id)
-            .and_then(|edges| edges.iter()
-                .find(|(_, rel)| *rel == RelationshipType::MemberOf)
-                .and_then(|(tid, _)| graph.get_node(tid)))
-            .map(|c| c.properties.heuristic_label.clone()
-                .unwrap_or_else(|| c.properties.name.clone()));
+            .and_then(|edges| {
+                edges
+                    .iter()
+                    .find(|(_, rel)| *rel == RelationshipType::MemberOf)
+                    .and_then(|(tid, _)| graph.get_node(tid))
+            })
+            .map(|c| {
+                c.properties
+                    .heuristic_label
+                    .clone()
+                    .unwrap_or_else(|| c.properties.name.clone())
+            });
 
         sources.push(ChatSource {
             node_id: node_id.clone(),

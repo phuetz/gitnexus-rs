@@ -13,6 +13,8 @@ use gitnexus_core::storage::repo_manager::{self, RegistryEntry};
 use gitnexus_db::inmemory::cypher::GraphIndexes;
 use gitnexus_db::inmemory::fts::FtsIndex;
 use gitnexus_db::snapshot;
+use gitnexus_search::embeddings::{EmbeddingConfig, EmbeddingStore};
+use gitnexus_search::fusion;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::types::ChatConfig;
@@ -23,11 +25,18 @@ fn normalize_path(path: &str) -> String {
 }
 
 /// A loaded repository with its graph, indexes, and FTS.
+///
+/// `embeddings` and `embeddings_config` are loaded best-effort at `open_repo`
+/// time: present means the repo has been embedded (`gitnexus embed --model …`)
+/// and the chat can use hybrid BM25+semantic search; absent means we silently
+/// fall back to BM25-only — the user gets a usable chat either way.
 pub struct LoadedRepo {
     pub entry: RegistryEntry,
     pub graph: Arc<KnowledgeGraph>,
     pub indexes: Arc<GraphIndexes>,
     pub fts_index: Arc<FtsIndex>,
+    pub embeddings: Option<Arc<EmbeddingStore>>,
+    pub embeddings_config: Option<Arc<EmbeddingConfig>>,
 }
 
 /// The main application state, shared across all Tauri commands.
@@ -124,11 +133,38 @@ impl AppState {
         let indexes = GraphIndexes::build(&graph);
         let fts_index = FtsIndex::build(&graph);
 
+        // Best-effort embeddings load. A malformed sidecar logs a warning but
+        // shouldn't take the whole repo offline — the chat will just fall back
+        // to BM25-only and the user can re-run `gitnexus embed`.
+        let (embeddings, embeddings_config) =
+            match fusion::try_load_embeddings_from_storage(storage_path) {
+                Ok(Some((store, cfg))) => {
+                    tracing::info!(
+                        repo = %name,
+                        count = store.header.count,
+                        model = %cfg.model_name,
+                        "loaded embeddings for hybrid chat search"
+                    );
+                    (Some(Arc::new(store)), Some(Arc::new(cfg)))
+                }
+                Ok(None) => (None, None),
+                Err(e) => {
+                    tracing::warn!(
+                        repo = %name,
+                        error = %e,
+                        "failed to load embeddings — chat will use BM25-only search"
+                    );
+                    (None, None)
+                }
+            };
+
         let loaded = LoadedRepo {
             entry,
             graph: Arc::new(graph),
             indexes: Arc::new(indexes),
             fts_index: Arc::new(fts_index),
+            embeddings,
+            embeddings_config,
         };
 
         self.repos.write().await.insert(name.to_string(), loaded);
@@ -184,6 +220,50 @@ impl AppState {
             Arc::clone(&loaded.graph),
             Arc::clone(&loaded.indexes),
             Arc::clone(&loaded.fts_index),
+            normalize_path(&loaded.entry.path),
+        ))
+    }
+
+    /// Same as `get_repo` but also returns the (optional) cached embedding
+    /// store and config — used by the chat's hybrid search path. Callers that
+    /// don't need embeddings should keep using `get_repo` to avoid pulling in
+    /// the search-types churn.
+    #[allow(clippy::type_complexity)]
+    pub async fn get_repo_with_embeddings(
+        &self,
+        name: Option<&str>,
+    ) -> Result<
+        (
+            Arc<KnowledgeGraph>,
+            Arc<GraphIndexes>,
+            Arc<FtsIndex>,
+            Option<Arc<EmbeddingStore>>,
+            Option<Arc<EmbeddingConfig>>,
+            String,
+        ),
+        String,
+    > {
+        let repo_name = match name {
+            Some(n) => n.to_string(),
+            None => self
+                .active_repo
+                .read()
+                .await
+                .clone()
+                .ok_or_else(|| "No active repository. Open one first.".to_string())?,
+        };
+
+        let repos = self.repos.read().await;
+        let loaded = repos
+            .get(&repo_name)
+            .ok_or_else(|| format!("Repository '{}' is not loaded", repo_name))?;
+
+        Ok((
+            Arc::clone(&loaded.graph),
+            Arc::clone(&loaded.indexes),
+            Arc::clone(&loaded.fts_index),
+            loaded.embeddings.as_ref().map(Arc::clone),
+            loaded.embeddings_config.as_ref().map(Arc::clone),
             normalize_path(&loaded.entry.path),
         ))
     }

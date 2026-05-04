@@ -4,11 +4,8 @@ use std::path::{Path, PathBuf};
 
 use gitnexus_core::storage::repo_manager;
 use gitnexus_db::inmemory::fts::{FtsIndex, FtsResult};
-use gitnexus_search::embeddings::{
-    generate_embeddings, load_embeddings, search_semantic, EmbeddingConfig,
-};
 use gitnexus_search::bm25::BM25SearchResult;
-use gitnexus_search::hybrid;
+use gitnexus_search::fusion;
 use gitnexus_search::reranker::{Candidate, LlmReranker, Reranker};
 
 /// When `--rerank` is active, we pull a larger BM25 top-K to give the LLM a
@@ -53,9 +50,7 @@ pub async fn run(
         match run_hybrid(query, &bm25, &graph, Path::new(&storage.storage_path), pool) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!(
-                    "Warning: hybrid path failed ({e}); falling back to BM25-only."
-                );
+                eprintln!("Warning: hybrid path failed ({e}); falling back to BM25-only.");
                 bm25.clone()
             }
         }
@@ -99,13 +94,7 @@ pub async fn run(
             (Some(s), None) => format!("{}:{}", r.file_path, s),
             _ => r.file_path.clone(),
         };
-        println!(
-            "  {:>3}. [{:<10}] {:<30}  {}",
-            i + 1,
-            r.label,
-            r.name,
-            loc
-        );
+        println!("  {:>3}. [{:<10}] {:<30}  {}", i + 1, r.label, r.name, loc);
     }
 
     Ok(())
@@ -129,8 +118,7 @@ fn fts_to_candidates(bm25: &[FtsResult]) -> Vec<Candidate> {
 }
 
 /// Perform BM25+semantic RRF fusion. Loads `.gitnexus/embeddings.bin` and
-/// `embeddings.meta.json`, embeds the query with the same model, takes
-/// top-K cosine matches, and fuses via hybrid::merge_with_rrf.
+/// `embeddings.meta.json` from disk, then delegates to `fusion::hybrid_with_preloaded`.
 ///
 /// Returns the fused results as FtsResult (so downstream rerank/display
 /// don't need a different branch). The `score` field on each result is
@@ -142,53 +130,18 @@ fn run_hybrid(
     storage_path: &Path,
     top_k: usize,
 ) -> anyhow::Result<Vec<FtsResult>> {
-    let emb_path = storage_path.join("embeddings.bin");
-    let meta_path = storage_path.join("embeddings.meta.json");
-    if !emb_path.exists() || !meta_path.exists() {
-        return Err(anyhow::anyhow!(
-            "embeddings not found — run 'gitnexus embed --model <path>' first (expected {} and {})",
-            emb_path.display(),
-            meta_path.display()
-        ));
-    }
-    let cfg: EmbeddingConfig = serde_json::from_str(&std::fs::read_to_string(&meta_path)?)?;
-    let store = load_embeddings(&emb_path)?;
-    if store.header.dimension != cfg.dimension {
-        return Err(anyhow::anyhow!(
-            "embeddings.bin dim {} differs from meta dim {}",
-            store.header.dimension,
-            cfg.dimension
-        ));
-    }
+    let (store, cfg) =
+        fusion::try_load_embeddings_from_storage(storage_path)?.ok_or_else(|| {
+            let emb_path = storage_path.join("embeddings.bin");
+            let meta_path = storage_path.join("embeddings.meta.json");
+            anyhow::anyhow!(
+                "embeddings not found — run 'gitnexus embed --model <path>' first \
+                 (expected {} and {})",
+                emb_path.display(),
+                meta_path.display()
+            )
+        })?;
 
-    // Embed the query with the same model.
-    let q_vecs = generate_embeddings(&[query.to_string()], &cfg);
-    let q_vec = q_vecs
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("generate_embeddings returned no output"))?;
-    if q_vec.iter().all(|&v| v == 0.0) {
-        return Err(anyhow::anyhow!(
-            "query embedding is all zeros — model path or tokenizer likely missing"
-        ));
-    }
-
-    // Convert stored entries to the shape search_semantic expects, then
-    // enrich with graph metadata before passing to merge_with_rrf.
-    let stored: Vec<(String, Vec<f32>)> = store.entries;
-    let mut semantic_results = search_semantic(&q_vec, &stored, top_k);
-    // search_semantic populates node_id + score + rank only; fill the rest.
-    for s in &mut semantic_results {
-        if let Some(n) = graph.get_node(&s.node_id) {
-            s.file_path = n.properties.file_path.clone();
-            s.name = n.properties.name.clone();
-            s.label = format!("{:?}", n.label);
-            s.start_line = n.properties.start_line;
-            s.end_line = n.properties.end_line;
-        }
-    }
-
-    // Wrap BM25 in BM25SearchResult (same field set).
     let bm25_wrapped: Vec<BM25SearchResult> = bm25
         .iter()
         .enumerate()
@@ -204,9 +157,9 @@ fn run_hybrid(
         })
         .collect();
 
-    let fused = hybrid::merge_with_rrf(&bm25_wrapped, &semantic_results, top_k);
+    let fused =
+        fusion::hybrid_with_preloaded(query, &bm25_wrapped, &store.entries, &cfg, graph, top_k)?;
 
-    // Convert back to FtsResult so the outer display loop treats it uniformly.
     Ok(fused
         .into_iter()
         .map(|h| FtsResult {

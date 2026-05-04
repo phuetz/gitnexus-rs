@@ -107,8 +107,7 @@ pub fn run(repo_path: Option<&str>, docs_dir_override: Option<&str>, json: bool)
 
     let report = ValidationReport {
         repo: repo.display().to_string(),
-        generated_at: chrono::Utc::now()
-            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        generated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         total_pages: md_files.len(),
         pages_with_issues: pages.len(),
         red_count,
@@ -316,7 +315,11 @@ fn check_broken_internal_links(
                         let target = parent.join(clean);
                         let canonical = target.canonicalize().ok();
                         let resolves = canonical
-                            .map(|c| known_files.iter().any(|k| k.canonicalize().ok() == Some(c.clone())))
+                            .map(|c| {
+                                known_files
+                                    .iter()
+                                    .any(|k| k.canonicalize().ok() == Some(c.clone()))
+                            })
                             .unwrap_or(false);
                         if !resolves {
                             issues.push(Issue {
@@ -353,9 +356,8 @@ fn check_methodo_alise_section_4(page_path: &Path, content: &str, issues: &mut V
     // or any heading containing "algorithm". Case-insensitive on the body
     // because LLMs sometimes drop the §.
     let lower = content.to_lowercase();
-    let has_section_4 = lower.contains("§4")
-        || lower.contains("section 4")
-        || lower.contains("algorithm");
+    let has_section_4 =
+        lower.contains("§4") || lower.contains("section 4") || lower.contains("algorithm");
     if !has_section_4 {
         issues.push(Issue {
             severity: Severity::Yellow,

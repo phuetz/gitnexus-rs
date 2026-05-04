@@ -61,10 +61,7 @@ pub async fn run(
 
     let model_path = PathBuf::from(model);
     if !model_path.exists() {
-        return Err(anyhow!(
-            "ONNX model not found at {}",
-            model_path.display()
-        ));
+        return Err(anyhow!("ONNX model not found at {}", model_path.display()));
     }
 
     let cfg = EmbeddingConfig {
@@ -142,8 +139,12 @@ pub async fn run(
         }
         offset = end;
         if offset % (batch * 10) == 0 || offset == tasks.len() {
-            println!("  {} / {} ({}s elapsed)",
-                offset, tasks.len(), start.elapsed().as_secs());
+            println!(
+                "  {} / {} ({}s elapsed)",
+                offset,
+                tasks.len(),
+                start.elapsed().as_secs()
+            );
         }
     }
     println!(

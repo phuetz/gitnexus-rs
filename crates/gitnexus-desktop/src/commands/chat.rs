@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter, State};
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_db::inmemory::fts::FtsIndex;
+use gitnexus_search::embeddings::{EmbeddingConfig, EmbeddingStore};
 
 use crate::state::AppState;
 use crate::types::{ChatConfig, ChatRequest, ChatResponse, ChatSource};
@@ -195,6 +196,7 @@ use gitnexus_core::llm::{
 };
 
 /// Execute an agent tool call against the knowledge graph or memory store.
+#[allow(clippy::too_many_arguments)]
 async fn execute_mcp_tool(
     name: &str,
     args: &str,
@@ -202,6 +204,8 @@ async fn execute_mcp_tool(
     graph: &KnowledgeGraph,
     indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     fts_index: &FtsIndex,
+    embeddings: Option<&EmbeddingStore>,
+    embeddings_config: Option<&EmbeddingConfig>,
 ) -> String {
     let parsed = serde_json::from_str::<serde_json::Value>(args).unwrap_or_default();
 
@@ -215,7 +219,8 @@ async fn execute_mcp_tool(
             if query.is_empty() {
                 return "Error: missing required parameter 'query'".to_string();
             }
-            let results = search_relevant_context(query, graph, fts_index, 8);
+            let results =
+                search_relevant_context(query, graph, fts_index, 8, embeddings, embeddings_config);
             let sources = build_sources(&results, graph, repo_path);
             if sources.is_empty() {
                 return format!("No results found for '{}'.", query);
@@ -650,15 +655,27 @@ pub async fn chat_ask(
 ) -> Result<ChatResponse, String> {
     let config = load_config(&state).await;
 
-    // 1. Get the active repo's graph and FTS index
-    let (graph, indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
+    // 1. Get the active repo's graph, FTS index, and (optionally) embeddings
+    //    for hybrid search. Embeddings are loaded once at open_repo time and
+    //    cached in LoadedRepo, so this is a cheap Arc clone.
+    let (graph, indexes, fts_index, embeddings, embeddings_config, repo_path_str) =
+        state.get_repo_with_embeddings(None).await?;
     let repo_path = PathBuf::from(&repo_path_str);
+    let emb_ref = embeddings.as_deref();
+    let emb_cfg_ref = embeddings_config.as_deref();
 
     // 2. Classify the question → determines canvas + pre-fetch strategy
     let question_type = classify_question(&request.question);
 
-    // 3. Search for relevant symbols
-    let search_results = search_relevant_context(&request.question, &graph, &fts_index, 10);
+    // 3. Search for relevant symbols (hybrid BM25+semantic when embeddings exist)
+    let search_results = search_relevant_context(
+        &request.question,
+        &graph,
+        &fts_index,
+        10,
+        emb_ref,
+        emb_cfg_ref,
+    );
 
     // 4. Read code snippets for top results
     let sources = build_sources(&search_results, &graph, &repo_path);
@@ -675,6 +692,8 @@ pub async fn chat_ask(
         &indexes,
         &fts_index,
         &repo_path,
+        emb_ref,
+        emb_cfg_ref,
     )
     .await;
 
@@ -896,8 +915,8 @@ pub async fn chat_ask(
     // Vary iteration budget by question type — Lookup rarely needs more than 2;
     // Algorithm/Architecture need up to 8 to fully trace call chains.
     let max_iterations: usize = match question_type {
-        QuestionType::Lookup   => 2,
-        QuestionType::Impact   => 3,
+        QuestionType::Lookup => 2,
+        QuestionType::Impact => 3,
         QuestionType::Functional => 5,
         QuestionType::Algorithm | QuestionType::Architecture => 8,
     };
@@ -1045,6 +1064,8 @@ pub async fn chat_ask(
                     &graph,
                     &indexes,
                     &fts_index,
+                    emb_ref,
+                    emb_cfg_ref,
                 )
                 .await;
                 let _ = app.emit("tool_execution_end", "search_code".to_string());
@@ -1097,6 +1118,8 @@ pub async fn chat_ask(
                 &graph,
                 &indexes,
                 &fts_index,
+                emb_ref,
+                emb_cfg_ref,
             )
             .await;
             let _ = app.emit("tool_execution_end", tc.name.clone());
@@ -1448,7 +1471,8 @@ pub async fn chat_retry_tool(
     state: State<'_, AppState>,
     request: ChatToolRetryRequest,
 ) -> Result<ChatToolRetryResult, String> {
-    let (graph, indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
+    let (graph, indexes, fts_index, embeddings, embeddings_config, repo_path_str) =
+        state.get_repo_with_embeddings(None).await?;
     let repo_path = PathBuf::from(&repo_path_str);
 
     // Pick the arg source in order: new_args overrides prior_args;
@@ -1479,6 +1503,8 @@ pub async fn chat_retry_tool(
         &graph,
         &indexes,
         &fts_index,
+        embeddings.as_deref(),
+        embeddings_config.as_deref(),
     )
     .await;
     let duration_ms = start.elapsed().as_millis() as u64;
@@ -1518,29 +1544,95 @@ pub async fn call_llm_pub(
     call_llm(config, messages).await
 }
 
-/// Public search function for the executor module.
+/// Public search function for the executor module (BM25-only path).
 pub fn search_relevant_context_pub(
     query: &str,
     graph: &KnowledgeGraph,
     fts_index: &FtsIndex,
     max_results: usize,
 ) -> Vec<(String, f64)> {
-    search_relevant_context(query, graph, fts_index, max_results)
+    search_relevant_context(query, graph, fts_index, max_results, None, None)
 }
 
 // ─── Context Assembly ────────────────────────────────────────────────
 
-/// Search for symbols relevant to the question using FTS + graph traversal.
+/// Search for symbols relevant to the question.
+///
+/// When `embeddings` and `embeddings_config` are both `Some`, fuses BM25 with
+/// semantic cosine top-K via Reciprocal Rank Fusion (K=60). When either is
+/// `None` — the common case for repos that haven't run `gitnexus embed` —
+/// degrades silently to BM25 + exact name match (the historical behaviour).
 fn search_relevant_context(
     query: &str,
     graph: &KnowledgeGraph,
     fts_index: &FtsIndex,
     max_results: usize,
+    embeddings: Option<&EmbeddingStore>,
+    embeddings_config: Option<&EmbeddingConfig>,
 ) -> Vec<(String, f64)> {
-    // BM25 full-text search
-    let fts_results = fts_index.search(graph, query, None, max_results * 2);
+    // Pull a wider BM25 pool when fusing — RRF reorders the top-K, so giving
+    // it more candidates than `max_results` lets a strong semantic match
+    // promote a BM25-rank-15 result past a BM25-rank-3 mediocre one.
+    let bm25_pool = if embeddings.is_some() && embeddings_config.is_some() {
+        max_results.max(20)
+    } else {
+        max_results * 2
+    };
+    let fts_results = fts_index.search(graph, query, None, bm25_pool);
 
-    // Deduplicate and score
+    // Hybrid path: fuse BM25 with semantic via RRF. On any failure (model
+    // missing, query embedding all-zeros, malformed store) we drop back to
+    // BM25-only — semantic search is a quality lift, not a correctness gate.
+    if let (Some(store), Some(cfg)) = (embeddings, embeddings_config) {
+        let bm25_wrapped: Vec<gitnexus_search::bm25::BM25SearchResult> = fts_results
+            .iter()
+            .enumerate()
+            .map(|(i, r)| gitnexus_search::bm25::BM25SearchResult {
+                file_path: r.file_path.clone(),
+                score: r.score,
+                rank: i + 1,
+                node_id: r.node_id.clone(),
+                name: r.name.clone(),
+                label: r.label.clone(),
+                start_line: r.start_line,
+                end_line: r.end_line,
+            })
+            .collect();
+
+        match gitnexus_search::fusion::hybrid_with_preloaded(
+            query,
+            &bm25_wrapped,
+            &store.entries,
+            cfg,
+            graph,
+            max_results,
+        ) {
+            Ok(fused) => {
+                let mut seen = std::collections::HashSet::new();
+                let mut results: Vec<(String, f64)> = Vec::new();
+                for h in fused {
+                    if seen.insert(h.node_id.clone()) {
+                        results.push((h.node_id, h.score));
+                    }
+                }
+                if !results.is_empty() {
+                    results.truncate(max_results);
+                    return results;
+                }
+                // Empty fused list (unlikely but possible if both paths returned
+                // nothing) — fall through to the BM25 path below so the exact
+                // name match still gets a chance.
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "hybrid search failed — falling back to BM25-only for this query"
+                );
+            }
+        }
+    }
+
+    // BM25 + exact name match fallback (historical path).
     let mut seen = std::collections::HashSet::new();
     let mut results: Vec<(String, f64)> = Vec::new();
 
@@ -1558,7 +1650,7 @@ fn search_relevant_context(
         if node.properties.name.to_lowercase().contains(&query_lower)
             && seen.insert(node.id.clone())
         {
-            let score = 1.0 * gitnexus_db::inmemory::fts::path_weight(&node.properties.file_path);
+            let score = gitnexus_db::inmemory::fts::path_weight(&node.properties.file_path);
             results.push((node.id.clone(), score));
         }
     }
@@ -1971,13 +2063,16 @@ fn collect_prefetch_method_names(
         if let Some(callees) = indexes.outgoing.get(&method_id) {
             // BUG FIX: filter BEFORE take — otherwise non-Calls edges consume the
             // 4-slot budget and real Calls edges beyond slot 4 are silently dropped.
-            for (callee_id, _rel_type) in callees.iter()
-                .filter(|(_, rel)| matches!(
-                    rel,
-                    RelationshipType::Calls
-                        | RelationshipType::CallsAction
-                        | RelationshipType::CallsService
-                ))
+            for (callee_id, _rel_type) in callees
+                .iter()
+                .filter(|(_, rel)| {
+                    matches!(
+                        rel,
+                        RelationshipType::Calls
+                            | RelationshipType::CallsAction
+                            | RelationshipType::CallsService
+                    )
+                })
                 .take(4)
             {
                 push_prefetch_method_name(callee_id, graph, &mut names, &mut seen_names);
@@ -2038,6 +2133,7 @@ fn is_prefetch_method_label(label: NodeLabel) -> bool {
 
 /// Pre-fetch tool results for the detected question type.
 /// Returns a formatted string injected as additional system context.
+#[allow(clippy::too_many_arguments)]
 async fn prefetch_for_type(
     qt: QuestionType,
     question: &str,
@@ -2046,6 +2142,8 @@ async fn prefetch_for_type(
     indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     fts_index: &gitnexus_db::inmemory::fts::FtsIndex,
     repo_path: &std::path::Path,
+    embeddings: Option<&EmbeddingStore>,
+    embeddings_config: Option<&EmbeddingConfig>,
 ) -> String {
     let mut pre = String::new();
 
@@ -2084,6 +2182,8 @@ async fn prefetch_for_type(
             graph,
             indexes,
             fts_index,
+            embeddings,
+            embeddings_config,
         )
         .await;
         if doc_result.len() > 50 && !doc_result.contains("[]") {
@@ -2114,6 +2214,8 @@ async fn prefetch_for_type(
                         graph,
                         indexes,
                         fts_index,
+                        embeddings,
+                        embeddings_config,
                     )
                     .await;
                     if process_flow.len() > 50
@@ -2136,6 +2238,8 @@ async fn prefetch_for_type(
                     graph,
                     indexes,
                     fts_index,
+                    embeddings,
+                    embeddings_config,
                 )
                 .await;
                 if ctx.len() > 50 {
@@ -2152,6 +2256,8 @@ async fn prefetch_for_type(
                         graph,
                         indexes,
                         fts_index,
+                        embeddings,
+                        embeddings_config,
                     )
                     .await;
                     if diag.len() > 30 {
@@ -2205,6 +2311,8 @@ async fn prefetch_for_type(
                 graph,
                 indexes,
                 fts_index,
+                embeddings,
+                embeddings_config,
             )
             .await;
             if communities.len() > 30 {
@@ -2221,6 +2329,8 @@ async fn prefetch_for_type(
                     graph,
                     indexes,
                     fts_index,
+                    embeddings,
+                    embeddings_config,
                 )
                 .await;
                 if diag.len() > 30 {
@@ -2232,9 +2342,17 @@ async fn prefetch_for_type(
         }
         QuestionType::Impact => {
             if !top_symbol_name.is_empty() {
-                let impact = execute_mcp_tool("get_impact",
+                let impact = execute_mcp_tool(
+                    "get_impact",
                     &serde_json::json!({"target": top_symbol_name, "direction": "both", "max_depth": 4}).to_string(),
-                    repo_path, graph, indexes, fts_index).await;
+                    repo_path,
+                    graph,
+                    indexes,
+                    fts_index,
+                    embeddings,
+                    embeddings_config,
+                )
+                .await;
                 if impact.len() > 50 {
                     pre.push_str("## Blast radius pré-chargé\n\n");
                     pre.push_str(&impact);
@@ -2335,8 +2453,16 @@ fn strip_symbol_suffix(name: &str) -> Option<String> {
     // BUG FIX: aligned with has_symbol_suffix — was missing 8 suffixes
     // (provider, context, dbcontext, viewmodel, helper, factory + 2 more)
     for suffix in [
-        "controller", "service", "manager", "repository",
-        "provider", "context", "dbcontext", "viewmodel", "helper", "factory",
+        "controller",
+        "service",
+        "manager",
+        "repository",
+        "provider",
+        "context",
+        "dbcontext",
+        "viewmodel",
+        "helper",
+        "factory",
     ] {
         if let Some(base) = name.strip_suffix(suffix) {
             if !base.is_empty() {

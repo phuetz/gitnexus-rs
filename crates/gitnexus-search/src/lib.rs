@@ -1,5 +1,6 @@
 pub mod bm25;
 pub mod embeddings;
+pub mod fusion;
 pub mod hybrid;
 pub mod reranker;
 

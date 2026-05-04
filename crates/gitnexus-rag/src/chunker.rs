@@ -162,9 +162,7 @@ fn split_oversized(body: &str, max_bytes: usize) -> Vec<String> {
     let mut current = String::new();
     for paragraph in body.split("\n\n") {
         let separator_len = if current.is_empty() { 0 } else { 2 };
-        if !current.is_empty()
-            && current.len() + separator_len + paragraph.len() > max_bytes
-        {
+        if !current.is_empty() && current.len() + separator_len + paragraph.len() > max_bytes {
             out.push(current.trim().to_string());
             current.clear();
         }
@@ -241,13 +239,20 @@ Here are the details.
         // Build a section whose body comfortably exceeds MAX_CHUNK_BYTES.
         // Each paragraph is ~2 KB; we generate 5 of them = ~10 KB total.
         let para = "lorem ipsum dolor sit amet ".repeat(80); // ~2 200 bytes
-        let body = (0..5).map(|_| para.clone()).collect::<Vec<_>>().join("\n\n");
+        let body = (0..5)
+            .map(|_| para.clone())
+            .collect::<Vec<_>>()
+            .join("\n\n");
         let md = format!("# Big Section\n\n{}", body);
 
         let chunks = chunk_markdown("test.md", &md).unwrap();
 
         // Should have produced several chunks, each ≤ MAX_CHUNK_BYTES.
-        assert!(chunks.len() > 1, "expected multi-part split, got {}", chunks.len());
+        assert!(
+            chunks.len() > 1,
+            "expected multi-part split, got {}",
+            chunks.len()
+        );
         for c in &chunks {
             assert!(
                 c.content.len() <= MAX_CHUNK_BYTES,
@@ -257,8 +262,16 @@ Here are the details.
             );
         }
         // Titles should be annotated as parts so embeddings can distinguish them.
-        assert!(chunks[0].title.contains("(part 1/"), "got: {}", chunks[0].title);
-        assert!(chunks.last().unwrap().title.contains(&format!("/{})", chunks.len())));
+        assert!(
+            chunks[0].title.contains("(part 1/"),
+            "got: {}",
+            chunks[0].title
+        );
+        assert!(chunks
+            .last()
+            .unwrap()
+            .title
+            .contains(&format!("/{})", chunks.len())));
     }
 
     #[test]

@@ -586,6 +586,186 @@ async fn execute_mcp_tool(
             read_full_method(symbol, graph, repo_path).await
         }
 
+        // ── list_sfd_pages ───────────────────────────────────────
+        // Doc-SFD workflow (P1.1): the chat needs to know which pages exist
+        // before it can write into one. Walks `.gitnexus/docs/modules/` and
+        // also surfaces drafts under `.gitnexus/docs/_drafts/` so the LLM
+        // sees in-progress work it might want to extend.
+        "list_sfd_pages" => {
+            let docs_dir = repo_path.join(".gitnexus").join("docs");
+            if !docs_dir.exists() {
+                return format!(
+                    "No docs directory at {} — run `gitnexus generate docs` first.",
+                    docs_dir.display()
+                );
+            }
+            let mut pages: Vec<String> = Vec::new();
+            let mut drafts: Vec<String> = Vec::new();
+            let modules_dir = docs_dir.join("modules");
+            if modules_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&modules_dir) {
+                    for e in entries.flatten() {
+                        let p = e.path();
+                        if p.extension().and_then(|x| x.to_str()) == Some("md") {
+                            if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                                pages.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            let drafts_dir = docs_dir.join("_drafts");
+            if drafts_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&drafts_dir) {
+                    for e in entries.flatten() {
+                        let p = e.path();
+                        if p.extension().and_then(|x| x.to_str()) == Some("md") {
+                            if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                                drafts.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            pages.sort();
+            drafts.sort();
+            let mut out = format!("Found {} module page(s):\n", pages.len());
+            for p in &pages {
+                out.push_str(&format!("- {}\n", p));
+            }
+            if !drafts.is_empty() {
+                out.push_str(&format!("\n{} draft(s) in _drafts/:\n", drafts.len()));
+                for d in &drafts {
+                    out.push_str(&format!("- {} (draft)\n", d));
+                }
+            }
+            out
+        }
+
+        // ── write_sfd_draft ──────────────────────────────────────
+        // Writes Markdown into `.gitnexus/docs/_drafts/<page>` — never into
+        // the live `modules/` tree. The user keeps control over promotion: a
+        // bad LLM run loses a draft, not the 137 enriched production pages.
+        "write_sfd_draft" => {
+            let page = match parsed.get("page").and_then(|p| p.as_str()) {
+                Some(p) => p.trim(),
+                None => return "Error: missing required parameter 'page'".to_string(),
+            };
+            let content = match parsed.get("content").and_then(|c| c.as_str()) {
+                Some(c) => c,
+                None => return "Error: missing required parameter 'content'".to_string(),
+            };
+            // Reject path traversal — drafts must land in the drafts dir,
+            // not anywhere on disk via `../../../etc/passwd`.
+            if page.contains("..")
+                || page.contains('\\')
+                || page.starts_with('/')
+                || page.is_empty()
+            {
+                return format!(
+                    "Error: invalid page name '{}' (no '..', '\\', leading '/', or empty)",
+                    page
+                );
+            }
+            let drafts_dir = repo_path.join(".gitnexus").join("docs").join("_drafts");
+            if let Err(e) = std::fs::create_dir_all(&drafts_dir) {
+                return format!("Error: could not create drafts dir: {}", e);
+            }
+            let target = drafts_dir.join(page);
+            // Atomic write (.tmp → rename) so a partial flush doesn't leave
+            // a half-written .md the validator might choke on.
+            let tmp = target.with_extension("md.tmp");
+            if let Err(e) = std::fs::write(&tmp, content) {
+                return format!("Error: write failed for {}: {}", target.display(), e);
+            }
+            if let Err(e) = std::fs::rename(&tmp, &target) {
+                return format!("Error: atomic rename failed: {}", e);
+            }
+            format!(
+                "Draft written: {} ({} bytes). Call `validate_sfd` with `path: \"_drafts\"` \
+                 to lint it before promotion.",
+                target.display(),
+                content.len()
+            )
+        }
+
+        // ── validate_sfd ─────────────────────────────────────────
+        // Run the validator against the docs tree (or a sub-path like
+        // `_drafts/`) and return the structured RED/GREEN report. The chat
+        // can render this directly; promotion to live docs stays a deliberate
+        // user action outside the agent loop.
+        "validate_sfd" => {
+            let sub_path = parsed.get("path").and_then(|p| p.as_str()).unwrap_or("");
+            let docs_dir = if sub_path.is_empty() {
+                repo_path.join(".gitnexus").join("docs")
+            } else if sub_path.contains("..") || sub_path.starts_with('/') {
+                return format!(
+                    "Error: invalid path '{}' (no '..' or absolute paths)",
+                    sub_path
+                );
+            } else {
+                repo_path.join(".gitnexus").join("docs").join(sub_path)
+            };
+            match gitnexus_rag::validator::validate(&docs_dir, &repo_path.display().to_string()) {
+                Ok(report) => {
+                    let status = if report.red_count == 0 && report.yellow_count == 0 {
+                        "GREEN — ready to ship"
+                    } else if report.red_count == 0 {
+                        "YELLOW — ships but has style issues"
+                    } else {
+                        "RED — blocked, must fix"
+                    };
+                    let mut out = format!(
+                        "**Validation: {}**\n\n\
+                         - {} pages scanned, {} with issues\n\
+                         - {} RED issues, {} YELLOW issues\n",
+                        status,
+                        report.total_pages,
+                        report.pages_with_issues,
+                        report.red_count,
+                        report.yellow_count,
+                    );
+                    if !report.by_kind.is_empty() {
+                        out.push_str("\n**Issue kinds:**\n");
+                        for (kind, count) in &report.by_kind {
+                            out.push_str(&format!("- {}: {}\n", kind, count));
+                        }
+                    }
+                    if !report.pages.is_empty() {
+                        out.push_str("\n**Top pages with issues:**\n");
+                        let mut sorted = report.pages.clone();
+                        sorted.sort_by(|a, b| b.issues.len().cmp(&a.issues.len()));
+                        for page in sorted.iter().take(5) {
+                            out.push_str(&format!(
+                                "\n*{}* — {} issue(s):\n",
+                                page.path,
+                                page.issues.len()
+                            ));
+                            for iss in page.issues.iter().take(3) {
+                                let sev = match iss.severity {
+                                    gitnexus_rag::validator::Severity::Red => "RED",
+                                    gitnexus_rag::validator::Severity::Yellow => "YELLOW",
+                                };
+                                let line = iss
+                                    .line
+                                    .map(|n| format!("L{}", n))
+                                    .unwrap_or_else(|| "-".to_string());
+                                out.push_str(&format!(
+                                    "  - [{}] {} {}: {}\n",
+                                    sev, line, iss.kind, iss.detail
+                                ));
+                            }
+                            if page.issues.len() > 3 {
+                                out.push_str(&format!("  - ... +{} more\n", page.issues.len() - 3));
+                            }
+                        }
+                    }
+                    out
+                }
+                Err(e) => format!("Error: validation failed: {}", e),
+            }
+        }
+
         // ── recall_memory ────────────────────────────────────────
         // The LLM has `save_memory` but no way to query what's already there
         // — without this, persisted facts are write-only from its point of
@@ -1423,6 +1603,44 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
                 "properties": {
                     "query": { "type": "string", "description": "Keyword to match against saved facts. Empty string returns all." },
                     "scope": { "type": "string", "enum": ["global", "project", "all"], "description": "Which scope to search (default 'all')" }
+                }
+            }),
+        },
+        // ── Doc-SFD workflow (P1.1) ───────────────────────────────────
+        // Three tools that turn the chat into a write-side authoring loop
+        // for `.gitnexus/docs/`. Drafts live in `_drafts/` so a bad LLM run
+        // can't trash the 137 enriched production pages — promotion stays
+        // a user-driven action outside the agent loop.
+        ChatToolDescriptor {
+            name: "list_sfd_pages".to_string(),
+            description: "List Markdown pages under `.gitnexus/docs/modules/` and any in-progress drafts under `.gitnexus/docs/_drafts/`. Call this first to see what pages exist before writing.".to_string(),
+            category: "docs".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        },
+        ChatToolDescriptor {
+            name: "write_sfd_draft".to_string(),
+            description: "Write Markdown content to `.gitnexus/docs/_drafts/<page>`. The full SFD section text the LLM has composed goes in `content` — do not write code-side files. Drafts are atomic (tmp+rename) and never overwrite the live `modules/` tree.".to_string(),
+            category: "docs".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "page": { "type": "string", "description": "Filename only, e.g. 'aspnet-services.md' — no path components, no '..'" },
+                    "content": { "type": "string", "description": "Full Markdown body of the page (including all SFD sections — Besoin, Exigences, Modèle, §4 Algorithmes, Diagrammes)" }
+                },
+                "required": ["page", "content"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "validate_sfd".to_string(),
+            description: "Run the pre-delivery linter against the docs tree (or a sub-path like '_drafts'). Returns a structured RED/GREEN report listing residual TODOs, unfilled GNX:* anchors, broken links, short sections, and missing §4 Algorithmes on service/controller pages.".to_string(),
+            category: "docs".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Optional sub-path under `.gitnexus/docs/` (e.g. '_drafts' or 'modules'). Omit to validate the entire docs tree." }
                 }
             }),
         },

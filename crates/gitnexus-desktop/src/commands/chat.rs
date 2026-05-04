@@ -1949,6 +1949,125 @@ fn search_relevant_context(
     results
 }
 
+// ─── DocChunk RAG (P0.3) ─────────────────────────────────────────────
+
+/// Maximum DocChunks to surface in the prefetch block. Three is the sweet
+/// spot per audit testing on Alise_v2 (137 enriched pages): four+ starts
+/// diluting the LLM's attention without bringing new information.
+const DOC_CHUNK_TOP_N: usize = 3;
+
+/// Truncate each chunk's content to keep the prefetch payload bounded. Whole
+/// pages can be 5-10KB; the LLM only needs an excerpt to decide whether the
+/// chunk is actually relevant or a false positive.
+const DOC_CHUNK_EXCERPT_BYTES: usize = 600;
+
+/// Hybrid BM25+semantic search over DocChunk nodes. Reuses the same RRF
+/// fusion as `search_relevant_context` then filters down to the doc nodes,
+/// so a question phrased differently from the chunk title still finds the
+/// chunk via embedding similarity (the original CONTAINS-on-first-keyword
+/// approach missed those entirely).
+fn prefetch_doc_chunks_hybrid(
+    question: &str,
+    graph: &KnowledgeGraph,
+    fts_index: &FtsIndex,
+    embeddings: Option<&EmbeddingStore>,
+    embeddings_config: Option<&EmbeddingConfig>,
+) -> Option<String> {
+    // Pull a wider pool than needed — RRF + filter-by-label means many of the
+    // top hits are probably code symbols, not chunks.
+    const POOL: usize = 25;
+    let hits = search_relevant_context(
+        question,
+        graph,
+        fts_index,
+        POOL,
+        embeddings,
+        embeddings_config,
+    );
+
+    let mut chunks: Vec<(String, String)> = Vec::new();
+    for (node_id, _score) in hits {
+        let node = match graph.get_node(&node_id) {
+            Some(n) => n,
+            None => continue,
+        };
+        if node.label != NodeLabel::DocChunk {
+            continue;
+        }
+        let title = node
+            .properties
+            .title
+            .clone()
+            .or_else(|| Some(node.properties.name.clone()))
+            .unwrap_or_default();
+        let content = node.properties.content.clone().unwrap_or_default();
+        let excerpt = truncate_at_char_boundary(&content, DOC_CHUNK_EXCERPT_BYTES);
+        chunks.push((title, excerpt));
+        if chunks.len() >= DOC_CHUNK_TOP_N {
+            break;
+        }
+    }
+
+    if chunks.is_empty() {
+        return None;
+    }
+
+    let mut out = String::with_capacity(chunks.len() * (DOC_CHUNK_EXCERPT_BYTES + 100));
+    for (i, (title, excerpt)) in chunks.iter().enumerate() {
+        out.push_str(&format!("**{}. {}**\n\n", i + 1, title));
+        out.push_str("> ");
+        out.push_str(&excerpt.replace('\n', "\n> "));
+        out.push_str("\n\n");
+    }
+    Some(out)
+}
+
+/// Lexical fallback when no embeddings are available — runs the original
+/// Cypher CONTAINS on the first sufficiently-long keyword.
+async fn prefetch_doc_chunks_lexical(
+    question: &str,
+    graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
+    fts_index: &FtsIndex,
+    repo_path: &Path,
+) -> Option<String> {
+    let kw = question.split_whitespace().find(|w| w.len() >= 5)?;
+    let cypher = format!(
+        "MATCH (n:DocChunk) WHERE n.content CONTAINS '{}' RETURN n.title, n.content LIMIT 3",
+        kw.replace('\'', "\\'")
+    );
+    let result = execute_mcp_tool(
+        "execute_cypher",
+        &serde_json::json!({"query": cypher}).to_string(),
+        repo_path,
+        graph,
+        indexes,
+        fts_index,
+        None,
+        None,
+        None,
+    )
+    .await;
+    if result.len() > 50 && !result.contains("[]") {
+        Some(result)
+    } else {
+        None
+    }
+}
+
+fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let mut out = s[..cut].to_string();
+    out.push_str(" […]");
+    out
+}
+
 // ─── Question Classification ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2443,35 +2562,22 @@ async fn prefetch_for_type(
         .map(|n| n.properties.name.clone())
         .unwrap_or_default();
 
-    // RAG DocChunk: always try to find relevant chunks
-    let keywords: Vec<&str> = question
-        .split_whitespace()
-        .filter(|w| w.len() >= 5)
-        .take(3)
-        .collect();
-    if !keywords.is_empty() {
-        let kw = &keywords[0];
-        let cypher = format!(
-            "MATCH (n:DocChunk) WHERE n.content CONTAINS '{}' RETURN n.title, n.content LIMIT 3",
-            kw.replace('\'', "\\'")
-        );
-        let doc_result = execute_mcp_tool(
-            "execute_cypher",
-            &serde_json::json!({"query": cypher}).to_string(),
-            repo_path,
-            graph,
-            indexes,
-            fts_index,
-            embeddings,
-            embeddings_config,
-            mcp_backend,
-        )
-        .await;
-        if doc_result.len() > 50 && !doc_result.contains("[]") {
-            pre.push_str("## Documentation RAG (DocChunk)\n\n");
-            pre.push_str(&doc_result);
-            pre.push_str("\n\n");
-        }
+    // RAG DocChunk retrieval. When embeddings are loaded, use hybrid
+    // BM25+semantic on the full question and keep only DocChunk hits — that
+    // surfaces the most semantically relevant chunks (e.g. a question about
+    // "fusion Indu/Compta" finds the matching SFD section even if the chunk
+    // doesn't share keywords with the question). Falls back to BM25-on-first-
+    // keyword via Cypher CONTAINS when no embeddings are available, which is
+    // the historical behaviour and good enough for keyword-style queries.
+    let chunk_block = if embeddings.is_some() && embeddings_config.is_some() {
+        prefetch_doc_chunks_hybrid(question, graph, fts_index, embeddings, embeddings_config)
+    } else {
+        prefetch_doc_chunks_lexical(question, graph, indexes, fts_index, repo_path).await
+    };
+    if let Some(block) = chunk_block {
+        pre.push_str("## Documentation RAG (DocChunk)\n\n");
+        pre.push_str(&block);
+        pre.push_str("\n\n");
     }
 
     match qt {

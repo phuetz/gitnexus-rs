@@ -873,161 +873,18 @@ pub async fn chat_ask(
         config.reasoning_effort.clone(),
     )?;
 
-    // Define mock tools for the agent
-    let tools = vec![
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "search_code".to_string(),
-                description: "Search the codebase for symbols, functions, classes, or patterns. Returns matching symbols with code snippets.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Search query (symbol name, keyword, or pattern)" }
-                    },
-                    "required": ["query"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "read_file".to_string(),
-                description: "Read source code from a file in the repository. Use when you need to see the actual implementation of a symbol.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Relative file path (e.g. 'src/main.rs')" },
-                        "start_line": { "type": "number", "description": "Start line (1-based, optional)" },
-                        "end_line": { "type": "number", "description": "End line (optional, max 50 lines)" }
-                    },
-                    "required": ["path"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "get_impact".to_string(),
-                description: "Blast radius analysis: find all symbols affected if a given symbol changes. Uses BFS on causal edges (Calls, Imports, Inherits, etc.).".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "target": { "type": "string", "description": "Symbol name or node ID to analyze" },
-                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "description": "Direction of impact (default: both)" },
-                        "max_depth": { "type": "number", "description": "Max BFS depth (default: 3)" }
-                    },
-                    "required": ["target"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "get_symbol_context".to_string(),
-                description: "360-degree context for a symbol: callers, callees, imports, inheritance, and module membership.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "symbol": { "type": "string", "description": "Symbol name or node ID" }
-                    },
-                    "required": ["symbol"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "execute_cypher".to_string(),
-                description: "Execute a read-only Cypher query against the knowledge graph. Only MATCH and CALL statements are allowed.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Cypher query (e.g. MATCH (n:Class) RETURN n.name LIMIT 10)" }
-                    },
-                    "required": ["query"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "search_processes".to_string(),
-                description: "Search business process flows in the graph. Use when the question involves a workflow, business process, or multi-step operation.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Search query (process name or keyword)" }
-                    },
-                    "required": ["query"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "get_process_flow".to_string(),
-                description: "Find business Process nodes matching a keyword and return their name, description, and step count.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "keyword": { "type": "string", "description": "Business process or module keyword (e.g. Courrier, Dossier)" }
-                    },
-                    "required": ["keyword"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "get_diagram".to_string(),
-                description: "Generate a Mermaid flowchart, sequence, or class diagram for a class/controller/service.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "target": { "type": "string", "description": "Symbol name (class, controller, service, or method)" },
-                        "diagram_type": {
-                            "type": "string",
-                            "enum": ["flowchart", "sequence", "class"],
-                            "description": "Diagram style. Defaults to flowchart."
-                        }
-                    },
-                    "required": ["target"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "read_method".to_string(),
-                description: "Read the COMPLETE source code of a method or function (up to 250 lines, no truncation). \
-                              Use this for ALGORITHM questions where you need to see the full if/else/loop/switch structure. \
-                              Prefer this over read_file when you need a specific method body.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "symbol": { "type": "string", "description": "Exact method or function name (case-insensitive)" }
-                    },
-                    "required": ["symbol"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "save_memory".to_string(),
-                description: "Persist a fact or preference across ALL future sessions. Use 'global' for cross-project preferences, 'project' for workspace-specific facts.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "fact": { "type": "string", "description": "The fact to remember" },
-                        "scope": { "type": "string", "enum": ["global", "project"], "description": "Scope of the memory" }
-                    },
-                    "required": ["fact", "scope"]
-                }),
-            }
-        },
-    ];
+    // Send the LLM the *full* tool catalogue (10 historical + recall_memory +
+    // 17 extended MCP tools). Previously this list only carried the original
+    // ten — adding descriptors via `build_tool_descriptors()` made them visible
+    // in the UI but NOT in the function-calling schema, so the LLM could see
+    // them in the panel and still couldn't call them. Derive from the same
+    // source of truth used by the UI to keep the two views in sync.
+    //
+    // TODO: also pass `tool_choice: "required"` on the first iteration once
+    // `LlmProvider::stream_completion` accepts a request struct — today the
+    // anti-stall heuristic at L1117+ catches "I'll search…" announcements as
+    // a fallback, but `tool_choice` would let the API enforce it server-side.
+    let tools: Vec<ToolDefinition> = descriptors_to_llm_tools(&build_tool_descriptors());
 
     let mut final_answer = String::new();
     let mut iteration = 0;
@@ -1391,6 +1248,36 @@ pub struct ChatToolDescriptor {
     /// JSON Schema (draft-07 shape) describing the expected args. Kept in
     /// sync with the `ToolDefinition` blocks built in `chat_ask`.
     pub parameters: serde_json::Value,
+}
+
+/// Convert chat tool descriptors (the UI-facing list) into the OpenAI-style
+/// `ToolDefinition` array the agent loop sends to the LLM. Single source of
+/// truth: keep both views derived from `build_tool_descriptors()` so adding
+/// a tool is one edit, not three.
+///
+/// Also stamps `additionalProperties: false` on every schema so the API
+/// rejects args the LLM hallucinates that we don't accept — a quiet source
+/// of "the model called the tool with `{since: 30}` but the backend silently
+/// substituted the default 90" bugs.
+fn descriptors_to_llm_tools(descriptors: &[ChatToolDescriptor]) -> Vec<ToolDefinition> {
+    descriptors
+        .iter()
+        .map(|d| {
+            let mut params = d.parameters.clone();
+            if let Some(obj) = params.as_object_mut() {
+                obj.entry("additionalProperties")
+                    .or_insert(serde_json::Value::Bool(false));
+            }
+            ToolDefinition {
+                type_: "function".to_string(),
+                function: FunctionDefinition {
+                    name: d.name.clone(),
+                    description: d.description.clone(),
+                    parameters: params,
+                },
+            }
+        })
+        .collect()
 }
 
 fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
@@ -3498,9 +3385,14 @@ fn build_system_prompt(
            Do NOT reformulate — authenticity matters.\n\
          - **Cross-reference**: for non-trivial questions, back your answer with TWO of the \
            three sources (e.g. graph structure + source code, or source code + functional doc).\n\
-         - **No announcements**: if you intend to call a tool, call it in this same response. \
-           Don't write *\"Je vais rechercher…\"* / *\"I'll search…\"* without emitting the tool \
-           call — the runtime cannot wait for a subsequent turn.\n\
+         - **No announcements (HARD RULE)**: when you need information, you MUST emit the \
+           tool call in the same turn — never describe what you would search for in plain text \
+           and stop. There is no \"next turn for the planning\" — the runtime treats text-only \
+           replies as final. Stalling phrases that trigger an automatic fallback search and waste \
+           one of your iteration budget slots: *\"Je vais rechercher…\"*, *\"I'll search…\"*, \
+           *\"Pour commencer\"*, *\"Let me check\"*, *\"First, I'll…\"*. If you absolutely cannot \
+           proceed without something the user can supply (an ambiguous symbol name, a missing \
+           file path), ask one focused question — but never narrate intent without acting.\n\
          - **Algorithms, not summaries** (CRITICAL): when asked *\"comment ça marche ?\"* / \
            *\"comment X est calculé ?\"* / any process / treatment / computation question, \
            you MUST describe the **actual algorithm**, not a high-level narrative. This means:\n\

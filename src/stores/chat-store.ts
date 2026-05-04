@@ -6,6 +6,7 @@ interface ChatState {
   sessions: Session[];
   currentSessionId: string | null;
   isStreaming: boolean;
+  selectedRepo: string | null;
 
   createSession: (title?: string) => string;
   selectSession: (id: string) => void;
@@ -13,7 +14,9 @@ interface ChatState {
   renameSession: (id: string, title: string) => void;
 
   appendMessage: (sessionId: string, message: Message) => void;
+  updateMessage: (sessionId: string, messageId: string, content: string) => void;
   setStreaming: (streaming: boolean) => void;
+  setSelectedRepo: (repo: string | null) => void;
 
   getCurrentSession: () => Session | null;
 }
@@ -26,6 +29,7 @@ export const useChatStore = create<ChatState>()(
       sessions: [],
       currentSessionId: null,
       isStreaming: false,
+      selectedRepo: null,
 
       createSession: (title = 'Nouvelle conversation') => {
         const id = newId();
@@ -74,7 +78,23 @@ export const useChatStore = create<ChatState>()(
           ),
         })),
 
+      updateMessage: (sessionId, messageId, content) =>
+        set((s) => ({
+          sessions: s.sessions.map((sess) =>
+            sess.id === sessionId
+              ? {
+                  ...sess,
+                  messages: sess.messages.map((m) =>
+                    m.id === messageId ? { ...m, content } : m
+                  ),
+                  updatedAt: Date.now(),
+                }
+              : sess
+          ),
+        })),
+
       setStreaming: (streaming) => set({ isStreaming: streaming }),
+      setSelectedRepo: (repo) => set({ selectedRepo: repo }),
 
       getCurrentSession: () => {
         const { sessions, currentSessionId } = get();
@@ -83,7 +103,7 @@ export const useChatStore = create<ChatState>()(
     }),
     {
       name: 'gitnexus-chat-store',
-      version: 1,
+      version: 2,
     }
   )
 );

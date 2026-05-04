@@ -2,6 +2,7 @@ import { ChatSidebar } from './ChatSidebar';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { ProjectSelector } from './ProjectSelector';
+import { BackendStatus } from './BackendStatus';
 
 export function ChatPanel() {
   return (
@@ -14,7 +15,8 @@ export function ChatPanel() {
             <span className="mx-2 text-neutral-700">/</span>
             <span className="text-xs">V1</span>
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <BackendStatus />
             <ProjectSelector />
           </div>
         </header>

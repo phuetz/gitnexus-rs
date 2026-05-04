@@ -4,6 +4,15 @@ import clsx from 'clsx';
 import { mcpClient, type RepoInfo } from '../../api/mcp-client';
 import { useChatStore } from '../../stores/chat-store';
 
+function parseIndexedAt(raw: string | undefined): Date | null {
+  if (!raw) return null;
+  const iso = new Date(raw);
+  if (!isNaN(iso.getTime())) return iso;
+  const unix = parseInt(raw.replace(/Z$/, ''), 10);
+  if (!isNaN(unix) && unix > 1_000_000_000) return new Date(unix * 1000);
+  return null;
+}
+
 export function ProjectSelector() {
   const selectedRepo = useChatStore((s) => s.selectedRepo);
   const setSelectedRepo = useChatStore((s) => s.setSelectedRepo);
@@ -101,11 +110,14 @@ export function ProjectSelector() {
             >
               <div className="flex w-full items-center justify-between">
                 <span className="truncate font-medium">{repo.name}</span>
-                {repo.indexedAt && (
-                  <span className="ml-2 shrink-0 text-[10px] text-neutral-500">
-                    {new Date(repo.indexedAt).toLocaleDateString()}
-                  </span>
-                )}
+                {(() => {
+                  const d = parseIndexedAt(repo.indexedAt);
+                  return d ? (
+                    <span className="ml-2 shrink-0 text-[10px] text-neutral-500">
+                      {d.toLocaleDateString()}
+                    </span>
+                  ) : null;
+                })()}
               </div>
               {repo.path && (
                 <span className="truncate text-[11px] text-neutral-500">{repo.path}</span>

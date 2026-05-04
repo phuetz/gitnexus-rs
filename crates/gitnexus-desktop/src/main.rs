@@ -53,6 +53,7 @@ fn main() {
             commands::chat::list_chat_tools,
             commands::chat::chat_retry_tool,
             commands::chat::chat_cancel,
+            commands::chat::chat_search_capabilities,
             // Chat Intelligence (Planner & Executor)
             commands::chat_planner::chat_pick_files,
             commands::chat_planner::chat_pick_symbols,

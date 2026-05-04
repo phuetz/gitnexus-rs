@@ -224,6 +224,13 @@ export interface ChatConnectionTestResult {
 
 // ─── Chat agent tools (Theme B) ──────────────────────────────────────
 
+/** Whether the active repo's chat is running with embeddings or BM25-only. */
+export interface ChatSearchCapabilities {
+  embeddingsLoaded: boolean;
+  modelName?: string;
+  vectorCount?: number;
+}
+
 /** Descriptor for an agent/MCP tool surfaced to the chat UI. */
 export interface ChatToolDescriptor {
   name: string;
@@ -1098,6 +1105,8 @@ export const commands = {
     invoke<ChatToolRetryResult>("chat_retry_tool", { request }),
   chatCancel: () =>
     invoke<void>("chat_cancel"),
+  chatSearchCapabilities: () =>
+    invoke<ChatSearchCapabilities>("chat_search_capabilities"),
 
   // Chat Intelligence (Executor)
   chatExecuteStep: (planId: string, stepId: string) =>

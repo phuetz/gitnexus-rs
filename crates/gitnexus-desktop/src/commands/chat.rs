@@ -21,7 +21,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::state::AppState;
-use crate::types::{ChatConfig, ChatRequest, ChatResponse, ChatSource};
+use crate::types::{ChatConfig, ChatRequest, ChatResponse, ChatSearchCapabilities, ChatSource};
 
 // ─── LLM Configuration ──────────────────────────────────────────────
 
@@ -1685,6 +1685,24 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
 #[tauri::command]
 pub async fn list_chat_tools() -> Result<Vec<ChatToolDescriptor>, String> {
     Ok(build_tool_descriptors())
+}
+
+/// Report whether the active repo's chat is running with embeddings (hybrid
+/// BM25+semantic search) or in BM25-only fallback. The UI uses this to show
+/// an actionable banner — a degraded chat ought to look different from a
+/// healthy one, otherwise users keep typing into a worse-than-necessary
+/// experience without knowing why.
+#[tauri::command]
+pub async fn chat_search_capabilities(
+    state: State<'_, AppState>,
+) -> Result<ChatSearchCapabilities, String> {
+    let (_g, _i, _f, embeddings, embeddings_config, _path) =
+        state.get_repo_with_embeddings(None).await?;
+    Ok(ChatSearchCapabilities {
+        embeddings_loaded: embeddings.is_some() && embeddings_config.is_some(),
+        model_name: embeddings_config.as_ref().map(|c| c.model_name.clone()),
+        vector_count: embeddings.as_ref().map(|s| s.header.count),
+    })
 }
 
 /// Payload returned by `chat_retry_tool` — the UI merges the fields back

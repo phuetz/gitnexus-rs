@@ -372,6 +372,26 @@ impl Default for ChatConfig {
     }
 }
 
+/// Reports whether the active repo's chat path is running BM25-only or hybrid
+/// BM25+semantic search. Surfaced in the UI so users can run `gitnexus embed`
+/// when semantic ranking would help — without that hint, a degraded chat is
+/// indistinguishable from a fast one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSearchCapabilities {
+    /// True when `.gitnexus/embeddings.bin` was found and loaded for the
+    /// active repo. False means the chat falls back to BM25 + exact name.
+    pub embeddings_loaded: bool,
+    /// Embedding model name as recorded in `embeddings.meta.json`. Useful in
+    /// the UI to distinguish "loaded from MiniLM" vs "loaded from BGE-M3".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
+    /// Number of indexed vectors. Helps spot stale embeddings vs a freshly
+    /// re-indexed repo.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_count: Option<usize>,
+}
+
 // ─── Chat Intelligence (Planner & Executor) ─────────────────────────
 
 /// Query complexity classification.

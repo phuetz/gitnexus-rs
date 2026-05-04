@@ -62,6 +62,11 @@ pub struct AppState {
     /// LLM invokes a tool the chat hasn't custom-implemented. Wrapped in a
     /// Tokio Mutex because `LocalBackend::call_tool` takes `&mut self` for its
     /// internal snapshot/indexes/fts caches.
+    ///
+    /// TODO: share snapshot/indexes/fts caches with `LoadedRepo` to avoid
+    /// holding two copies of every loaded graph in RAM (~50-100MB extra per
+    /// repo on Alise-scale codebases). Not blocking — desktop has the budget —
+    /// but worth deduplicating before piling more state on `LocalBackend`.
     pub mcp_backend: Arc<Mutex<LocalBackend>>,
 }
 

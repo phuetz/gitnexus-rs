@@ -1520,7 +1520,7 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "limit": { "type": "number" }
+                    "target": { "type": "string", "description": "Optional class/service to scope to; omit for global stats" }
                 }
             }),
         },
@@ -1537,7 +1537,7 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "limit": { "type": "number" }
+                    "process": { "type": "string", "description": "Optional process name (e.g. 'paiements', 'courriers'); omit to list all" }
                 }
             }),
         },
@@ -1560,6 +1560,7 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
+                    "min_tokens": { "type": "number", "description": "Minimum window size in tokens (default 30)" },
                     "threshold": { "type": "number", "description": "Min Jaccard similarity (default 0.9)" },
                     "limit": { "type": "number" }
                 }
@@ -1572,7 +1573,7 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "kind": { "type": "string", "enum": ["TODO", "FIXME", "HACK", "XXX"] },
+                    "severity": { "type": "string", "enum": ["TODO", "FIXME", "HACK", "XXX"] },
                     "limit": { "type": "number" }
                 }
             }),
@@ -1584,6 +1585,7 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
+                    "threshold": { "type": "number", "description": "Only list symbols with complexity ≥ this (default 0)" },
                     "limit": { "type": "number" }
                 }
             }),
@@ -1595,7 +1597,8 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "framework": { "type": "string" },
+                    "method": { "type": "string", "description": "Filter by HTTP verb (GET/POST/...) — case-insensitive" },
+                    "pattern": { "type": "string", "description": "Substring filter on the route path (case-insensitive)" },
                     "limit": { "type": "number" }
                 }
             }),
@@ -1618,32 +1621,32 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "audit": { "type": "boolean", "description": "If true, surface declared-but-unused vars" }
+                    "unused_only": { "type": "boolean", "description": "If true, surface declared-but-unused vars" },
+                    "limit": { "type": "number" }
                 }
             }),
         },
         ChatToolDescriptor {
             name: "get_endpoint_handler".to_string(),
-            description: "Resolve an endpoint route to its handler method + degree-1 call neighborhood.".to_string(),
+            description: "Resolve an endpoint route + verb to its handler method + degree-1 call neighborhood.".to_string(),
             category: "inventory".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "route": { "type": "string" },
-                    "method": { "type": "string", "description": "GET/POST/…" }
+                    "route": { "type": "string", "description": "Route path as discovered by list_endpoints (e.g. '/api/users/:id')" },
+                    "method": { "type": "string", "description": "HTTP method (GET/POST/PUT/DELETE/PATCH)" }
                 },
-                "required": ["route"]
+                "required": ["route", "method"]
             }),
         },
         ChatToolDescriptor {
             name: "detect_changes".to_string(),
-            description: "Parse a git diff, run upstream BFS, classify risk (none/low/medium/high).".to_string(),
+            description: "Analyze the repo's uncommitted changes: map git-diff hunks to symbols, BFS upstream, classify risk (none/low/medium/high).".to_string(),
             category: "git".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "diff": { "type": "string", "description": "Unified diff text" },
-                    "since": { "type": "string", "description": "Git ref to diff against (e.g. 'HEAD~1', 'main')" }
+                    "max_upstream_depth": { "type": "number", "description": "BFS depth from changed symbols (default 3, max 10)" }
                 }
             }),
         },
@@ -1666,11 +1669,11 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "from": { "type": "string" },
-                    "to": { "type": "string" },
+                    "target": { "type": "string", "description": "Current symbol name or node ID" },
+                    "new_name": { "type": "string", "description": "Proposed new name" },
                     "dry_run": { "type": "boolean", "description": "Preview without writing (default true)" }
                 },
-                "required": ["from", "to"]
+                "required": ["target", "new_name"]
             }),
         },
     ]

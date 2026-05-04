@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, FolderOpen, RefreshCw, AlertCircle } from 'lucide-react';
 import clsx from 'clsx';
 import { mcpClient, type RepoInfo } from '../../api/mcp-client';
@@ -12,7 +12,7 @@ export function ProjectSelector() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
-  const fetchRepos = async () => {
+  const fetchRepos = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -27,12 +27,13 @@ export function ProjectSelector() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedRepo, setSelectedRepo]);
 
   useEffect(() => {
+    // Initial fetch on mount — sync setState here is intentional (boot data load).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchRepos();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchRepos]);
 
   const label = selectedRepo ?? (loading ? 'Chargement…' : 'Aucun projet');
 

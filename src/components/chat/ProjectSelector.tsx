@@ -3,15 +3,7 @@ import { ChevronDown, FolderOpen, RefreshCw, AlertCircle } from 'lucide-react';
 import clsx from 'clsx';
 import { mcpClient, type RepoInfo } from '../../api/mcp-client';
 import { useChatStore } from '../../stores/chat-store';
-
-function parseIndexedAt(raw: string | undefined): Date | null {
-  if (!raw) return null;
-  const iso = new Date(raw);
-  if (!isNaN(iso.getTime())) return iso;
-  const unix = parseInt(raw.replace(/Z$/, ''), 10);
-  if (!isNaN(unix) && unix > 1_000_000_000) return new Date(unix * 1000);
-  return null;
-}
+import { parseIndexedAt } from '../../utils/dates';
 
 export function ProjectSelector() {
   const selectedRepo = useChatStore((s) => s.selectedRepo);
@@ -47,7 +39,12 @@ export function ProjectSelector() {
   const label = selectedRepo ?? (loading ? 'Chargement…' : 'Aucun projet');
 
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && open) setOpen(false);
+      }}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

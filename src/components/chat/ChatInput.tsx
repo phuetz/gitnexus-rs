@@ -24,6 +24,8 @@ export function ChatInput() {
     if (!value.trim() || isStreaming) return;
     void sendMessage(value);
     setValue('');
+    // Re-focus textarea après envoi (productivité clavier).
+    requestAnimationFrame(() => taRef.current?.focus());
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {

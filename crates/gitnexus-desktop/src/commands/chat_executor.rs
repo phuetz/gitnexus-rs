@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use once_cell::sync::Lazy;
@@ -785,68 +785,94 @@ pub async fn chat_execute_plan(
 
     store_plan(&plan);
 
-    // Execute steps in dependency order
-    let step_order: Vec<(usize, Vec<String>)> = plan
-        .steps
-        .iter()
-        .enumerate()
-        .map(|(i, s)| (i, s.depends_on.clone()))
-        .collect();
-
-    for (idx, depends) in &step_order {
-        // Check all dependencies are completed
-        let deps_ok = depends.iter().all(|dep_id| {
-            plan.steps
-                .iter()
-                .find(|s| s.id == *dep_id)
-                .is_some_and(|s| s.status == StepStatus::Completed)
-        });
-
-        if !deps_ok && !depends.is_empty() {
-            plan.steps[*idx].status = StepStatus::Skipped;
+    // Execute steps level by level — siblings (same topological depth, no
+    // mutual dependencies) run concurrently. The pre-existing sequential loop
+    // forced cypher + impact + read_file to wait on each other even when their
+    // only shared dependency was the initial search step. On a 4-step plan
+    // where each tool takes ~400ms (typical Alise-scale graph), this cuts the
+    // total walltime from ~1.6s to ~0.8s.
+    let levels = compute_topological_levels(&plan.steps);
+    for level_indices in levels {
+        // Collect every step in the level whose deps already succeeded.
+        // The planner doesn't currently emit cycles, but if a step's dep
+        // failed in an earlier level we mark this step Skipped here rather
+        // than firing a doomed task.
+        let mut to_run: Vec<usize> = Vec::new();
+        for idx in level_indices {
+            let deps_ok = plan.steps[idx].depends_on.iter().all(|dep_id| {
+                plan.steps
+                    .iter()
+                    .find(|s| s.id == *dep_id)
+                    .is_some_and(|s| s.status == StepStatus::Completed)
+            });
+            if !deps_ok && !plan.steps[idx].depends_on.is_empty() {
+                plan.steps[idx].status = StepStatus::Skipped;
+                continue;
+            }
+            plan.steps[idx].status = StepStatus::Running;
+            to_run.push(idx);
+        }
+        if to_run.is_empty() {
             continue;
         }
-
-        plan.steps[*idx].status = StepStatus::Running;
         update_plan(&plan);
 
-        let start = Instant::now();
-
-        let dep_results: Vec<&StepResult> = plan
-            .steps
-            .iter()
-            .filter(|s| depends.contains(&s.id))
-            .filter_map(|s| s.result.as_ref())
-            .collect();
-
-        let result = execute_tool(
-            &plan.steps[*idx],
-            &dep_results,
-            &graph,
-            &indexes,
-            &fts_index,
-            &repo_path,
-        );
-
-        let duration_ms = start.elapsed().as_millis() as u64;
-
-        match result {
-            Ok(mut r) => {
-                r.duration_ms = duration_ms;
-                plan.steps[*idx].status = StepStatus::Completed;
-                plan.steps[*idx].result = Some(r);
-            }
-            Err(e) => {
-                plan.steps[*idx].status = StepStatus::Failed;
-                plan.steps[*idx].result = Some(StepResult {
-                    summary: format!("Failed: {}", e),
-                    sources: vec![],
-                    data: None,
-                    duration_ms,
-                });
-            }
+        // Spawn one blocking task per step in this level. spawn_blocking is
+        // appropriate here because execute_tool is CPU-bound (graph walks,
+        // FTS lookups) and synchronous — running it directly inside the
+        // async runtime would block the worker thread.
+        let mut handles = Vec::with_capacity(to_run.len());
+        for idx in &to_run {
+            let step = plan.steps[*idx].clone();
+            // Materialize dep_results into owned values so the spawned task
+            // doesn't borrow `plan`. The clones are cheap (StepResult holds
+            // a summary string + Vec<ChatSource>, no large blobs).
+            let dep_results: Vec<StepResult> = plan
+                .steps
+                .iter()
+                .filter(|s| step.depends_on.contains(&s.id))
+                .filter_map(|s| s.result.clone())
+                .collect();
+            let graph = Arc::clone(&graph);
+            let indexes = Arc::clone(&indexes);
+            let fts_index = Arc::clone(&fts_index);
+            let repo_path = repo_path.clone();
+            let idx_owned = *idx;
+            handles.push(tokio::task::spawn_blocking(move || {
+                let start = Instant::now();
+                let dep_refs: Vec<&StepResult> = dep_results.iter().collect();
+                let outcome =
+                    execute_tool(&step, &dep_refs, &graph, &indexes, &fts_index, &repo_path);
+                (idx_owned, start.elapsed().as_millis() as u64, outcome)
+            }));
         }
 
+        let results = futures_util::future::join_all(handles).await;
+        for handle in results {
+            let (idx, duration_ms, outcome) = match handle {
+                Ok(triple) => triple,
+                Err(join_err) => {
+                    tracing::error!(error = %join_err, "step task panicked or was cancelled");
+                    continue;
+                }
+            };
+            match outcome {
+                Ok(mut r) => {
+                    r.duration_ms = duration_ms;
+                    plan.steps[idx].status = StepStatus::Completed;
+                    plan.steps[idx].result = Some(r);
+                }
+                Err(e) => {
+                    plan.steps[idx].status = StepStatus::Failed;
+                    plan.steps[idx].result = Some(StepResult {
+                        summary: format!("Failed: {}", e),
+                        sources: vec![],
+                        data: None,
+                        duration_ms,
+                    });
+                }
+            }
+        }
         update_plan(&plan);
     }
 
@@ -913,6 +939,65 @@ pub async fn chat_execute_plan(
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
+
+/// Group ResearchSteps by topological depth so each level can run in parallel.
+///
+/// Step at depth 0 = no dependencies. Step at depth N+1 = all of its
+/// `depends_on` resolved at some level ≤ N. Any step whose depends_on can't
+/// be satisfied (cycle, dangling reference) gets bucketed into the final
+/// extra level — the caller will mark it Skipped because the deps_ok check
+/// will fail.
+fn compute_topological_levels(steps: &[ResearchStep]) -> Vec<Vec<usize>> {
+    let id_to_idx: HashMap<&str, usize> = steps
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.id.as_str(), i))
+        .collect();
+
+    // depth[idx] = topological level, or None until resolved.
+    let mut depth: Vec<Option<usize>> = vec![None; steps.len()];
+    let mut max_depth = 0usize;
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (idx, step) in steps.iter().enumerate() {
+            if depth[idx].is_some() {
+                continue;
+            }
+            let dep_depths: Option<Vec<usize>> = step
+                .depends_on
+                .iter()
+                .map(|dep_id| id_to_idx.get(dep_id.as_str()).and_then(|&i| depth[i]))
+                .collect();
+            if let Some(deps) = dep_depths {
+                let d = deps.iter().max().copied().map(|m| m + 1).unwrap_or(0);
+                depth[idx] = Some(d);
+                max_depth = max_depth.max(d);
+                changed = true;
+            }
+        }
+    }
+
+    let mut levels: Vec<Vec<usize>> = vec![Vec::new(); max_depth + 1];
+    let mut unresolved: Vec<usize> = Vec::new();
+    for (idx, d) in depth.iter().enumerate() {
+        match d {
+            Some(level) => levels[*level].push(idx),
+            None => unresolved.push(idx),
+        }
+    }
+    if !unresolved.is_empty() {
+        // Push a final bucket so dangling steps are still attempted (and
+        // will be Skipped when their deps_ok check fails). Logging here keeps
+        // the planner honest if it ever emits a cycle.
+        tracing::warn!(
+            count = unresolved.len(),
+            "research plan contains steps with unresolved deps — appending as last level"
+        );
+        levels.push(unresolved);
+    }
+    levels
+}
 
 fn build_sources_from_results(
     results: &[(String, f64)],
@@ -1253,5 +1338,69 @@ fn detect_lang_from_path(file_path: &str) -> &str {
         Some("yaml" | "yml") => "yaml",
         Some("md") => "markdown",
         _ => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn step(id: &str, depends_on: &[&str]) -> ResearchStep {
+        ResearchStep {
+            id: id.to_string(),
+            order: 0,
+            tool: "noop".to_string(),
+            description: String::new(),
+            params: serde_json::json!({}),
+            depends_on: depends_on.iter().map(|s| s.to_string()).collect(),
+            status: StepStatus::Pending,
+            result: None,
+        }
+    }
+
+    #[test]
+    fn topological_levels_groups_independent_steps() {
+        // search → {context, impact, cypher} → read
+        // Three middle steps share only `search` so they belong to the same level.
+        let steps = vec![
+            step("search", &[]),
+            step("context", &["search"]),
+            step("impact", &["search"]),
+            step("cypher", &["search"]),
+            step("read", &["context"]),
+        ];
+        let levels = compute_topological_levels(&steps);
+        assert_eq!(levels.len(), 3, "three depths: search / siblings / read");
+        assert_eq!(levels[0], vec![0], "level 0 is search alone");
+        let lvl1: std::collections::HashSet<_> = levels[1].iter().copied().collect();
+        assert_eq!(
+            lvl1,
+            std::collections::HashSet::from([1, 2, 3]),
+            "level 1 holds context+impact+cypher together"
+        );
+        assert_eq!(levels[2], vec![4], "read waits on context");
+    }
+
+    #[test]
+    fn topological_levels_handles_no_deps() {
+        let steps = vec![step("a", &[]), step("b", &[]), step("c", &[])];
+        let levels = compute_topological_levels(&steps);
+        assert_eq!(levels.len(), 1);
+        assert_eq!(levels[0].len(), 3);
+    }
+
+    #[test]
+    fn topological_levels_dangling_dep_lands_in_unresolved_bucket() {
+        // `b` references a step that doesn't exist — it never resolves a depth.
+        // The function appends an "unresolved" final bucket so the executor
+        // can mark it Skipped instead of dropping it silently.
+        let steps = vec![step("a", &[]), step("b", &["nonexistent"])];
+        let levels = compute_topological_levels(&steps);
+        let total: usize = levels.iter().map(|l| l.len()).sum();
+        assert_eq!(total, 2, "every step ends up in some bucket");
+        assert!(
+            levels.last().unwrap().contains(&1),
+            "dangling step is in the trailing unresolved bucket"
+        );
     }
 }

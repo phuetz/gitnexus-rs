@@ -5,6 +5,7 @@
 
 pub mod chunker;
 pub mod docx;
+pub mod sfd;
 pub mod validator;
 
 use std::path::Path;

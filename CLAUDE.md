@@ -74,7 +74,7 @@ cargo clippy --workspace
 
 ```
 gitnexus-cli (binary: "gitnexus")
-  ├── gitnexus-mcp        (MCP server: 27 tools, stdio/HTTP transport, JSON-RPC 2.0)
+  ├── gitnexus-mcp        (MCP server: 30 tools, stdio/HTTP transport, JSON-RPC 2.0)
   ├── gitnexus-search      (Hybrid search: BM25 + optional ONNX semantic + RRF fusion)
   ├── gitnexus-db          (Database adapter: InMemory backend or optional KuzuDB)
   ├── gitnexus-ingest      (8-phase ingestion pipeline, parallel with rayon)
@@ -122,11 +122,12 @@ Uses rayon for parallel file processing with a 20MB chunk budget and LRU AST cac
 
 **Search** (`gitnexus-search`): Reciprocal Rank Fusion (K=60) merging BM25 lexical results with optional ONNX-based semantic embeddings. Optional LLM reranker (`reranker-llm` feature) post-processes top-K candidates by sending them to an OpenAI-compatible endpoint (reuses `~/.gitnexus/chat-config.json`). Gracefully degrades without any optional feature.
 
-**MCP** (`gitnexus-mcp`): Implements MCP protocol version 2024-11-05. Twenty-seven tools dispatched in `backend/local.rs`:
+**MCP** (`gitnexus-mcp`): Implements MCP protocol version 2024-11-05. Thirty tools dispatched in `backend/local.rs`:
 - **Graph & query**: `list_repos`, `query`, `context`, `impact`, `detect_changes`, `rename`, `cypher`, `search_code`, `read_file`, `find_cycles`, `find_similar_code`
 - **Analytics**: `hotspots`, `coupling`, `ownership`, `coverage`, `diagram`, `report`, `business`, `analyze_execution_trace`, `get_complexity`
 - **Codebase introspection**: `list_todos`, `list_endpoints`, `list_db_tables`, `list_env_vars`, `get_endpoint_handler`
 - **Agent support**: `get_insights`, `save_memory`
+- **Doc-SFD authoring (P1.1)**: `list_sfd_pages`, `write_sfd_draft`, `validate_sfd` — backed by `gitnexus-rag::sfd`, shared between the desktop chat (Tauri) and the HTTP MCP transport (chat-ui).
 
 Six prompts: `detect_impact`, `generate_map`, `analyze_hotspots`, `find_dead_code`, `trace_dependencies`, `describe_process`.
 

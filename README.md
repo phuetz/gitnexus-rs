@@ -177,6 +177,27 @@ Supported providers: **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ol
 
 The three optional `big_context_*` fields route huge pages (≥ `big_context_threshold_bytes` raw markdown, default 40 KB) through a long-context model to escape the Gemini 2.5 Flash 65K output ceiling that causes `finish_reason: length` truncations. All LLM calls for that page (sectioned, monolithic, freeform fallback, review pass) use the substituted model. Leave the fields unset for legacy single-model behavior.
 
+#### Tuning enrichment without rebuilds
+
+The constants that previously required a `cargo build --release` to change can be overridden via an optional `enrichment` block. All fields are optional — omit any field (or the whole block) to keep the prior behavior:
+
+```json
+{
+  "enrichment": {
+    "sectionMaxTokens": 4096,
+    "monolithicMaxTokensFloor": 65536,
+    "sectionContentSnippetBytes": 3000,
+    "profiles": {
+      "fast":    { "maxEvidence": 10, "maxRetries": 8, "timeoutSecs": 60,  "minGapMs": 500, "useJsonSchema": false },
+      "quality": { "maxEvidence": 20, "maxRetries": 1, "timeoutSecs": 180, "minGapMs": 0,   "useJsonSchema": true },
+      "strict":  { "maxEvidence": 30, "maxRetries": 2, "timeoutSecs": 300, "minGapMs": 0,   "useJsonSchema": true }
+    }
+  }
+}
+```
+
+Common uses: lower `sectionMaxTokens` to save tokens on small pages; bump `quality.timeoutSecs` if Gemini is slow during EU peak hours; bump `fast.maxEvidence` for richer drafts. The values shown above are the hardcoded defaults.
+
 Validate your config:
 
 ```bash

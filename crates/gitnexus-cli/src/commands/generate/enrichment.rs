@@ -48,6 +48,98 @@ pub(crate) struct LlmConfig {
     pub(crate) big_context_threshold_bytes: Option<usize>,
     #[serde(default, alias = "bigContextMaxTokens")]
     pub(crate) big_context_max_tokens: Option<u32>,
+
+    // Enrichment knobs — extracted from hardcoded constants so re-tuning a
+    // run on a project doesn't require a `cargo build --release` (1m30s).
+    // All fields optional; absent block = exact same behavior as before.
+    #[serde(default)]
+    pub(crate) enrichment: Option<EnrichmentConfig>,
+}
+
+/// Enrichment knobs exposed via `chat-config.json`. Every field is `Option<>`
+/// so an absent block — or a partial one — falls back to the hardcoded
+/// defaults that were the only available values before this struct existed.
+#[derive(serde::Deserialize, Clone, Default)]
+pub(crate) struct EnrichmentConfig {
+    /// Per-section LLM max_tokens (lead/closing call, single-section call).
+    /// Hardcoded default: 4096. Raise to ~8192 if section calls are getting
+    /// truncated on big controllers; lower to 2048 to save tokens on small pages.
+    #[serde(default, alias = "sectionMaxTokens")]
+    pub(crate) section_max_tokens: Option<u32>,
+    /// Floor applied to `config.max_tokens` for the monolithic + freeform
+    /// enrichment paths. Hardcoded default: 65_536 (Gemini 2.5 Flash hard cap).
+    /// Lower this if you're routing through a model with a smaller output ceiling.
+    #[serde(default, alias = "monolithicMaxTokensFloor")]
+    pub(crate) monolithic_max_tokens_floor: Option<u32>,
+    /// Cap on the section-content snippet sent to the per-section LLM call.
+    /// Hardcoded default: 3000 bytes. Raise if your sections need more context
+    /// preserved before the snippet truncates.
+    #[serde(default, alias = "sectionContentSnippetBytes")]
+    pub(crate) section_content_snippet_bytes: Option<usize>,
+    /// Per-profile overrides. Each named profile (`fast`, `quality`, `strict`)
+    /// can override a subset of the hardcoded knobs; missing fields fall back
+    /// to the hardcoded values defined in `get_profile`.
+    #[serde(default)]
+    pub(crate) profiles: Option<EnrichmentProfilesConfig>,
+}
+
+/// Per-profile overrides keyed by profile name. Any profile block (or any
+/// field within it) can be omitted; omission = use the hardcoded default.
+#[derive(serde::Deserialize, Clone, Default)]
+pub(crate) struct EnrichmentProfilesConfig {
+    #[serde(default)]
+    pub(crate) fast: Option<ProfileOverrides>,
+    #[serde(default)]
+    pub(crate) quality: Option<ProfileOverrides>,
+    #[serde(default)]
+    pub(crate) strict: Option<ProfileOverrides>,
+}
+
+/// Field-level overrides for a single enrichment profile. The fields mirror
+/// the tunable knobs on `EnrichProfile`. `thinking_boost` and `review_critical`
+/// are not exposed on purpose: they're behavioral toggles that pair with the
+/// profile's intent (fast = no review, quality/strict = review).
+#[derive(serde::Deserialize, Clone, Default)]
+pub(crate) struct ProfileOverrides {
+    #[serde(default, alias = "maxEvidence")]
+    pub(crate) max_evidence: Option<usize>,
+    #[serde(default, alias = "maxRetries")]
+    pub(crate) max_retries: Option<u32>,
+    #[serde(default, alias = "timeoutSecs")]
+    pub(crate) timeout_secs: Option<u64>,
+    #[serde(default, alias = "minGapMs")]
+    pub(crate) min_gap_ms: Option<u64>,
+    #[serde(default, alias = "useJsonSchema")]
+    pub(crate) use_json_schema: Option<bool>,
+}
+
+impl LlmConfig {
+    /// Hardcoded defaults — kept here so callers stay terse and the defaults
+    /// are documented in one place.
+    pub(crate) const DEFAULT_SECTION_MAX_TOKENS: u32 = 4096;
+    pub(crate) const DEFAULT_MONOLITHIC_MAX_TOKENS_FLOOR: u32 = 65_536;
+    pub(crate) const DEFAULT_SECTION_CONTENT_SNIPPET_BYTES: usize = 3_000;
+
+    pub(crate) fn section_max_tokens(&self) -> u32 {
+        self.enrichment
+            .as_ref()
+            .and_then(|e| e.section_max_tokens)
+            .unwrap_or(Self::DEFAULT_SECTION_MAX_TOKENS)
+    }
+
+    pub(crate) fn monolithic_max_tokens_floor(&self) -> u32 {
+        self.enrichment
+            .as_ref()
+            .and_then(|e| e.monolithic_max_tokens_floor)
+            .unwrap_or(Self::DEFAULT_MONOLITHIC_MAX_TOKENS_FLOOR)
+    }
+
+    pub(crate) fn section_content_snippet_bytes(&self) -> usize {
+        self.enrichment
+            .as_ref()
+            .and_then(|e| e.section_content_snippet_bytes)
+            .unwrap_or(Self::DEFAULT_SECTION_CONTENT_SNIPPET_BYTES)
+    }
 }
 
 impl LlmConfig {
@@ -136,6 +228,41 @@ pub(super) fn get_profile(name: &str) -> EnrichProfile {
             min_gap_ms: 0,
         },
     }
+}
+
+/// Fetch the named profile and apply any per-profile overrides from the user's
+/// `chat-config.json`. Hardcoded defaults survive any subset that isn't
+/// overridden — partial overrides are the common case (tune `maxEvidence`
+/// without retyping `maxRetries`/`timeoutSecs`).
+pub(super) fn get_profile_with_overrides(name: &str, config: &LlmConfig) -> EnrichProfile {
+    let mut profile = get_profile(name);
+    let overrides = config
+        .enrichment
+        .as_ref()
+        .and_then(|e| e.profiles.as_ref())
+        .and_then(|p| match name {
+            "fast" => p.fast.as_ref(),
+            "strict" => p.strict.as_ref(),
+            _ => p.quality.as_ref(),
+        });
+    if let Some(o) = overrides {
+        if let Some(v) = o.max_evidence {
+            profile.max_evidence = v;
+        }
+        if let Some(v) = o.max_retries {
+            profile.max_retries = v;
+        }
+        if let Some(v) = o.timeout_secs {
+            profile.timeout_secs = v;
+        }
+        if let Some(v) = o.min_gap_ms {
+            profile.min_gap_ms = v;
+        }
+        if let Some(v) = o.use_json_schema {
+            profile.use_json_schema = v;
+        }
+    }
+    profile
 }
 
 // ─── Phase 4 helpers: token budget + request shaping ─────────────────
@@ -324,7 +451,7 @@ pub(super) fn sleep_until_hhmm(hhmm: &str) -> Result<()> {
     // in extra chrono traits.  Format gives us "HH:MM:SS".
     let now_fmt = chrono::Local::now().format("%H:%M:%S").to_string();
     let now_parts: Vec<u32> = now_fmt.split(':').map(|s| s.parse().unwrap_or(0)).collect();
-    let current_secs = now_parts.get(0).copied().unwrap_or(0) * 3600
+    let current_secs = now_parts.first().copied().unwrap_or(0) * 3600
         + now_parts.get(1).copied().unwrap_or(0) * 60
         + now_parts.get(2).copied().unwrap_or(0);
     let target_secs = hour * 3600 + minute * 60;
@@ -1129,7 +1256,7 @@ fn enrich_lead_closing(
             {"role": "system", "content": system},
             {"role": "user", "content": format!("Page (début) :\n\n{}", page_preview)},
         ],
-        "max_tokens": 4096u32,
+        "max_tokens": config.section_max_tokens(),
         "temperature": 0.3,
         "stream": false,
         "response_format": {"type": "json_object"},
@@ -1191,9 +1318,10 @@ fn enrich_single_section(
         })
         .collect::<Vec<_>>()
         .join("\n\n");
-    // Limit section content to 3 KB to keep input small
-    let snippet = if section_content.len() > 3_000 {
-        &section_content[..3_000]
+    // Limit section content to keep input small. Default cap = 3 KB.
+    let snippet_cap = config.section_content_snippet_bytes();
+    let snippet = if section_content.len() > snippet_cap {
+        &section_content[..snippet_cap]
     } else {
         section_content
     };
@@ -1221,7 +1349,7 @@ fn enrich_single_section(
             {"role": "system", "content": system},
             {"role": "user", "content": format!("Contenu de la section '{}' :\n\n{}", section_key, snippet)},
         ],
-        "max_tokens": 4096u32,
+        "max_tokens": config.section_max_tokens(),
         "temperature": 0.3,
         "stream": false,
         "response_format": {"type": "json_object"},
@@ -1400,7 +1528,11 @@ fn inject_enrichment(
                     .related_pages
                     .iter()
                     .filter(|p| {
-                        let stem = p.trim_end_matches(".md").split('/').last().unwrap_or(p);
+                        let stem = p
+                            .trim_end_matches(".md")
+                            .split('/')
+                            .next_back()
+                            .unwrap_or(p);
                         let ok = valid_stems.contains(&stem.to_lowercase());
                         if !ok {
                             tracing::warn!("enrichment: related_page '{}' not found — skipping", p);
@@ -1420,7 +1552,7 @@ fn inject_enrichment(
                     ));
                     for p in valid_related {
                         let stem = p.trim_end_matches(".md");
-                        let display = stem.split('/').last().unwrap_or(stem);
+                        let display = stem.split('/').next_back().unwrap_or(stem);
                         let safe_stem = stem.replace('"', "&quot;").replace('\'', "&#39;");
                         let safe_display = display.replace('<', "&lt;").replace('>', "&gt;");
                         enriched.push_str(&format!(
@@ -1830,7 +1962,7 @@ fn enrich_page_structured(
     // outputs. 65_536 is the hard cap of Gemini 2.5 Flash, so it
     // gives us every byte the API can deliver. The dynamic timeout
     // helper scales to ~466 s automatically for that budget.
-    let max_tokens_floor: u32 = 65_536;
+    let max_tokens_floor: u32 = config.monolithic_max_tokens_floor();
     let max_tokens = config.max_tokens.max(max_tokens_floor);
     let mut body = serde_json::json!({
         "model": config.model,
@@ -1961,7 +2093,7 @@ fn enrich_page_structured(
                         if status_u16 == 503
                             || status_u16 == 429
                             || status_u16 == 499
-                            || (status_u16 >= 500 && status_u16 < 600)
+                            || (500..600).contains(&status_u16)
                         {
                             if status_u16 == 503 || status_u16 >= 500 {
                                 consecutive_503 += 1;
@@ -2239,7 +2371,7 @@ CONTENU À ENRICHIR :"#,
     // outputs. 65_536 is the hard cap of Gemini 2.5 Flash, so it
     // gives us every byte the API can deliver. The dynamic timeout
     // helper scales to ~466 s automatically for that budget.
-    let max_tokens_floor: u32 = 65_536;
+    let max_tokens_floor: u32 = config.monolithic_max_tokens_floor();
     let max_tokens = config.max_tokens.max(max_tokens_floor);
     let mut body = json!({
         "model": config.model,
@@ -2413,7 +2545,7 @@ DOCUMENT ORIGINAL (pour comparaison) :
     // outputs. 65_536 is the hard cap of Gemini 2.5 Flash, so it
     // gives us every byte the API can deliver. The dynamic timeout
     // helper scales to ~466 s automatically for that budget.
-    let max_tokens_floor: u32 = 65_536;
+    let max_tokens_floor: u32 = config.monolithic_max_tokens_floor();
     let max_tokens = config.max_tokens.max(max_tokens_floor);
     let body = serde_json::json!({
         "model": config.model,
@@ -2575,7 +2707,7 @@ pub(super) fn run_enrichment_queue_only(
         }
     };
 
-    let profile = get_profile(enrich_profile);
+    let profile = get_profile_with_overrides(enrich_profile, &config);
     println!(
         "{} Relance de {} page(s) en queue ({}) [profile: {}]",
         "→".cyan(),
@@ -2702,7 +2834,7 @@ pub(super) fn run_enrichment_if_enabled(
         }
     };
 
-    let profile = get_profile(enrich_profile);
+    let profile = get_profile_with_overrides(enrich_profile, &config);
 
     println!(
         "{} Enriching with LLM ({}) \u{2014} structured mode [profile: {}]",
@@ -3354,5 +3486,170 @@ mod tests {
         assert_eq!(get_profile("quality").min_gap_ms, 0);
         assert_eq!(get_profile("strict").max_retries, 2);
         assert_eq!(get_profile("strict").min_gap_ms, 0);
+    }
+
+    fn parse_llm_config(json: &str) -> LlmConfig {
+        serde_json::from_str(json).expect("LlmConfig parse failed")
+    }
+
+    #[test]
+    fn enrichment_knobs_default_when_block_absent() {
+        let cfg = parse_llm_config(
+            r#"{
+                "provider": "gemini",
+                "apiKey": "k",
+                "baseUrl": "https://example",
+                "model": "gemini-2.5-flash",
+                "maxTokens": 8192
+            }"#,
+        );
+        assert!(cfg.enrichment.is_none());
+        assert_eq!(cfg.section_max_tokens(), 4096);
+        assert_eq!(cfg.monolithic_max_tokens_floor(), 65_536);
+        assert_eq!(cfg.section_content_snippet_bytes(), 3_000);
+    }
+
+    #[test]
+    fn enrichment_knobs_override_when_block_present() {
+        let cfg = parse_llm_config(
+            r#"{
+                "provider": "gemini",
+                "apiKey": "k",
+                "baseUrl": "https://example",
+                "model": "gemini-2.5-flash",
+                "maxTokens": 8192,
+                "enrichment": {
+                    "sectionMaxTokens": 2048,
+                    "monolithicMaxTokensFloor": 32768,
+                    "sectionContentSnippetBytes": 6000
+                }
+            }"#,
+        );
+        assert_eq!(cfg.section_max_tokens(), 2048);
+        assert_eq!(cfg.monolithic_max_tokens_floor(), 32_768);
+        assert_eq!(cfg.section_content_snippet_bytes(), 6_000);
+    }
+
+    #[test]
+    fn enrichment_knobs_partial_override_keeps_other_defaults() {
+        let cfg = parse_llm_config(
+            r#"{
+                "provider": "gemini",
+                "apiKey": "k",
+                "baseUrl": "https://example",
+                "model": "gemini-2.5-flash",
+                "maxTokens": 8192,
+                "enrichment": {
+                    "sectionMaxTokens": 8192
+                }
+            }"#,
+        );
+        assert_eq!(cfg.section_max_tokens(), 8192);
+        // Other knobs fall back to hardcoded defaults — partial override
+        // is the common case (tune one knob without retyping the others).
+        assert_eq!(cfg.monolithic_max_tokens_floor(), 65_536);
+        assert_eq!(cfg.section_content_snippet_bytes(), 3_000);
+    }
+
+    #[test]
+    fn profile_overrides_partial_keeps_hardcoded_for_unset_fields() {
+        let cfg = parse_llm_config(
+            r#"{
+                "provider": "gemini",
+                "apiKey": "k",
+                "baseUrl": "https://example",
+                "model": "gemini-2.5-flash",
+                "maxTokens": 8192,
+                "enrichment": {
+                    "profiles": {
+                        "fast": { "maxEvidence": 5 }
+                    }
+                }
+            }"#,
+        );
+        let p = get_profile_with_overrides("fast", &cfg);
+        // Overridden:
+        assert_eq!(p.max_evidence, 5);
+        // Untouched — must stay at the hardcoded fast defaults:
+        assert_eq!(p.max_retries, 8);
+        assert_eq!(p.timeout_secs, 60);
+        assert_eq!(p.min_gap_ms, 500);
+        assert!(!p.use_json_schema);
+    }
+
+    #[test]
+    fn profile_overrides_full_replacement() {
+        let cfg = parse_llm_config(
+            r#"{
+                "provider": "gemini",
+                "apiKey": "k",
+                "baseUrl": "https://example",
+                "model": "gemini-2.5-flash",
+                "maxTokens": 8192,
+                "enrichment": {
+                    "profiles": {
+                        "quality": {
+                            "maxEvidence": 50,
+                            "maxRetries": 3,
+                            "timeoutSecs": 240,
+                            "minGapMs": 100,
+                            "useJsonSchema": false
+                        }
+                    }
+                }
+            }"#,
+        );
+        let p = get_profile_with_overrides("quality", &cfg);
+        assert_eq!(p.max_evidence, 50);
+        assert_eq!(p.max_retries, 3);
+        assert_eq!(p.timeout_secs, 240);
+        assert_eq!(p.min_gap_ms, 100);
+        assert!(!p.use_json_schema);
+        // Behavioral toggles intentionally NOT exposed — they stay tied to
+        // the named profile (quality keeps review_critical=true).
+        assert!(p.review_critical);
+    }
+
+    #[test]
+    fn profile_overrides_only_apply_to_targeted_profile() {
+        let cfg = parse_llm_config(
+            r#"{
+                "provider": "gemini",
+                "apiKey": "k",
+                "baseUrl": "https://example",
+                "model": "gemini-2.5-flash",
+                "maxTokens": 8192,
+                "enrichment": {
+                    "profiles": {
+                        "fast": { "maxRetries": 99 }
+                    }
+                }
+            }"#,
+        );
+        // fast affected
+        assert_eq!(get_profile_with_overrides("fast", &cfg).max_retries, 99);
+        // quality + strict untouched
+        assert_eq!(get_profile_with_overrides("quality", &cfg).max_retries, 1);
+        assert_eq!(get_profile_with_overrides("strict", &cfg).max_retries, 2);
+    }
+
+    #[test]
+    fn profile_overrides_absent_block_is_identical_to_hardcoded() {
+        let cfg = parse_llm_config(
+            r#"{
+                "provider": "gemini",
+                "apiKey": "k",
+                "baseUrl": "https://example",
+                "model": "gemini-2.5-flash",
+                "maxTokens": 8192
+            }"#,
+        );
+        let raw = get_profile("fast");
+        let merged = get_profile_with_overrides("fast", &cfg);
+        assert_eq!(merged.max_evidence, raw.max_evidence);
+        assert_eq!(merged.max_retries, raw.max_retries);
+        assert_eq!(merged.timeout_secs, raw.timeout_secs);
+        assert_eq!(merged.min_gap_ms, raw.min_gap_ms);
+        assert_eq!(merged.use_json_schema, raw.use_json_schema);
     }
 }

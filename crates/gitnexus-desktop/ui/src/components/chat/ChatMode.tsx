@@ -10,7 +10,7 @@
 
 import { lazy, Suspense, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MessageSquare, Settings2, ChevronDown, Compass, BookOpen } from "lucide-react";
+import { MessageSquare, Settings2, ChevronDown, Compass, BookOpen, Sparkles } from "lucide-react";
 import { Group, Panel } from "react-resizable-panels";
 import { PanelSeparator } from "../layout/PanelSeparator";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
@@ -66,6 +66,78 @@ function RepoSelector() {
         ))}
       </select>
       <ChevronDown size={14} className="absolute right-2 pointer-events-none" style={{ color: "var(--text-3)" }} />
+    </div>
+  );
+}
+
+// ─── Search capabilities banner ──────────────────────────────────────
+
+/**
+ * Surfaces a hint when the active repo doesn't have embeddings — without it,
+ * the chat silently falls back to BM25-only and users have no way to know
+ * they're getting a worse-than-necessary experience. Shown inline above the
+ * chat panel, once per active repo, dismissible via a localStorage flag so
+ * we don't nag users who deliberately skip embeddings.
+ */
+function SearchCapabilitiesBanner({ activeRepo }: { activeRepo: string | null }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["chat-search-capabilities", activeRepo],
+    queryFn: () => commands.chatSearchCapabilities(),
+    enabled: !!activeRepo,
+    retry: 1,
+    staleTime: 60_000,
+  });
+
+  // Bail when no repo loaded, while loading, on error (banner is a quality
+  // hint — never a blocker), or when embeddings are present.
+  if (!activeRepo || isLoading || isError) return null;
+  if (data?.embeddingsLoaded) return null;
+
+  const dismissKey = `gnx-embed-banner-dismissed:${activeRepo}`;
+  if (typeof window !== "undefined" && window.localStorage.getItem(dismissKey)) {
+    return null;
+  }
+
+  const handleDismiss = () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(dismissKey, "1");
+    }
+    // Force a re-render via reload of capabilities (cheap — backend just
+    // re-checks an Option<Arc<>>).
+    window.dispatchEvent(new Event("gnx-embed-banner-dismissed"));
+  };
+
+  return (
+    <div
+      className="shrink-0 flex items-start gap-3 px-4 py-2 text-[12px]"
+      style={{
+        background: "var(--warning-bg, rgba(234, 179, 8, 0.08))",
+        borderBottom: "1px solid var(--warning-border, rgba(234, 179, 8, 0.2))",
+        color: "var(--text-2)",
+      }}
+      role="status"
+    >
+      <Sparkles size={14} className="mt-[1px] shrink-0" style={{ color: "rgb(234, 179, 8)" }} />
+      <div className="flex-1">
+        <strong style={{ color: "var(--text-1)" }}>Recherche sémantique désactivée.</strong>{" "}
+        Le chat utilise BM25 seul. Pour activer la recherche hybride
+        (BM25 + embeddings + RRF), exécutez{" "}
+        <code
+          className="px-1 py-[1px] rounded font-mono text-[11px]"
+          style={{ background: "var(--surface-1)", color: "var(--text-1)" }}
+        >
+          gitnexus embed --model ~/.gitnexus/models/&lt;model&gt;/model.onnx --repo {activeRepo}
+        </code>{" "}
+        puis rechargez le dépôt.
+      </div>
+      <button
+        onClick={handleDismiss}
+        className="shrink-0 px-2 py-[2px] rounded text-[11px] hover:opacity-80"
+        style={{ color: "var(--text-3)", border: "1px solid var(--surface-border)" }}
+        title="Masquer ce bandeau pour ce dépôt"
+      >
+        Masquer
+      </button>
     </div>
   );
 }
@@ -178,6 +250,9 @@ export function ChatMode() {
               </button>
             </div>
           </div>
+
+          {/* Search-capability hint — only shown when embeddings are missing. */}
+          <SearchCapabilitiesBanner activeRepo={activeRepo ?? null} />
 
           {/* Main content area */}
           <div className="flex-1 min-h-0">

@@ -1,9 +1,10 @@
-import { MessageSquare, Code2, Network, Skull, Zap, Flame, Share2, GitBranch, Cpu, Search } from "lucide-react";
+import { MessageSquare, Code2, Network, Skull, Zap, Flame, Share2, GitBranch, Cpu, Search, BookMarked } from "lucide-react";
 import { useI18n } from "../../hooks/use-i18n";
 import { StaggerContainer, StaggerItem } from "../shared/motion";
 import { useQuery } from "@tanstack/react-query";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
+import { toast } from "sonner";
 
 // Slash command shortcuts shown as quick chips
 export const SLASH_COMMANDS = [
@@ -70,6 +71,49 @@ export function ChatSuggestions({ onSelect }: Props) {
       color: "#ff9e64",
     }] : [])
   ].slice(0, 4); // Keep at most 4 suggestions to fit grid
+
+  // ── MCP prompt recipes (P1.3) ───────────────────────────────────
+  // The 6 MCP prompts encode validated tool-chains (e.g. analyze_hotspots →
+  // hotspots + coupling + ownership → recommend refactor priorities).
+  // Surfaced as one-click recipes so the chat reuses the orchestration
+  // instead of the LLM re-inventing it on every conversation.
+  const { data: promptList } = useQuery({
+    queryKey: ["chat-mcp-prompts"],
+    queryFn: () => commands.listChatPrompts(),
+    staleTime: Infinity, // prompt list is static, no need to re-fetch
+  });
+
+  const handleRecipe = async (
+    name: string,
+    args: Array<{ name: string; required: boolean; description: string }>,
+  ) => {
+    const filled: Record<string, string> = {};
+    for (const arg of args) {
+      if (!arg.required) continue;
+      // Lightweight prompt — full forms can come later if a recipe needs more.
+      const value = window.prompt(`${arg.name}: ${arg.description}`);
+      if (!value || !value.trim()) {
+        toast.info(`Recipe cancelled (missing '${arg.name}')`);
+        return;
+      }
+      filled[arg.name] = value.trim();
+    }
+    try {
+      const text = await commands.getChatPrompt(name, filled);
+      onSelect(text);
+    } catch (err) {
+      toast.error(`Failed to load recipe '${name}': ${String(err)}`);
+    }
+  };
+
+  const recipeIcons: Record<string, string> = {
+    detect_impact: "💥",
+    generate_map: "🗺️",
+    analyze_hotspots: "🔥",
+    find_dead_code: "💀",
+    trace_dependencies: "🔗",
+    describe_process: "📋",
+  };
 
   return (
     <div
@@ -162,6 +206,68 @@ export function ChatSuggestions({ onSelect }: Props) {
           );
         })}
       </StaggerContainer>
+
+      {promptList && promptList.prompts && promptList.prompts.length > 0 && (
+        <>
+          <div
+            style={{
+              marginTop: 28,
+              marginBottom: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              color: "var(--text-3)",
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
+            <BookMarked size={12} />
+            <span>{t("chat.mcpRecipes") || "Recettes éprouvées (MCP)"}</span>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+              gap: 8,
+              maxWidth: 500,
+              width: "100%",
+            }}
+          >
+            {promptList.prompts.map((p) => (
+              <button
+                key={p.name}
+                onClick={() => handleRecipe(p.name, p.arguments)}
+                title={p.description}
+                className="flex items-center gap-2 rounded-lg transition-all"
+                style={{
+                  padding: "8px 10px",
+                  background: "var(--surface)",
+                  border: "1px solid var(--surface-border)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  fontSize: 11,
+                  color: "var(--text-2)",
+                  fontFamily: "inherit",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--surface-hover)";
+                  e.currentTarget.style.borderColor = "var(--surface-border-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--surface)";
+                  e.currentTarget.style.borderColor = "var(--surface-border)";
+                }}
+              >
+                <span style={{ fontSize: 14 }}>{recipeIcons[p.name] ?? "🧩"}</span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5 }}>
+                  {p.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

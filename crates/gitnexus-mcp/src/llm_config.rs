@@ -19,11 +19,23 @@ pub struct LlmConfig {
     // today (rerank prompts are always small) but accepted here so a single
     // chat-config.json edited for the CLI enrichment pipeline doesn't fail
     // to deserialize when MCP loads the same file.
-    #[serde(default, alias = "bigContextModel", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "bigContextModel",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub big_context_model: Option<String>,
-    #[serde(default, alias = "bigContextThresholdBytes", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "bigContextThresholdBytes",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub big_context_threshold_bytes: Option<usize>,
-    #[serde(default, alias = "bigContextMaxTokens", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "bigContextMaxTokens",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub big_context_max_tokens: Option<u32>,
 }
 
@@ -39,7 +51,9 @@ pub fn load_llm_config() -> Option<LlmConfig> {
         }),
     ];
     for home in candidates.into_iter().flatten() {
-        let p = PathBuf::from(home).join(".gitnexus").join("chat-config.json");
+        let p = PathBuf::from(home)
+            .join(".gitnexus")
+            .join("chat-config.json");
         if p.exists() {
             if let Ok(raw) = std::fs::read_to_string(&p) {
                 if let Ok(cfg) = serde_json::from_str::<LlmConfig>(&raw) {

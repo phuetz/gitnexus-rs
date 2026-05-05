@@ -20,6 +20,85 @@ export class ChatStreamError extends Error {
   }
 }
 
+interface JsonRpcResponse<T> {
+  jsonrpc: '2.0';
+  id: number | string | null;
+  result?: T;
+  error?: { code: number; message: string; data?: unknown };
+}
+
+/**
+ * MCP tool envelope. Tools return a Markdown summary in `content` for the LLM
+ * and may attach typed structured data in `_meta` for direct UI consumption.
+ */
+export interface McpToolResult {
+  content: Array<{ type: string; text: string }>;
+  _meta?: Record<string, unknown>;
+}
+
+/**
+ * `_meta` payload for `list_sfd_pages`.
+ */
+export interface SfdPagesMeta {
+  pages: string[];
+  drafts: string[];
+  docsDir: string;
+  missing: boolean;
+}
+
+/**
+ * `_meta` payload for `write_sfd_draft`.
+ */
+export interface SfdDraftWrittenMeta {
+  path: string;
+  bytes: number;
+}
+
+/**
+ * Severity tag from `gitnexus-rag::validator::Severity`.
+ */
+export type SfdValidationSeverity = 'red' | 'yellow';
+
+/**
+ * Per-issue diagnostic, mirrors `gitnexus-rag::validator::Issue`.
+ */
+export interface SfdValidationIssue {
+  severity: SfdValidationSeverity;
+  kind: string;
+  line?: number;
+  detail: string;
+}
+
+/**
+ * Per-page report, mirrors `gitnexus-rag::validator::PageReport`.
+ */
+export interface SfdValidationPageReport {
+  path: string;
+  issues: SfdValidationIssue[];
+}
+
+/**
+ * Full validation report, mirrors `gitnexus-rag::validator::ValidationReport`.
+ */
+export interface SfdValidationReport {
+  repo: string;
+  generated_at: string;
+  total_pages: number;
+  pages_with_issues: number;
+  red_count: number;
+  yellow_count: number;
+  by_kind: Record<string, number>;
+  pages: SfdValidationPageReport[];
+}
+
+/**
+ * `_meta` payload for `validate_sfd`.
+ */
+export interface SfdValidateMeta {
+  report: SfdValidationReport;
+  status: 'green' | 'yellow' | 'red';
+}
+
 export class MCPClient {
   readonly baseUrl: string;
   readonly token?: string;
@@ -46,6 +125,39 @@ export class MCPClient {
     if (!res.ok) throw new Error(`list_repos failed: ${res.status}`);
     const data = await res.json();
     return Array.isArray(data?.repos) ? data.repos : [];
+  }
+
+  /**
+   * Invoke an MCP tool by name through the JSON-RPC `tools/call` method.
+   * Returns the parsed `result` envelope: `{ content: [...], _meta?: {...} }`.
+   * Throws on transport / auth / JSON-RPC error so callers don't need to
+   * inspect status fields.
+   */
+  async callTool<T = McpToolResult>(name: string, args: Record<string, unknown> = {}): Promise<T> {
+    const res = await fetch(`${this.baseUrl}/mcp`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`callTool ${name}: ${res.status} ${res.statusText} ${body}`);
+    }
+
+    const envelope = (await res.json()) as JsonRpcResponse<T>;
+    if (envelope.error) {
+      throw new Error(`callTool ${name}: ${envelope.error.message ?? 'unknown error'}`);
+    }
+    if (!envelope.result) {
+      throw new Error(`callTool ${name}: empty result`);
+    }
+    return envelope.result;
   }
 
   async chatStream(

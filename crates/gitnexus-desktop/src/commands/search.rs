@@ -107,7 +107,7 @@ async fn maybe_hybrid_fuse(
                 cfg.dimension
             );
         }
-        let q_vecs = generate_embeddings(&[query.clone()], &cfg);
+        let q_vecs = generate_embeddings(std::slice::from_ref(&query), &cfg);
         let q_vec = q_vecs
             .into_iter()
             .next()

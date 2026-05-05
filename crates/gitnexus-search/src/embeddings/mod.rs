@@ -198,8 +198,8 @@ mod onnx {
                             }
                         }
                         if denom > 0.0 {
-                            for d in 0..dim {
-                                pooled[d] /= denom;
+                            for v in pooled.iter_mut().take(dim) {
+                                *v /= denom;
                             }
                         }
                         if self.normalize {
@@ -487,8 +487,10 @@ mod tests {
             eprintln!("skipped — GITNEXUS_TEST_MODEL_PATH not set");
             return;
         };
-        let mut config = EmbeddingConfig::default();
-        config.model_path = Some(model_path);
+        let config = EmbeddingConfig {
+            model_path: Some(model_path),
+            ..EmbeddingConfig::default()
+        };
 
         let texts = vec![
             "A user logs into the application".to_string(),

@@ -491,17 +491,21 @@ mod tests {
 
     #[test]
     fn test_graph_only_review_happy_path() {
-        let mut signals = CodeReviewSignals::default();
-        signals.risk_level = "low".into();
+        let signals = CodeReviewSignals {
+            risk_level: "low".into(),
+            ..CodeReviewSignals::default()
+        };
         let md = graph_only_review_md(&signals);
         assert!(md.contains("ready"));
     }
 
     #[test]
     fn test_graph_only_review_with_hotspots() {
-        let mut signals = CodeReviewSignals::default();
-        signals.risk_level = "medium".into();
-        signals.hotspot_files = vec!["src/hot.rs".into()];
+        let signals = CodeReviewSignals {
+            risk_level: "medium".into(),
+            hotspot_files: vec!["src/hot.rs".into()],
+            ..CodeReviewSignals::default()
+        };
         let md = graph_only_review_md(&signals);
         assert!(md.contains("needs_revisions"));
         assert!(md.contains("src/hot.rs"));

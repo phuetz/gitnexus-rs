@@ -1272,6 +1272,10 @@ fn enrich_lead_closing(
 /// Single LLM call that generates one `SectionAugment` for a given GNX section.
 /// `required_fields` lists fields the page's anchors actually inject (e.g. a
 /// page that only has `GNX:TIP:actions` should emphasize `developer_tip`).
+// Each argument is semantically distinct (path, section, content, evidence,
+// config, page type, language, required fields) — grouping them into a struct
+// would be artificial since they come from different parts of the pipeline.
+#[allow(clippy::too_many_arguments)]
 fn enrich_single_section(
     page_path: &Path,
     section_key: &str,
@@ -2795,6 +2799,11 @@ pub(super) fn run_enrichment_queue_only(
 }
 
 /// Run LLM enrichment on all generated docs if enabled (structured mode with provenance).
+// Called from 6 generate sub-commands (modules, processes, top-level, …).
+// Args come from CLI flags + pipeline context — no natural grouping that
+// callers would share. Refactoring would shuffle 6 callsites for a clippy
+// rule, not for design.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn run_enrichment_if_enabled(
     enrich: bool,
     graph: &KnowledgeGraph,

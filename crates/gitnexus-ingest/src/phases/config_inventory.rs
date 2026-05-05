@@ -93,10 +93,13 @@ struct Reference {
     line: u32,
 }
 
+/// Parsed declarations and references collected from a single config/source file.
+type ScanResult = (Vec<(String, Declaration)>, Vec<(String, Reference)>);
+
 // ─── Entry point ───────────────────────────────────────────────────────────
 
 pub fn extract_env_vars(graph: &mut KnowledgeGraph, files: &[FileEntry]) -> ConfigInventoryStats {
-    let scanned: Vec<(Vec<(String, Declaration)>, Vec<(String, Reference)>)> = files
+    let scanned: Vec<ScanResult> = files
         .par_iter()
         .filter(|f| !should_skip(&f.path))
         .map(scan_file)
@@ -213,7 +216,7 @@ fn should_skip(path: &str) -> bool {
     false
 }
 
-fn scan_file(file: &FileEntry) -> (Vec<(String, Declaration)>, Vec<(String, Reference)>) {
+fn scan_file(file: &FileEntry) -> ScanResult {
     let mut decls: Vec<(String, Declaration)> = Vec::new();
     let mut refs: Vec<(String, Reference)> = Vec::new();
     if file.content.is_empty() {

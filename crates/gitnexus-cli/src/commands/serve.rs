@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
-    http::{header, HeaderValue, Method, StatusCode},
+    http::{header, Method, StatusCode},
     response::sse::{Event, KeepAlive},
     response::IntoResponse,
     response::Sse,

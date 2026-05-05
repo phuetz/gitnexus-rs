@@ -1806,7 +1806,9 @@ dependencies = [
  "gitnexus-db",
  "gitnexus-git",
  "gitnexus-ingest",
+ "gitnexus-mcp",
  "gitnexus-output",
+ "gitnexus-rag",
  "gitnexus-search",
  "ignore",
  "once_cell",
@@ -1941,6 +1943,7 @@ name = "gitnexus-rag"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "pulldown-cmark",
  "quick-xml",
  "serde",

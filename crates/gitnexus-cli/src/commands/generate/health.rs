@@ -463,7 +463,7 @@ pub(super) fn generate_project_health(docs_dir: &Path, graph: &KnowledgeGraph) -
                         .properties
                         .file_path
                         .split(['/', '\\'])
-                        .last()
+                        .next_back()
                         .unwrap_or("");
                     let line = item
                         .properties

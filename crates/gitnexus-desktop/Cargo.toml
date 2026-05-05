@@ -13,6 +13,8 @@ tauri-build = { version = "2", features = [] }
 gitnexus-core.workspace = true
 gitnexus-db.workspace = true
 gitnexus-ingest.workspace = true
+gitnexus-mcp.workspace = true
+gitnexus-rag.workspace = true
 gitnexus-search = { workspace = true, features = ["reranker-llm", "embeddings"] }
 gitnexus-git.workspace = true
 gitnexus-output.workspace = true

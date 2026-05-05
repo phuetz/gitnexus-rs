@@ -504,7 +504,7 @@ pub(crate) fn build_skeleton_flowchart(
     let mut seen = HashSet::new();
     let start_san = sanitize(start_id);
     let file_ref = if !start_node.properties.file_path.is_empty() {
-        if let Some(fname) = start_node.properties.file_path.split('/').last() {
+        if let Some(fname) = start_node.properties.file_path.split('/').next_back() {
             format!(
                 "\\n{}:{}",
                 fname,
@@ -547,7 +547,8 @@ pub(crate) fn build_skeleton_flowchart(
         seen.insert(method_id.clone());
 
         let method_san = sanitize(method_id);
-        let file_ref = if let Some(fname) = method_node.properties.file_path.split('/').last() {
+        let file_ref = if let Some(fname) = method_node.properties.file_path.split('/').next_back()
+        {
             format!(
                 "\\n{}:{}",
                 fname,
@@ -620,7 +621,7 @@ pub(crate) fn build_skeleton_flowchart(
                 seen.insert(callee_id.clone());
                 let callee_san = sanitize(callee_id);
                 let file_ref =
-                    if let Some(fname) = callee_node.properties.file_path.split('/').last() {
+                    if let Some(fname) = callee_node.properties.file_path.split('/').next_back() {
                         format!(
                             "\\n{}:{}",
                             fname,

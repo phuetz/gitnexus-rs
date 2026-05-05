@@ -45,3 +45,7 @@ Desktop.ini
 .env
 .env.local
 .env.*.local
+
+# Local notes / scratch (not part of the project)
+/next-steps.md
+/questions/

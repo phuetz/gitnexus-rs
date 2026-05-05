@@ -350,11 +350,27 @@ async fn run_architect(
     let system = ARCHITECT_SYSTEM_PROMPT;
     let user = format!(
         "{}\n\n## Feature to design\n\n{}\n\n\
-         Produce the blueprint as strict Markdown with these sections:\n\
+         Produce the blueprint as strict Markdown with these sections, in order, \
+         following the Alise v1.1 SFD template (Besoin → Exigences → Modèle → \
+         **Algorithmes** → Diagrammes — §4 Algorithmes is mandatory when the feature \
+         touches a calculation, transformation, or multi-step process):\n\n\
+         - `### 1. Expression du besoin` (one-paragraph restatement of the goal in \
+           business terms — no implementation jargon)\n\
+         - `### 2. Exigences` (bullet list of functional + non-functional requirements \
+           extracted from the feature description)\n\
+         - `### 3. Modèle de données` (entities or DTOs touched, with the fields the \
+           feature reads or writes — anchor on existing graph symbols where possible)\n\
+         - `### 4. Algorithmes` (when the feature involves a calculation or workflow: \
+           structured pseudo-code in a fenced ```text block, then a Mermaid \
+           flowchart in a ```mermaid block tying the steps together. Skip this \
+           section ONLY for trivial CRUD with no business logic — say so explicitly \
+           if you do.)\n\
+         - `### 5. Diagrammes` (Mermaid sequence or component diagram showing how \
+           the new pieces interact with the existing surface)\n\
          - `### Files to create` (bullet list of `path` — purpose)\n\
          - `### Files to modify` (bullet list of `path` — nature of change)\n\
-         - `### Data flow` (short paragraph)\n\
-         - `### Build sequence` (numbered steps, in order)",
+         - `### Build sequence` (numbered steps, in order — first the data model, \
+           then the algorithm, then wiring, then UI)",
         context, feature
     );
 
@@ -364,14 +380,21 @@ async fn run_architect(
 const ARCHITECT_SYSTEM_PROMPT: &str =
     "You are the code-architect role in a three-stage feature development pipeline. \
 Your job: design an implementation blueprint that respects the existing \
-codebase's conventions.\n\n\
+codebase's conventions AND follows the Alise v1.1 SFD methodology (Besoin → \
+Exigences → Modèle → Algorithmes → Diagrammes). The §4 Algorithmes section \
+is the load-bearing one for traceability — it must contain pseudo-code that \
+a developer or auditor can follow without reading the source.\n\n\
 Rules:\n\
 - Match existing conventions (file layout, naming, extension style).\n\
 - Prefer modifying existing files over creating new ones when possible.\n\
 - Every file path must sit in a plausible location given the surface analysis.\n\
 - Never invent symbols or APIs — only reference things present in the surface.\n\
+- Pseudo-code in §4 must be language-agnostic, structured (clear blocks, \
+  loops, conditionals), and reference the entities defined in §3.\n\
+- Mermaid flowcharts use the topology-only style: nodes labelled with the \
+  step name, edges labelled with the trigger condition. No internal code.\n\
 - Produce a build sequence that can be followed step-by-step by a developer.\n\
-- Do NOT write code. Output Markdown only.";
+- Do NOT write target-language source code. Output Markdown only.";
 
 // ─── Phase 3: Reviewer (LLM-driven + graph validation) ──────────────
 

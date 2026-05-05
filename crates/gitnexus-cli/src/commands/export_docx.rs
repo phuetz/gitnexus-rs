@@ -756,7 +756,11 @@ fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 /// OOXML coordinate system (1 inch = 914 400 EMU; 1 px @96dpi = 9 525 EMU).
 fn drawing_xml(index: usize, (w_px, h_px): (u32, u32), alt_text: &str) -> String {
     const MAX_WIDTH_EMU: u64 = 5_731_510; // ~6.27 inches, fits A4 with 1.5" margins
-    let aspect = if w_px == 0 { 1.0 } else { h_px as f64 / w_px as f64 };
+    let aspect = if w_px == 0 {
+        1.0
+    } else {
+        h_px as f64 / w_px as f64
+    };
     let width_emu = MAX_WIDTH_EMU;
     let height_emu = ((width_emu as f64) * aspect).round() as u64;
     let alt = xml_escape(alt_text);
@@ -1145,7 +1149,11 @@ fn load_brand_config() -> BrandConfig {
     }
     for var in ["USERPROFILE", "HOME"] {
         if let Ok(home) = std::env::var(var) {
-            candidates.push(std::path::PathBuf::from(home).join(".gitnexus").join("brand.json"));
+            candidates.push(
+                std::path::PathBuf::from(home)
+                    .join(".gitnexus")
+                    .join("brand.json"),
+            );
         }
     }
     for path in candidates {
@@ -1171,10 +1179,7 @@ fn load_brand_config() -> BrandConfig {
 /// on the right in bold blue. A thin bottom border separates the header
 /// band from the body.
 fn generate_header_xml(project_name: &str, brand: &BrandConfig) -> String {
-    let left = brand
-        .client_name
-        .as_deref()
-        .unwrap_or(project_name);
+    let left = brand.client_name.as_deref().unwrap_or(project_name);
     let right = brand.document_title();
     format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

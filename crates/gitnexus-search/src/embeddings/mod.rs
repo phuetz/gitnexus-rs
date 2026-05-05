@@ -85,7 +85,10 @@ mod onnx {
 
             let encodings = self
                 .tokenizer
-                .encode_batch(texts.iter().map(|s| (*s).to_string()).collect::<Vec<_>>(), true)
+                .encode_batch(
+                    texts.iter().map(|s| (*s).to_string()).collect::<Vec<_>>(),
+                    true,
+                )
                 .map_err(|e| format!("tokenize failed: {e}"))?;
 
             let batch_size = encodings.len();

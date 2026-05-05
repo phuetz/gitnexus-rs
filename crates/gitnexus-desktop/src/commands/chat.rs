@@ -15,9 +15,13 @@ use tauri::{AppHandle, Emitter, State};
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_db::inmemory::fts::FtsIndex;
+use gitnexus_mcp::backend::local::LocalBackend;
+use gitnexus_search::embeddings::{EmbeddingConfig, EmbeddingStore};
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::state::AppState;
-use crate::types::{ChatConfig, ChatRequest, ChatResponse, ChatSource};
+use crate::types::{ChatConfig, ChatRequest, ChatResponse, ChatSearchCapabilities, ChatSource};
 
 // ─── LLM Configuration ──────────────────────────────────────────────
 
@@ -195,6 +199,7 @@ use gitnexus_core::llm::{
 };
 
 /// Execute an agent tool call against the knowledge graph or memory store.
+#[allow(clippy::too_many_arguments)]
 async fn execute_mcp_tool(
     name: &str,
     args: &str,
@@ -202,6 +207,9 @@ async fn execute_mcp_tool(
     graph: &KnowledgeGraph,
     indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     fts_index: &FtsIndex,
+    embeddings: Option<&EmbeddingStore>,
+    embeddings_config: Option<&EmbeddingConfig>,
+    mcp_backend: Option<&Arc<TokioMutex<LocalBackend>>>,
 ) -> String {
     let parsed = serde_json::from_str::<serde_json::Value>(args).unwrap_or_default();
 
@@ -215,7 +223,8 @@ async fn execute_mcp_tool(
             if query.is_empty() {
                 return "Error: missing required parameter 'query'".to_string();
             }
-            let results = search_relevant_context(query, graph, fts_index, 8);
+            let results =
+                search_relevant_context(query, graph, fts_index, 8, embeddings, embeddings_config);
             let sources = build_sources(&results, graph, repo_path);
             if sources.is_empty() {
                 return format!("No results found for '{}'.", query);
@@ -577,6 +586,240 @@ async fn execute_mcp_tool(
             read_full_method(symbol, graph, repo_path).await
         }
 
+        // ── list_sfd_pages ───────────────────────────────────────
+        // Doc-SFD workflow (P1.1): the chat needs to know which pages exist
+        // before it can write into one. Walks `.gitnexus/docs/modules/` and
+        // also surfaces drafts under `.gitnexus/docs/_drafts/` so the LLM
+        // sees in-progress work it might want to extend.
+        "list_sfd_pages" => {
+            let docs_dir = repo_path.join(".gitnexus").join("docs");
+            if !docs_dir.exists() {
+                return format!(
+                    "No docs directory at {} — run `gitnexus generate docs` first.",
+                    docs_dir.display()
+                );
+            }
+            let mut pages: Vec<String> = Vec::new();
+            let mut drafts: Vec<String> = Vec::new();
+            let modules_dir = docs_dir.join("modules");
+            if modules_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&modules_dir) {
+                    for e in entries.flatten() {
+                        let p = e.path();
+                        if p.extension().and_then(|x| x.to_str()) == Some("md") {
+                            if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                                pages.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            let drafts_dir = docs_dir.join("_drafts");
+            if drafts_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&drafts_dir) {
+                    for e in entries.flatten() {
+                        let p = e.path();
+                        if p.extension().and_then(|x| x.to_str()) == Some("md") {
+                            if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                                drafts.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            pages.sort();
+            drafts.sort();
+            let mut out = format!("Found {} module page(s):\n", pages.len());
+            for p in &pages {
+                out.push_str(&format!("- {}\n", p));
+            }
+            if !drafts.is_empty() {
+                out.push_str(&format!("\n{} draft(s) in _drafts/:\n", drafts.len()));
+                for d in &drafts {
+                    out.push_str(&format!("- {} (draft)\n", d));
+                }
+            }
+            out
+        }
+
+        // ── write_sfd_draft ──────────────────────────────────────
+        // Writes Markdown into `.gitnexus/docs/_drafts/<page>` — never into
+        // the live `modules/` tree. The user keeps control over promotion: a
+        // bad LLM run loses a draft, not the 137 enriched production pages.
+        "write_sfd_draft" => {
+            let page = match parsed.get("page").and_then(|p| p.as_str()) {
+                Some(p) => p.trim(),
+                None => return "Error: missing required parameter 'page'".to_string(),
+            };
+            let content = match parsed.get("content").and_then(|c| c.as_str()) {
+                Some(c) => c,
+                None => return "Error: missing required parameter 'content'".to_string(),
+            };
+            // Reject path traversal — drafts must land in the drafts dir,
+            // not anywhere on disk via `../../../etc/passwd`.
+            if page.contains("..")
+                || page.contains('\\')
+                || page.starts_with('/')
+                || page.is_empty()
+            {
+                return format!(
+                    "Error: invalid page name '{}' (no '..', '\\', leading '/', or empty)",
+                    page
+                );
+            }
+            let drafts_dir = repo_path.join(".gitnexus").join("docs").join("_drafts");
+            if let Err(e) = std::fs::create_dir_all(&drafts_dir) {
+                return format!("Error: could not create drafts dir: {}", e);
+            }
+            let target = drafts_dir.join(page);
+            // Atomic write (.tmp → rename) so a partial flush doesn't leave
+            // a half-written .md the validator might choke on.
+            let tmp = target.with_extension("md.tmp");
+            if let Err(e) = std::fs::write(&tmp, content) {
+                return format!("Error: write failed for {}: {}", target.display(), e);
+            }
+            if let Err(e) = std::fs::rename(&tmp, &target) {
+                return format!("Error: atomic rename failed: {}", e);
+            }
+            format!(
+                "Draft written: {} ({} bytes). Call `validate_sfd` with `path: \"_drafts\"` \
+                 to lint it before promotion.",
+                target.display(),
+                content.len()
+            )
+        }
+
+        // ── validate_sfd ─────────────────────────────────────────
+        // Run the validator against the docs tree (or a sub-path like
+        // `_drafts/`) and return the structured RED/GREEN report. The chat
+        // can render this directly; promotion to live docs stays a deliberate
+        // user action outside the agent loop.
+        "validate_sfd" => {
+            let sub_path = parsed.get("path").and_then(|p| p.as_str()).unwrap_or("");
+            let docs_dir = if sub_path.is_empty() {
+                repo_path.join(".gitnexus").join("docs")
+            } else if sub_path.contains("..") || sub_path.starts_with('/') {
+                return format!(
+                    "Error: invalid path '{}' (no '..' or absolute paths)",
+                    sub_path
+                );
+            } else {
+                repo_path.join(".gitnexus").join("docs").join(sub_path)
+            };
+            match gitnexus_rag::validator::validate(&docs_dir, &repo_path.display().to_string()) {
+                Ok(report) => {
+                    let status = if report.red_count == 0 && report.yellow_count == 0 {
+                        "GREEN — ready to ship"
+                    } else if report.red_count == 0 {
+                        "YELLOW — ships but has style issues"
+                    } else {
+                        "RED — blocked, must fix"
+                    };
+                    let mut out = format!(
+                        "**Validation: {}**\n\n\
+                         - {} pages scanned, {} with issues\n\
+                         - {} RED issues, {} YELLOW issues\n",
+                        status,
+                        report.total_pages,
+                        report.pages_with_issues,
+                        report.red_count,
+                        report.yellow_count,
+                    );
+                    if !report.by_kind.is_empty() {
+                        out.push_str("\n**Issue kinds:**\n");
+                        for (kind, count) in &report.by_kind {
+                            out.push_str(&format!("- {}: {}\n", kind, count));
+                        }
+                    }
+                    if !report.pages.is_empty() {
+                        out.push_str("\n**Top pages with issues:**\n");
+                        let mut sorted = report.pages.clone();
+                        sorted.sort_by(|a, b| b.issues.len().cmp(&a.issues.len()));
+                        for page in sorted.iter().take(5) {
+                            out.push_str(&format!(
+                                "\n*{}* — {} issue(s):\n",
+                                page.path,
+                                page.issues.len()
+                            ));
+                            for iss in page.issues.iter().take(3) {
+                                let sev = match iss.severity {
+                                    gitnexus_rag::validator::Severity::Red => "RED",
+                                    gitnexus_rag::validator::Severity::Yellow => "YELLOW",
+                                };
+                                let line = iss
+                                    .line
+                                    .map(|n| format!("L{}", n))
+                                    .unwrap_or_else(|| "-".to_string());
+                                out.push_str(&format!(
+                                    "  - [{}] {} {}: {}\n",
+                                    sev, line, iss.kind, iss.detail
+                                ));
+                            }
+                            if page.issues.len() > 3 {
+                                out.push_str(&format!("  - ... +{} more\n", page.issues.len() - 3));
+                            }
+                        }
+                    }
+                    out
+                }
+                Err(e) => format!("Error: validation failed: {}", e),
+            }
+        }
+
+        // ── recall_memory ────────────────────────────────────────
+        // The LLM has `save_memory` but no way to query what's already there
+        // — without this, persisted facts are write-only from its point of
+        // view and only surface via the system prompt's pre-injected memory
+        // context. Adding a query path lets the agent ask "do I already know
+        // X about this codebase?" before redoing work.
+        "recall_memory" => {
+            let query = parsed
+                .get("query")
+                .and_then(|q| q.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_lowercase();
+            let scope_arg = parsed
+                .get("scope")
+                .and_then(|s| s.as_str())
+                .unwrap_or("all");
+
+            let mut matches: Vec<(String, String)> = Vec::new();
+            let scopes_to_check: &[gitnexus_core::memory::MemoryScope] = match scope_arg {
+                "global" => &[gitnexus_core::memory::MemoryScope::Global],
+                "project" => &[gitnexus_core::memory::MemoryScope::Project],
+                _ => &[
+                    gitnexus_core::memory::MemoryScope::Global,
+                    gitnexus_core::memory::MemoryScope::Project,
+                ],
+            };
+
+            for scope in scopes_to_check {
+                let label = match scope {
+                    gitnexus_core::memory::MemoryScope::Global => "global",
+                    gitnexus_core::memory::MemoryScope::Project => "project",
+                };
+                let store = gitnexus_core::memory::MemoryStore::load(*scope, Some(repo_path));
+                for fact in &store.facts {
+                    if query.is_empty() || fact.to_lowercase().contains(&query) {
+                        matches.push((label.to_string(), fact.clone()));
+                    }
+                }
+            }
+
+            if matches.is_empty() {
+                if query.is_empty() {
+                    return "No facts saved yet (use save_memory to record one).".to_string();
+                }
+                return format!("No saved facts matching '{}'.", query);
+            }
+            let mut out = format!("Found {} saved fact(s):\n\n", matches.len());
+            for (scope, fact) in matches {
+                out.push_str(&format!("- [{}] {}\n", scope, fact));
+            }
+            out
+        }
+
         // ── save_memory ──────────────────────────────────────────
         "save_memory" => {
             let fact = match parsed.get("fact").and_then(|f| f.as_str()) {
@@ -602,8 +845,66 @@ async fn execute_mcp_tool(
             }
         }
 
-        _ => format!("Error: unknown tool '{}'", name),
+        // ── Extended MCP tools (hotspots, coupling, ownership, coverage,
+        //    report, business, find_cycles, find_similar_code, list_todos,
+        //    get_complexity, list_endpoints, list_db_tables, list_env_vars,
+        //    get_endpoint_handler, detect_changes, analyze_execution_trace,
+        //    get_insights, rename) — delegated to LocalBackend.
+        _ => match mcp_backend {
+            Some(backend) => dispatch_via_local_backend(backend, name, args, repo_path).await,
+            None => format!("Error: unknown tool '{}'", name),
+        },
     }
+}
+
+/// Forward a tool call to the shared `LocalBackend` so the chat surfaces the
+/// full 27-tool MCP catalogue without re-implementing each one. Auto-injects
+/// the active repo path into `args.repo` when missing — the chat already knows
+/// which repo is active, so making the LLM specify it on every call would just
+/// be friction.
+async fn dispatch_via_local_backend(
+    backend: &Arc<TokioMutex<LocalBackend>>,
+    name: &str,
+    args_str: &str,
+    repo_path: &Path,
+) -> String {
+    let mut args: serde_json::Value =
+        serde_json::from_str(args_str).unwrap_or_else(|_| serde_json::json!({}));
+    if !args.is_object() {
+        args = serde_json::json!({});
+    }
+    if let Some(obj) = args.as_object_mut() {
+        if !obj.contains_key("repo") {
+            obj.insert(
+                "repo".to_string(),
+                serde_json::Value::String(repo_path.to_string_lossy().to_string()),
+            );
+        }
+    }
+
+    let mut backend_lock = backend.lock().await;
+    match backend_lock.call_tool(name, &args).await {
+        Ok(response) => extract_mcp_text(&response),
+        Err(e) => format!("Error from MCP tool '{}': {}", name, e),
+    }
+}
+
+/// Pull the human-readable text out of an MCP tool response envelope
+/// (`{"content": [{"type": "text", "text": "..."}]}`). Falls back to the
+/// stringified JSON when the envelope shape is unexpected, so the LLM still
+/// gets *something* useful instead of an empty response.
+fn extract_mcp_text(response: &serde_json::Value) -> String {
+    if let Some(text) = response
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|a| a.first())
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+    {
+        return text.to_string();
+    }
+    serde_json::to_string_pretty(response)
+        .unwrap_or_else(|_| "Error: failed to format MCP response".to_string())
 }
 
 /// Execute a Cypher query and format a compact JSON result for prompt injection.
@@ -650,15 +951,29 @@ pub async fn chat_ask(
 ) -> Result<ChatResponse, String> {
     let config = load_config(&state).await;
 
-    // 1. Get the active repo's graph and FTS index
-    let (graph, indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
+    // 1. Get the active repo's graph, FTS index, and (optionally) embeddings
+    //    for hybrid search. Embeddings are loaded once at open_repo time and
+    //    cached in LoadedRepo, so this is a cheap Arc clone.
+    let (graph, indexes, fts_index, embeddings, embeddings_config, repo_path_str) =
+        state.get_repo_with_embeddings(None).await?;
     let repo_path = PathBuf::from(&repo_path_str);
+    let emb_ref = embeddings.as_deref();
+    let emb_cfg_ref = embeddings_config.as_deref();
+    let mcp_backend = Arc::clone(&state.mcp_backend);
+    let mcp_ref = Some(&mcp_backend);
 
     // 2. Classify the question → determines canvas + pre-fetch strategy
     let question_type = classify_question(&request.question);
 
-    // 3. Search for relevant symbols
-    let search_results = search_relevant_context(&request.question, &graph, &fts_index, 10);
+    // 3. Search for relevant symbols (hybrid BM25+semantic when embeddings exist)
+    let search_results = search_relevant_context(
+        &request.question,
+        &graph,
+        &fts_index,
+        10,
+        emb_ref,
+        emb_cfg_ref,
+    );
 
     // 4. Read code snippets for top results
     let sources = build_sources(&search_results, &graph, &repo_path);
@@ -675,6 +990,9 @@ pub async fn chat_ask(
         &indexes,
         &fts_index,
         &repo_path,
+        emb_ref,
+        emb_cfg_ref,
+        mcp_ref,
     )
     .await;
 
@@ -735,169 +1053,26 @@ pub async fn chat_ask(
         config.reasoning_effort.clone(),
     )?;
 
-    // Define mock tools for the agent
-    let tools = vec![
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "search_code".to_string(),
-                description: "Search the codebase for symbols, functions, classes, or patterns. Returns matching symbols with code snippets.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Search query (symbol name, keyword, or pattern)" }
-                    },
-                    "required": ["query"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "read_file".to_string(),
-                description: "Read source code from a file in the repository. Use when you need to see the actual implementation of a symbol.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Relative file path (e.g. 'src/main.rs')" },
-                        "start_line": { "type": "number", "description": "Start line (1-based, optional)" },
-                        "end_line": { "type": "number", "description": "End line (optional, max 50 lines)" }
-                    },
-                    "required": ["path"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "get_impact".to_string(),
-                description: "Blast radius analysis: find all symbols affected if a given symbol changes. Uses BFS on causal edges (Calls, Imports, Inherits, etc.).".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "target": { "type": "string", "description": "Symbol name or node ID to analyze" },
-                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "description": "Direction of impact (default: both)" },
-                        "max_depth": { "type": "number", "description": "Max BFS depth (default: 3)" }
-                    },
-                    "required": ["target"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "get_symbol_context".to_string(),
-                description: "360-degree context for a symbol: callers, callees, imports, inheritance, and module membership.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "symbol": { "type": "string", "description": "Symbol name or node ID" }
-                    },
-                    "required": ["symbol"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "execute_cypher".to_string(),
-                description: "Execute a read-only Cypher query against the knowledge graph. Only MATCH and CALL statements are allowed.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Cypher query (e.g. MATCH (n:Class) RETURN n.name LIMIT 10)" }
-                    },
-                    "required": ["query"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "search_processes".to_string(),
-                description: "Search business process flows in the graph. Use when the question involves a workflow, business process, or multi-step operation.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Search query (process name or keyword)" }
-                    },
-                    "required": ["query"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "get_process_flow".to_string(),
-                description: "Find business Process nodes matching a keyword and return their name, description, and step count.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "keyword": { "type": "string", "description": "Business process or module keyword (e.g. Courrier, Dossier)" }
-                    },
-                    "required": ["keyword"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "get_diagram".to_string(),
-                description: "Generate a Mermaid flowchart, sequence, or class diagram for a class/controller/service.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "target": { "type": "string", "description": "Symbol name (class, controller, service, or method)" },
-                        "diagram_type": {
-                            "type": "string",
-                            "enum": ["flowchart", "sequence", "class"],
-                            "description": "Diagram style. Defaults to flowchart."
-                        }
-                    },
-                    "required": ["target"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "read_method".to_string(),
-                description: "Read the COMPLETE source code of a method or function (up to 250 lines, no truncation). \
-                              Use this for ALGORITHM questions where you need to see the full if/else/loop/switch structure. \
-                              Prefer this over read_file when you need a specific method body.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "symbol": { "type": "string", "description": "Exact method or function name (case-insensitive)" }
-                    },
-                    "required": ["symbol"]
-                }),
-            }
-        },
-        ToolDefinition {
-            type_: "function".to_string(),
-            function: FunctionDefinition {
-                name: "save_memory".to_string(),
-                description: "Persist a fact or preference across ALL future sessions. Use 'global' for cross-project preferences, 'project' for workspace-specific facts.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "fact": { "type": "string", "description": "The fact to remember" },
-                        "scope": { "type": "string", "enum": ["global", "project"], "description": "Scope of the memory" }
-                    },
-                    "required": ["fact", "scope"]
-                }),
-            }
-        },
-    ];
+    // Send the LLM the *full* tool catalogue (10 historical + recall_memory +
+    // 17 extended MCP tools). Previously this list only carried the original
+    // ten — adding descriptors via `build_tool_descriptors()` made them visible
+    // in the UI but NOT in the function-calling schema, so the LLM could see
+    // them in the panel and still couldn't call them. Derive from the same
+    // source of truth used by the UI to keep the two views in sync.
+    //
+    // TODO: also pass `tool_choice: "required"` on the first iteration once
+    // `LlmProvider::stream_completion` accepts a request struct — today the
+    // anti-stall heuristic at L1117+ catches "I'll search…" announcements as
+    // a fallback, but `tool_choice` would let the API enforce it server-side.
+    let tools: Vec<ToolDefinition> = descriptors_to_llm_tools(&build_tool_descriptors());
 
     let mut final_answer = String::new();
     let mut iteration = 0;
     // Vary iteration budget by question type — Lookup rarely needs more than 2;
     // Algorithm/Architecture need up to 8 to fully trace call chains.
     let max_iterations: usize = match question_type {
-        QuestionType::Lookup   => 2,
-        QuestionType::Impact   => 3,
+        QuestionType::Lookup => 2,
+        QuestionType::Impact => 3,
         QuestionType::Functional => 5,
         QuestionType::Algorithm | QuestionType::Architecture => 8,
     };
@@ -1045,6 +1220,9 @@ pub async fn chat_ask(
                     &graph,
                     &indexes,
                     &fts_index,
+                    emb_ref,
+                    emb_cfg_ref,
+                    mcp_ref,
                 )
                 .await;
                 let _ = app.emit("tool_execution_end", "search_code".to_string());
@@ -1097,6 +1275,9 @@ pub async fn chat_ask(
                 &graph,
                 &indexes,
                 &fts_index,
+                emb_ref,
+                emb_cfg_ref,
+                mcp_ref,
             )
             .await;
             let _ = app.emit("tool_execution_end", tc.name.clone());
@@ -1249,6 +1430,36 @@ pub struct ChatToolDescriptor {
     pub parameters: serde_json::Value,
 }
 
+/// Convert chat tool descriptors (the UI-facing list) into the OpenAI-style
+/// `ToolDefinition` array the agent loop sends to the LLM. Single source of
+/// truth: keep both views derived from `build_tool_descriptors()` so adding
+/// a tool is one edit, not three.
+///
+/// Also stamps `additionalProperties: false` on every schema so the API
+/// rejects args the LLM hallucinates that we don't accept — a quiet source
+/// of "the model called the tool with `{since: 30}` but the backend silently
+/// substituted the default 90" bugs.
+fn descriptors_to_llm_tools(descriptors: &[ChatToolDescriptor]) -> Vec<ToolDefinition> {
+    descriptors
+        .iter()
+        .map(|d| {
+            let mut params = d.parameters.clone();
+            if let Some(obj) = params.as_object_mut() {
+                obj.entry("additionalProperties")
+                    .or_insert(serde_json::Value::Bool(false));
+            }
+            ToolDefinition {
+                type_: "function".to_string(),
+                function: FunctionDefinition {
+                    name: d.name.clone(),
+                    description: d.description.clone(),
+                    parameters: params,
+                },
+            }
+        })
+        .collect()
+}
+
 fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
     vec![
         ChatToolDescriptor {
@@ -1308,12 +1519,12 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
         },
         ChatToolDescriptor {
             name: "execute_cypher".to_string(),
-            description: "Read-only Cypher query against the graph (MATCH/CALL only).".to_string(),
+            description: "Read-only Cypher against the in-memory graph. SUPPORTED: MATCH (n:Label) / MATCH (n)-[r:TYPE]->(m), WHERE with =, <>, !=, CONTAINS, STARTS WITH, ENDS WITH, AND, OR, NOT, RETURN (with DISTINCT), ORDER BY, LIMIT, count(n), CALL QUERY_FTS_INDEX('table', 'query'). NOT supported: IN, COUNT(r) AS alias, GROUP BY, OPTIONAL MATCH, map literals {k:v}, UNWIND, multi-statement queries. Stick to a single-pattern MATCH + WHERE + RETURN — anything fancier will fail to parse.".to_string(),
             category: "query".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string" }
+                    "query": { "type": "string", "description": "Cypher in the supported subset above. Example: MATCH (n:Function) WHERE n.name CONTAINS 'auth' AND NOT n.filePath ENDS WITH '.test.ts' RETURN DISTINCT n.name, n.filePath ORDER BY n.name LIMIT 20" }
                 },
                 "required": ["query"]
             }),
@@ -1383,6 +1594,259 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
                 "required": ["fact", "scope"]
             }),
         },
+        ChatToolDescriptor {
+            name: "recall_memory".to_string(),
+            description: "Query previously-saved facts by keyword (case-insensitive substring). Symmetric of save_memory — use before redoing work to check what's already known.".to_string(),
+            category: "memory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Keyword to match against saved facts. Empty string returns all." },
+                    "scope": { "type": "string", "enum": ["global", "project", "all"], "description": "Which scope to search (default 'all')" }
+                }
+            }),
+        },
+        // ── Doc-SFD workflow (P1.1) ───────────────────────────────────
+        // Three tools that turn the chat into a write-side authoring loop
+        // for `.gitnexus/docs/`. Drafts live in `_drafts/` so a bad LLM run
+        // can't trash the 137 enriched production pages — promotion stays
+        // a user-driven action outside the agent loop.
+        ChatToolDescriptor {
+            name: "list_sfd_pages".to_string(),
+            description: "List Markdown pages under `.gitnexus/docs/modules/` and any in-progress drafts under `.gitnexus/docs/_drafts/`. Call this first to see what pages exist before writing.".to_string(),
+            category: "docs".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        },
+        ChatToolDescriptor {
+            name: "write_sfd_draft".to_string(),
+            description: "Write Markdown content to `.gitnexus/docs/_drafts/<page>`. The full SFD section text the LLM has composed goes in `content` — do not write code-side files. Drafts are atomic (tmp+rename) and never overwrite the live `modules/` tree.".to_string(),
+            category: "docs".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "page": { "type": "string", "description": "Filename only, e.g. 'aspnet-services.md' — no path components, no '..'" },
+                    "content": { "type": "string", "description": "Full Markdown body of the page (including all SFD sections — Besoin, Exigences, Modèle, §4 Algorithmes, Diagrammes)" }
+                },
+                "required": ["page", "content"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "validate_sfd".to_string(),
+            description: "Run the pre-delivery linter against the docs tree (or a sub-path like '_drafts'). Returns a structured RED/GREEN report listing residual TODOs, unfilled GNX:* anchors, broken links, short sections, and missing §4 Algorithmes on service/controller pages.".to_string(),
+            category: "docs".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Optional sub-path under `.gitnexus/docs/` (e.g. '_drafts' or 'modules'). Omit to validate the entire docs tree." }
+                }
+            }),
+        },
+        // ── Extended MCP tools (delegated to LocalBackend) ─────────────
+        // These hit the full 27-tool gitnexus-mcp catalogue rather than
+        // re-implementing every analytic. Adding a tool here makes the LLM
+        // aware of it; the dispatch fallback in `execute_mcp_tool` does the
+        // routing. Keep parameters terse — verbose schemas eat prompt budget.
+        ChatToolDescriptor {
+            name: "hotspots".to_string(),
+            description: "Top files by churn over the last N days (refactor candidates).".to_string(),
+            category: "git".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "since_days": { "type": "number", "description": "Lookback window in days (default 90)" },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "coupling".to_string(),
+            description: "Files that change together over git history (temporal coupling).".to_string(),
+            category: "git".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "min_shared": { "type": "number", "description": "Minimum shared commits to consider coupled (default 3)" },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "ownership".to_string(),
+            description: "Per-file author distribution (who wrote/maintains what).".to_string(),
+            category: "git".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "coverage".to_string(),
+            description: "Tracing instrumentation coverage and dead-code candidates (zero callers).".to_string(),
+            category: "quality".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "target": { "type": "string", "description": "Optional class/service to scope to; omit for global stats" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "report".to_string(),
+            description: "Codebase health score (A-E grade) with sub-scores.".to_string(),
+            category: "quality".to_string(),
+            parameters: serde_json::json!({ "type": "object", "properties": {} }),
+        },
+        ChatToolDescriptor {
+            name: "business".to_string(),
+            description: "Documented business processes (workflows, payments, mass mail, etc.).".to_string(),
+            category: "domain".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "process": { "type": "string", "description": "Optional process name (e.g. 'paiements', 'courriers'); omit to list all" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "find_cycles".to_string(),
+            description: "Strongly-connected components (Tarjan) — circular import or call cycles.".to_string(),
+            category: "quality".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "scope": { "type": "string", "enum": ["imports", "calls"] },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "find_similar_code".to_string(),
+            description: "Detect near-duplicate code via Rabin-Karp + Jaccard similarity.".to_string(),
+            category: "quality".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "min_tokens": { "type": "number", "description": "Minimum window size in tokens (default 30)" },
+                    "threshold": { "type": "number", "description": "Min Jaccard similarity (default 0.9)" },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "list_todos".to_string(),
+            description: "TODO / FIXME / HACK / XXX markers across the codebase.".to_string(),
+            category: "inventory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "severity": { "type": "string", "enum": ["TODO", "FIXME", "HACK", "XXX"] },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "get_complexity".to_string(),
+            description: "Cyclomatic complexity statistics (averages, percentiles, top-N hot spots).".to_string(),
+            category: "quality".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "threshold": { "type": "number", "description": "Only list symbols with complexity ≥ this (default 0)" },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "list_endpoints".to_string(),
+            description: "REST/GraphQL endpoints (Express, FastAPI, Flask, Spring, ASP.NET MVC, …).".to_string(),
+            category: "inventory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "method": { "type": "string", "description": "Filter by HTTP verb (GET/POST/...) — case-insensitive" },
+                    "pattern": { "type": "string", "description": "Substring filter on the route path (case-insensitive)" },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "list_db_tables".to_string(),
+            description: "Database tables (SQL migrations, Prisma, SQLAlchemy, TypeORM, EF6, …).".to_string(),
+            category: "inventory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "list_env_vars".to_string(),
+            description: "Environment variables declared vs. used (audit).".to_string(),
+            category: "inventory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "unused_only": { "type": "boolean", "description": "If true, surface declared-but-unused vars" },
+                    "limit": { "type": "number" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "get_endpoint_handler".to_string(),
+            description: "Resolve an endpoint route + verb to its handler method + degree-1 call neighborhood.".to_string(),
+            category: "inventory".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "route": { "type": "string", "description": "Route path as discovered by list_endpoints (e.g. '/api/users/:id')" },
+                    "method": { "type": "string", "description": "HTTP method (GET/POST/PUT/DELETE/PATCH)" }
+                },
+                "required": ["route", "method"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "detect_changes".to_string(),
+            description: "Analyze the repo's uncommitted changes: map git-diff hunks to symbols, BFS upstream, classify risk (none/low/medium/high).".to_string(),
+            category: "git".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "max_upstream_depth": { "type": "number", "description": "BFS depth from changed symbols (default 3, max 10)" }
+                }
+            }),
+        },
+        ChatToolDescriptor {
+            name: "get_insights".to_string(),
+            description: "Per-symbol insights: complexity, dead-code flag, tracing, smells, design patterns, risk.".to_string(),
+            category: "analysis".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string" }
+                },
+                "required": ["symbol"]
+            }),
+        },
+        ChatToolDescriptor {
+            name: "rename".to_string(),
+            description: "Multi-file rename (graph-confirmed + text-search fallback). Dry-run by default.".to_string(),
+            category: "edit".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "target": { "type": "string", "description": "Current symbol name or node ID" },
+                    "new_name": { "type": "string", "description": "Proposed new name" },
+                    "dry_run": { "type": "boolean", "description": "Preview without writing (default true)" }
+                },
+                "required": ["target", "new_name"]
+            }),
+        },
     ]
 }
 
@@ -1392,6 +1856,60 @@ fn build_tool_descriptors() -> Vec<ChatToolDescriptor> {
 #[tauri::command]
 pub async fn list_chat_tools() -> Result<Vec<ChatToolDescriptor>, String> {
     Ok(build_tool_descriptors())
+}
+
+/// Surface the 6 MCP prompts (`detect_impact`, `generate_map`,
+/// `analyze_hotspots`, `find_dead_code`, `trace_dependencies`,
+/// `describe_process`) as ready-to-paste templates. Each one encodes a
+/// validated tool-chain (e.g. analyze_hotspots → hotspots + coupling +
+/// ownership → recommend refactor priorities) — exposing them to the UI
+/// lets the chat reuse those chains instead of re-inventing the orchestration
+/// in `chat_planner`.
+#[tauri::command]
+pub async fn list_chat_prompts() -> Result<serde_json::Value, String> {
+    Ok(gitnexus_mcp::prompts::prompt_definitions())
+}
+
+/// Render a named MCP prompt to plain text. The UI pastes the result into
+/// the chat input as the user's first message — the LLM then follows the
+/// embedded "Please: 1. use X tool 2. use Y tool…" recipe naturally via
+/// the existing tool-calling loop.
+#[tauri::command]
+pub async fn get_chat_prompt(name: String, args: serde_json::Value) -> Result<String, String> {
+    let rendered = gitnexus_mcp::prompts::get_prompt(&name, &args)
+        .ok_or_else(|| format!("Unknown MCP prompt: '{}'", name))?;
+    rendered
+        .get("messages")
+        .and_then(|m| m.as_array())
+        .and_then(|a| a.first())
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            format!(
+                "MCP prompt '{}' returned an unexpected envelope shape",
+                name
+            )
+        })
+}
+
+/// Report whether the active repo's chat is running with embeddings (hybrid
+/// BM25+semantic search) or in BM25-only fallback. The UI uses this to show
+/// an actionable banner — a degraded chat ought to look different from a
+/// healthy one, otherwise users keep typing into a worse-than-necessary
+/// experience without knowing why.
+#[tauri::command]
+pub async fn chat_search_capabilities(
+    state: State<'_, AppState>,
+) -> Result<ChatSearchCapabilities, String> {
+    let (_g, _i, _f, embeddings, embeddings_config, _path) =
+        state.get_repo_with_embeddings(None).await?;
+    Ok(ChatSearchCapabilities {
+        embeddings_loaded: embeddings.is_some() && embeddings_config.is_some(),
+        model_name: embeddings_config.as_ref().map(|c| c.model_name.clone()),
+        vector_count: embeddings.as_ref().map(|s| s.header.count),
+    })
 }
 
 /// Payload returned by `chat_retry_tool` — the UI merges the fields back
@@ -1448,8 +1966,10 @@ pub async fn chat_retry_tool(
     state: State<'_, AppState>,
     request: ChatToolRetryRequest,
 ) -> Result<ChatToolRetryResult, String> {
-    let (graph, indexes, fts_index, repo_path_str) = state.get_repo(None).await?;
+    let (graph, indexes, fts_index, embeddings, embeddings_config, repo_path_str) =
+        state.get_repo_with_embeddings(None).await?;
     let repo_path = PathBuf::from(&repo_path_str);
+    let mcp_backend = Arc::clone(&state.mcp_backend);
 
     // Pick the arg source in order: new_args overrides prior_args;
     // empty/invalid strings fall back to `{}` so the tool still runs.
@@ -1479,6 +1999,9 @@ pub async fn chat_retry_tool(
         &graph,
         &indexes,
         &fts_index,
+        embeddings.as_deref(),
+        embeddings_config.as_deref(),
+        Some(&mcp_backend),
     )
     .await;
     let duration_ms = start.elapsed().as_millis() as u64;
@@ -1518,29 +2041,95 @@ pub async fn call_llm_pub(
     call_llm(config, messages).await
 }
 
-/// Public search function for the executor module.
+/// Public search function for the executor module (BM25-only path).
 pub fn search_relevant_context_pub(
     query: &str,
     graph: &KnowledgeGraph,
     fts_index: &FtsIndex,
     max_results: usize,
 ) -> Vec<(String, f64)> {
-    search_relevant_context(query, graph, fts_index, max_results)
+    search_relevant_context(query, graph, fts_index, max_results, None, None)
 }
 
 // ─── Context Assembly ────────────────────────────────────────────────
 
-/// Search for symbols relevant to the question using FTS + graph traversal.
+/// Search for symbols relevant to the question.
+///
+/// When `embeddings` and `embeddings_config` are both `Some`, fuses BM25 with
+/// semantic cosine top-K via Reciprocal Rank Fusion (K=60). When either is
+/// `None` — the common case for repos that haven't run `gitnexus embed` —
+/// degrades silently to BM25 + exact name match (the historical behaviour).
 fn search_relevant_context(
     query: &str,
     graph: &KnowledgeGraph,
     fts_index: &FtsIndex,
     max_results: usize,
+    embeddings: Option<&EmbeddingStore>,
+    embeddings_config: Option<&EmbeddingConfig>,
 ) -> Vec<(String, f64)> {
-    // BM25 full-text search
-    let fts_results = fts_index.search(graph, query, None, max_results * 2);
+    // Pull a wider BM25 pool when fusing — RRF reorders the top-K, so giving
+    // it more candidates than `max_results` lets a strong semantic match
+    // promote a BM25-rank-15 result past a BM25-rank-3 mediocre one.
+    let bm25_pool = if embeddings.is_some() && embeddings_config.is_some() {
+        max_results.max(20)
+    } else {
+        max_results * 2
+    };
+    let fts_results = fts_index.search(graph, query, None, bm25_pool);
 
-    // Deduplicate and score
+    // Hybrid path: fuse BM25 with semantic via RRF. On any failure (model
+    // missing, query embedding all-zeros, malformed store) we drop back to
+    // BM25-only — semantic search is a quality lift, not a correctness gate.
+    if let (Some(store), Some(cfg)) = (embeddings, embeddings_config) {
+        let bm25_wrapped: Vec<gitnexus_search::bm25::BM25SearchResult> = fts_results
+            .iter()
+            .enumerate()
+            .map(|(i, r)| gitnexus_search::bm25::BM25SearchResult {
+                file_path: r.file_path.clone(),
+                score: r.score,
+                rank: i + 1,
+                node_id: r.node_id.clone(),
+                name: r.name.clone(),
+                label: r.label.clone(),
+                start_line: r.start_line,
+                end_line: r.end_line,
+            })
+            .collect();
+
+        match gitnexus_search::fusion::hybrid_with_preloaded(
+            query,
+            &bm25_wrapped,
+            &store.entries,
+            cfg,
+            graph,
+            max_results,
+        ) {
+            Ok(fused) => {
+                let mut seen = std::collections::HashSet::new();
+                let mut results: Vec<(String, f64)> = Vec::new();
+                for h in fused {
+                    if seen.insert(h.node_id.clone()) {
+                        results.push((h.node_id, h.score));
+                    }
+                }
+                if !results.is_empty() {
+                    results.truncate(max_results);
+                    return results;
+                }
+                // Empty fused list (unlikely but possible if both paths returned
+                // nothing) — fall through to the BM25 path below so the exact
+                // name match still gets a chance.
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "hybrid search failed — falling back to BM25-only for this query"
+                );
+            }
+        }
+    }
+
+    // BM25 + exact name match fallback (historical path).
     let mut seen = std::collections::HashSet::new();
     let mut results: Vec<(String, f64)> = Vec::new();
 
@@ -1558,7 +2147,7 @@ fn search_relevant_context(
         if node.properties.name.to_lowercase().contains(&query_lower)
             && seen.insert(node.id.clone())
         {
-            let score = 1.0 * gitnexus_db::inmemory::fts::path_weight(&node.properties.file_path);
+            let score = gitnexus_db::inmemory::fts::path_weight(&node.properties.file_path);
             results.push((node.id.clone(), score));
         }
     }
@@ -1576,6 +2165,125 @@ fn search_relevant_context(
     });
     results.truncate(max_results);
     results
+}
+
+// ─── DocChunk RAG (P0.3) ─────────────────────────────────────────────
+
+/// Maximum DocChunks to surface in the prefetch block. Three is the sweet
+/// spot per audit testing on Alise_v2 (137 enriched pages): four+ starts
+/// diluting the LLM's attention without bringing new information.
+const DOC_CHUNK_TOP_N: usize = 3;
+
+/// Truncate each chunk's content to keep the prefetch payload bounded. Whole
+/// pages can be 5-10KB; the LLM only needs an excerpt to decide whether the
+/// chunk is actually relevant or a false positive.
+const DOC_CHUNK_EXCERPT_BYTES: usize = 600;
+
+/// Hybrid BM25+semantic search over DocChunk nodes. Reuses the same RRF
+/// fusion as `search_relevant_context` then filters down to the doc nodes,
+/// so a question phrased differently from the chunk title still finds the
+/// chunk via embedding similarity (the original CONTAINS-on-first-keyword
+/// approach missed those entirely).
+fn prefetch_doc_chunks_hybrid(
+    question: &str,
+    graph: &KnowledgeGraph,
+    fts_index: &FtsIndex,
+    embeddings: Option<&EmbeddingStore>,
+    embeddings_config: Option<&EmbeddingConfig>,
+) -> Option<String> {
+    // Pull a wider pool than needed — RRF + filter-by-label means many of the
+    // top hits are probably code symbols, not chunks.
+    const POOL: usize = 25;
+    let hits = search_relevant_context(
+        question,
+        graph,
+        fts_index,
+        POOL,
+        embeddings,
+        embeddings_config,
+    );
+
+    let mut chunks: Vec<(String, String)> = Vec::new();
+    for (node_id, _score) in hits {
+        let node = match graph.get_node(&node_id) {
+            Some(n) => n,
+            None => continue,
+        };
+        if node.label != NodeLabel::DocChunk {
+            continue;
+        }
+        let title = node
+            .properties
+            .title
+            .clone()
+            .or_else(|| Some(node.properties.name.clone()))
+            .unwrap_or_default();
+        let content = node.properties.content.clone().unwrap_or_default();
+        let excerpt = truncate_at_char_boundary(&content, DOC_CHUNK_EXCERPT_BYTES);
+        chunks.push((title, excerpt));
+        if chunks.len() >= DOC_CHUNK_TOP_N {
+            break;
+        }
+    }
+
+    if chunks.is_empty() {
+        return None;
+    }
+
+    let mut out = String::with_capacity(chunks.len() * (DOC_CHUNK_EXCERPT_BYTES + 100));
+    for (i, (title, excerpt)) in chunks.iter().enumerate() {
+        out.push_str(&format!("**{}. {}**\n\n", i + 1, title));
+        out.push_str("> ");
+        out.push_str(&excerpt.replace('\n', "\n> "));
+        out.push_str("\n\n");
+    }
+    Some(out)
+}
+
+/// Lexical fallback when no embeddings are available — runs the original
+/// Cypher CONTAINS on the first sufficiently-long keyword.
+async fn prefetch_doc_chunks_lexical(
+    question: &str,
+    graph: &KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
+    fts_index: &FtsIndex,
+    repo_path: &Path,
+) -> Option<String> {
+    let kw = question.split_whitespace().find(|w| w.len() >= 5)?;
+    let cypher = format!(
+        "MATCH (n:DocChunk) WHERE n.content CONTAINS '{}' RETURN n.title, n.content LIMIT 3",
+        kw.replace('\'', "\\'")
+    );
+    let result = execute_mcp_tool(
+        "execute_cypher",
+        &serde_json::json!({"query": cypher}).to_string(),
+        repo_path,
+        graph,
+        indexes,
+        fts_index,
+        None,
+        None,
+        None,
+    )
+    .await;
+    if result.len() > 50 && !result.contains("[]") {
+        Some(result)
+    } else {
+        None
+    }
+}
+
+fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let mut out = s[..cut].to_string();
+    out.push_str(" […]");
+    out
 }
 
 // ─── Question Classification ─────────────────────────────────────────────────
@@ -1971,13 +2679,16 @@ fn collect_prefetch_method_names(
         if let Some(callees) = indexes.outgoing.get(&method_id) {
             // BUG FIX: filter BEFORE take — otherwise non-Calls edges consume the
             // 4-slot budget and real Calls edges beyond slot 4 are silently dropped.
-            for (callee_id, _rel_type) in callees.iter()
-                .filter(|(_, rel)| matches!(
-                    rel,
-                    RelationshipType::Calls
-                        | RelationshipType::CallsAction
-                        | RelationshipType::CallsService
-                ))
+            for (callee_id, _rel_type) in callees
+                .iter()
+                .filter(|(_, rel)| {
+                    matches!(
+                        rel,
+                        RelationshipType::Calls
+                            | RelationshipType::CallsAction
+                            | RelationshipType::CallsService
+                    )
+                })
                 .take(4)
             {
                 push_prefetch_method_name(callee_id, graph, &mut names, &mut seen_names);
@@ -2038,6 +2749,7 @@ fn is_prefetch_method_label(label: NodeLabel) -> bool {
 
 /// Pre-fetch tool results for the detected question type.
 /// Returns a formatted string injected as additional system context.
+#[allow(clippy::too_many_arguments)]
 async fn prefetch_for_type(
     qt: QuestionType,
     question: &str,
@@ -2046,6 +2758,9 @@ async fn prefetch_for_type(
     indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
     fts_index: &gitnexus_db::inmemory::fts::FtsIndex,
     repo_path: &std::path::Path,
+    embeddings: Option<&EmbeddingStore>,
+    embeddings_config: Option<&EmbeddingConfig>,
+    mcp_backend: Option<&Arc<TokioMutex<LocalBackend>>>,
 ) -> String {
     let mut pre = String::new();
 
@@ -2065,32 +2780,22 @@ async fn prefetch_for_type(
         .map(|n| n.properties.name.clone())
         .unwrap_or_default();
 
-    // RAG DocChunk: always try to find relevant chunks
-    let keywords: Vec<&str> = question
-        .split_whitespace()
-        .filter(|w| w.len() >= 5)
-        .take(3)
-        .collect();
-    if !keywords.is_empty() {
-        let kw = &keywords[0];
-        let cypher = format!(
-            "MATCH (n:DocChunk) WHERE n.content CONTAINS '{}' RETURN n.title, n.content LIMIT 3",
-            kw.replace('\'', "\\'")
-        );
-        let doc_result = execute_mcp_tool(
-            "execute_cypher",
-            &serde_json::json!({"query": cypher}).to_string(),
-            repo_path,
-            graph,
-            indexes,
-            fts_index,
-        )
-        .await;
-        if doc_result.len() > 50 && !doc_result.contains("[]") {
-            pre.push_str("## Documentation RAG (DocChunk)\n\n");
-            pre.push_str(&doc_result);
-            pre.push_str("\n\n");
-        }
+    // RAG DocChunk retrieval. When embeddings are loaded, use hybrid
+    // BM25+semantic on the full question and keep only DocChunk hits — that
+    // surfaces the most semantically relevant chunks (e.g. a question about
+    // "fusion Indu/Compta" finds the matching SFD section even if the chunk
+    // doesn't share keywords with the question). Falls back to BM25-on-first-
+    // keyword via Cypher CONTAINS when no embeddings are available, which is
+    // the historical behaviour and good enough for keyword-style queries.
+    let chunk_block = if embeddings.is_some() && embeddings_config.is_some() {
+        prefetch_doc_chunks_hybrid(question, graph, fts_index, embeddings, embeddings_config)
+    } else {
+        prefetch_doc_chunks_lexical(question, graph, indexes, fts_index, repo_path).await
+    };
+    if let Some(block) = chunk_block {
+        pre.push_str("## Documentation RAG (DocChunk)\n\n");
+        pre.push_str(&block);
+        pre.push_str("\n\n");
     }
 
     match qt {
@@ -2114,6 +2819,9 @@ async fn prefetch_for_type(
                         graph,
                         indexes,
                         fts_index,
+                        embeddings,
+                        embeddings_config,
+                        mcp_backend,
                     )
                     .await;
                     if process_flow.len() > 50
@@ -2136,6 +2844,9 @@ async fn prefetch_for_type(
                     graph,
                     indexes,
                     fts_index,
+                    embeddings,
+                    embeddings_config,
+                    mcp_backend,
                 )
                 .await;
                 if ctx.len() > 50 {
@@ -2152,6 +2863,9 @@ async fn prefetch_for_type(
                         graph,
                         indexes,
                         fts_index,
+                        embeddings,
+                        embeddings_config,
+                        mcp_backend,
                     )
                     .await;
                     if diag.len() > 30 {
@@ -2205,6 +2919,9 @@ async fn prefetch_for_type(
                 graph,
                 indexes,
                 fts_index,
+                embeddings,
+                embeddings_config,
+                mcp_backend,
             )
             .await;
             if communities.len() > 30 {
@@ -2221,6 +2938,9 @@ async fn prefetch_for_type(
                     graph,
                     indexes,
                     fts_index,
+                    embeddings,
+                    embeddings_config,
+                    mcp_backend,
                 )
                 .await;
                 if diag.len() > 30 {
@@ -2232,9 +2952,18 @@ async fn prefetch_for_type(
         }
         QuestionType::Impact => {
             if !top_symbol_name.is_empty() {
-                let impact = execute_mcp_tool("get_impact",
+                let impact = execute_mcp_tool(
+                    "get_impact",
                     &serde_json::json!({"target": top_symbol_name, "direction": "both", "max_depth": 4}).to_string(),
-                    repo_path, graph, indexes, fts_index).await;
+                    repo_path,
+                    graph,
+                    indexes,
+                    fts_index,
+                    embeddings,
+                    embeddings_config,
+                    mcp_backend,
+                )
+                .await;
                 if impact.len() > 50 {
                     pre.push_str("## Blast radius pré-chargé\n\n");
                     pre.push_str(&impact);
@@ -2335,8 +3064,16 @@ fn strip_symbol_suffix(name: &str) -> Option<String> {
     // BUG FIX: aligned with has_symbol_suffix — was missing 8 suffixes
     // (provider, context, dbcontext, viewmodel, helper, factory + 2 more)
     for suffix in [
-        "controller", "service", "manager", "repository",
-        "provider", "context", "dbcontext", "viewmodel", "helper", "factory",
+        "controller",
+        "service",
+        "manager",
+        "repository",
+        "provider",
+        "context",
+        "dbcontext",
+        "viewmodel",
+        "helper",
+        "factory",
     ] {
         if let Some(base) = name.strip_suffix(suffix) {
             if !base.is_empty() {
@@ -2972,9 +3709,14 @@ fn build_system_prompt(
            Do NOT reformulate — authenticity matters.\n\
          - **Cross-reference**: for non-trivial questions, back your answer with TWO of the \
            three sources (e.g. graph structure + source code, or source code + functional doc).\n\
-         - **No announcements**: if you intend to call a tool, call it in this same response. \
-           Don't write *\"Je vais rechercher…\"* / *\"I'll search…\"* without emitting the tool \
-           call — the runtime cannot wait for a subsequent turn.\n\
+         - **No announcements (HARD RULE)**: when you need information, you MUST emit the \
+           tool call in the same turn — never describe what you would search for in plain text \
+           and stop. There is no \"next turn for the planning\" — the runtime treats text-only \
+           replies as final. Stalling phrases that trigger an automatic fallback search and waste \
+           one of your iteration budget slots: *\"Je vais rechercher…\"*, *\"I'll search…\"*, \
+           *\"Pour commencer\"*, *\"Let me check\"*, *\"First, I'll…\"*. If you absolutely cannot \
+           proceed without something the user can supply (an ambiguous symbol name, a missing \
+           file path), ask one focused question — but never narrate intent without acting.\n\
          - **Algorithms, not summaries** (CRITICAL): when asked *\"comment ça marche ?\"* / \
            *\"comment X est calculé ?\"* / any process / treatment / computation question, \
            you MUST describe the **actual algorithm**, not a high-level narrative. This means:\n\

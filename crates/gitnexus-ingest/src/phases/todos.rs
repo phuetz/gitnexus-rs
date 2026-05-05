@@ -31,7 +31,7 @@ pub struct TodoStats {
 pub fn scan_todos(graph: &mut KnowledgeGraph, files: &[FileEntry]) -> TodoStats {
     // Parallel scan: one thread per file produces its own (nodes, edges) list.
     let per_file: Vec<(Vec<GraphNode>, Vec<GraphRelationship>)> =
-        files.par_iter().map(|f| scan_single_file(f)).collect();
+        files.par_iter().map(scan_single_file).collect();
 
     let mut markers = 0usize;
     for (nodes, rels) in per_file {
@@ -132,8 +132,7 @@ fn find_marker(line: &str) -> Option<(&'static str, &str)> {
     let head = after_comment.trim_start();
 
     for kind in ["TODO", "FIXME", "HACK", "XXX"] {
-        if head.starts_with(kind) {
-            let after = &head[kind.len()..];
+        if let Some(after) = head.strip_prefix(kind) {
             // Next char must be a non-alphanumeric separator so `TODOS` or
             // `FIXMEish` don't trigger.
             if after.is_empty() || after.starts_with(|c: char| !c.is_alphanumeric() && c != '_') {

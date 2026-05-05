@@ -97,6 +97,8 @@ pub fn mcp_http_router() -> Router<SharedBackend> {
                     "http://127.0.0.1".parse::<HeaderValue>().unwrap(),
                     "http://127.0.0.1:3000".parse::<HeaderValue>().unwrap(),
                     "http://localhost:1420".parse::<HeaderValue>().unwrap(),
+                    "http://localhost:5174".parse::<HeaderValue>().unwrap(),
+                    "http://127.0.0.1:5174".parse::<HeaderValue>().unwrap(),
                 ])
                 .allow_methods([Method::GET, Method::POST])
                 .allow_headers(tower_http::cors::Any),

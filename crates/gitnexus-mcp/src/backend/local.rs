@@ -2048,7 +2048,7 @@ impl LocalBackend {
                     cfg.dimension
                 );
             }
-            let q_vecs = generate_embeddings(&[query_str.clone()], &cfg);
+            let q_vecs = generate_embeddings(std::slice::from_ref(&query_str), &cfg);
             let q_vec = q_vecs
                 .into_iter()
                 .next()

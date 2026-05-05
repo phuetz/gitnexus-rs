@@ -568,14 +568,16 @@ mod tests {
 
     #[test]
     fn test_graph_only_proposals_fallback() {
-        let mut s = SimplifySignals::default();
-        s.dead_candidates = vec!["foo".into(), "bar".into()];
-        s.complex_symbols = vec![ComplexSymbol {
-            name: "huge".into(),
-            file_path: "src/big.rs".into(),
-            complexity: 42,
-            label: "Function".into(),
-        }];
+        let s = SimplifySignals {
+            dead_candidates: vec!["foo".into(), "bar".into()],
+            complex_symbols: vec![ComplexSymbol {
+                name: "huge".into(),
+                file_path: "src/big.rs".into(),
+                complexity: 42,
+                label: "Function".into(),
+            }],
+            ..SimplifySignals::default()
+        };
         let out = graph_only_proposals(&s);
         assert!(out.iter().any(|p| p.kind == "delete"));
         assert!(out.iter().any(|p| p.kind == "extract"));

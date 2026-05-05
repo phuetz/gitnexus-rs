@@ -3,7 +3,7 @@
 //! Scope:
 //! - **Imports** — SCC on the File→File subgraph induced by `IMPORTS` edges.
 //! - **Calls**   — SCC on the Method/Function→Method/Function subgraph induced
-//!                 by `CALLS` edges.
+//!   by `CALLS` edges.
 //!
 //! A cycle is any SCC of size ≥ 2, plus any self-loop (SCC of size 1 that
 //! contains a self-edge — rare but technically a cycle).
@@ -109,14 +109,13 @@ pub fn find_cycles(graph: &KnowledgeGraph, scope: CycleScope) -> Vec<Cycle> {
     cycles
 }
 
+/// Adjacency list keyed by node id.
+type Adjacency = HashMap<String, Vec<String>>;
+/// Per-node `(name, file_path)` table keyed by node id.
+type NodeInfo = HashMap<String, (String, String)>;
+
 /// Build an adjacency list and a per-node (name, file_path) table.
-fn build_scoped_adjacency(
-    graph: &KnowledgeGraph,
-    scope: CycleScope,
-) -> (
-    HashMap<String, Vec<String>>,
-    HashMap<String, (String, String)>,
-) {
+fn build_scoped_adjacency(graph: &KnowledgeGraph, scope: CycleScope) -> (Adjacency, NodeInfo) {
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
     let mut info: HashMap<String, (String, String)> = HashMap::new();
 

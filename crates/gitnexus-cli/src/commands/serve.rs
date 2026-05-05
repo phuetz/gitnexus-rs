@@ -72,11 +72,25 @@ pub async fn run(port: u16, host: &str) -> anyhow::Result<()> {
         .route("/api/chat", post(chat_handler))
         .layer(cors);
 
-    // Static file serving for documentation
-    let docs_dir = std::env::current_dir()?.join(".gitnexus").join("docs");
-    let app = if docs_dir.exists() {
-        println!("Serving documentation from {}", docs_dir.display());
-        app.fallback_service(ServeDir::new(docs_dir))
+    // Static file serving — two candidates, first match wins.
+    //
+    // 1. `<binary_dir>/web/` — used by the portable USB kit. The packaging
+    //    script copies `chat-ui/dist/` here so visiting `http://localhost:3000`
+    //    in a browser loads the React UI directly, no `npm run dev` required.
+    // 2. `<cwd>/.gitnexus/docs/` — legacy: the generated documentation HTML
+    //    of whatever repo `gitnexus serve` was started in.
+    let bin_web_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("web")))
+        .filter(|d| d.exists());
+    let cwd_docs_dir = std::env::current_dir()?.join(".gitnexus").join("docs");
+
+    let app = if let Some(web_dir) = bin_web_dir {
+        println!("Serving chat-ui from {}", web_dir.display());
+        app.fallback_service(ServeDir::new(web_dir))
+    } else if cwd_docs_dir.exists() {
+        println!("Serving documentation from {}", cwd_docs_dir.display());
+        app.fallback_service(ServeDir::new(cwd_docs_dir))
     } else {
         app
     };

@@ -282,7 +282,25 @@ pub fn save_meta(storage_path: &Path, meta: &RepoMeta) -> Result<()> {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
+/// Resolve the directory in which `.gitnexus/` should live.
+///
+/// Order of resolution:
+/// 1. **`GITNEXUS_HOME`** — explicit override. The path is used as-is, with
+///    `.gitnexus` already implied (so `GITNEXUS_HOME=D:\kit\data` makes the
+///    global directory `D:\kit\data\.gitnexus`). This is the portable-USB
+///    mode: the launcher sets `GITNEXUS_HOME=%~dp0data` and every read of
+///    `~/.gitnexus/` then resolves to the kit's own directory rather than
+///    the operator's `%USERPROFILE%\.gitnexus`.
+/// 2. **`USERPROFILE`** (Windows) / **`HOME`** (other) — standard user home.
+/// 3. A safe sentinel fallback (`C:\Users\Default` / `/tmp`) — should never
+///    actually be hit; protects against panics if the environment is empty.
 fn dirs_or_home() -> PathBuf {
+    if let Ok(override_path) = std::env::var("GITNEXUS_HOME") {
+        let trimmed = override_path.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
     #[cfg(target_os = "windows")]
     {
         std::env::var("USERPROFILE")

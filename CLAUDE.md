@@ -36,6 +36,12 @@ cd crates/gitnexus-desktop/ui && npm run dev    # Vite dev server
 cd crates/gitnexus-desktop/ui && npm run lint   # ESLint
 cd crates/gitnexus-desktop/ui && npm run build  # tsc + vite build
 
+# Build the standalone web chat (Vite + React 19, was D:/CascadeProjects/gitnexus-chat)
+cd chat-ui && npm install && npm run build
+# Run web chat in dev (port 5174 — proxies /api /health /mcp to gitnexus serve)
+cd chat-ui && npm run dev
+# Backend it talks to: gitnexus serve --http 8080 (separate process)
+
 # Build NexusBrain (separate Tauri app)
 cd nexus-brain && npm install && npm run build && cd ..
 cd nexus-brain/src-tauri && cargo build && cd ../..
@@ -88,6 +94,13 @@ gitnexus-desktop (Tauri v2 desktop app)
 
 nexus-brain (separate Tauri v2 app — "Knowledge IDE", Obsidian-like vault editor)
   └── standalone — reads Markdown Vaults exported by GitNexus, not a workspace member
+
+chat-ui/ (standalone web chat — Vite 7 + React 19 + Tailwind v4)
+  └── browser frontend that talks to `gitnexus serve --http 8080` via JSON-RPC + SSE.
+      Imported in May 2026 from a separate repo (was D:/CascadeProjects/gitnexus-chat,
+      no GitHub remote). Not a Cargo crate — `cd chat-ui && npm run dev` on port 5174.
+      Per-folder doc: `chat-ui/CLAUDE.md`. Roadmap: `chat-ui/README.md` and the
+      backlogs in `D:/CascadeProjects/claude-et-patrice/propositions/CHAT-V1*.md`.
 ```
 
 **Core** (`gitnexus-core`): In-memory knowledge graph with HashMap-based O(1) node/relationship lookup. Defines `NodeLabel` (52 variants), `RelationshipType` (27 variants including `Calls`, `HasMethod`, `HasProperty`, `HasAction`), `SymbolDefinition`, and pipeline types. Node properties include `is_traced`, `is_dead_candidate`, `trace_call_count`. Not thread-safe on its own; wrapped in `Arc<RwLock<>>` when shared.

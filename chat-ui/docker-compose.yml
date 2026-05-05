@@ -1,0 +1,31 @@
+services:
+  chat:
+    build: .
+    image: gitnexus-chat:latest
+    ports:
+      - "8080:80"
+    environment:
+      GITNEXUS_BACKEND: http://gitnexus-mcp:3000
+    depends_on:
+      - gitnexus-mcp
+    restart: unless-stopped
+
+  # Backend gitnexus-mcp.
+  # Cible le binaire compilé du repo gitnexus-rs (à monter en volume
+  # ou à packager dans une image dédiée — V1.4).
+  gitnexus-mcp:
+    image: gitnexus-mcp:latest
+    # build:
+    #   context: ../gitnexus-rs
+    #   dockerfile: Dockerfile.mcp
+    ports:
+      - "3000:3000"
+    volumes:
+      - gitnexus-data:/data
+    environment:
+      RUST_LOG: info
+      # GITNEXUS_HTTP_TOKEN: changeme  # auth Bearer optionnelle
+    restart: unless-stopped
+
+volumes:
+  gitnexus-data:

@@ -16,6 +16,7 @@ interface ChatState {
 
   appendMessage: (sessionId: string, message: Message) => void;
   updateMessage: (sessionId: string, messageId: string, content: string) => void;
+  removeMessagesFrom: (sessionId: string, messageId: string) => void;
   setStreaming: (streaming: boolean) => void;
   setSelectedRepo: (repo: string | null) => void;
   setInputDraft: (text: string) => void;
@@ -94,6 +95,20 @@ export const useChatStore = create<ChatState>()(
                 }
               : sess
           ),
+        })),
+
+      removeMessagesFrom: (sessionId, messageId) =>
+        set((s) => ({
+          sessions: s.sessions.map((sess) => {
+            if (sess.id !== sessionId) return sess;
+            const idx = sess.messages.findIndex((m) => m.id === messageId);
+            if (idx === -1) return sess;
+            return {
+              ...sess,
+              messages: sess.messages.slice(0, idx),
+              updatedAt: Date.now(),
+            };
+          }),
         })),
 
       setStreaming: (streaming) => set({ isStreaming: streaming }),

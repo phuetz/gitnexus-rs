@@ -23,6 +23,35 @@ export function useChat() {
     setStreaming(false);
   }, [setStreaming]);
 
+  const removeMessagesFrom = useChatStore((s) => s.removeMessagesFrom);
+
+  /**
+   * Drop the assistant message with `assistantMessageId` (and anything after
+   * it), then re-fire the user message that prompted it. Useful when the
+   * answer is wrong, truncated, or just plain unhelpful — one click and the
+   * LLM gets another shot with the same question. Conversation history up to
+   * that point is preserved.
+   */
+  const regenerate = useCallback(
+    async (assistantMessageId: string) => {
+      if (isStreaming) return;
+      const session = getCurrentSession();
+      if (!session) return;
+      const idx = session.messages.findIndex((m) => m.id === assistantMessageId);
+      if (idx === -1 || idx === 0) return;
+      const previousUser = [...session.messages.slice(0, idx)]
+        .reverse()
+        .find((m) => m.role === 'user');
+      if (!previousUser) return;
+      removeMessagesFrom(session.id, previousUser.id);
+      // sendMessage is defined just below; closures resolve at call time.
+      await sendMessageRef.current?.(previousUser.content);
+    },
+    [getCurrentSession, isStreaming, removeMessagesFrom]
+  );
+
+  const sendMessageRef = useRef<((content: string) => Promise<void>) | null>(null);
+
   const sendMessage = useCallback(
     async (content: string) => {
       const trimmed = content.trim();
@@ -113,5 +142,7 @@ export function useChat() {
     ]
   );
 
-  return { sendMessage, cancel, isStreaming };
+  sendMessageRef.current = sendMessage;
+
+  return { sendMessage, regenerate, cancel, isStreaming };
 }

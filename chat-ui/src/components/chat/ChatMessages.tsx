@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { BarChart3, Network, Plug, Skull } from 'lucide-react';
 import { useChatStore } from '../../stores/chat-store';
+import { useChat } from '../../hooks/use-chat';
 import { ChatMessage } from './ChatMessage';
 
 const SUGGESTIONS = [
@@ -15,6 +16,7 @@ export function ChatMessages() {
   const isStreaming = useChatStore((s) => s.isStreaming);
   const selectedRepo = useChatStore((s) => s.selectedRepo);
   const setInputDraft = useChatStore((s) => s.setInputDraft);
+  const { regenerate } = useChat();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -60,8 +62,18 @@ export function ChatMessages() {
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto" role="log" aria-live="polite" aria-relevant="additions text">
       <div className="mx-auto max-w-3xl divide-y divide-neutral-900">
-        {session.messages.map((m) => (
-          <ChatMessage key={m.id} message={m} />
+        {session.messages.map((m, i) => (
+          <ChatMessage
+            key={m.id}
+            message={m}
+            onRegenerate={regenerate}
+            canRegenerate={
+              m.role === 'assistant' &&
+              i === session.messages.length - 1 &&
+              !isStreaming &&
+              m.content.length > 0
+            }
+          />
         ))}
         {isStreaming && (
           <div className="flex gap-3 px-4 py-4">

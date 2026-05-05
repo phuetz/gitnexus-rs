@@ -1,3 +1,4 @@
+mod auth;
 mod commands;
 
 use clap::{Parser, Subcommand};
@@ -52,6 +53,11 @@ enum Commands {
     },
     /// Start MCP server (stdio transport)
     Mcp,
+    /// Authenticate with ChatGPT (Codex OAuth) so the chat can use your
+    /// ChatGPT Pro / Plus subscription instead of a separate API key.
+    Login,
+    /// Forget the cached ChatGPT auth tokens (`gitnexus login` reverses).
+    Logout,
     /// Start HTTP server for web UI
     Serve {
         /// Port to listen on
@@ -448,6 +454,17 @@ async fn main() -> anyhow::Result<()> {
             .await
         }
         Commands::Mcp => commands::mcp::run().await,
+        Commands::Login => match auth::login().await {
+            Ok(()) => Ok(()),
+            Err(e) => Err(anyhow::anyhow!("login failed: {e}")),
+        },
+        Commands::Logout => match auth::clear() {
+            Ok(()) => {
+                println!("Cleared cached ChatGPT credentials.");
+                Ok(())
+            }
+            Err(e) => Err(anyhow::anyhow!("logout failed: {e}")),
+        },
         Commands::Serve { port, host } => commands::serve::run(port, &host).await,
         Commands::List => commands::list::run(),
         Commands::Status => commands::status::run(),

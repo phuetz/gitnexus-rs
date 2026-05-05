@@ -401,9 +401,20 @@ Règles :\n\
 diagram, find_cycles, list_endpoints, list_db_tables, …). Utilise-les pour creuser quand le \
 contexte initial ne suffit pas — ne devine pas.\n\
 - Format de réponse : Markdown structuré (titres ##, listes, gras pour les noms de classes/méthodes).\n\
-- Si la question implique un flux d'exécution, une architecture, des dépendances ou une \
-hiérarchie : illustre avec un diagramme Mermaid (`flowchart TD`, `sequenceDiagram`, `classDiagram`, \
-`erDiagram`). Le diagramme va dans un bloc ```mermaid ... ```.\n\
+- Pour les diagrammes Mermaid : **OBLIGATOIRE** d'encadrer le code par trois backticks ouvrants \
+suivis du mot `mermaid` puis trois backticks de fermeture. Exemple littéral à reproduire :\n\
+\n\
+```mermaid\n\
+flowchart TD\n\
+  A[Controller.Action] --> B[Service.Method]\n\
+  B --> C[Repository.Save]\n\
+```\n\
+\n\
+Sans cette ouverture ```mermaid et fermeture ```, l'UI ne déclenche pas le rendu SVG et le \
+diagramme apparaît en texte brut — bannissant tout l'effet visuel. Types disponibles : \
+`flowchart TD` (flux), `sequenceDiagram` (interactions), `classDiagram` (héritages), \
+`erDiagram` (schéma données). Utilise-les dès que la question implique un flux, une \
+architecture ou une hiérarchie.\n\
 - Pour le code cité : bloc ```<lang>``` avec la bonne langue (csharp, typescript, rust, …).\n\
 - Pour les comparaisons ou inventaires : utilise un tableau Markdown.\n\
 - Cite les chemins de fichiers en `code inline`. Liste les sources à la fin sous une rubrique \
@@ -435,7 +446,29 @@ hiérarchie : illustre avec un diagramme Mermaid (`flowchart TD`, `sequenceDiagr
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(180))
         .build()?;
-    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+
+    // ── Auth resolution: ChatGPT OAuth token wins over chat-config api_key ─
+    //
+    // When the user has run `gitnexus login`, we have a ChatGPT Pro / Plus
+    // bearer token cached on disk. Those tokens are accepted by the public
+    // OpenAI API at https://api.openai.com/v1, so we use that base_url and
+    // replace the chat-config api_key with the OAuth bearer.
+    //
+    // When no token is cached (or refresh failed), we fall back to whatever
+    // the user configured in chat-config.json — Gemini, Claude, OpenAI API
+    // key, or any other OpenAI-compatible endpoint.
+    let oauth_token = match crate::auth::get_access_token().await {
+        Ok(token) => token,
+        Err(e) => {
+            tracing::warn!("OAuth lookup failed ({e}); falling back to chat-config api_key");
+            None
+        }
+    };
+    let (effective_key, effective_base_url) = match oauth_token.as_ref() {
+        Some(token) => (token.clone(), "https://api.openai.com/v1".to_string()),
+        None => (config.api_key.clone(), config.base_url.clone()),
+    };
+    let url = format!("{}/chat/completions", effective_base_url.trim_end_matches('/'));
 
     let mut full_answer = String::new();
     let repo_label = repo_path.display().to_string();
@@ -457,8 +490,8 @@ hiérarchie : illustre avec un diagramme Mermaid (`flowchart TD`, `sequenceDiagr
         }
 
         let mut request = client.post(&url).json(&body);
-        if !config.api_key.is_empty() {
-            request = request.header("Authorization", format!("Bearer {}", config.api_key));
+        if !effective_key.is_empty() {
+            request = request.header("Authorization", format!("Bearer {}", effective_key));
         }
         let response = request.send().await?;
         if !response.status().is_success() {

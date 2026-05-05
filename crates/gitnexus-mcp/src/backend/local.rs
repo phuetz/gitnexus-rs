@@ -237,6 +237,10 @@ impl LocalBackend {
             "list_db_tables" => self.tool_list_db_tables(args).await,
             "list_env_vars" => self.tool_list_env_vars(args).await,
             "get_endpoint_handler" => self.tool_get_endpoint_handler(args).await,
+            // SFD doc-authoring workflow (P1.1)
+            "list_sfd_pages" => self.tool_list_sfd_pages(args).await,
+            "write_sfd_draft" => self.tool_write_sfd_draft(args).await,
+            "validate_sfd" => self.tool_validate_sfd(args).await,
             _ => Err(McpError::UnknownTool(name.to_string())),
         }
     }
@@ -2921,6 +2925,161 @@ impl LocalBackend {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    // ─── SFD doc-authoring workflow (P1.1) ────────────────────────────────
+    //
+    // Three tools delegating to `gitnexus_rag::sfd`. The lib enforces path
+    // sandboxing (no `..`, no absolute paths, no traversal outside the docs
+    // tree) so we can pass LLM-supplied parameters straight through.
+
+    async fn tool_list_sfd_pages(&self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let entry = self.resolve_repo(repo_name)?;
+        let repo_path = std::path::Path::new(&entry.path);
+        let listing = gitnexus_rag::sfd::list_pages(repo_path);
+        let summary = if listing.missing {
+            format!(
+                "No docs directory at {} — run `gitnexus generate docs` first.",
+                listing.docs_dir.display()
+            )
+        } else {
+            let mut out = format!("Found {} module page(s):\n", listing.pages.len());
+            for p in &listing.pages {
+                out.push_str(&format!("- {}\n", p));
+            }
+            if !listing.drafts.is_empty() {
+                out.push_str(&format!(
+                    "\n{} draft(s) in _drafts/:\n",
+                    listing.drafts.len()
+                ));
+                for d in &listing.drafts {
+                    out.push_str(&format!("- {} (draft)\n", d));
+                }
+            }
+            out
+        };
+        Ok(json!({
+            "content": [{ "type": "text", "text": summary }],
+            "_meta": {
+                "pages": listing.pages,
+                "drafts": listing.drafts,
+                "docsDir": listing.docs_dir.display().to_string(),
+                "missing": listing.missing,
+            }
+        }))
+    }
+
+    async fn tool_write_sfd_draft(&self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let page = args
+            .get("page")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::InvalidArguments {
+                tool: "write_sfd_draft".into(),
+                reason: "missing required parameter 'page'".into(),
+            })?;
+        let content = args
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::InvalidArguments {
+                tool: "write_sfd_draft".into(),
+                reason: "missing required parameter 'content'".into(),
+            })?;
+        let entry = self.resolve_repo(repo_name)?;
+        let repo_path = std::path::Path::new(&entry.path);
+        let written = gitnexus_rag::sfd::write_draft(repo_path, page, content).map_err(|e| {
+            McpError::InvalidArguments {
+                tool: "write_sfd_draft".into(),
+                reason: e.to_string(),
+            }
+        })?;
+        let summary = format!(
+            "Draft written: {} ({} bytes). Call `validate_sfd` with `path: \"_drafts\"` \
+             to lint it before promotion.",
+            written.path.display(),
+            written.bytes
+        );
+        Ok(json!({
+            "content": [{ "type": "text", "text": summary }],
+            "_meta": {
+                "path": written.path.display().to_string(),
+                "bytes": written.bytes,
+            }
+        }))
+    }
+
+    async fn tool_validate_sfd(&self, args: &Value) -> Result<Value> {
+        let repo_name = args.get("repo").and_then(|v| v.as_str());
+        let sub_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        let entry = self.resolve_repo(repo_name)?;
+        let repo_path = std::path::Path::new(&entry.path);
+        let report = gitnexus_rag::sfd::validate_draft(repo_path, sub_path).map_err(|e| {
+            McpError::InvalidArguments {
+                tool: "validate_sfd".into(),
+                reason: e.to_string(),
+            }
+        })?;
+        let status = if report.red_count == 0 && report.yellow_count == 0 {
+            "GREEN — ready to ship"
+        } else if report.red_count == 0 {
+            "YELLOW — ships but has style issues"
+        } else {
+            "RED — blocked, must fix"
+        };
+        let mut summary = format!(
+            "**Validation: {}**\n\n\
+             - {} pages scanned, {} with issues\n\
+             - {} RED issues, {} YELLOW issues\n",
+            status, report.total_pages, report.pages_with_issues, report.red_count, report.yellow_count
+        );
+        if !report.by_kind.is_empty() {
+            summary.push_str("\n**Issue kinds:**\n");
+            for (kind, count) in &report.by_kind {
+                summary.push_str(&format!("- {}: {}\n", kind, count));
+            }
+        }
+        if !report.pages.is_empty() {
+            summary.push_str("\n**Top pages with issues:**\n");
+            let mut sorted = report.pages.clone();
+            sorted.sort_by(|a, b| b.issues.len().cmp(&a.issues.len()));
+            for page in sorted.iter().take(5) {
+                summary.push_str(&format!(
+                    "\n*{}* — {} issue(s):\n",
+                    page.path,
+                    page.issues.len()
+                ));
+                for iss in page.issues.iter().take(3) {
+                    let sev = match iss.severity {
+                        gitnexus_rag::validator::Severity::Red => "RED",
+                        gitnexus_rag::validator::Severity::Yellow => "YELLOW",
+                    };
+                    let line = iss
+                        .line
+                        .map(|n| format!("L{}", n))
+                        .unwrap_or_else(|| "-".to_string());
+                    summary.push_str(&format!(
+                        "  - [{}] {} {}: {}\n",
+                        sev, line, iss.kind, iss.detail
+                    ));
+                }
+                if page.issues.len() > 3 {
+                    summary.push_str(&format!("  - ... +{} more\n", page.issues.len() - 3));
+                }
+            }
+        }
+        let report_json = serde_json::to_value(&report).unwrap_or(json!({}));
+        Ok(json!({
+            "content": [{ "type": "text", "text": summary }],
+            "_meta": {
+                "report": report_json,
+                "status": match (report.red_count, report.yellow_count) {
+                    (0, 0) => "green",
+                    (0, _) => "yellow",
+                    _ => "red",
+                },
+            }
+        }))
     }
 }
 

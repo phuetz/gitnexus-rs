@@ -1900,6 +1900,7 @@ dependencies = [
  "gitnexus-core",
  "gitnexus-db",
  "gitnexus-git",
+ "gitnexus-rag",
  "gitnexus-search",
  "ignore",
  "regex",
@@ -1948,6 +1949,7 @@ dependencies = [
  "quick-xml",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
  "zip",
 ]

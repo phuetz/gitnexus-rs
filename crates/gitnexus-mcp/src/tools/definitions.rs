@@ -644,6 +644,70 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        // ── SFD doc-authoring workflow (P1.1) ────────────────────────────
+        // List existing module pages + drafts so an agent (or UI) can pick a
+        // target before writing. Mirrors the desktop chat tool of the same
+        // name; the lib lives in `gitnexus-rag::sfd`.
+        ToolDefinition {
+            name: "list_sfd_pages",
+            description: "List existing SFD module pages under .gitnexus/docs/modules/ and any in-progress drafts under .gitnexus/docs/_drafts/. Use before write_sfd_draft to know what already exists.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
+        // Writes Markdown into `_drafts/`, never `modules/`. Atomic
+        // (.tmp → rename) + path-traversal sandboxed.
+        ToolDefinition {
+            name: "write_sfd_draft",
+            description: "Write Markdown content into .gitnexus/docs/_drafts/<page>. Drafts are isolated from the live modules/ tree; promotion stays a deliberate user action. Page name is sandboxed (no '..', '\\', or absolute paths).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "page": {
+                        "type": "string",
+                        "description": "Bare file name, e.g. 'dossiers.md'. No path traversal."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Full Markdown body for the draft. Will overwrite any existing draft of the same name."
+                    }
+                },
+                "required": ["page", "content"],
+                "additionalProperties": false
+            }),
+        },
+        // Runs the same pre-delivery linter the CLI `validate-docs` command
+        // uses; returns a structured RED/YELLOW report.
+        ToolDefinition {
+            name: "validate_sfd",
+            description: "Run the pre-delivery linter (residual TODO/TBD, unfilled GNX:* anchors, broken links, short sections, missing §4 Algorithmes). Returns RED/YELLOW counts plus per-page issue details. Pass path='_drafts' to lint only drafts.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name or path"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Sub-directory under .gitnexus/docs/ to validate (e.g. '_drafts'). Empty = full docs tree.",
+                        "default": ""
+                    }
+                },
+                "additionalProperties": false
+            }),
+        },
     ]
 }
 
@@ -669,7 +733,7 @@ mod tests {
 
     #[test]
     fn test_tool_definitions_count() {
-        assert_eq!(tool_definitions().len(), 27);
+        assert_eq!(tool_definitions().len(), 30);
     }
 
     #[test]
@@ -704,13 +768,17 @@ mod tests {
         assert!(names.contains(&"list_db_tables"));
         assert!(names.contains(&"list_env_vars"));
         assert!(names.contains(&"get_endpoint_handler"));
+        // SFD doc-authoring workflow (P1.1)
+        assert!(names.contains(&"list_sfd_pages"));
+        assert!(names.contains(&"write_sfd_draft"));
+        assert!(names.contains(&"validate_sfd"));
     }
 
     #[test]
     fn test_tools_list_json() {
         let json = tools_list_json();
         let tools = json["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 27);
+        assert_eq!(tools.len(), 30);
         for tool in tools {
             assert!(tool.get("name").is_some());
             assert!(tool.get("description").is_some());

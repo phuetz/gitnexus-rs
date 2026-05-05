@@ -105,7 +105,7 @@ async fn chat_handler(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let backend_guard = backend.lock().await;
 
-    // Resolve repo path from name, fallback to first indexed repo
+    // Resolve repo path from name, fallback to first indexed repo.
     let registry = backend_guard.registry();
     let repo_entry = registry
         .iter()
@@ -117,56 +117,84 @@ async fn chat_handler(
                 "No repository found. Run 'gitnexus analyze' first.".to_string(),
             )
         })?;
-
-    let repo_path = repo_entry.path.clone();
+    let repo_path = std::path::PathBuf::from(repo_entry.path.clone());
     drop(backend_guard);
 
     let question = payload.question;
     let history = payload.history;
 
+    // Build prior turn messages for context window (last 6 turns = 12 messages)
+    let history_context: String = history
+        .iter()
+        .rev()
+        .take(6)
+        .rev()
+        .map(|h| format!("**{}**: {}", h.role, h.content))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let augmented_question = if history_context.is_empty() {
+        question
+    } else {
+        format!(
+            "{}\n\n---\n*Contexte de la conversation précédente :*\n{}",
+            question, history_context
+        )
+    };
+
+    // Channel feeds the SSE stream. The tool-loop runs in a tokio::spawn
+    // (no spawn_blocking — ask_question_with_tools is fully async) and the
+    // callback bridges StreamEvent → typed SSE Event.
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let tx_cb = tx.clone();
+    let backend_for_loop = backend.clone();
 
-    tokio::task::spawn_blocking(move || {
-        let tx_chunk = tx.clone();
-        let tx_done = tx.clone();
-
-        // Build prior turn messages for context window (last 6 turns = 12 messages)
-        let history_context: String = history
-            .iter()
-            .rev()
-            .take(6)
-            .rev()
-            .map(|h| format!("**{}**: {}", h.role, h.content))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        // Augment the question with history context if available
-        let augmented_question = if history_context.is_empty() {
-            question.clone()
-        } else {
-            format!(
-                "{}\n\n---\n*Contexte de la conversation précédente :*\n{}",
-                question, history_context
-            )
-        };
-
-        let stream_cb = Box::new(move |delta: &str| {
-            let _ = tx_chunk.send(Ok::<Event, Infallible>(Event::default().data(delta)));
+    tokio::spawn(async move {
+        let stream_cb = Box::new(move |ev: super::ask::StreamEvent| {
+            let event = match ev {
+                super::ask::StreamEvent::Delta(text) => Event::default().data(text),
+                super::ask::StreamEvent::ToolCallStart { id, name, args } => Event::default()
+                    .event("tool_call")
+                    .data(
+                        serde_json::json!({
+                            "phase": "start",
+                            "id": id,
+                            "name": name,
+                            "args": args,
+                        })
+                        .to_string(),
+                    ),
+                super::ask::StreamEvent::ToolCallEnd { id, name, success } => Event::default()
+                    .event("tool_call")
+                    .data(
+                        serde_json::json!({
+                            "phase": "end",
+                            "id": id,
+                            "name": name,
+                            "success": success,
+                        })
+                        .to_string(),
+                    ),
+            };
+            let _ = tx_cb.send(Ok::<Event, Infallible>(event));
         });
 
-        let result =
-            super::ask::ask_question(&augmented_question, Some(&repo_path), Some(stream_cb));
+        let result = super::ask::ask_question_with_tools(
+            &augmented_question,
+            &repo_path,
+            backend_for_loop,
+            Some(stream_cb),
+        )
+        .await;
 
-        // Send [DONE] sentinel so clients know the stream has ended
         match result {
             Ok(_) => {
-                let _ = tx_done.send(Ok(Event::default().data("[DONE]")));
+                let _ = tx.send(Ok(Event::default().data("[DONE]")));
             }
             Err(e) => {
-                let _ = tx_done.send(Ok(Event::default()
+                let _ = tx.send(Ok(Event::default()
                     .event("error")
                     .data(format!("Error: {}", e))));
-                let _ = tx_done.send(Ok(Event::default().data("[DONE]")));
+                let _ = tx.send(Ok(Event::default().data("[DONE]")));
             }
         }
     });

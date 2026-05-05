@@ -1,6 +1,11 @@
 import { useCallback, useRef } from 'react';
 import { useChatStore } from '../stores/chat-store';
-import { mcpClient, ChatStreamError, type ChatHistoryMessage } from '../api/mcp-client';
+import {
+  mcpClient,
+  ChatStreamError,
+  type ChatHistoryMessage,
+  type ToolCallStreamEvent,
+} from '../api/mcp-client';
 import type { Message } from '../types/chat';
 
 const newId = () => crypto.randomUUID();
@@ -11,6 +16,7 @@ export function useChat() {
   const createSession = useChatStore((s) => s.createSession);
   const appendMessage = useChatStore((s) => s.appendMessage);
   const updateMessage = useChatStore((s) => s.updateMessage);
+  const upsertToolCall = useChatStore((s) => s.upsertToolCall);
   const setStreaming = useChatStore((s) => s.setStreaming);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const getCurrentSession = useChatStore((s) => s.getCurrentSession);
@@ -101,6 +107,29 @@ export function useChat() {
       setStreaming(true);
 
       let acc = '';
+      const onToolCall = (event: ToolCallStreamEvent) => {
+        if (event.phase === 'start') {
+          let parsedArgs: Record<string, unknown> = {};
+          try {
+            parsedArgs = JSON.parse(event.args) as Record<string, unknown>;
+          } catch {
+            parsedArgs = { raw: event.args };
+          }
+          upsertToolCall(sessionId!, assistantId, {
+            id: event.id,
+            name: event.name,
+            args: parsedArgs,
+            status: 'running',
+          });
+        } else {
+          upsertToolCall(sessionId!, assistantId, {
+            id: event.id,
+            name: event.name,
+            args: {},
+            status: event.success ? 'done' : 'error',
+          });
+        }
+      };
       try {
         await mcpClient.chatStream(
           selectedRepo,
@@ -110,7 +139,8 @@ export function useChat() {
             acc += delta;
             updateMessage(sessionId!, assistantId, acc);
           },
-          ctrl.signal
+          ctrl.signal,
+          onToolCall
         );
         if (!acc) {
           updateMessage(sessionId, assistantId, '_Réponse vide reçue du serveur._');
@@ -139,6 +169,7 @@ export function useChat() {
       selectedRepo,
       setStreaming,
       updateMessage,
+      upsertToolCall,
     ]
   );
 

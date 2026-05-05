@@ -99,6 +99,17 @@ export interface SfdValidateMeta {
   status: 'green' | 'yellow' | 'red';
 }
 
+/**
+ * Tool-call lifecycle event surfaced by the chat stream. The Rust side emits
+ * one `phase: "start"` per tool dispatch followed by a `phase: "end"` once
+ * the backend returned (or failed). The chat-ui collects them and renders a
+ * "🔍 Exécute search_code…" / "✓ search_code" badge on the assistant
+ * bubble.
+ */
+export type ToolCallStreamEvent =
+  | { phase: 'start'; id: string; name: string; args: string }
+  | { phase: 'end'; id: string; name: string; success: boolean };
+
 export class MCPClient {
   readonly baseUrl: string;
   readonly token?: string;
@@ -165,7 +176,8 @@ export class MCPClient {
     question: string,
     history: ChatHistoryMessage[],
     onDelta: (text: string) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onToolCall?: (event: ToolCallStreamEvent) => void
   ): Promise<void> {
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
@@ -202,6 +214,15 @@ export class MCPClient {
       }
       if (ev === 'error') {
         throw new ChatStreamError(payload.replace(/^Error:\s*/i, ''));
+      }
+      if (ev === 'tool_call' && onToolCall) {
+        try {
+          const evt = JSON.parse(payload) as ToolCallStreamEvent;
+          onToolCall(evt);
+        } catch {
+          // Ignore malformed tool_call events — they're decorative.
+        }
+        return;
       }
 
       try {

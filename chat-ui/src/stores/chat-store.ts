@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Message, Session } from '../types/chat';
+import type { Message, Session, ToolCall } from '../types/chat';
 
 interface ChatState {
   sessions: Session[];
@@ -17,6 +17,7 @@ interface ChatState {
 
   appendMessage: (sessionId: string, message: Message) => void;
   updateMessage: (sessionId: string, messageId: string, content: string) => void;
+  upsertToolCall: (sessionId: string, messageId: string, toolCall: ToolCall) => void;
   removeMessagesFrom: (sessionId: string, messageId: string) => void;
   setStreaming: (streaming: boolean) => void;
   setSelectedRepo: (repo: string | null) => void;
@@ -112,6 +113,28 @@ export const useChatStore = create<ChatState>()(
               updatedAt: Date.now(),
             };
           }),
+        })),
+
+      upsertToolCall: (sessionId, messageId, toolCall) =>
+        set((s) => ({
+          sessions: s.sessions.map((sess) =>
+            sess.id === sessionId
+              ? {
+                  ...sess,
+                  messages: sess.messages.map((m) => {
+                    if (m.id !== messageId) return m;
+                    const existing = m.toolCalls ?? [];
+                    const idx = existing.findIndex((tc) => tc.id === toolCall.id);
+                    const next =
+                      idx === -1
+                        ? [...existing, toolCall]
+                        : existing.map((tc, i) => (i === idx ? { ...tc, ...toolCall } : tc));
+                    return { ...m, toolCalls: next };
+                  }),
+                  updatedAt: Date.now(),
+                }
+              : sess
+          ),
         })),
 
       setStreaming: (streaming) => set({ isStreaming: streaming }),

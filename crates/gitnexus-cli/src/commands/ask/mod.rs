@@ -519,11 +519,13 @@ architecture ou une hiérarchie.\n\
             // Convert initial messages to Responses API format.
             for msg in &messages[1..] {
                 if msg["role"].as_str() == Some("user") {
-                    input.push(json!({
-                        "type": "message",
-                        "role": "user",
-                        "content": msg.get("content"),
-                    }));
+                    if let Some(content) = msg.get("content") {
+                        input.push(json!({
+                            "type": "message",
+                            "role": "user",
+                            "content": content,
+                        }));
+                    }
                 }
             }
 

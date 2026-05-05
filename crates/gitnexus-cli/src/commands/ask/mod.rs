@@ -1,5 +1,7 @@
 //! The `ask` command: ask questions about the codebase using graph + LLM.
 
+mod responses;
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -10,6 +12,17 @@ use tokio::sync::Mutex as TokioMutex;
 
 use gitnexus_db::snapshot;
 use gitnexus_mcp::backend::local::LocalBackend;
+
+/// Discriminator for routing to different LLM backends based on provider + OAuth token.
+enum LlmBackend<'a> {
+    /// ChatGPT Responses API (chatgpt.com/backend-api/codex/responses) with OAuth token.
+    /// Wire format: input/output items instead of messages/choices, SSE events from Responses API.
+    ChatGptResponses { token: &'a str },
+
+    /// OpenAI-compatible endpoint (chat/completions format).
+    /// Supports Gemini, Claude, OpenAI API key, Ollama, or any OpenAI-compatible provider.
+    OpenAiCompat { key: &'a str, base_url: &'a str },
+}
 
 pub fn run(question: &str, path: Option<&str>) -> Result<()> {
     let (answer, top_nodes) = ask_question(
@@ -308,7 +321,7 @@ const MAX_TOOL_ITERATIONS: usize = 8;
 pub async fn ask_question_with_tools(
     question: &str,
     repo_path: &Path,
-    backend: Arc<TokioMutex<LocalBackend>>,
+    mcp_backend: Arc<TokioMutex<LocalBackend>>,
     stream_cb: Option<ToolStreamCallback>,
 ) -> Result<(String, Vec<(gitnexus_core::graph::types::GraphNode, f64)>)> {
     // ── Phase 1: bootstrap context (same logic as legacy ask_question) ───
@@ -447,16 +460,16 @@ architecture ou une hiérarchie.\n\
         .timeout(std::time::Duration::from_secs(180))
         .build()?;
 
-    // ── Auth resolution: ChatGPT OAuth token wins over chat-config api_key ─
+    // ── Auth resolution & backend selection ─────────────────────────────────
     //
-    // When the user has run `gitnexus login`, we have a ChatGPT Pro / Plus
-    // bearer token cached on disk. Those tokens are accepted by the public
-    // OpenAI API at https://api.openai.com/v1, so we use that base_url and
-    // replace the chat-config api_key with the OAuth bearer.
+    // When the user has run `gitnexus login`, an OAuth token is cached. The choice
+    // of backend depends on the `provider` config field:
     //
-    // When no token is cached (or refresh failed), we fall back to whatever
-    // the user configured in chat-config.json — Gemini, Claude, OpenAI API
-    // key, or any other OpenAI-compatible endpoint.
+    // - provider = "chatgpt" + OAuth token present → ChatGptResponses (Responses API format)
+    // - Any other provider or no OAuth → OpenAiCompat (chat/completions format)
+    //
+    // The OpenAiCompat path supports Gemini, Claude, OpenAI API key, Ollama, or any
+    // OpenAI-compatible endpoint without regression.
     let oauth_token = match crate::auth::get_access_token().await {
         Ok(token) => token,
         Err(e) => {
@@ -464,120 +477,223 @@ architecture ou une hiérarchie.\n\
             None
         }
     };
-    let (effective_key, effective_base_url) = match oauth_token.as_ref() {
-        Some(token) => (token.clone(), "https://api.openai.com/v1".to_string()),
-        None => (config.api_key.clone(), config.base_url.clone()),
+
+    // Determine which backend to use and resolve keys/URLs upfront.
+    let effective_key = match oauth_token.as_ref() {
+        Some(token) => token.clone(),
+        None => config.api_key.clone(),
     };
-    let url = format!("{}/chat/completions", effective_base_url.trim_end_matches('/'));
+    let effective_base_url = match oauth_token.as_ref() {
+        Some(_) => "https://api.openai.com/v1".to_string(),
+        None => config.base_url.clone(),
+    };
+
+    let backend = match oauth_token.as_deref() {
+        Some(tok) if config.provider.eq_ignore_ascii_case("chatgpt") => {
+            tracing::info!("routing to ChatGPT Responses API (provider=chatgpt + OAuth token)");
+            LlmBackend::ChatGptResponses { token: tok }
+        }
+        _ => {
+            tracing::info!(
+                "routing to OpenAI-compatible (provider={}, has_oauth={})",
+                config.provider,
+                oauth_token.is_some()
+            );
+            LlmBackend::OpenAiCompat {
+                key: &effective_key,
+                base_url: &effective_base_url,
+            }
+        }
+    };
 
     let mut full_answer = String::new();
     let repo_label = repo_path.display().to_string();
 
     // ── Phase 3: tool loop ────────────────────────────────────────────────
-    for _iter in 0..MAX_TOOL_ITERATIONS {
-        let mut body = json!({
-            "model": config.model,
-            "messages": messages,
-            "tools": tools,
-            "tool_choice": "auto",
-            "max_tokens": config.max_tokens,
-            "temperature": 0.3,
-            "stream": false,
-        });
-        let effort = config.reasoning_effort.trim().to_lowercase();
-        if !effort.is_empty() && effort != "none" {
-            body["reasoning_effort"] = Value::String(effort);
-        }
+    match backend {
+        LlmBackend::ChatGptResponses { token } => {
+            // Responses API path (Codex-style tool loop with input/output items).
+            let system_prompt = messages[0]["content"].as_str().unwrap_or("");
+            let mut input = Vec::new();
 
-        let mut request = client.post(&url).json(&body);
-        if !effective_key.is_empty() {
-            request = request.header("Authorization", format!("Bearer {}", effective_key));
-        }
-        let response = request.send().await?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body_text = response.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("LLM error: {} {}", status, body_text));
-        }
-        let resp: Value = response.json().await?;
+            // Convert initial messages to Responses API format.
+            for msg in &messages[1..] {
+                if msg["role"].as_str() == Some("user") {
+                    input.push(json!({
+                        "type": "message",
+                        "role": "user",
+                        "content": msg.get("content"),
+                    }));
+                }
+            }
 
-        let message = &resp["choices"][0]["message"];
-        let content = message["content"].as_str().unwrap_or("");
-        let tool_calls = message["tool_calls"].as_array().cloned().unwrap_or_default();
-        let finish_reason = resp["choices"][0]["finish_reason"]
-            .as_str()
-            .unwrap_or("stop")
-            .to_string();
+            for _iter in 0..MAX_TOOL_ITERATIONS {
+                let (turn_text, turn_tool_calls) = responses::call_responses_turn(
+                    &client,
+                    token,
+                    &config.model,
+                    system_prompt,
+                    &mut input,
+                    &tools,
+                    stream_cb.as_ref().map(|b| b.as_ref()),
+                )
+                .await?;
 
-        if !content.is_empty() {
-            full_answer.push_str(content);
-            if let Some(cb) = stream_cb.as_ref() {
-                cb(StreamEvent::Delta(content.to_string()));
+                if !turn_text.is_empty() {
+                    full_answer.push_str(&turn_text);
+                }
+
+                // Done when no tool calls were issued.
+                if turn_tool_calls.is_empty() {
+                    break;
+                }
+
+                // Dispatch each tool call and append results.
+                for tc in turn_tool_calls {
+                    let mut args: Value =
+                        serde_json::from_str(&tc.args).unwrap_or_else(|_| json!({}));
+                    if args.is_object() && args.get("repo").is_none() {
+                        args["repo"] = json!(repo_label);
+                    }
+
+                    if let Some(cb) = stream_cb.as_ref() {
+                        cb(StreamEvent::ToolCallStart {
+                            id: tc.id.clone(),
+                            name: tc.name.clone(),
+                            args: args.to_string(),
+                        });
+                    }
+
+                    let result = {
+                        let mut backend_guard = mcp_backend.lock().await;
+                        backend_guard.call_tool(&tc.name, &args).await
+                    };
+                    let (success, result_str) = match result {
+                        Ok(v) => (true, v.to_string()),
+                        Err(e) => (false, format!("{{\"error\":\"{}\"}}", e)),
+                    };
+
+                    if let Some(cb) = stream_cb.as_ref() {
+                        cb(StreamEvent::ToolCallEnd {
+                            id: tc.id.clone(),
+                            name: tc.name.clone(),
+                            success,
+                        });
+                    }
+
+                    responses::append_tool_result(&mut input, &tc.id, &result_str);
+                }
             }
         }
 
-        // Append the assistant turn (with tool_calls if any) to history.
-        let mut assistant_msg = json!({"role": "assistant"});
-        if !content.is_empty() {
-            assistant_msg["content"] = json!(content);
-        }
-        if !tool_calls.is_empty() {
-            assistant_msg["tool_calls"] = json!(tool_calls);
-        }
-        messages.push(assistant_msg);
+        LlmBackend::OpenAiCompat { key, base_url } => {
+            // OpenAI-compatible chat/completions path (Gemini, Claude, OpenAI, Ollama, etc.).
+            let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
-        // Done when the model emitted a final answer with no tool requests.
-        if tool_calls.is_empty() || finish_reason == "stop" {
-            break;
-        }
-
-        // Dispatch each tool call through the shared backend.
-        for tc in &tool_calls {
-            let id = tc["id"].as_str().unwrap_or("").to_string();
-            let name = tc["function"]["name"].as_str().unwrap_or("").to_string();
-            let args_str = tc["function"]["arguments"]
-                .as_str()
-                .unwrap_or("{}")
-                .to_string();
-            let mut args: Value = serde_json::from_str(&args_str).unwrap_or_else(|_| json!({}));
-            // Auto-inject the active repo when the model omits it — the chat
-            // already knows which repo is active, no point making the LLM
-            // restate it on every call.
-            if args.is_object() && args.get("repo").is_none() {
-                args["repo"] = json!(repo_label);
-            }
-
-            if let Some(cb) = stream_cb.as_ref() {
-                cb(StreamEvent::ToolCallStart {
-                    id: id.clone(),
-                    name: name.clone(),
-                    args: args.to_string(),
+            for _iter in 0..MAX_TOOL_ITERATIONS {
+                let mut body = json!({
+                    "model": config.model,
+                    "messages": messages,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "max_tokens": config.max_tokens,
+                    "temperature": 0.3,
+                    "stream": false,
                 });
+                let effort = config.reasoning_effort.trim().to_lowercase();
+                if !effort.is_empty() && effort != "none" {
+                    body["reasoning_effort"] = Value::String(effort);
+                }
+
+                let mut request = client.post(&url).json(&body);
+                if !key.is_empty() {
+                    request = request.header("Authorization", format!("Bearer {}", key));
+                }
+                let response = request.send().await?;
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let body_text = response.text().await.unwrap_or_default();
+                    return Err(anyhow::anyhow!("LLM error: {} {}", status, body_text));
+                }
+                let resp: Value = response.json().await?;
+
+                let message = &resp["choices"][0]["message"];
+                let content = message["content"].as_str().unwrap_or("");
+                let tool_calls = message["tool_calls"].as_array().cloned().unwrap_or_default();
+                let finish_reason = resp["choices"][0]["finish_reason"]
+                    .as_str()
+                    .unwrap_or("stop")
+                    .to_string();
+
+                if !content.is_empty() {
+                    full_answer.push_str(content);
+                    if let Some(cb) = stream_cb.as_ref() {
+                        cb(StreamEvent::Delta(content.to_string()));
+                    }
+                }
+
+                // Append the assistant turn (with tool_calls if any) to history.
+                let mut assistant_msg = json!({"role": "assistant"});
+                if !content.is_empty() {
+                    assistant_msg["content"] = json!(content);
+                }
+                if !tool_calls.is_empty() {
+                    assistant_msg["tool_calls"] = json!(tool_calls);
+                }
+                messages.push(assistant_msg);
+
+                // Done when the model emitted a final answer with no tool requests.
+                if tool_calls.is_empty() || finish_reason == "stop" {
+                    break;
+                }
+
+                // Dispatch each tool call through the shared backend.
+                for tc in &tool_calls {
+                    let id = tc["id"].as_str().unwrap_or("").to_string();
+                    let name = tc["function"]["name"].as_str().unwrap_or("").to_string();
+                    let args_str = tc["function"]["arguments"]
+                        .as_str()
+                        .unwrap_or("{}")
+                        .to_string();
+                    let mut args: Value =
+                        serde_json::from_str(&args_str).unwrap_or_else(|_| json!({}));
+                    if args.is_object() && args.get("repo").is_none() {
+                        args["repo"] = json!(repo_label);
+                    }
+
+                    if let Some(cb) = stream_cb.as_ref() {
+                        cb(StreamEvent::ToolCallStart {
+                            id: id.clone(),
+                            name: name.clone(),
+                            args: args.to_string(),
+                        });
+                    }
+
+                    let result = {
+                        let mut backend_guard = mcp_backend.lock().await;
+                        backend_guard.call_tool(&name, &args).await
+                    };
+                    let (success, result_str) = match result {
+                        Ok(v) => (true, v.to_string()),
+                        Err(e) => (false, format!("{{\"error\":\"{}\"}}", e)),
+                    };
+
+                    if let Some(cb) = stream_cb.as_ref() {
+                        cb(StreamEvent::ToolCallEnd {
+                            id: id.clone(),
+                            name: name.clone(),
+                            success,
+                        });
+                    }
+
+                    messages.push(json!({
+                        "role": "tool",
+                        "tool_call_id": id,
+                        "name": name,
+                        "content": result_str,
+                    }));
+                }
             }
-
-            let result = {
-                let mut backend_guard = backend.lock().await;
-                backend_guard.call_tool(&name, &args).await
-            };
-            let (success, result_str) = match result {
-                Ok(v) => (true, v.to_string()),
-                Err(e) => (false, format!("{{\"error\":\"{}\"}}", e)),
-            };
-
-            if let Some(cb) = stream_cb.as_ref() {
-                cb(StreamEvent::ToolCallEnd {
-                    id: id.clone(),
-                    name: name.clone(),
-                    success,
-                });
-            }
-
-            messages.push(json!({
-                "role": "tool",
-                "tool_call_id": id,
-                "name": name,
-                "content": result_str,
-            }));
         }
     }
 

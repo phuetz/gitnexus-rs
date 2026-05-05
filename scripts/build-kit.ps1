@@ -108,13 +108,61 @@ if ($SeedRepo -and (Test-Path $SeedRepo)) {
 }
 
 # ─── 5. Launcher ─────────────────────────────────────────────────────────
+#
+# Two-stage: launch.bat sets GITNEXUS_HOME and chains rebuild-registry.ps1
+# before `gitnexus.exe serve`. The PowerShell script regenerates
+# data\.gitnexus\registry.json from whatever sub-directories exist under
+# data\repos\, so the kit works no matter which drive letter the USB stick
+# mounts on at the client site (D:\, E:\, F:\…).
+
+$RebuildRegistry = @'
+# Regenerate registry.json from data/repos/<name>/.gitnexus/meta.json so
+# absolute paths reflect the current drive letter. Idempotent: rerunning is
+# safe and removes any stale entries whose folder no longer exists.
+param(
+    [Parameter(Mandatory = $true)] [string]$KitData
+)
+$reposDir = Join-Path $KitData "repos"
+$regDir = Join-Path $KitData ".gitnexus"
+$regPath = Join-Path $regDir "registry.json"
+New-Item -ItemType Directory -Path $regDir -Force | Out-Null
+$entries = @()
+foreach ($dir in (Get-ChildItem $reposDir -Directory -ErrorAction SilentlyContinue)) {
+    $metaPath = Join-Path $dir.FullName ".gitnexus\meta.json"
+    if (-not (Test-Path $metaPath)) {
+        Write-Warning "skipping $($dir.Name) — no .gitnexus/meta.json"
+        continue
+    }
+    try {
+        $meta = Get-Content $metaPath -Raw | ConvertFrom-Json
+    } catch {
+        Write-Warning "skipping $($dir.Name) — meta.json parse error: $_"
+        continue
+    }
+    $entries += [pscustomobject]@{
+        name = $dir.Name
+        path = $dir.FullName
+        storagePath = Join-Path $dir.FullName ".gitnexus"
+        indexedAt = $meta.indexedAt
+        lastCommit = $meta.lastCommit
+        stats = $meta.stats
+    }
+}
+ConvertTo-Json -InputObject @($entries) -Depth 5 | Set-Content $regPath -Encoding UTF8
+Write-Host ("Registry rebuilt: {0} repo(s)" -f $entries.Count)
+'@
+$RebuildRegistry | Set-Content -Path (Join-Path $OutDir "rebuild-registry.ps1") -Encoding UTF8
+Write-Done "Wrote rebuild-registry.ps1"
+
 $LaunchBat = @'
 @echo off
 REM GitNexus portable kit launcher
 REM
 REM Sets GITNEXUS_HOME so the kit reads its own data/ directory instead of
-REM the operator's %USERPROFILE%\.gitnexus. Then opens the browser and
-REM starts the server in the foreground.
+REM the operator's %USERPROFILE%\.gitnexus, then regenerates the registry
+REM from the repos under data\repos\ (necessary because absolute paths
+REM depend on the drive letter the USB stick mounts on), opens the browser,
+REM and starts the server.
 
 setlocal
 set GITNEXUS_HOME=%~dp0data
@@ -127,6 +175,14 @@ echo.
 echo  GitNexus portable kit
 echo  GITNEXUS_HOME = %GITNEXUS_HOME%
 echo.
+
+echo  Rebuilding registry from data\repos\...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0rebuild-registry.ps1" -KitData "%~dp0data"
+if errorlevel 1 (
+    echo  WARN: registry rebuild failed — continuing anyway
+)
+echo.
+
 echo  Browser will open at http://localhost:3000
 echo  Press Ctrl+C in this window to stop the server
 echo.

@@ -301,7 +301,7 @@ fn dynamic_timeout_secs(profile_base: u64, max_tokens: u32) -> u64 {
 ///
 /// Keeping this as a free function makes it testable without
 /// mocking the HTTP client.
-fn clamp_enrichment_effort(raw: &str) -> String {
+pub(super) fn clamp_enrichment_effort(raw: &str) -> String {
     let normalized = raw.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "high" => "medium".to_string(),

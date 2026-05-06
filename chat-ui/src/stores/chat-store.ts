@@ -28,7 +28,33 @@ interface ChatState {
   getCurrentSession: () => Session | null;
 }
 
+type PersistedChatState = Pick<
+  ChatState,
+  'sessions' | 'currentSessionId' | 'selectedRepo' | 'selectedRepoName' | 'inputDraft'
+>;
+
 const newId = () => crypto.randomUUID();
+
+function persistedChatState(state: ChatState): PersistedChatState {
+  return {
+    sessions: state.sessions,
+    currentSessionId: state.currentSessionId,
+    selectedRepo: state.selectedRepo,
+    selectedRepoName: state.selectedRepoName,
+    inputDraft: state.inputDraft,
+  };
+}
+
+export function migratePersistedChatState(persistedState: unknown): PersistedChatState {
+  const state = (persistedState ?? {}) as Partial<ChatState>;
+  return {
+    sessions: Array.isArray(state.sessions) ? state.sessions : [],
+    currentSessionId: typeof state.currentSessionId === 'string' ? state.currentSessionId : null,
+    selectedRepo: typeof state.selectedRepo === 'string' ? state.selectedRepo : null,
+    selectedRepoName: typeof state.selectedRepoName === 'string' ? state.selectedRepoName : null,
+    inputDraft: typeof state.inputDraft === 'string' ? state.inputDraft : '',
+  };
+}
 
 export const useChatStore = create<ChatState>()(
   persist(
@@ -155,7 +181,9 @@ export const useChatStore = create<ChatState>()(
     }),
     {
       name: 'gitnexus-chat-store',
-      version: 2,
+      version: 3,
+      partialize: persistedChatState,
+      migrate: migratePersistedChatState,
     }
   )
 );

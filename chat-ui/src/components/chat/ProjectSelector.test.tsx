@@ -151,4 +151,29 @@ describe('ProjectSelector', () => {
     expect(screen.queryByText('Courrier')).toBeNull();
     expect(screen.getByText('1/3 projet(s)')).toBeTruthy();
   });
+
+  it('treats an empty repo list as an indexable state, not a backend error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/repos')) {
+          return jsonResponse({ repos: [] });
+        }
+        return jsonResponse({}, { status: 404 });
+      })
+    );
+
+    render(<ProjectSelector />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Aucun projet')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /sélectionner le projet/i }));
+
+    expect(screen.queryByText('Erreur')).toBeNull();
+    expect(screen.getByText(/Aucun projet indexé/i)).toBeTruthy();
+    expect(screen.getByText(/gitnexus\.cmd analyze -Repo/i)).toBeTruthy();
+  });
 });

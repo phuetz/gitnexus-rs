@@ -58,7 +58,6 @@ export function ProjectSelector() {
       }
       if (list.length === 0) {
         setSelectedRepo(null);
-        setError('Aucun projet indexé.');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -167,7 +166,9 @@ export function ProjectSelector() {
 
           {!error && repos.length === 0 && !loading && (
             <div className="px-3 py-3 text-xs text-neutral-500">
-              Aucun projet. Lance <code className="rounded bg-neutral-800 px-1">gitnexus analyze &lt;path&gt;</code> d'abord.
+              Aucun projet indexé. Lance{' '}
+              <code className="rounded bg-neutral-800 px-1">.\gitnexus.cmd analyze -Repo &lt;path&gt;</code>{' '}
+              depuis ce dépôt.
             </div>
           )}
 

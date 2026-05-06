@@ -18,7 +18,7 @@ export function SfdDraftsPanel() {
   const open = useChatStore((s) => s.isSfdPanelOpen);
   const setSfdPanelOpen = useChatStore((s) => s.setSfdPanelOpen);
   const repo = useChatStore((s) => s.selectedRepo);
-  const sfd = useSfd(repo);
+  const sfd = useSfd(open ? repo : null);
   const [scope, setScope] = useState<'all' | 'drafts'>('drafts');
   const close = useCallback(() => setSfdPanelOpen(false), [setSfdPanelOpen]);
 

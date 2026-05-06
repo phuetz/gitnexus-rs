@@ -550,6 +550,7 @@ fn render_prompt_audit_page(audit: &Value) -> String {
     );
     let system_policy = audit_text(audit, &["enrichment", "rolePolicy", "system"], "");
     let user_policy = audit_text(audit, &["enrichment", "rolePolicy", "user"], "");
+    let untrusted_markers = render_untrusted_context_markers(audit);
     let families_html = render_prompt_families(audit);
     let privacy_html = render_prompt_audit_privacy(audit);
 
@@ -583,6 +584,7 @@ fn render_prompt_audit_page(audit: &Value) -> String {
     <dt>Role des preuves</dt><dd><code>{evidence_role}</code></dd>
     <dt>System</dt><dd>{system_policy}</dd>
     <dt>User</dt><dd>{user_policy}</dd>
+    <dt>Marqueurs preuves</dt><dd>{untrusted_markers}</dd>
   </dl>
 </section>
 <section class="audit-card audit-wide">
@@ -595,6 +597,24 @@ fn render_prompt_audit_page(audit: &Value) -> String {
   <div class="audit-privacy-list">{privacy_html}</div>
 </section>"#
     )
+}
+
+fn render_untrusted_context_markers(audit: &Value) -> String {
+    audit
+        .get("enrichment")
+        .and_then(|v| v.get("contextPolicy"))
+        .and_then(|v| v.get("untrustedContextMarkers"))
+        .and_then(Value::as_array)
+        .map(|markers| {
+            markers
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|marker| format!("<code>{}</code>", super::markdown::html_escape(marker)))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "<span class=\"audit-muted\">Non declares</span>".to_string())
 }
 
 fn render_prompt_families(audit: &Value) -> String {
@@ -2253,7 +2273,13 @@ mod tests {
                 "language": "fr",
                 "citations": true,
                 "profile": { "name": "fast" },
-                "contextPolicy": { "evidenceRole": "user" },
+                "contextPolicy": {
+                    "evidenceRole": "user",
+                    "untrustedContextMarkers": [
+                        "BEGIN_UNTRUSTED_CONTEXT",
+                        "END_UNTRUSTED_CONTEXT"
+                    ]
+                },
                 "rolePolicy": {
                     "system": "rules only",
                     "user": "untrusted evidence"
@@ -2279,6 +2305,8 @@ mod tests {
         assert!(!html.contains("<img"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("&lt;img"));
+        assert!(html.contains("BEGIN_UNTRUSTED_CONTEXT"));
+        assert!(html.contains("END_UNTRUSTED_CONTEXT"));
     }
 
     #[test]

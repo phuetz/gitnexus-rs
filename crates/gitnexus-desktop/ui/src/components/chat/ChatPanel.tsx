@@ -3,7 +3,7 @@
  */
 
 import { lazy, Suspense, useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useI18n } from "../../hooks/use-i18n";
 import { confirm } from "../../lib/confirm";
 import { ChatSuggestions } from "./ChatSuggestions";
@@ -29,6 +29,7 @@ import { commands } from "../../lib/tauri-commands";
 import { copyTextToClipboard } from "../../lib/clipboard";
 import type {
   ChatSmartResponse,
+  ChatConfig,
   FeatureDevArtifact,
   CodeReviewArtifact,
   SimplifyArtifact,
@@ -121,11 +122,17 @@ function chatExportFilename(activeRepo: string, session: ChatSession | null, ext
   return `gitnexus-chat-${base}-${stamp}.${extension}`;
 }
 
-function buildChatMarkdown(activeRepo: string, session: ChatSession | null, messages: Message[]): string {
+function buildChatMarkdown(
+  activeRepo: string,
+  session: ChatSession | null,
+  messages: Message[],
+  chatConfig?: ChatConfig,
+): string {
   const lines = [
     `# ${session?.title || "GitNexus chat"}`,
     "",
     `- Projet: ${activeRepo || "global"}`,
+    `- LLM: ${formatChatLlmLabel(chatConfig, messages)}`,
     `- Export: ${formatExportTimestamp(Date.now())}`,
     "",
   ];
@@ -140,6 +147,25 @@ function buildChatMarkdown(activeRepo: string, session: ChatSession | null, mess
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
+function formatChatLlmLabel(config: ChatConfig | undefined, messages: Message[]): string {
+  const provider = config?.provider?.trim();
+  const configuredModel = config?.model?.trim();
+  const messageModel = [...messages].reverse().find((message) => message.model?.trim())?.model?.trim();
+  const model = configuredModel || messageModel;
+  if (!provider && !model) return "non configure";
+
+  const head = provider && model
+    ? `${provider} / ${model}`
+    : provider || model || "non configure";
+  const reasoning = config?.reasoningEffort?.trim()
+    ? `, raisonnement ${config.reasoningEffort.trim()}`
+    : "";
+  const maxTokens = Number.isFinite(config?.maxTokens)
+    ? `, max ${config?.maxTokens} tokens`
+    : "";
+  return `${head}${reasoning}${maxTokens}`;
+}
+
 function downloadTextFile(filename: string, content: string, type: string) {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -152,14 +178,19 @@ function downloadTextFile(filename: string, content: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function printChatPdf(activeRepo: string, session: ChatSession | null, messages: Message[]) {
+function printChatPdf(
+  activeRepo: string,
+  session: ChatSession | null,
+  messages: Message[],
+  chatConfig?: ChatConfig,
+) {
   const popup = window.open("", "_blank", "width=980,height=760");
   if (!popup) {
     throw new Error("La fenetre d'export PDF a ete bloquee par le navigateur.");
   }
   const transcript =
     document.getElementById("gitnexus-desktop-chat-export-source")?.innerHTML ||
-    buildChatMarkdown(activeRepo, session, messages)
+    buildChatMarkdown(activeRepo, session, messages, chatConfig)
       .split("\n")
       .map((line) => escapeHtml(line))
       .join("<br />");
@@ -187,6 +218,7 @@ function printChatPdf(activeRepo: string, session: ChatSession | null, messages:
   <header>
     <h1>${escapeHtml(session?.title || "GitNexus chat")}</h1>
     <div class="meta">Projet: ${escapeHtml(activeRepo || "global")}</div>
+    <div class="meta">LLM: ${escapeHtml(formatChatLlmLabel(chatConfig, messages))}</div>
     <div class="meta">Export: ${escapeHtml(formatExportTimestamp(Date.now()))}</div>
   </header>
   <main>${transcript}</main>
@@ -211,6 +243,11 @@ function escapeHtml(value: string): string {
 export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) {
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo) || "global";
+  const { data: chatConfig } = useQuery({
+    queryKey: ["chat-config"],
+    queryFn: () => commands.chatGetConfig(),
+    staleTime: 30_000,
+  });
   
   const sessions = useChatSessionStore(s => s.sessions);
   const activeSessionId = useChatSessionStore(s => s.activeSessionId);
@@ -619,7 +656,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
               <>
                 <button
                   onClick={async () => {
-                    const copied = await copyTextToClipboard(buildChatMarkdown(activeRepo, activeSession, messages));
+                    const copied = await copyTextToClipboard(buildChatMarkdown(activeRepo, activeSession, messages, chatConfig));
                     if (copied) {
                       toast.success("Chat copied as Markdown");
                     } else {
@@ -637,7 +674,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
                   onClick={() => {
                     downloadTextFile(
                       chatExportFilename(activeRepo, activeSession, "md"),
-                      buildChatMarkdown(activeRepo, activeSession, messages),
+                      buildChatMarkdown(activeRepo, activeSession, messages, chatConfig),
                       "text/markdown",
                     );
                     toast.success(t("chat.exportedAsMarkdown"));
@@ -652,7 +689,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
                 <button
                   onClick={() => {
                     try {
-                      printChatPdf(activeRepo, activeSession, messages);
+                      printChatPdf(activeRepo, activeSession, messages, chatConfig);
                     } catch (e) {
                       toast.error(t("chat.exportFailed").replace("{0}", String(e)));
                     }
@@ -672,6 +709,7 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
                     const payload = {
                       exportedAt: new Date().toISOString(),
                       repo: activeRepo,
+                      llm: formatChatLlmLabel(chatConfig, messages),
                       session: activeSession
                         ? {
                             id: activeSession.id,

@@ -169,6 +169,10 @@ export class MCPClient {
     return h;
   }
 
+  private backendLabel(): string {
+    return this.baseUrl || 'le proxy Vite courant';
+  }
+
   private async request(path: string, init: RequestInit, action: string): Promise<Response> {
     let res: Response;
     try {
@@ -179,7 +183,7 @@ export class MCPClient {
       }
       const reason = e instanceof Error ? e.message : String(e);
       throw new Error(
-        `${action}: serveur GitNexus injoignable. Vérifie que le backend tourne et que VITE_MCP_URL pointe vers lui. (${reason})`,
+        `${action}: serveur GitNexus injoignable via ${this.backendLabel()}. Vérifie que le backend tourne et que VITE_MCP_URL pointe vers lui. Lance aussi \`.\\gitnexus.cmd doctor\` pour contrôler les ports. (${reason})`,
         { cause: e }
       );
     }
@@ -188,7 +192,7 @@ export class MCPClient {
       const body = await res.text().catch(() => '');
       const hint =
         res.status >= 500
-          ? ' Vérifie que `gitnexus serve --port 3010` tourne et que le proxy Vite pointe sur ce port.'
+          ? ` Vérifie ${this.backendLabel()} avec \`.\\gitnexus.cmd doctor\` et relance le chat avec -RestartBackend si besoin.`
           : '';
       throw new Error(
         `${action}: HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.${hint}${formatErrorBody(body)}`

@@ -12,8 +12,8 @@ describe('MCPClient errors', () => {
       vi.fn(async () => new Response('Bad Gateway', { status: 502, statusText: 'Bad Gateway' }))
     );
 
-    await expect(new MCPClient('').listRepos()).rejects.toThrow(
-      /list_repos: HTTP 502 Bad Gateway.*gitnexus serve --port 3010.*Bad Gateway/
+    await expect(new MCPClient('http://127.0.0.1:3010').listRepos()).rejects.toThrow(
+      /list_repos: HTTP 502 Bad Gateway.*http:\/\/127\.0\.0\.1:3010.*gitnexus\.cmd doctor.*Bad Gateway/
     );
   });
 
@@ -26,7 +26,7 @@ describe('MCPClient errors', () => {
     );
 
     await expect(new MCPClient('').llmConfig()).rejects.toThrow(
-      /llm_config: serveur GitNexus injoignable.*VITE_MCP_URL.*Failed to fetch/
+      /llm_config: serveur GitNexus injoignable via le proxy Vite courant.*VITE_MCP_URL.*gitnexus\.cmd doctor.*Failed to fetch/
     );
   });
 

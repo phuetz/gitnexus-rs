@@ -130,7 +130,7 @@ export function ProjectSelector() {
               <div className="font-medium">Erreur</div>
               <div className="mt-1 break-words text-amber-300/80">{error}</div>
               <div className="mt-2 text-neutral-500">
-                Vérifie que <code className="rounded bg-neutral-800 px-1">gitnexus serve --port 3010</code> tourne.
+                Lance <code className="rounded bg-neutral-800 px-1">.\gitnexus.cmd doctor</code> pour vérifier ports, backend et proxy Vite.
               </div>
             </div>
           )}

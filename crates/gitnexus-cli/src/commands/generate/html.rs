@@ -1,7 +1,7 @@
 //! HTML site generator.
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use colored::Colorize;
@@ -329,15 +329,7 @@ pub(super) fn generate_html_site(
         &backlinks_json,
     );
 
-    // 7. Check for local mermaid.min.js (offline support)
-    let mermaid_path = docs_dir.join("mermaid.min.js");
-    if !mermaid_path.exists() {
-        println!(
-            "  {} For offline diagrams, download mermaid.min.js to {}",
-            "TIP".cyan(),
-            docs_dir.display()
-        );
-    }
+    ensure_local_mermaid_asset(docs_dir)?;
 
     // 8. Write output
     let out_path = docs_dir.join("index.html");
@@ -372,6 +364,59 @@ pub(super) fn strip_html_tags(html: &str) -> String {
     }
     // Collapse whitespace
     result.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn ensure_local_mermaid_asset(docs_dir: &Path) -> Result<()> {
+    let target = docs_dir.join("mermaid.min.js");
+    if target.exists() {
+        return Ok(());
+    }
+
+    if let Some(source) = find_local_mermaid_asset() {
+        std::fs::copy(source, &target)?;
+        println!("  {} mermaid.min.js (offline diagrams)", "OK".green());
+        return Ok(());
+    }
+
+    println!(
+        "  {} For offline diagrams, download mermaid.min.js to {}",
+        "TIP".cyan(),
+        docs_dir.display()
+    );
+    Ok(())
+}
+
+fn find_local_mermaid_asset() -> Option<PathBuf> {
+    workspace_roots_for_assets()
+        .into_iter()
+        .flat_map(|root| mermaid_asset_candidates(&root))
+        .find(|path| path.is_file())
+}
+
+fn workspace_roots_for_assets() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(current_dir) = std::env::current_dir() {
+        roots.push(current_dir);
+    }
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if let Some(root) = manifest_dir.parent().and_then(Path::parent) {
+        roots.push(root.to_path_buf());
+    }
+
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+fn mermaid_asset_candidates(root: &Path) -> Vec<PathBuf> {
+    [
+        "chat-ui/node_modules/mermaid/dist/mermaid.min.js",
+        "crates/gitnexus-desktop/ui/node_modules/mermaid/dist/mermaid.min.js",
+    ]
+    .into_iter()
+    .map(|relative| root.join(relative))
+    .collect()
 }
 
 fn load_json_file(path: &Path, fallback: Value) -> Result<Value> {
@@ -2169,5 +2214,16 @@ mod tests {
 
         assert!(pages.contains_key(PROMPT_AUDIT_PAGE_ID));
         assert_eq!(count_prompt_audit_nav_items(&index), 1);
+    }
+
+    #[test]
+    fn mermaid_asset_candidates_include_local_ui_dependencies() {
+        let candidates = mermaid_asset_candidates(std::path::Path::new("workspace"));
+
+        assert!(candidates
+            .iter()
+            .any(|path| path.ends_with("chat-ui/node_modules/mermaid/dist/mermaid.min.js")));
+        assert!(candidates.iter().any(|path| path
+            .ends_with("crates/gitnexus-desktop/ui/node_modules/mermaid/dist/mermaid.min.js")));
     }
 }

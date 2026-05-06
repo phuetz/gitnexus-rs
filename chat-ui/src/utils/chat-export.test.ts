@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { conversationToMarkdown, exportFilename } from './chat-export';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { conversationToMarkdown, exportFilename, exportPdf } from './chat-export';
 import type { Session } from '../types/chat';
 
 const session: Session = {
@@ -70,6 +70,37 @@ describe('conversationToMarkdown', () => {
 
     expect(markdown).toContain('- Messages exportés: 2');
     expect(markdown.match(/^## /gm)).toHaveLength(2);
+  });
+});
+
+describe('exportPdf', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('keeps tool summaries in the fallback print transcript', () => {
+    const written: string[] = [];
+    const popup = {
+      document: {
+        open: vi.fn(),
+        write: vi.fn((html: string) => written.push(html)),
+        close: vi.fn(),
+      },
+      focus: vi.fn(),
+      print: vi.fn(),
+      setTimeout: vi.fn((callback: () => void) => {
+        callback();
+        return 0;
+      }),
+    };
+    vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+
+    exportPdf(session, { repo: 'Alise_v2', llm: null }, null);
+
+    const html = written.join('');
+    expect(html).toContain('Outils: search_code (done), trace_files (error)');
+    expect(html).toContain('flowchart TD');
+    expect(popup.print).toHaveBeenCalled();
   });
 });
 

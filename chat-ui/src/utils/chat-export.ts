@@ -103,13 +103,15 @@ function downloadTextFile(filename: string, content: string) {
 
 function fallbackTranscriptHtml(session: Session): string {
   return exportableMessages(session)
-    .map(
-      (message) => `
+    .map((message) => {
+      const toolSummary = formatToolCalls(message);
+      return `
         <section class="print-message print-message-${escapeHtml(message.role)}">
           <h2>${escapeHtml(messageLabel(message))}</h2>
+          ${toolSummary ? `<p class="print-tools">Outils: ${escapeHtml(toolSummary)}</p>` : ''}
           <pre>${escapeHtml(message.content.trim())}</pre>
-        </section>`
-    )
+        </section>`;
+    })
     .join('\n');
 }
 
@@ -169,6 +171,12 @@ function printableHtml(session: Session, metadata: ExportMetadata, transcriptHtm
     .chat-transcript > * {
       break-inside: avoid;
       margin-bottom: 16px;
+    }
+    .print-tools {
+      color: #4b5563;
+      font-size: 12px;
+      font-style: italic;
+      margin: 0 0 8px;
     }
     @page {
       margin: 18mm;

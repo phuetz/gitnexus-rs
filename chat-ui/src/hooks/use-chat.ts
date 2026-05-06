@@ -126,7 +126,7 @@ export function useChat() {
           ? '> ⚠️ _Requête annulée._'
           : isStreamErr
             ? `> ❌ **Erreur serveur** : ${msg}`
-      : `> ❌ **Erreur** : ${msg}\n>\n> Vérifie que le serveur tourne : \`gitnexus serve --port 3010\` (ou ajuste \`VITE_MCP_URL\` dans \`.env.local\`).`;
+            : `> ❌ **Erreur** : ${msg}\n>\n> Vérifie le backend avec \`.\\gitnexus.cmd doctor\`, puis relance le chat avec \`.\\gitnexus.cmd chat -RestartBackend\` si le port/proxy est bloqué.`;
         updateMessage(sessionId, assistantId, acc ? `${acc}\n\n${reason}` : reason);
       } finally {
         abortRef.current = null;

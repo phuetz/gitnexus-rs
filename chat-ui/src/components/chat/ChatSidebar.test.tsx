@@ -71,4 +71,18 @@ describe('ChatSidebar', () => {
 
     expect(screen.getByText('Aucune conversation ne correspond à cette recherche.')).toBeTruthy();
   });
+
+  it('renames a conversation inline', () => {
+    render(<ChatSidebar />);
+
+    fireEvent.click(screen.getByLabelText('Renommer la conversation "Flux courrier"'));
+    fireEvent.change(screen.getByLabelText('Nouveau titre de conversation'), {
+      target: { value: 'Courriers en masse' },
+    });
+    fireEvent.keyDown(screen.getByLabelText('Nouveau titre de conversation'), { key: 'Enter' });
+
+    expect(screen.queryByText('Flux courrier')).toBeNull();
+    expect(screen.getByText('Courriers en masse')).toBeTruthy();
+    expect(useChatStore.getState().sessions[0].title).toBe('Courriers en masse');
+  });
 });

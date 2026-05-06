@@ -1086,9 +1086,11 @@ fn build_html_template(
     }}
     .search-result {{
       display: block; padding: 10px 12px; border-radius: 8px;
-      text-decoration: none; color: var(--text); transition: background 0.1s;
+      border: 1px solid transparent; text-decoration: none; color: var(--text);
+      transition: background 0.1s, border-color 0.1s;
     }}
-    .search-result:hover {{ background: rgba(106,161,248,0.08); }}
+    .search-result:hover,
+    .search-result.active {{ background: rgba(106,161,248,0.08); border-color: var(--accent); }}
     .search-result-title {{ font-weight: 600; font-size: 13px; }}
     .search-result-snippet {{ font-size: 12px; color: var(--text-muted); margin-top: 4px; }}
     .search-result-snippet mark {{ background: var(--accent); color: #fff; border-radius: 2px; padding: 0 2px; font-weight: 600; }}
@@ -2183,6 +2185,29 @@ fn build_html_template(
           b.classList.toggle('active', b.getAttribute('data-filter') === savedFilter);
         }});
       }}
+      let _searchSelectedIndex = -1;
+      function searchResultItems() {{
+        return Array.from(searchResults.querySelectorAll('.search-result'));
+      }}
+      function setSearchSelectedIndex(index) {{
+        const items = searchResultItems();
+        if (!items.length) {{
+          _searchSelectedIndex = -1;
+          return;
+        }}
+        _searchSelectedIndex = Math.max(0, Math.min(index, items.length - 1));
+        items.forEach(function(item, i) {{
+          const active = i === _searchSelectedIndex;
+          item.classList.toggle('active', active);
+          item.setAttribute('aria-selected', active ? 'true' : 'false');
+          if (active) item.scrollIntoView({{ block: 'nearest' }});
+        }});
+      }}
+      function openSelectedSearchResult() {{
+        const items = searchResultItems();
+        const selected = items[_searchSelectedIndex] || items[0];
+        if (selected) selected.click();
+      }}
       document.addEventListener('keydown', e => {{
         if ((e.ctrlKey || e.metaKey) && e.key === 'k') {{
           e.preventDefault();
@@ -2215,9 +2240,22 @@ fn build_html_template(
         clearTimeout(_searchTimer);
         _searchTimer = setTimeout(runSearch, 250);
       }});
+      searchInput.addEventListener('keydown', e => {{
+        if (searchOverlay.classList.contains('hidden')) return;
+        if (e.key === 'ArrowDown') {{
+          e.preventDefault();
+          setSearchSelectedIndex(_searchSelectedIndex + 1);
+        }} else if (e.key === 'ArrowUp') {{
+          e.preventDefault();
+          setSearchSelectedIndex(_searchSelectedIndex <= 0 ? searchResultItems().length - 1 : _searchSelectedIndex - 1);
+        }} else if (e.key === 'Enter') {{
+          e.preventDefault();
+          openSelectedSearchResult();
+        }}
+      }});
       function runSearch() {{
         const tokens = queryTokens(searchInput.value);
-        if (tokens.join('').length < 2) {{ searchResults.innerHTML = ''; return; }}
+        if (tokens.join('').length < 2) {{ searchResults.innerHTML = ''; _searchSelectedIndex = -1; return; }}
         const results = SEARCH_INDEX
           .filter(p => {{
             if (_searchActiveFilter === 'enriched') return p.enriched;
@@ -2233,6 +2271,7 @@ fn build_html_template(
           .slice(0, 15);
         if (results.length === 0) {{
           searchResults.innerHTML = '<div class="search-empty">Aucun r&eacute;sultat</div>';
+          _searchSelectedIndex = -1;
           return;
         }}
         searchResults.innerHTML = '';
@@ -2283,6 +2322,7 @@ fn build_html_template(
           }}
           searchResults.appendChild(a);
         }});
+        setSearchSelectedIndex(0);
         if (typeof lucide !== 'undefined') lucide.createIcons();
       }}
     }}
@@ -2575,6 +2615,30 @@ mod tests {
         assert!(html.contains("function queryTokens(q)"));
         assert!(html.contains("return tokens.every(token => haystack.includes(token));"));
         assert!(html.contains(".replace(/[\\u0300-\\u036f]/g, '')"));
+    }
+
+    #[test]
+    fn html_template_search_supports_keyboard_navigation() {
+        let html = build_html_template(
+            "sample",
+            "1 node",
+            "",
+            "<h1>Overview</h1>",
+            "{}",
+            "[]",
+            "[]",
+            r#"{"pages":[]}"#,
+            "[]",
+            "{}",
+        );
+
+        assert!(html.contains("function setSearchSelectedIndex(index)"));
+        assert!(html.contains("function openSelectedSearchResult()"));
+        assert!(html.contains("e.key === 'ArrowDown'"));
+        assert!(html.contains("e.key === 'ArrowUp'"));
+        assert!(html.contains("e.key === 'Enter'"));
+        assert!(html.contains("aria-selected"));
+        assert!(html.contains(".search-result.active"));
     }
 
     #[test]

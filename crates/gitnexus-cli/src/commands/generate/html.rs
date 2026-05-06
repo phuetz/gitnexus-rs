@@ -822,6 +822,7 @@ fn build_html_template(
       --bg: #0f1117; --bg-surface: #161822; --bg-sidebar: #12141e;
       --text: #e8ecf4; --text-muted: #8690a5; --accent: #6aa1f8;
       --border: rgba(255,255,255,0.08);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }}
     [data-theme="light"] {{
       --bg: #f8f9fc; --bg-surface: #ffffff; --bg-sidebar: #f0f2f7;
@@ -829,7 +830,7 @@ fn build_html_template(
       --border: rgba(0,0,0,0.08);
     }}
     * {{ margin:0; padding:0; box-sizing:border-box; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    body {{ font-family: var(--font);
            background: var(--bg); color: var(--text); display:flex; height:100vh; }}
     .header {{ position:fixed; top:0; left:0; right:0; height:48px; background:var(--bg-sidebar);
               border-bottom:1px solid var(--border); display:flex; align-items:center;
@@ -1006,10 +1007,10 @@ fn build_html_template(
     }}
     .chat-header-title {{ display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }}
     .chat-close {{ background: none; border: none; color: var(--text-muted); cursor: pointer; }}
-    .chat-messages {{ flex: 1; overflow-y: auto; padding: 16px; display: flex; flexDirection: column; gap: 12px; }}
+    .chat-messages {{ flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }}
     .message {{ padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; max-width: 85%; }}
     .message.user {{ background: var(--accent); color: white; align-self: flex-end; border-bottom-right-radius: 2px; }}
-    .message.assistant {{ background: var(--bg-3); color: var(--text); align-self: flex-start; border-bottom-left-radius: 2px; }}
+    .message.assistant {{ background: var(--bg-sidebar); color: var(--text); align-self: flex-start; border-bottom-left-radius: 2px; }}
     .message.system {{ background: transparent; color: var(--text-muted); align-self: center; text-align: center; font-style: italic; font-size: 12px; }}
     .chat-input-container {{ padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; }}
     #chat-input {{
@@ -2468,6 +2469,28 @@ mod tests {
         assert!(html.contains("function applyFallbackHighlighting()"));
         assert!(html.contains("function fallbackHighlightText(text, lang)"));
         assert!(html.contains("highlightCodeBlocks();"));
+    }
+
+    #[test]
+    fn html_template_chat_widget_uses_valid_css_tokens() {
+        let html = build_html_template(
+            "sample",
+            "1 node",
+            "",
+            "<h1>Overview</h1>",
+            "{}",
+            "[]",
+            "[]",
+            r#"{"pages":[]}"#,
+            "[]",
+            "{}",
+        );
+
+        assert!(html.contains("--font: -apple-system"));
+        assert!(html.contains("flex-direction: column"));
+        assert!(html.contains(".message.assistant { background: var(--bg-sidebar);"));
+        assert!(!html.contains("flexDirection"));
+        assert!(!html.contains("var(--bg-3)"));
     }
 
     #[test]

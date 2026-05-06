@@ -2057,17 +2057,23 @@ fn build_html_template(
         }}
         if (e.key === 'Escape') searchOverlay.classList.add('hidden');
       }});
-      function normSearch(s) {{ return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }}
-      function searchScore(page, q) {{
+      function normSearch(s) {{ return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }}
+      function queryTokens(q) {{
+        return normSearch(q).trim().split(/\s+/).filter(Boolean);
+      }}
+      function searchScore(page, tokens) {{
         let s = 0;
         const t = normSearch(page.title), x = normSearch(page.text);
-        if (q.indexOf(' ') !== -1) {{
-          if (t.indexOf(q) !== -1) s += 80;
-          if (x.indexOf(q) !== -1) s += 40;
+        const phrase = tokens.join(' ');
+        if (tokens.length > 1) {{
+          if (t.indexOf(phrase) !== -1) s += 80;
+          if (x.indexOf(phrase) !== -1) s += 40;
         }}
-        if (t.startsWith(q)) s += 20;
-        else if (t.indexOf(q) !== -1) s += 10;
-        if (x.indexOf(q) !== -1) s += 1 + Math.min(4, (x.split(q).length - 1));
+        tokens.forEach(token => {{
+          if (t.startsWith(token)) s += 20;
+          else if (t.indexOf(token) !== -1) s += 10;
+          if (x.indexOf(token) !== -1) s += 1 + Math.min(4, (x.split(token).length - 1));
+        }});
         return s;
       }}
       var _searchTimer = null;
@@ -2076,16 +2082,19 @@ fn build_html_template(
         _searchTimer = setTimeout(runSearch, 250);
       }});
       function runSearch() {{
-        const q = normSearch(searchInput.value.trim());
-        if (q.length < 2) {{ searchResults.innerHTML = ''; return; }}
+        const tokens = queryTokens(searchInput.value);
+        if (tokens.join('').length < 2) {{ searchResults.innerHTML = ''; return; }}
         const results = SEARCH_INDEX
           .filter(p => {{
             if (_searchActiveFilter === 'enriched') return p.enriched;
             if (_searchActiveFilter !== 'all') return p.page_type === _searchActiveFilter;
             return true;
           }})
-          .filter(p => normSearch(p.title).includes(q) || normSearch(p.text).includes(q))
-          .map(p => ({{ ...p, _score: searchScore(p, q) }}))
+          .filter(p => {{
+            const haystack = normSearch(p.title + ' ' + p.text);
+            return tokens.every(token => haystack.includes(token));
+          }})
+          .map(p => ({{ ...p, _score: searchScore(p, tokens) }}))
           .sort((a, b) => b._score - a._score)
           .slice(0, 15);
         if (results.length === 0) {{
@@ -2118,20 +2127,22 @@ fn build_html_template(
             titleDiv.appendChild(icon);
           }}
           a.appendChild(titleDiv);
-          const idx = r.text.toLowerCase().indexOf(q);
+          const normalizedText = normSearch(r.text);
+          const hitToken = tokens.find(token => normalizedText.includes(token));
+          const idx = hitToken ? normalizedText.indexOf(hitToken) : -1;
           if (idx >= 0) {{
             const start = Math.max(0, idx - 40);
-            const end = Math.min(r.text.length, idx + q.length + 160);
+            const end = Math.min(r.text.length, idx + hitToken.length + 160);
             const snippet = (start > 0 ? '\u2026' : '') + r.text.slice(start, end) + (end < r.text.length ? '\u2026' : '');
             const snippetDiv = document.createElement('div');
             snippetDiv.className = 'search-result-snippet';
-            var lsnip = snippet.toLowerCase(), sp = 0, lp = 0;
-            while ((sp = lsnip.indexOf(q, lp)) !== -1) {{
+            var lsnip = normSearch(snippet), sp = 0, lp = 0;
+            while ((sp = lsnip.indexOf(hitToken, lp)) !== -1) {{
               if (sp > lp) snippetDiv.appendChild(document.createTextNode(snippet.slice(lp, sp)));
               var mk = document.createElement('mark');
-              mk.textContent = snippet.slice(sp, sp + q.length);
+              mk.textContent = snippet.slice(sp, sp + hitToken.length);
               snippetDiv.appendChild(mk);
-              lp = sp + q.length;
+              lp = sp + hitToken.length;
             }}
             if (lp < snippet.length) snippetDiv.appendChild(document.createTextNode(snippet.slice(lp)));
             a.appendChild(snippetDiv);
@@ -2379,5 +2390,25 @@ mod tests {
         assert!(html.contains("function applyFallbackHighlighting()"));
         assert!(html.contains("function fallbackHighlightText(text, lang)"));
         assert!(html.contains("highlightCodeBlocks();"));
+    }
+
+    #[test]
+    fn html_template_search_uses_accent_insensitive_tokens() {
+        let html = build_html_template(
+            "sample",
+            "1 node",
+            "",
+            "<h1>Overview</h1>",
+            "{}",
+            "[]",
+            "[]",
+            r#"{"pages":[]}"#,
+            "[]",
+            "{}",
+        );
+
+        assert!(html.contains("function queryTokens(q)"));
+        assert!(html.contains("return tokens.every(token => haystack.includes(token));"));
+        assert!(html.contains(".replace(/[\\u0300-\\u036f]/g, '')"));
     }
 }

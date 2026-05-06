@@ -836,7 +836,7 @@ fn build_html_template(
               padding:0 20px; z-index:50; }}
     .header h1 {{ font-size:15px; color:var(--accent); }}
     .header .stats {{ margin-left:auto; font-size:11px; color:var(--text-muted); }}
-    .header .generated-at {{ display:none; margin-left:12px; margin-right:80px; font-size:11px; color:var(--text-muted); }}
+    .header .generated-at {{ display:none; margin-left:12px; margin-right:128px; font-size:11px; color:var(--text-muted); }}
     body {{ padding-top:48px; }}
     .sidebar {{ width:280px; background:var(--bg-sidebar); border-right:1px solid var(--border);
                overflow-y:auto; padding:16px 0; flex-shrink:0; margin-top:48px; height:calc(100vh - 48px); }}
@@ -849,6 +849,7 @@ fn build_html_template(
     .sidebar a:focus-visible,
     .top-bar button:focus-visible,
     .theme-toggle:focus-visible,
+    .header-icon-button:focus-visible,
     .hamburger:focus-visible,
     .chat-toggle:focus-visible,
     .search input:focus-visible,
@@ -890,6 +891,12 @@ fn build_html_template(
     .theme-toggle {{ position:fixed; top:12px; right:16px; background:var(--bg-surface);
                     border:1px solid var(--border); border-radius:8px; padding:6px 12px;
                     color:var(--text-muted); cursor:pointer; font-size:12px; z-index:100; }}
+    .header-icon-button {{ position:fixed; top:12px; right:92px; width:30px; height:28px;
+                    display:flex; align-items:center; justify-content:center; background:var(--bg-surface);
+                    border:1px solid var(--border); border-radius:8px; color:var(--text-muted);
+                    cursor:pointer; z-index:100; transition:color .15s,border-color .15s; }}
+    .header-icon-button:hover,
+    .header-icon-button.copied {{ color:var(--accent); border-color:rgba(106,161,248,0.45); }}
     .mermaid {{ background:var(--bg-surface); border-radius:8px; padding:16px; margin:16px 0;
                border:1px solid var(--border); text-align:center; cursor: zoom-in; position: relative; }}
     .mermaid:hover::after {{ content: 'Click to zoom'; position: absolute; top: 8px; right: 8px; font-size: 10px; color: var(--text-muted); background: var(--bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }}
@@ -1202,6 +1209,7 @@ fn build_html_template(
     <h1>{project_name}</h1>
     <span class="stats">{stats}</span>
     <span id="generated-at" class="generated-at"></span>
+    <button id="copy-page-link" class="header-icon-button" onclick="copyCurrentPageLink()" title="Copier le lien de la page" aria-label="Copier le lien de la page"><i data-lucide="link" style="width:15px;height:15px;"></i></button>
     <button class="theme-toggle" onclick="toggleTheme()" aria-label="Basculer le thème">Theme</button>
   </header>
   <nav class="sidebar">
@@ -1377,6 +1385,55 @@ fn build_html_template(
       document.body.appendChild(t);
       setTimeout(function() {{ t.style.opacity = '0'; setTimeout(function() {{ t.remove(); }}, 400); }}, ms || 2500);
     }}
+
+    function clipboardFallback(text) {{
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0;';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {{
+        return document.execCommand('copy');
+      }} catch (err) {{
+        return false;
+      }} finally {{
+        textarea.remove();
+      }}
+    }}
+
+    function writeClipboard(text, successMessage) {{
+      const onFailure = () => {{
+        if (clipboardFallback(text)) {{
+          showToast(successMessage);
+        }} else {{
+          showToast("Copie impossible.");
+        }}
+      }};
+      if (navigator.clipboard && window.isSecureContext) {{
+        return navigator.clipboard.writeText(text)
+          .then(() => showToast(successMessage))
+          .catch(onFailure);
+      }}
+      onFailure();
+      return Promise.resolve();
+    }}
+
+    function currentPageUrl() {{
+      const base = window.location.href.split('#')[0];
+      const pageId = currentPage || (PAGE_ORDER && PAGE_ORDER[0]) || '';
+      return pageId ? base + '#' + pageId : base;
+    }}
+
+    function copyCurrentPageLink() {{
+      const button = document.getElementById('copy-page-link');
+      if (button) {{
+        button.classList.add('copied');
+        setTimeout(function() {{ button.classList.remove('copied'); }}, 1200);
+      }}
+      writeClipboard(currentPageUrl(), 'Lien de la page copié');
+    }}
+
     function showPage(id, anchor, skipHistory = false) {{
       if (window.innerWidth < 900) {{
         var sb = document.querySelector('.sidebar');
@@ -1602,7 +1659,7 @@ fn build_html_template(
     }}
 
     function copyPath(path) {{
-        navigator.clipboard.writeText(path).catch(() => {{}});
+        writeClipboard(path, 'Chemin copié');
         document.querySelectorAll('.ev-source-path').forEach(function(s) {{
             if (s.dataset.path === path) {{
                 s.classList.add('copied');
@@ -2449,5 +2506,27 @@ mod tests {
         assert!(html.contains(r#"id="generated-at""#));
         assert!(html.contains("function updateGeneratedAt()"));
         assert!(html.contains("INDEX_JSON.generatedAt"));
+    }
+
+    #[test]
+    fn html_template_can_copy_current_page_link() {
+        let html = build_html_template(
+            "sample",
+            "1 node",
+            "",
+            "<h1>Overview</h1>",
+            "{}",
+            "[]",
+            "[]",
+            r#"{"generatedAt":"2026-05-06T20:00:00+02:00","pages":[]}"#,
+            "[]",
+            "{}",
+        );
+
+        assert!(html.contains(r#"id="copy-page-link""#));
+        assert!(html.contains("function copyCurrentPageLink()"));
+        assert!(html.contains("function writeClipboard(text, successMessage)"));
+        assert!(html.contains("function clipboardFallback(text)"));
+        assert!(html.contains("base + '#' + pageId"));
     }
 }

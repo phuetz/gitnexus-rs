@@ -19,6 +19,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use gitnexus_core::graph::types::*;
+use gitnexus_core::llm::PROMPT_CONTEXT_SAFETY;
 
 use crate::commands::chat;
 use crate::state::AppState;
@@ -422,6 +423,7 @@ async fn run_llm(
         .and_then(|v| v.as_str())
         .unwrap_or("You are a helpful assistant. Respond concisely.")
         .to_string();
+    let guarded_system = format!("{}\n\n{}", PROMPT_CONTEXT_SAFETY, system);
     // Append the prior step outputs so the LLM has automatic context
     // even without explicit `{{step_N.text}}` interpolation in the prompt.
     let mut user = prompt;
@@ -435,7 +437,7 @@ async fn run_llm(
         }
     }
     let messages = vec![
-        serde_json::json!({"role": "system", "content": system}),
+        serde_json::json!({"role": "system", "content": guarded_system}),
         serde_json::json!({"role": "user", "content": user}),
     ];
     match chat::call_llm_pub(config, &messages).await {

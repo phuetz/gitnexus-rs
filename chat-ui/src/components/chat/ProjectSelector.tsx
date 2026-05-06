@@ -5,6 +5,32 @@ import { mcpClient, type RepoInfo } from '../../api/mcp-client';
 import { useChatStore } from '../../stores/chat-store';
 import { parseIndexedAt } from '../../utils/dates';
 
+function repoSelectionValue(repo: RepoInfo): string {
+  return repo.id || repo.name;
+}
+
+function repoMatchesSelection(repo: RepoInfo, selection: string | null): boolean {
+  if (!selection) return false;
+  return repoSelectionValue(repo) === selection || repo.name === selection;
+}
+
+function shortRepoId(repo: RepoInfo): string | null {
+  if (!repo.id) return null;
+  return repo.id.replace(/^repo_/, '').slice(0, 8);
+}
+
+function countRepoNames(repos: RepoInfo[]): Record<string, number> {
+  return repos.reduce<Record<string, number>>((acc, repo) => {
+    acc[repo.name] = (acc[repo.name] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+function repoDisplayName(repo: RepoInfo, duplicateNames: Record<string, number>): string {
+  const idSuffix = duplicateNames[repo.name] > 1 ? shortRepoId(repo) : null;
+  return `${repo.name}${idSuffix ? ` · ${idSuffix}` : ''}`;
+}
+
 export function ProjectSelector() {
   const selectedRepo = useChatStore((s) => s.selectedRepo);
   const setSelectedRepo = useChatStore((s) => s.setSelectedRepo);
@@ -19,16 +45,26 @@ export function ProjectSelector() {
     try {
       const list = await mcpClient.listRepos();
       setRepos(list);
-      if (list.length > 0 && !selectedRepo) {
-        setSelectedRepo(list[0].name);
+      const names = countRepoNames(list);
+      const currentRepo = useChatStore.getState().selectedRepo;
+      const matchedRepo = currentRepo
+        ? list.find((repo) => repoMatchesSelection(repo, currentRepo))
+        : undefined;
+      if (matchedRepo && repoSelectionValue(matchedRepo) !== currentRepo) {
+        setSelectedRepo(repoSelectionValue(matchedRepo), repoDisplayName(matchedRepo, names));
+      } else if (list.length > 0 && !matchedRepo) {
+        setSelectedRepo(repoSelectionValue(list[0]), repoDisplayName(list[0], names));
       }
-      if (list.length === 0) setError('Aucun projet indexé.');
+      if (list.length === 0) {
+        setSelectedRepo(null);
+        setError('Aucun projet indexé.');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [selectedRepo, setSelectedRepo]);
+  }, [setSelectedRepo]);
 
   useEffect(() => {
     // Initial fetch on mount — sync setState here is intentional (boot data load).
@@ -36,7 +72,11 @@ export function ProjectSelector() {
     void fetchRepos();
   }, [fetchRepos]);
 
-  const label = selectedRepo ?? (loading ? 'Chargement…' : 'Aucun projet');
+  const selectedRepoInfo = repos.find((repo) => repoMatchesSelection(repo, selectedRepo));
+  const duplicateNames = countRepoNames(repos);
+  const label = selectedRepoInfo
+    ? repoDisplayName(selectedRepoInfo, duplicateNames)
+    : selectedRepo ?? (loading ? 'Chargement…' : 'Aucun projet');
 
   return (
     <div
@@ -47,7 +87,11 @@ export function ProjectSelector() {
     >
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next && error) void fetchRepos();
+        }}
         aria-label="Sélectionner le projet à interroger"
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -86,7 +130,7 @@ export function ProjectSelector() {
               <div className="font-medium">Erreur</div>
               <div className="mt-1 break-words text-amber-300/80">{error}</div>
               <div className="mt-2 text-neutral-500">
-                Vérifie que <code className="rounded bg-neutral-800 px-1">gitnexus serve --port 3000</code> tourne.
+                Vérifie que <code className="rounded bg-neutral-800 px-1">gitnexus serve --port 3010</code> tourne.
               </div>
             </div>
           )}
@@ -97,36 +141,46 @@ export function ProjectSelector() {
             </div>
           )}
 
-          {repos.map((repo) => (
-            <button
-              key={repo.name}
-              onClick={() => {
-                setSelectedRepo(repo.name);
-                setOpen(false);
-              }}
-              className={clsx(
-                'flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm transition',
-                repo.name === selectedRepo
-                  ? 'bg-purple-600/20 text-purple-200'
-                  : 'text-neutral-300 hover:bg-neutral-800'
-              )}
-            >
-              <div className="flex w-full items-center justify-between">
-                <span className="truncate font-medium">{repo.name}</span>
-                {(() => {
-                  const d = parseIndexedAt(repo.indexedAt);
-                  return d ? (
-                    <span className="ml-2 shrink-0 text-[10px] text-neutral-500">
-                      {d.toLocaleDateString()}
-                    </span>
-                  ) : null;
-                })()}
-              </div>
-              {repo.path && (
-                <span className="truncate text-[11px] text-neutral-500">{repo.path}</span>
-              )}
-            </button>
-          ))}
+          {repos.map((repo, index) => {
+            const idSuffix = duplicateNames[repo.name] > 1 ? shortRepoId(repo) : null;
+            return (
+              <button
+                key={`${repoSelectionValue(repo)}-${repo.indexedAt ?? 'unknown'}-${index}`}
+                onClick={() => {
+                  setSelectedRepo(repoSelectionValue(repo), repoDisplayName(repo, duplicateNames));
+                  setOpen(false);
+                }}
+                className={clsx(
+                  'flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm transition',
+                  repoMatchesSelection(repo, selectedRepo)
+                    ? 'bg-purple-600/20 text-purple-200'
+                    : 'text-neutral-300 hover:bg-neutral-800'
+                )}
+              >
+                <div className="flex w-full items-center justify-between">
+                  <span className="truncate font-medium">
+                    {repo.name}
+                    {idSuffix && (
+                      <span className="ml-1 font-mono text-[10px] font-normal text-neutral-500">
+                        {idSuffix}
+                      </span>
+                    )}
+                  </span>
+                  {(() => {
+                    const d = parseIndexedAt(repo.indexedAt);
+                    return d ? (
+                      <span className="ml-2 shrink-0 text-[10px] text-neutral-500">
+                        {d.toLocaleDateString()}
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
+                {repo.path && (
+                  <span className="truncate text-[11px] text-neutral-500">{repo.path}</span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

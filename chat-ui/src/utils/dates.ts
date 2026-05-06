@@ -19,3 +19,26 @@ export function parseIndexedAt(raw: string | undefined | null): Date | null {
   if (!isNaN(iso.getTime())) return iso;
   return null;
 }
+
+export function formatMessageTimestamp(timestamp: number | undefined | null): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+export function formatExportTimestamp(timestamp: number | undefined | null): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}

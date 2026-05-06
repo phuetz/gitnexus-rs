@@ -96,14 +96,16 @@ export function useSfd(repo: string | null) {
   );
 
   useEffect(() => {
-    if (repo) {
-      void refreshPages();
-    } else {
-      setPages([]);
-      setDrafts([]);
-      setReport(null);
-      setReportStatus(null);
-    }
+    queueMicrotask(() => {
+      if (repo) {
+        void refreshPages();
+      } else {
+        setPages([]);
+        setDrafts([]);
+        setReport(null);
+        setReportStatus(null);
+      }
+    });
   }, [repo, refreshPages]);
 
   return {

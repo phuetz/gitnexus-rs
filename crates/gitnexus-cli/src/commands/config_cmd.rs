@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use colored::Colorize;
+use gitnexus_core::llm::{sanitize_llm_error_body, PROMPT_CONTEXT_SAFETY};
 
 /// Format an API key as `prefix...suffix` for display, hiding the middle.
 ///
@@ -22,6 +23,10 @@ fn mask_api_key(api_key: &str) -> String {
     } else {
         format!("{}...", prefix)
     }
+}
+
+fn sanitize_error_preview(body: &str, api_key: &str) -> String {
+    sanitize_llm_error_body(body, &[api_key], 200)
 }
 
 pub fn run_test() -> Result<()> {
@@ -54,6 +59,33 @@ pub fn run_test() -> Result<()> {
     println!("  Max tokens: {}", config.max_tokens);
     println!("  API key:   {}", mask_api_key(&config.api_key));
 
+    if config.provider.eq_ignore_ascii_case("chatgpt") {
+        println!();
+        println!("{} Checking ChatGPT OAuth login...", "->".cyan());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        match runtime.block_on(crate::auth::get_chatgpt_auth()) {
+            Ok(Some(auth)) => {
+                println!("{}", "OK ChatGPT login found.".green());
+                if let Some(email) = auth.email.as_deref() {
+                    println!("  Account: {}", email);
+                }
+                if let Some(plan) = auth.plan_type.as_deref() {
+                    println!("  Plan:    {}", plan);
+                }
+            }
+            Ok(None) => {
+                println!("{}", "ERROR No ChatGPT login found.".red());
+                println!("  Run `gitnexus login`, then retry `gitnexus config test`.");
+            }
+            Err(e) => {
+                println!("{} ChatGPT auth check failed: {}", "ERROR".red(), e);
+            }
+        }
+        return Ok(());
+    }
+
     // Test connectivity
     println!();
     println!("{} Testing connection...", "->".cyan());
@@ -61,7 +93,10 @@ pub fn run_test() -> Result<()> {
     let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let body = serde_json::json!({
         "model": config.model,
-        "messages": [{"role": "user", "content": "Say hello in one word."}],
+        "messages": [
+            {"role": "system", "content": PROMPT_CONTEXT_SAFETY},
+            {"role": "user", "content": "Say hello in one word."}
+        ],
         "max_tokens": 10,
         "temperature": 0.0,
     });
@@ -99,8 +134,7 @@ pub fn run_test() -> Result<()> {
                     status.canonical_reason().unwrap_or("")
                 );
                 if let Ok(body) = resp.text() {
-                    let preview: String = body.chars().take(200).collect();
-                    println!("  {}", preview);
+                    println!("  {}", sanitize_error_preview(&body, &config.api_key));
                 }
             }
         }
@@ -153,5 +187,13 @@ mod tests {
     fn mask_api_key_exact_eight_chars() {
         // Exactly 8 chars goes to the no-suffix branch (count > 8 is false).
         assert_eq!(mask_api_key("abcdefgh"), "abcdefgh...");
+    }
+
+    #[test]
+    fn sanitize_error_preview_redacts_api_key() {
+        let preview = sanitize_error_preview("provider echoed sk-live-secret", "sk-live-secret");
+
+        assert!(!preview.contains("sk-live-secret"));
+        assert!(preview.contains("[redacted-secret]"));
     }
 }

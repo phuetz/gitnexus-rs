@@ -18,6 +18,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use gitnexus_core::graph::types::*;
+use gitnexus_core::llm::PROMPT_CONTEXT_SAFETY;
 
 use crate::commands::chat;
 use crate::commands::feature_dev::parse_review_from_markdown_pub;
@@ -160,7 +161,7 @@ pub async fn code_review_run(
     let llm_md = chat::call_llm_pub(
         &config,
         &[
-            serde_json::json!({"role": "system", "content": REVIEWER_SYSTEM_PROMPT}),
+            serde_json::json!({"role": "system", "content": format!("{}\n\n{}", PROMPT_CONTEXT_SAFETY, REVIEWER_SYSTEM_PROMPT)}),
             serde_json::json!({"role": "user", "content": user_prompt}),
         ],
     )

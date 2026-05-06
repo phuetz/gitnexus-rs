@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Plus, MessageSquare, Trash2 } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, Library } from 'lucide-react';
 import { useChatStore } from '../../stores/chat-store';
 
 export function ChatSidebar() {
@@ -10,12 +10,21 @@ export function ChatSidebar() {
   const deleteSession = useChatStore((s) => s.deleteSession);
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-neutral-900 bg-neutral-950/40">
+    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-neutral-900 bg-neutral-950">
       <div className="border-b border-neutral-900 p-3">
+        <div className="mb-3 flex items-center gap-2 px-1">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-900 text-neutral-400">
+            <Library size={14} aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-neutral-200">Conversations</div>
+            <div className="text-xs text-neutral-600">{sessions.length} session{sessions.length > 1 ? 's' : ''}</div>
+          </div>
+        </div>
         <button
           type="button"
           onClick={() => createSession()}
-          className="flex w-full items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-sm text-neutral-200 transition hover:bg-neutral-800"
+          className="flex w-full items-center justify-center gap-2 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 transition hover:border-neutral-700 hover:bg-neutral-800"
         >
           <Plus size={14} aria-hidden="true" />
           Nouvelle conversation
@@ -33,10 +42,10 @@ export function ChatSidebar() {
               key={session.id}
               onClick={() => selectSession(session.id)}
               className={clsx(
-                'group flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm transition',
+                'group flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition',
                 session.id === currentSessionId
-                  ? 'bg-neutral-800/80 text-neutral-100'
-                  : 'text-neutral-400 hover:bg-neutral-900/80'
+                  ? 'border-neutral-700 bg-neutral-800/80 text-neutral-100'
+                  : 'border-transparent text-neutral-400 hover:border-neutral-900 hover:bg-neutral-900/80'
               )}
             >
               <MessageSquare size={14} className="shrink-0 opacity-60" aria-hidden="true" />
@@ -59,7 +68,7 @@ export function ChatSidebar() {
 
       <div className="border-t border-neutral-900 p-3 text-[11px] text-neutral-600">
         <div className="font-medium text-neutral-500">GitNexus Chat</div>
-        <div>v0.0.1 · MIT</div>
+        <div className="mt-0.5">Interface web MCP</div>
       </div>
     </aside>
   );

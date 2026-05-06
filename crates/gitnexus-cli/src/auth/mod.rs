@@ -2,14 +2,12 @@
 //!
 //! This crate-level entry point currently exposes the **Codex** OAuth flow,
 //! which lets the user authenticate against their ChatGPT Pro / Plus
-//! subscription and use that quota for OpenAI API calls instead of paying
-//! per-token through a developer API key.
+//! subscription and use that quota through ChatGPT's Codex Responses backend.
 //!
 //! Why we need this: the LLM tool loop in `commands::ask::ask_question_with_tools`
-//! can fire 5–8 OpenAI calls per question (one per tool round-trip). On a
-//! free-tier API key that's an instant rate-limit smackdown. On a ChatGPT
-//! Pro subscription the quota is generous, the model is GPT-5+, and the
-//! marginal cost is zero — Patrice already pays the $200/month flat.
+//! can fire 5–8 LLM calls per question (one per tool round-trip). ChatGPT
+//! subscription auth must stay scoped to the `provider = "chatgpt"` backend;
+//! other OpenAI-compatible providers keep using their configured API key.
 //!
 //! Borrowed from the `openai/codex` Rust CLI, which OpenAI publishes under
 //! Apache-2.0. Their crate ships the official PKCE-based Authorization
@@ -19,4 +17,4 @@
 
 pub mod codex_oauth;
 
-pub use codex_oauth::{clear, get_access_token, login};
+pub use codex_oauth::{clear, get_chatgpt_auth, login, ChatGptAuth};

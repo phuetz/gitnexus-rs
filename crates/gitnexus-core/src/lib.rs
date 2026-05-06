@@ -7,6 +7,7 @@ pub mod memory;
 pub mod pipeline;
 pub mod process_doc;
 pub mod resolution;
+pub mod secret_store;
 pub mod storage;
 pub mod symbol;
 pub mod trace;

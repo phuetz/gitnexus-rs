@@ -136,6 +136,17 @@ build-release.bat desktop   # Desktop only
 ./build-release.sh cli      # CLI only
 ```
 
+Windows helper scripts for local development:
+
+```powershell
+.\config-chatgpt.cmd        # Configure ChatGPT OAuth with gpt-5.5
+.\login-chatgpt.cmd         # ChatGPT OAuth login
+.\gitnexus.cmd chat         # Backend 3010 + React chat 5176
+.\gitnexus.cmd chat -ChatPort 5174  # Compatibility with an old browser tab
+.\start-desktop.cmd         # Desktop UI + Tauri
+.\check-gitnexus.cmd        # Main lint/test/build suite
+```
+
 ### Optional Feature Builds
 
 ```bash
@@ -173,7 +184,26 @@ Create `~/.gitnexus/chat-config.json`:
 }
 ```
 
-Supported providers: **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, no API key needed).
+Supported providers: **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, no API key needed), and **ChatGPT** through the Codex-style OAuth login flow for `gitnexus ask` / `gitnexus serve` chat. `--enrich` still uses OpenAI-compatible API-key providers.
+
+To use your ChatGPT subscription instead of an API key for `gitnexus ask` and the web chat served by `gitnexus serve`:
+
+```bash
+gitnexus login
+```
+
+Then set `~/.gitnexus/chat-config.json` to the ChatGPT provider. `api_key` is intentionally empty; the access token is loaded from the OAuth login created above.
+
+```json
+{
+  "provider": "chatgpt",
+  "api_key": "",
+  "base_url": "https://chatgpt.com/backend-api/codex",
+  "model": "gpt-5.5",
+  "max_tokens": 8192,
+  "reasoning_effort": "high"
+}
+```
 
 The three optional `big_context_*` fields route huge pages (≥ `big_context_threshold_bytes` raw markdown, default 40 KB) through a long-context model to escape the Gemini 2.5 Flash 65K output ceiling that causes `finish_reason: length` truncations. All LLM calls for that page (sectioned, monolithic, freeform fallback, review pass) use the substituted model. Leave the fields unset for legacy single-model behavior.
 
@@ -421,8 +451,12 @@ gitnexus mcp
 gitnexus setup
 
 # HTTP server
-gitnexus serve         # Default port 3000
+gitnexus serve         # Default port 3010
 ```
+
+`gitnexus serve` defaults to `127.0.0.1`. If you bind it to a network
+interface such as `0.0.0.0`, set `GITNEXUS_HTTP_TOKEN` first; the server
+refuses non-loopback binds without that bearer token.
 
 ### Other commands
 
@@ -555,7 +589,7 @@ A standards-based [Model Context Protocol](https://modelcontextprotocol.io/) ser
 
 ```bash
 gitnexus mcp          # stdio transport
-gitnexus serve        # HTTP transport (port 3000)
+gitnexus serve        # HTTP transport (port 3010)
 gitnexus setup        # Auto-configure in your editor
 ```
 

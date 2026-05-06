@@ -25,20 +25,15 @@ pub(super) fn markdown_to_html(md: &str) -> String {
             continue;
         }
 
-        // Handle <details>/<summary>/<div>/<a>/<img> blocks (pass through as HTML)
-        if line.trim_start().starts_with("<details>")
-            || line.trim_start().starts_with("<details ")
-            || line.trim_start().starts_with("</details>")
-            || line.trim_start().starts_with("<summary>")
-            || line.trim_start().starts_with("<summary ")
-            || line.trim_start().starts_with("</summary>")
-            || line.trim_start().starts_with("<div")
-            || line.trim_start().starts_with("</div")
-            || line.trim_start().starts_with("<a ")
-            || line.trim_start().starts_with("</a>")
-            || line.trim_start().starts_with("<img")
-        {
-            html.push_str(line);
+        // Handle the small HTML subset emitted by GitNexus' own generators.
+        // Unsafe raw HTML is displayed as text so repository-controlled docs
+        // cannot smuggle active script into the generated site.
+        if is_passthrough_html_line(line) {
+            if is_safe_passthrough_html_line(line) {
+                html.push_str(line);
+            } else {
+                html.push_str(&html_escape(line));
+            }
             html.push('\n');
             continue;
         }
@@ -403,7 +398,7 @@ pub(super) fn markdown_to_html(md: &str) -> String {
 
 /// Process inline Markdown formatting: bold, italic, code, links.
 pub(super) fn inline_md(text: &str) -> String {
-    let mut s = html_escape(text);
+    let mut s = text.to_string();
 
     // Extract inline code spans up-front and replace each with a sentinel
     // placeholder containing no markdown-special characters. Without this
@@ -443,7 +438,7 @@ pub(super) fn inline_md(text: &str) -> String {
             }
         }
     }
-    s = after_code;
+    s = html_escape(&after_code);
 
     // Bold: **text**
     while let Some(start) = s.find("**") {
@@ -514,7 +509,7 @@ pub(super) fn inline_md(text: &str) -> String {
     if !code_spans.is_empty() {
         for (idx, content) in code_spans.iter().enumerate() {
             let placeholder = format!("\u{E000}C{}\u{E000}", idx);
-            let replacement = format!("<code>{}</code>", content);
+            let replacement = format!("<code>{}</code>", html_escape(content));
             s = s.replace(&placeholder, &replacement);
         }
     }
@@ -629,10 +624,100 @@ pub(super) fn parse_md_image(line: &str) -> Option<String> {
         .next()
         .unwrap_or(&rest[..paren_end])
         .trim();
+    if !is_safe_image_url(url_part) {
+        return Some(html_escape(trimmed));
+    }
     Some(format!(
         "<div class=\"gnx-img-wrapper\" style=\"margin:12px 0;text-align:center;\"><img src=\"{}\" alt=\"{}\" style=\"max-width:100%;border-radius:6px;\"/></div>",
         html_escape(url_part), html_escape(alt)
     ))
+}
+
+fn is_passthrough_html_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("<details>")
+        || trimmed.starts_with("<details ")
+        || trimmed.starts_with("</details>")
+        || trimmed.starts_with("<summary>")
+        || trimmed.starts_with("<summary ")
+        || trimmed.starts_with("</summary>")
+        || trimmed.starts_with("<div")
+        || trimmed.starts_with("</div")
+        || trimmed.starts_with("<a ")
+        || trimmed.starts_with("</a>")
+        || trimmed.starts_with("<img")
+}
+
+fn is_safe_passthrough_html_line(line: &str) -> bool {
+    let lower = line.trim_start().to_ascii_lowercase();
+    if lower.contains("<script")
+        || lower.contains("</script")
+        || lower.contains("javascript:")
+        || lower.contains("data:text/html")
+        || contains_event_handler_attr(&lower)
+    {
+        return false;
+    }
+
+    if lower.starts_with("<a ") {
+        return extract_attr_value(line, "href")
+            .as_deref()
+            .is_some_and(is_safe_link_url);
+    }
+
+    if lower.starts_with("<img") {
+        return extract_attr_value(line, "src")
+            .as_deref()
+            .is_some_and(is_safe_image_url);
+    }
+
+    true
+}
+
+fn contains_event_handler_attr(lowercase_html: &str) -> bool {
+    let bytes = lowercase_html.as_bytes();
+    let mut i = 0;
+    while i + 3 < bytes.len() {
+        if !bytes[i].is_ascii_whitespace() || bytes[i + 1] != b'o' || bytes[i + 2] != b'n' {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 3;
+        while j < bytes.len() && bytes[j].is_ascii_alphabetic() {
+            j += 1;
+        }
+        if j == i + 3 {
+            i += 1;
+            continue;
+        }
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j < bytes.len() && bytes[j] == b'=' {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+fn extract_attr_value(line: &str, attr: &str) -> Option<String> {
+    let lower = line.to_ascii_lowercase();
+    let needle = format!("{attr}=");
+    let start = lower.find(&needle)? + needle.len();
+    let rest = line[start..].trim_start();
+    let quote = rest.chars().next()?;
+    if quote == '"' || quote == '\'' {
+        let value_start = quote.len_utf8();
+        let value = &rest[value_start..];
+        let end = value.find(quote)?;
+        Some(value[..end].to_string())
+    } else {
+        let end = rest
+            .find(|c: char| c.is_ascii_whitespace() || c == '>')
+            .unwrap_or(rest.len());
+        Some(rest[..end].to_string())
+    }
 }
 
 /// Restrict an identifier to ASCII letters, digits and the small set of
@@ -663,6 +748,22 @@ pub(super) fn is_safe_link_url(url: &str) -> bool {
             .any(|c| c.is_control() || c == '<' || c == '>' || c == '"');
     }
     false
+}
+
+fn is_safe_image_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    if trimmed.is_empty()
+        || trimmed
+            .chars()
+            .any(|c| c.is_control() || c == '<' || c == '>' || c == '"')
+    {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") || trimmed.starts_with('/') {
+        return true;
+    }
+    !trimmed.contains(':')
 }
 
 /// Extract the first `# Title` from Markdown content.
@@ -761,5 +862,21 @@ mod tests {
         let html = markdown_to_html(md);
         assert!(html.contains("<details>"));
         assert!(html.contains("<summary>"));
+    }
+
+    #[test]
+    fn raw_html_event_handlers_are_escaped() {
+        let md = "<div onclick=\"alert(1)\">bad</div>\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains("&lt;div onclick=&quot;alert(1)&quot;&gt;bad&lt;/div&gt;"));
+        assert!(!html.contains("<div onclick"));
+    }
+
+    #[test]
+    fn markdown_image_rejects_script_url() {
+        let md = "![x](javascript:alert(1))\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains("![x](javascript:alert(1))"));
+        assert!(!html.contains("<img"));
     }
 }

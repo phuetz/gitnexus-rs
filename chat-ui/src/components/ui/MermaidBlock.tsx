@@ -40,8 +40,6 @@ export function MermaidBlock({ text }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    setError(null);
-    setSvg(null);
 
     void (async () => {
       try {
@@ -86,7 +84,6 @@ export function MermaidBlock({ text }: Props) {
     <div
       className="my-3 flex justify-center overflow-x-auto rounded-md border border-neutral-800 bg-neutral-950/60 p-4"
       data-testid="mermaid-block"
-      // eslint-disable-next-line react/no-danger -- DOMPurify-sanitized SVG from Mermaid
       dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
     />
   );

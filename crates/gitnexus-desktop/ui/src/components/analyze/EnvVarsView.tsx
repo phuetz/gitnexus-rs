@@ -20,7 +20,7 @@ export function EnvVarsView() {
     staleTime: 60_000,
   });
 
-  const all = data ?? [];
+  const all = useMemo(() => data ?? [], [data]);
   const filtered = useMemo(() => {
     if (filter === "all") return all;
     if (filter === "unused") return all.filter((v) => v.unused);

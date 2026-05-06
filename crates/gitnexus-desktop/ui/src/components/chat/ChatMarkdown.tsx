@@ -21,6 +21,95 @@ function extractTextFromChildren(children: React.ReactNode): string {
   return "";
 }
 
+const MERMAID_GRAPH_TYPES = [
+  "flowchart",
+  "sequenceDiagram",
+  "classDiagram",
+  "erDiagram",
+  "stateDiagram",
+  "gantt",
+  "pie",
+  "mindmap",
+  "gitGraph",
+  "journey",
+  "graph",
+];
+
+const MERMAID_LANGUAGE_ALIASES = new Set([
+  "mermaid",
+  "mermaidjs",
+  "mermaid-js",
+  "mmd",
+  "maid",
+  "maimaid",
+  "mermaide",
+  "diagram",
+  "flowchart",
+  "sequence",
+  "sequencediagram",
+  "classdiagram",
+]);
+
+function languageFromClassName(className: string): string {
+  return className.replace(/^language-/, "").trim();
+}
+
+function isMermaidLanguage(language: string | undefined): boolean {
+  return !!language && MERMAID_LANGUAGE_ALIASES.has(language.toLowerCase());
+}
+
+function looksLikeMermaid(text: string): boolean {
+  const head = text.trimStart().split(/\s|\n/, 1)[0] ?? "";
+  return MERMAID_GRAPH_TYPES.some((type) => type.toLowerCase() === head.toLowerCase());
+}
+
+const MERMAID_START_RE =
+  /^\s*(flowchart\s+(?:TB|TD|BT|RL|LR)|graph\s+(?:TB|TD|BT|RL|LR)|sequenceDiagram|classDiagram(?:-v2)?|erDiagram|stateDiagram(?:-v2)?|gantt|pie\b|mindmap|gitGraph|journey)\b/i;
+
+const MERMAID_LINE_RE = new RegExp(
+  String.raw`^\s*(subgraph\b|end\b|participant\b|actor\b|autonumber\b|loop\b|alt\b|opt\b|else\b|par\b|and\b|rect\b|note\b|activate\b|deactivate\b|class\b|classDef\b|click\b|style\b|linkStyle\b|title\b|section\b|dateFormat\b|axisFormat\b|todayMarker\b|[A-Za-z0-9_]+(?:\s*(?:-->|---|-.->|==>|-\.-|--|:::|::)|\s*[\[\(\{>]))`,
+  "i",
+);
+
+function isBareMermaidContinuation(line: string): boolean {
+  if (!line.trim()) return true;
+  if (/^\s+/.test(line)) return true;
+  return MERMAID_LINE_RE.test(line);
+}
+
+function normalizeBareMermaid(markdown: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const out: string[] = [];
+  let inFence = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+
+    if (!inFence && MERMAID_START_RE.test(line)) {
+      out.push("```mermaid");
+      out.push(line);
+      i += 1;
+      while (i < lines.length && isBareMermaidContinuation(lines[i])) {
+        out.push(lines[i]);
+        i += 1;
+      }
+      while (out[out.length - 1] === "") out.pop();
+      out.push("```");
+      i -= 1;
+      continue;
+    }
+
+    out.push(line);
+  }
+
+  return out.join("\n");
+}
+
 // ─── Smart Links Integration ─────────────────────────────────────────
 
 function SmartInlineCode({ 
@@ -251,16 +340,12 @@ function detectCallout(children: React.ReactNode): (typeof CALLOUT_MAP)[string] 
 
 function ShikiTokens({ code, langHint }: { code: string; langHint: string }) {
   const { tokenize, ready } = useShikiHighlighter();
-  const [lines, setLines] = useState<{ tokens: { content: string; color?: string; fontStyle?: number }[] }[] | null>(null);
-
-  // Use ready as dep only — tokenize is stable via useCallback in the hook
-  useEffect(() => {
-    if (!ready) return;
+  const lines = useMemo(() => {
+    if (!ready) return null;
     try {
-      const result = tokenize(code, langHint);
-      setLines(result);
+      return tokenize(code, langHint);
     } catch {
-      setLines(null);
+      return null;
     }
   }, [ready, code, langHint, tokenize]);
 
@@ -313,19 +398,19 @@ const createMarkdownComponents = (
   pre: ({ children }: { children?: React.ReactNode }) => {
     const child = children as React.ReactElement<{ className?: string; children?: React.ReactNode }>;
     const className = child?.props?.className ?? "";
-    if (className === "language-mermaid") {
-      const code = String(child.props.children ?? "").replace(/\n$/, "");
+    const langHint = languageFromClassName(className) || "text";
+    const code = extractTextFromChildren(children).replace(/\n$/, "");
+    if (isMermaidLanguage(langHint) || looksLikeMermaid(code)) {
       return <MermaidDiagram chart={code} />;
     }
-    const langHint = className.replace("language-", "") || "text";
-    const code = extractTextFromChildren(children);
     return <ShikiCodeBlock code={code} langHint={langHint} rawChildren={children} />;
   },
   code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
-    if (className && className !== "language-mermaid") {
+    const langHint = languageFromClassName(className ?? "");
+    if (className && !isMermaidLanguage(langHint)) {
       return <code className={className}>{children}</code>;
     }
-    if (className === "language-mermaid") {
+    if (isMermaidLanguage(langHint)) {
       return null; // Handled by pre
     }
     const text = extractTextFromChildren(children);
@@ -435,7 +520,7 @@ export function ChatMarkdown({
   return (
     <div>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {content}
+        {normalizeBareMermaid(content)}
       </ReactMarkdown>
       {message && (message.toolCalls?.length ?? 0) > 0 && (
         <ToolCallList

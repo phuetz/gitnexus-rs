@@ -69,17 +69,15 @@ export function useBackendStatus(
 
   // Persist the timeout id across renders so we never leak a timer.
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Bumped on unmount so a late probe response can be discarded.
-  const generationRef = useRef(0);
 
   useEffect(() => {
-    const myGeneration = ++generationRef.current;
+    let cancelled = false;
 
     const probe = async () => {
       const startedAt = Date.now();
       try {
         const result = await mcpClient.health();
-        if (myGeneration !== generationRef.current) return; // unmounted
+        if (cancelled) return;
 
         const succeededAt = Date.now();
         setHealth({
@@ -92,7 +90,7 @@ export function useBackendStatus(
           nextProbeAt: succeededAt + pollIntervalMs,
         });
       } catch (err) {
-        if (myGeneration !== generationRef.current) return;
+        if (cancelled) return;
 
         const failedAt = Date.now();
         const reason = err instanceof Error ? err.message : String(err);
@@ -108,10 +106,10 @@ export function useBackendStatus(
           message:
             prev.lastSuccessAt > 0
               ? `Serveur injoignable depuis ${formatAge(failedAt - prev.lastSuccessAt)}. ${reason}`
-              : `Serveur injoignable. Lance \`gitnexus serve --http 8080\` puis recharge la page. (${reason})`,
+              : `Serveur injoignable. Lance \`gitnexus serve --port 3010\` puis recharge la page. (${reason})`,
         }));
       } finally {
-        if (myGeneration === generationRef.current) {
+        if (!cancelled) {
           // Schedule the next probe — re-using a single chained setTimeout
           // is more reliable than setInterval (no overlapping requests, no
           // drift if /health hangs).
@@ -125,7 +123,7 @@ export function useBackendStatus(
     timerRef.current = setTimeout(probe, initialDelayMs);
 
     return () => {
-      generationRef.current++;
+      cancelled = true;
       if (timerRef.current !== null) {
         clearTimeout(timerRef.current);
         timerRef.current = null;

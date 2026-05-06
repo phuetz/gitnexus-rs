@@ -10,30 +10,49 @@ use colored::Colorize;
 use serde_json::{json, Value};
 use tokio::sync::Mutex as TokioMutex;
 
+use gitnexus_core::llm as core_llm;
 use gitnexus_db::snapshot;
 use gitnexus_mcp::backend::local::LocalBackend;
 
-/// Discriminator for routing to different LLM backends based on provider + OAuth token.
+use crate::auth::ChatGptAuth;
+
+/// Discriminator for routing to different LLM backends based on provider.
 enum LlmBackend<'a> {
     /// ChatGPT Responses API (chatgpt.com/backend-api/codex/responses) with OAuth token.
     /// Wire format: input/output items instead of messages/choices, SSE events from Responses API.
-    ChatGptResponses { token: &'a str },
+    ChatGptResponses { auth: ChatGptAuth },
 
     /// OpenAI-compatible endpoint (chat/completions format).
     /// Supports Gemini, Claude, OpenAI API key, Ollama, or any OpenAI-compatible provider.
     OpenAiCompat { key: &'a str, base_url: &'a str },
 }
 
-pub fn run(question: &str, path: Option<&str>) -> Result<()> {
-    let (answer, top_nodes) = ask_question(
+pub async fn run(question: &str, path: Option<&str>) -> Result<()> {
+    let repo_path = if let Some(p) = path {
+        std::path::PathBuf::from(p)
+    } else {
+        std::env::current_dir()?
+    };
+
+    let mut backend = LocalBackend::new();
+    backend
+        .init()
+        .map_err(|e| anyhow::anyhow!("Failed to initialize MCP backend: {}", e))?;
+    let backend = Arc::new(TokioMutex::new(backend));
+
+    let (answer, top_nodes) = ask_question_with_tools(
         question,
-        path,
+        &repo_path,
+        backend,
         Some(Box::new(|delta| {
-            print!("{}", delta);
-            use std::io::Write;
-            std::io::stdout().flush().unwrap();
+            if let StreamEvent::Delta(text) = delta {
+                print!("{}", text);
+                use std::io::Write;
+                std::io::stdout().flush().unwrap();
+            }
         })),
-    )?;
+    )
+    .await?;
 
     if answer.is_empty() && top_nodes.is_empty() {
         return Ok(());
@@ -55,8 +74,10 @@ pub fn run(question: &str, path: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub type StreamCallback = Box<dyn Fn(&str) + Send>;
 
+#[allow(dead_code)]
 pub fn ask_question(
     question: &str,
     path: Option<&str>,
@@ -177,23 +198,23 @@ pub fn ask_question(
     let messages = vec![
         serde_json::json!({
             "role": "system",
-            "content": "Tu es un expert en analyse de code travaillant pour un cabinet de conseil. \
-Tes réponses sont destinées à des clients professionnels — elles doivent être structurées, \
-précises, et impressionner par leur clarté.\n\
-\n\
-Règles :\n\
-- Base-toi UNIQUEMENT sur le contexte fourni. Ne fais pas de suppositions.\n\
-- Format de réponse : Markdown structuré (titres ##, listes, gras pour les noms de classes/méthodes).\n\
-- Si la question implique un flux d'exécution, une architecture, des dépendances ou une \
-hiérarchie : illustre avec un diagramme Mermaid. Préfère `flowchart TD` pour les flux, \
-`sequenceDiagram` pour les interactions entre composants, `classDiagram` pour les héritages, \
-`erDiagram` pour le schéma de données. Le diagramme va dans un bloc ```mermaid ... ```.\n\
-- Pour le code cité : bloc ```<lang>``` avec la bonne langue (csharp, typescript, rust, …) — \
-pas seulement ``` nu.\n\
-- Pour les comparaisons ou inventaires (endpoints, tables, propriétés) : utilise un tableau Markdown.\n\
-- Cite les chemins de fichiers en `code inline`. Liste les sources à la fin sous une rubrique \
-**Sources** (un fichier par puce).\n\
-- Reste concise : un client paye pour la pertinence, pas pour le volume."
+            "content": format!("{}\n{}\n\n{}", core_llm::PROMPT_CONTEXT_SAFETY, core_llm::PROMPT_MERMAID_RENDERING, "Tu es un expert en analyse de code travaillant pour un cabinet de conseil. \
+        Tes réponses sont destinées à des clients professionnels — elles doivent être structurées, \
+        précises, et impressionner par leur clarté.\n\
+        \n\
+        Règles :\n\
+        - Base-toi UNIQUEMENT sur le contexte fourni. Ne fais pas de suppositions.\n\
+        - Format de réponse : Markdown structuré (titres ##, listes, gras pour les noms de classes/méthodes).\n\
+        - Si la question implique un flux d'exécution, une architecture, des dépendances ou une \
+        hiérarchie : illustre avec un diagramme Mermaid. Préfère `flowchart TD` pour les flux, \
+        `sequenceDiagram` pour les interactions entre composants, `classDiagram` pour les héritages, \
+        `erDiagram` pour le schéma de données. Le diagramme va dans un bloc ```mermaid ... ```.\n\
+        - Pour le code cité : bloc ```<lang>``` avec la bonne langue (csharp, typescript, rust, …) — \
+        pas seulement ``` nu.\n\
+        - Pour les comparaisons ou inventaires (endpoints, tables, propriétés) : utilise un tableau Markdown.\n\
+        - Cite les chemins de fichiers en `code inline`. Liste les sources à la fin sous une rubrique \
+        **Sources** (un fichier par puce).\n\
+        - Reste concise : un client paye pour la pertinence, pas pour le volume.")
         }),
         serde_json::json!({
             "role": "user",
@@ -381,7 +402,9 @@ pub async fn ask_question_with_tools(
             context.push_str("```markdown\n");
             context.push_str(content);
             context.push_str("\n```\n\n");
-        } else if let Ok(source) = std::fs::read_to_string(repo_path.join(&node.properties.file_path)) {
+        } else if let Ok(source) =
+            std::fs::read_to_string(repo_path.join(&node.properties.file_path))
+        {
             let lines: Vec<&str> = source.lines().collect();
             let start = node
                 .properties
@@ -399,13 +422,11 @@ pub async fn ask_question_with_tools(
             context.push_str("```\n\n");
         }
     }
-    let top_nodes_vec: Vec<(gitnexus_core::graph::types::GraphNode, f64)> = top_slice
-        .iter()
-        .map(|(n, s)| ((*n).clone(), *s))
-        .collect();
+    let top_nodes_vec: Vec<(gitnexus_core::graph::types::GraphNode, f64)> =
+        top_slice.iter().map(|(n, s)| ((*n).clone(), *s)).collect();
 
     // ── Phase 2: build messages + tools catalogue ──────────────────────────
-    let system_prompt = "Tu es un expert en analyse de code travaillant pour un cabinet de conseil. \
+    let system_prompt = format!("{}\n{}\n\n{}", core_llm::PROMPT_CONTEXT_SAFETY, core_llm::PROMPT_MERMAID_RENDERING, "Tu es un expert en analyse de code travaillant pour un cabinet de conseil. \
 Tes réponses sont destinées à des clients professionnels — elles doivent être structurées, \
 précises, et impressionner par leur clarté.\n\
 \n\
@@ -432,7 +453,7 @@ architecture ou une hiérarchie.\n\
 - Pour les comparaisons ou inventaires : utilise un tableau Markdown.\n\
 - Cite les chemins de fichiers en `code inline`. Liste les sources à la fin sous une rubrique \
 **Sources**.\n\
-- Reste concise : un client paye pour la pertinence, pas pour le volume.";
+- Reste concise : un client paye pour la pertinence, pas pour le volume.");
 
     let mut messages: Vec<Value> = vec![
         json!({"role": "system", "content": system_prompt}),
@@ -462,47 +483,33 @@ architecture ou une hiérarchie.\n\
 
     // ── Auth resolution & backend selection ─────────────────────────────────
     //
-    // When the user has run `gitnexus login`, an OAuth token is cached. The choice
-    // of backend depends on the `provider` config field:
+    // When the user has run `gitnexus login`, ChatGPT OAuth auth is cached. The
+    // choice of backend depends strictly on the `provider` config field:
     //
-    // - provider = "chatgpt" + OAuth token present → ChatGptResponses (Responses API format)
-    // - Any other provider or no OAuth → OpenAiCompat (chat/completions format)
+    // - provider = "chatgpt" + OAuth auth present → ChatGptResponses
+    // - Any other provider → OpenAiCompat with the configured API key/base URL
     //
-    // The OpenAiCompat path supports Gemini, Claude, OpenAI API key, Ollama, or any
-    // OpenAI-compatible endpoint without regression.
-    let oauth_token = match crate::auth::get_access_token().await {
-        Ok(token) => token,
-        Err(e) => {
-            tracing::warn!("OAuth lookup failed ({e}); falling back to chat-config api_key");
-            None
-        }
-    };
-
-    // Determine which backend to use and resolve keys/URLs upfront.
-    let effective_key = match oauth_token.as_ref() {
-        Some(token) => token.clone(),
-        None => config.api_key.clone(),
-    };
-    let effective_base_url = match oauth_token.as_ref() {
-        Some(_) => "https://api.openai.com/v1".to_string(),
-        None => config.base_url.clone(),
-    };
-
-    let backend = match oauth_token.as_deref() {
-        Some(tok) if config.provider.eq_ignore_ascii_case("chatgpt") => {
-            tracing::info!("routing to ChatGPT Responses API (provider=chatgpt + OAuth token)");
-            LlmBackend::ChatGptResponses { token: tok }
-        }
-        _ => {
-            tracing::info!(
-                "routing to OpenAI-compatible (provider={}, has_oauth={})",
-                config.provider,
-                oauth_token.is_some()
-            );
-            LlmBackend::OpenAiCompat {
-                key: &effective_key,
-                base_url: &effective_base_url,
-            }
+    // This avoids the previous bug where a cached ChatGPT OAuth token hijacked
+    // Gemini/OpenRouter/OpenAI-compatible configs.
+    let backend = if config.provider.eq_ignore_ascii_case("chatgpt") {
+        let auth = crate::auth::get_chatgpt_auth()
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "provider is set to chatgpt, but no ChatGPT login was found. Run `gitnexus login` first."
+                )
+            })?;
+        tracing::info!(
+            "routing to ChatGPT Responses API (account_id={}, plan={})",
+            auth.account_id.as_deref().unwrap_or("unknown"),
+            auth.plan_type.as_deref().unwrap_or("unknown")
+        );
+        LlmBackend::ChatGptResponses { auth }
+    } else {
+        tracing::info!("routing to OpenAI-compatible provider={}", config.provider);
+        LlmBackend::OpenAiCompat {
+            key: &config.api_key,
+            base_url: &config.base_url,
         }
     };
 
@@ -511,7 +518,7 @@ architecture ou une hiérarchie.\n\
 
     // ── Phase 3: tool loop ────────────────────────────────────────────────
     match backend {
-        LlmBackend::ChatGptResponses { token } => {
+        LlmBackend::ChatGptResponses { auth } => {
             // Responses API path (Codex-style tool loop with input/output items).
             let system_prompt = messages[0]["content"].as_str().unwrap_or("");
             let mut input = Vec::new();
@@ -532,8 +539,11 @@ architecture ou une hiérarchie.\n\
             for _iter in 0..MAX_TOOL_ITERATIONS {
                 let (turn_text, turn_tool_calls) = responses::call_responses_turn(
                     &client,
-                    token,
-                    &config.model,
+                    &auth,
+                    responses::ResponsesModelConfig {
+                        model: &config.model,
+                        reasoning_effort: &config.reasoning_effort,
+                    },
                     system_prompt,
                     &mut input,
                     &tools,
@@ -615,13 +625,20 @@ architecture ou une hiérarchie.\n\
                 if !response.status().is_success() {
                     let status = response.status();
                     let body_text = response.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!("LLM error: {} {}", status, body_text));
+                    return Err(anyhow::anyhow!(
+                        "LLM error: {} {}",
+                        status,
+                        sanitize_llm_error_body(&body_text, key)
+                    ));
                 }
                 let resp: Value = response.json().await?;
 
                 let message = &resp["choices"][0]["message"];
                 let content = message["content"].as_str().unwrap_or("");
-                let tool_calls = message["tool_calls"].as_array().cloned().unwrap_or_default();
+                let tool_calls = message["tool_calls"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
                 let finish_reason = resp["choices"][0]["finish_reason"]
                     .as_str()
                     .unwrap_or("stop")
@@ -700,4 +717,25 @@ architecture ou une hiérarchie.\n\
     }
 
     Ok((full_answer, top_nodes_vec))
+}
+
+fn sanitize_llm_error_body(body: &str, api_key: &str) -> String {
+    const MAX_ERROR_BODY_CHARS: usize = 1_200;
+    core_llm::sanitize_llm_error_body(body, &[api_key], MAX_ERROR_BODY_CHARS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_llm_error_body;
+
+    #[test]
+    fn sanitize_llm_error_body_redacts_configured_api_key() {
+        let sanitized = sanitize_llm_error_body(
+            r#"{"error":"bad key sk-test-secret in request"}"#,
+            "sk-test-secret",
+        );
+
+        assert!(!sanitized.contains("sk-test-secret"));
+        assert!(sanitized.contains("[redacted-secret]"));
+    }
 }

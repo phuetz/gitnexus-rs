@@ -1,28 +1,38 @@
-import { FileText } from 'lucide-react';
+import { FileText, MessageSquareText } from 'lucide-react';
 import { ChatSidebar } from './ChatSidebar';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { ProjectSelector } from './ProjectSelector';
 import { BackendStatus } from './BackendStatus';
 import { SfdDraftsPanel } from './SfdDraftsPanel';
+import { ChatExports } from './ChatExports';
+import { LlmStatus } from './LlmStatus';
 import { useChatStore } from '../../stores/chat-store';
+import { useLlmConfig } from '../../hooks/use-llm-config';
 
 export function ChatPanel() {
   const isSfdOpen = useChatStore((s) => s.isSfdPanelOpen);
   const setSfdOpen = useChatStore((s) => s.setSfdPanelOpen);
+  const llm = useLlmConfig();
 
   return (
-    <div className="flex h-full w-full bg-neutral-950">
+    <div className="flex h-full w-full bg-neutral-950 text-neutral-100">
       <ChatSidebar />
       <main className="relative flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center gap-3 border-b border-neutral-900 bg-neutral-950/60 px-4 text-sm text-neutral-400">
-          <div className="flex items-center">
-            <span className="font-medium text-neutral-200">GitNexus Chat</span>
-            <span className="mx-2 text-neutral-700">/</span>
-            <span className="text-xs">V1</span>
+        <header className="flex min-h-14 items-center gap-3 border-b border-neutral-900 bg-neutral-950 px-4 text-sm text-neutral-400">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-neutral-800 bg-neutral-900 text-neutral-300">
+              <MessageSquareText className="h-4 w-4" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate font-medium text-neutral-100">GitNexus Chat</div>
+              <div className="truncate text-xs text-neutral-500">Analyse de code et recherche outillée</div>
+            </div>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <BackendStatus />
+            <LlmStatus llm={llm} />
+            <ChatExports llm={llm} />
             <ProjectSelector />
             <button
               type="button"
@@ -40,7 +50,7 @@ export function ChatPanel() {
             </button>
           </div>
         </header>
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 bg-neutral-950">
           <ChatMessages />
         </div>
         <ChatInput />

@@ -11,16 +11,26 @@
 //! References: codex-rs source (github.com/openai/codex)
 
 use anyhow::{anyhow, Result};
-use reqwest::Client;
+use gitnexus_core::llm::sanitize_llm_error_body;
+use reqwest::{header, Client, RequestBuilder};
 use serde_json::{json, Value};
 
 use super::StreamEvent;
+use crate::auth::ChatGptAuth;
+
+const CHATGPT_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+const ORIGINATOR: &str = "codex_cli_rs";
 
 #[derive(Debug, Clone)]
 pub struct ToolCallRequest {
-    pub id: String,      // call_id in Responses API
+    pub id: String, // call_id in Responses API
     pub name: String,
-    pub args: String,    // JSON arguments as string
+    pub args: String, // JSON arguments as string
+}
+
+pub struct ResponsesModelConfig<'a> {
+    pub model: &'a str,
+    pub reasoning_effort: &'a str,
 }
 
 /// Call the Responses API for one turn, handle streaming SSE, and return text + tool calls.
@@ -30,40 +40,51 @@ pub struct ToolCallRequest {
 /// Modifies `input` in-place to append the assistant's function_call items.
 pub async fn call_responses_turn(
     client: &Client,
-    token: &str,
-    model: &str,
+    auth: &ChatGptAuth,
+    model_config: ResponsesModelConfig<'_>,
     instructions: &str,
     input: &mut Vec<Value>,
     tools: &[Value],
     stream_cb: Option<&(dyn Fn(StreamEvent) + Send + Sync)>,
 ) -> Result<(String, Vec<ToolCallRequest>)> {
-    let url = "https://chatgpt.com/backend-api/codex/responses";
-
+    let responses_tools = to_responses_tools(tools);
     // Build request body.
-    let body = json!({
-        "model": model,
+    let mut body = json!({
+        "model": model_config.model,
         "instructions": instructions,
         "input": input,
-        "tools": tools,
+        "tools": responses_tools,
         "tool_choice": "auto",
         "parallel_tool_calls": true,
+        "store": false,
         "stream": true,
     });
+    if let Some(effort) = responses_reasoning_effort(model_config.reasoning_effort) {
+        body["reasoning"] = json!({ "effort": effort });
+    }
 
     // Make request with Bearer auth and SSE headers.
-    let response = client
-        .post(url)
-        .bearer_auth(token)
+    let request = client
+        .post(CHATGPT_RESPONSES_URL)
+        .bearer_auth(&auth.access_token)
         .header("Accept", "text/event-stream")
         .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await?;
+        .header("originator", ORIGINATOR)
+        .header(
+            header::USER_AGENT,
+            concat!("gitnexus-cli/", env!("CARGO_PKG_VERSION")),
+        )
+        .json(&body);
+    let response = apply_chatgpt_account_headers(request, auth).send().await?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
-        return Err(anyhow!("Responses API error: {} {}", status, body_text));
+        return Err(anyhow!(
+            "Responses API error: {} {}",
+            status,
+            sanitize_responses_error_body(&body_text, auth)
+        ));
     }
 
     // Stream the SSE response and collect events.
@@ -156,6 +177,50 @@ pub async fn call_responses_turn(
     Ok((full_text, tool_calls))
 }
 
+fn to_responses_tools(tools: &[Value]) -> Vec<Value> {
+    tools
+        .iter()
+        .map(|tool| {
+            let Some(function) = tool.get("function") else {
+                return tool.clone();
+            };
+            json!({
+                "type": "function",
+                "name": function.get("name").cloned().unwrap_or(Value::Null),
+                "description": function.get("description").cloned().unwrap_or(Value::Null),
+                "parameters": function.get("parameters").cloned().unwrap_or_else(|| json!({})),
+            })
+        })
+        .collect()
+}
+
+fn responses_reasoning_effort(reasoning_effort: &str) -> Option<String> {
+    let effort = reasoning_effort.trim().to_ascii_lowercase();
+    match effort.as_str() {
+        "" => None,
+        "none" | "minimal" | "low" | "medium" | "high" | "xhigh" => Some(effort),
+        _ => None,
+    }
+}
+
+fn apply_chatgpt_account_headers(
+    mut request: RequestBuilder,
+    auth: &ChatGptAuth,
+) -> RequestBuilder {
+    if let Some(account_id) = auth.account_id.as_deref() {
+        request = request.header("ChatGPT-Account-ID", account_id);
+    }
+    if auth.is_fedramp {
+        request = request.header("X-OpenAI-Fedramp", "true");
+    }
+    request
+}
+
+fn sanitize_responses_error_body(body: &str, auth: &ChatGptAuth) -> String {
+    const MAX_ERROR_BODY_CHARS: usize = 1_200;
+    sanitize_llm_error_body(body, &[&auth.access_token], MAX_ERROR_BODY_CHARS)
+}
+
 /// Append tool results to the input array in Responses API format.
 pub fn append_tool_result(input: &mut Vec<Value>, call_id: &str, output: &str) {
     input.push(json!({
@@ -163,4 +228,71 @@ pub fn append_tool_result(input: &mut Vec<Value>, call_id: &str, output: &str) {
         "call_id": call_id,
         "output": output,
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        responses_reasoning_effort, sanitize_responses_error_body, to_responses_tools, ORIGINATOR,
+    };
+    use crate::auth::ChatGptAuth;
+    use serde_json::json;
+
+    #[test]
+    fn responses_originator_matches_official_codex_client() {
+        assert_eq!(ORIGINATOR, "codex_cli_rs");
+    }
+
+    #[test]
+    fn sanitize_responses_error_body_redacts_access_token() {
+        let auth = ChatGptAuth {
+            access_token: "chatgpt-access-token".to_string(),
+            account_id: Some("acct_123".to_string()),
+            email: None,
+            plan_type: None,
+            is_fedramp: false,
+        };
+
+        let sanitized =
+            sanitize_responses_error_body("bad bearer chatgpt-access-token in request", &auth);
+
+        assert!(!sanitized.contains("chatgpt-access-token"));
+        assert!(sanitized.contains("[redacted-secret]"));
+    }
+
+    #[test]
+    fn responses_tools_are_flattened_for_codex_backend() {
+        let tools = vec![json!({
+            "type": "function",
+            "function": {
+                "name": "search_code",
+                "description": "Search symbols",
+                "parameters": {"type": "object"}
+            }
+        })];
+
+        let converted = to_responses_tools(&tools);
+        assert_eq!(converted[0]["type"], "function");
+        assert_eq!(converted[0]["name"], "search_code");
+        assert!(converted[0].get("function").is_none());
+        assert_eq!(converted[0]["parameters"]["type"], "object");
+    }
+
+    #[test]
+    fn responses_reasoning_effort_accepts_gpt55_levels() {
+        assert_eq!(
+            responses_reasoning_effort(" HIGH "),
+            Some("high".to_string())
+        );
+        assert_eq!(
+            responses_reasoning_effort("minimal"),
+            Some("minimal".to_string())
+        );
+        assert_eq!(
+            responses_reasoning_effort("xhigh"),
+            Some("xhigh".to_string())
+        );
+        assert_eq!(responses_reasoning_effort(""), None);
+        assert_eq!(responses_reasoning_effort("surprise"), None);
+    }
 }

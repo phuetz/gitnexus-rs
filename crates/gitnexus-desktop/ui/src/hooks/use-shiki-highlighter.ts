@@ -35,7 +35,7 @@ function getHighlighterSingleton(): Promise<Highlighter> {
       // Reset so next call retries
       highlighterPromise = null;
       throw new Error("Shiki load failed");
-    }) as Promise<Highlighter>;
+    }) as unknown as Promise<Highlighter>;
   }
   return highlighterPromise;
 }

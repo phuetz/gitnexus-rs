@@ -2,7 +2,7 @@
 //! architectural insights (code smells, patterns, risk scores).
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -11,7 +11,7 @@ use tracing::{info, warn};
 use gitnexus_core::graph::types::{EnrichedBy, NodeLabel, RelationshipType};
 use gitnexus_core::graph::KnowledgeGraph;
 use gitnexus_core::llm::openai::OpenAILlmProvider;
-use gitnexus_core::llm::{collect_completion, Message, Role};
+use gitnexus_core::llm::{collect_completion, Message, Role, PROMPT_CONTEXT_SAFETY};
 
 use crate::pipeline::ProgressSender;
 
@@ -162,7 +162,7 @@ fn build_coupling_map(graph: &KnowledgeGraph) -> HashMap<String, (usize, usize)>
 
 /// Compute SHA-256 hash of a symbol's source code region.
 fn compute_source_hash(repo_path: &Path, file_path: &str, start: u32, end: u32) -> Option<String> {
-    let full_path = repo_path.join(file_path);
+    let full_path = resolve_repo_file(repo_path, file_path)?;
     let content = std::fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
     let s = start.saturating_sub(1) as usize;
@@ -184,7 +184,10 @@ fn read_code_excerpt(
     end: u32,
     max_lines: usize,
 ) -> String {
-    let full_path = repo_path.join(file_path);
+    let full_path = match resolve_repo_file(repo_path, file_path) {
+        Some(path) => path,
+        None => return String::from("(source unavailable)"),
+    };
     let content = match std::fs::read_to_string(&full_path) {
         Ok(c) => c,
         Err(_) => return String::from("(source unavailable)"),
@@ -196,6 +199,17 @@ fn read_code_excerpt(
         return String::from("(out of range)");
     }
     lines[s..e].join("\n")
+}
+
+fn resolve_repo_file(repo_path: &Path, file_path: &str) -> Option<PathBuf> {
+    let repo_root = repo_path.canonicalize().ok()?;
+    let candidate = repo_root.join(file_path);
+    let full_path = candidate.canonicalize().ok()?;
+    if full_path.starts_with(&repo_root) && full_path.is_file() {
+        Some(full_path)
+    } else {
+        None
+    }
 }
 
 /// Select and score candidates for LLM enrichment.
@@ -372,7 +386,7 @@ fn build_batch_prompt(batch: &[&EnrichmentCandidate]) -> Vec<Message> {
     vec![
         Message {
             role: Role::System,
-            content: Some(SYSTEM_PROMPT.to_string()),
+            content: Some(format!("{}\n\n{}", PROMPT_CONTEXT_SAFETY, SYSTEM_PROMPT)),
             tool_calls: None,
             tool_call_id: None,
             name: None,
@@ -704,5 +718,51 @@ mod tests {
         assert!(!is_enrichable_label(&NodeLabel::File));
         assert!(!is_enrichable_label(&NodeLabel::Folder));
         assert!(!is_enrichable_label(&NodeLabel::Community));
+    }
+
+    #[test]
+    fn resolve_repo_file_accepts_files_inside_repo() {
+        let root =
+            std::env::temp_dir().join(format!("gitnexus-llm-enrich-inside-{}", std::process::id()));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        let file = repo.join("src").join("service.cs");
+        std::fs::write(&file, "class Service {}").unwrap();
+
+        let resolved = resolve_repo_file(&repo, "src/service.cs").expect("file should resolve");
+        assert_eq!(resolved, file.canonicalize().unwrap());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolve_repo_file_rejects_parent_escape() {
+        let root =
+            std::env::temp_dir().join(format!("gitnexus-llm-enrich-escape-{}", std::process::id()));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let outside = root.join("outside.cs");
+        std::fs::write(&outside, "class Outside {}").unwrap();
+
+        assert!(resolve_repo_file(&repo, "../outside.cs").is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn read_code_excerpt_rejects_absolute_outside_path() {
+        let root = std::env::temp_dir().join(format!(
+            "gitnexus-llm-enrich-absolute-{}",
+            std::process::id()
+        ));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let outside = root.join("outside.cs");
+        std::fs::write(&outside, "class Outside {}").unwrap();
+
+        let excerpt = read_code_excerpt(&repo, &outside.to_string_lossy(), 1, 2, 30);
+        assert_eq!(excerpt, "(source unavailable)");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -183,7 +183,8 @@ async fn run_reranker(query: &str, fts: &[FtsResult]) -> anyhow::Result<Vec<Cand
     })?;
 
     let candidates = fts_to_candidates(fts);
-    let reranker = LlmReranker::new(config.base_url, config.model, Some(config.api_key))
+    let api_key = (!config.api_key.is_empty()).then_some(config.api_key);
+    let reranker = LlmReranker::new(config.base_url, config.model, api_key)
         .with_max_candidates(RERANK_CANDIDATE_POOL);
 
     let q = query.to_string();

@@ -13,6 +13,7 @@ use tauri::State;
 
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
+use gitnexus_core::llm::{PROMPT_CONTEXT_SAFETY, PROMPT_MERMAID_RENDERING};
 use gitnexus_db::inmemory::fts::FtsIndex;
 
 use crate::commands::chat::{self};
@@ -740,10 +741,10 @@ pub async fn chat_execute_plan(
         let sources = build_sources_from_results(&search_results, &graph, &indexes, &repo_path);
 
         // Build and call LLM
-        let answer = if config.api_key.is_empty() && !chat::is_local_llm_url(&config.base_url) {
+        let answer = if !chat::has_llm_credentials_pub(&config) {
             build_simple_answer(&sources)
         } else {
-            let system_prompt = build_research_prompt(&request.question, &sources, &[]);
+            let system_prompt = build_research_prompt(&request.question, &sources, &[], &repo_path);
             let messages = build_llm_messages(&system_prompt, &request.history, &request.question);
             chat::call_llm_pub(&config, &messages).await?
         };
@@ -920,11 +921,15 @@ pub async fn chat_execute_plan(
         .collect();
 
     // 6. Generate final answer with LLM
-    let answer = if config.api_key.is_empty() && !chat::is_local_llm_url(&config.base_url) {
+    let answer = if !chat::has_llm_credentials_pub(&config) {
         build_research_answer(&unique_sources, &step_summaries)
     } else {
-        let system_prompt =
-            build_research_prompt(&request.question, &unique_sources, &step_summaries);
+        let system_prompt = build_research_prompt(
+            &request.question,
+            &unique_sources,
+            &step_summaries,
+            &repo_path,
+        );
         let messages = build_llm_messages(&system_prompt, &request.history, &request.question);
         chat::call_llm_pub(&config, &messages).await?
     };
@@ -1154,6 +1159,7 @@ fn build_research_prompt(
     question: &str,
     sources: &[ChatSource],
     step_summaries: &[String],
+    repo_path: &Path,
 ) -> String {
     // FIX: add canvas templates and memory context (parity with build_system_prompt).
     // Previously the Deep Research prompt was ~80 lines vs ~300 for the standard path,
@@ -1161,6 +1167,9 @@ fn build_research_prompt(
     let mut prompt = format!(
         "You are GitNexus, an expert code intelligence assistant answering: **{}**\n\n\
          You have performed a multi-step research plan. Synthesize all findings.\n\n\
+         # Security and grounding\n\
+         {}\n\n\
+         {}\n\n\
          # Règle fondamentale — Organigramme en premier\n\
          Pour toute question sur un TRAITEMENT, CALCUL ou ALGORITHME : \
          ton premier élément doit être un `flowchart TD` Mermaid complet.\n\n\
@@ -1170,11 +1179,13 @@ fn build_research_prompt(
          - **Algorithm**: `## Organigramme [flowchart TD obligatoire] | ## Étapes | ## Points d'attention`\n\
          - **Architecture**: `## Architecture [Mermaid] | ## Modules [table] | ## Flux | ## Points d'entrée`\n\
          - **Impact**: `## Blast radius | Amont | Aval | ## Risque [LOW/MEDIUM/HIGH] | ## Recommandations`\n\n",
-        question
+        question,
+        PROMPT_CONTEXT_SAFETY,
+        PROMPT_MERMAID_RENDERING
     );
 
     // Include persistent memory if available
-    let memory = gitnexus_core::memory::build_memory_context(None);
+    let memory = gitnexus_core::memory::build_memory_context(Some(repo_path));
     if !memory.trim().is_empty() {
         prompt.push_str("# Persistent memory\n\n");
         prompt.push_str(&memory);
@@ -1402,5 +1413,29 @@ mod tests {
             levels.last().unwrap().contains(&1),
             "dangling step is in the trailing unresolved bucket"
         );
+    }
+
+    #[test]
+    fn research_prompt_includes_project_memory() {
+        let repo = std::env::temp_dir().join(format!(
+            "gitnexus-research-memory-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(repo.join(".gitnexus")).unwrap();
+        std::fs::write(
+            repo.join(".gitnexus").join("project-memory.json"),
+            r#"{"facts":["Project fact from this repository"]}"#,
+        )
+        .unwrap();
+
+        let prompt = build_research_prompt("question", &[], &[], &repo);
+
+        assert!(prompt.contains("Project-Specific Facts & Context"));
+        assert!(prompt.contains("Project fact from this repository"));
+
+        let _ = std::fs::remove_dir_all(repo);
     }
 }

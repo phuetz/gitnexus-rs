@@ -19,6 +19,8 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 
+use gitnexus_core::storage::repo_manager::registry_entry_id;
+
 use crate::backend::local::LocalBackend;
 use crate::jsonrpc::{JsonRpcRequest, JsonRpcResponse};
 use crate::server::handle_request;
@@ -76,9 +78,10 @@ pub fn mcp_http_router() -> Router<SharedBackend> {
     let protected = Router::new()
         .route("/mcp", post(mcp_handler))
         .route("/api/repos", get(repos_handler))
-        .route("/api/repos/{name}/search", get(search_handler))
-        .route("/api/repos/{name}/stats", get(stats_handler))
-        .route("/api/repos/{name}/hotspots", get(hotspots_handler));
+        .route("/api/llm-config", get(llm_config_handler))
+        .route("/api/repos/:name/search", get(search_handler))
+        .route("/api/repos/:name/stats", get(stats_handler))
+        .route("/api/repos/:name/hotspots", get(hotspots_handler));
 
     let protected = if let Some(token) = http_auth_token() {
         protected.route_layer(middleware::from_fn_with_state(token, auth_middleware))
@@ -94,11 +97,15 @@ pub fn mcp_http_router() -> Router<SharedBackend> {
                 .allow_origin([
                     "http://localhost".parse::<HeaderValue>().unwrap(),
                     "http://localhost:3000".parse::<HeaderValue>().unwrap(),
+                    "http://localhost:3010".parse::<HeaderValue>().unwrap(),
                     "http://127.0.0.1".parse::<HeaderValue>().unwrap(),
                     "http://127.0.0.1:3000".parse::<HeaderValue>().unwrap(),
+                    "http://127.0.0.1:3010".parse::<HeaderValue>().unwrap(),
                     "http://localhost:1420".parse::<HeaderValue>().unwrap(),
                     "http://localhost:5174".parse::<HeaderValue>().unwrap(),
+                    "http://localhost:5176".parse::<HeaderValue>().unwrap(),
                     "http://127.0.0.1:5174".parse::<HeaderValue>().unwrap(),
+                    "http://127.0.0.1:5176".parse::<HeaderValue>().unwrap(),
                 ])
                 .allow_methods([Method::GET, Method::POST])
                 .allow_headers(tower_http::cors::Any),
@@ -164,6 +171,23 @@ async fn health_handler() -> impl IntoResponse {
     }))
 }
 
+/// GET /api/llm-config — LLM model metadata for the local UI.
+///
+/// Deliberately omits secrets (`api_key`) and provider endpoint details.
+async fn llm_config_handler() -> impl IntoResponse {
+    match crate::llm_config::load_llm_config() {
+        Some(config) => Json(json!({
+            "configured": true,
+            "provider": crate::llm_config::display_provider(&config),
+            "model": config.model,
+            "reasoningEffort": config.reasoning_effort,
+            "maxTokens": config.max_tokens,
+            "bigContextModel": config.big_context_model,
+        })),
+        None => Json(json!({ "configured": false })),
+    }
+}
+
 /// GET /api/repos — List indexed repositories
 async fn repos_handler(State(backend): State<SharedBackend>) -> impl IntoResponse {
     let backend_guard = backend.lock().await;
@@ -173,6 +197,7 @@ async fn repos_handler(State(backend): State<SharedBackend>) -> impl IntoRespons
         .iter()
         .map(|e| {
             let mut obj = json!({
+                "id": registry_entry_id(e),
                 "name": e.name,
                 "indexedAt": e.indexed_at,
                 "lastCommit": e.last_commit,

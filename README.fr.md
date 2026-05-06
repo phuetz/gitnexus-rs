@@ -136,6 +136,17 @@ build-release.bat desktop   # Desktop uniquement
 ./build-release.sh cli      # CLI uniquement
 ```
 
+Scripts Windows pour travailler en local rapidement :
+
+```powershell
+.\config-chatgpt.cmd        # Configure ChatGPT OAuth avec gpt-5.5
+.\login-chatgpt.cmd         # Connexion OAuth ChatGPT
+.\gitnexus.cmd chat         # Backend 3010 + chat React 5176
+.\gitnexus.cmd chat -ChatPort 5174  # Compatibilite avec un ancien onglet
+.\start-desktop.cmd         # UI desktop + Tauri
+.\check-gitnexus.cmd        # Lint/tests/build principaux
+```
+
 ### Compilation avec fonctionnalités optionnelles
 
 ```bash
@@ -173,7 +184,26 @@ Créer `~/.gitnexus/chat-config.json` :
 }
 ```
 
-Fournisseurs supportés : **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, pas de clé API nécessaire).
+Fournisseurs supportés : **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, pas de clé API nécessaire) et **ChatGPT** via le flux OAuth de type Codex pour `gitnexus ask` / le chat `gitnexus serve`. `--enrich` reste sur les fournisseurs API-key compatibles OpenAI.
+
+Pour utiliser votre abonnement ChatGPT au lieu d'une clé API avec `gitnexus ask` et le chat web lancé par `gitnexus serve` :
+
+```bash
+gitnexus login
+```
+
+Puis configurer `~/.gitnexus/chat-config.json` avec le fournisseur ChatGPT. `api_key` reste volontairement vide : le jeton est chargé depuis la connexion OAuth créée ci-dessus.
+
+```json
+{
+  "provider": "chatgpt",
+  "api_key": "",
+  "base_url": "https://chatgpt.com/backend-api/codex",
+  "model": "gpt-5.5",
+  "max_tokens": 8192,
+  "reasoning_effort": "high"
+}
+```
 
 Les trois champs optionnels `big_context_*` routent les pages volumineuses (≥ `big_context_threshold_bytes` de markdown brut, défaut 40 Ko) vers un modèle long-contexte pour échapper au plafond de 65K tokens en sortie de Gemini 2.5 Flash qui provoque les troncatures `finish_reason: length`. Tous les appels LLM pour cette page (mode sectionné, monolithique, fallback freeform, passe de revue) utilisent le modèle de substitution. Laisser ces champs vides conserve le comportement mono-modèle historique.
 
@@ -362,8 +392,12 @@ gitnexus mcp
 gitnexus setup
 
 # Serveur HTTP
-gitnexus serve         # Port 3000 par défaut
+gitnexus serve         # Port 3010 par défaut
 ```
+
+`gitnexus serve` écoute par défaut sur `127.0.0.1`. Si vous le liez à une
+interface réseau comme `0.0.0.0`, définissez d'abord `GITNEXUS_HTTP_TOKEN` ;
+le serveur refuse les binds non-loopback sans ce jeton bearer.
 
 ### Autres commandes
 
@@ -472,7 +506,7 @@ Un serveur [Model Context Protocol](https://modelcontextprotocol.io/) standard e
 
 ```bash
 gitnexus mcp          # transport stdio
-gitnexus serve        # transport HTTP (port 3000)
+gitnexus serve        # transport HTTP (port 3010)
 gitnexus setup        # Configuration automatique dans votre éditeur
 ```
 

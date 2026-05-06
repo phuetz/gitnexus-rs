@@ -1,11 +1,21 @@
 const MCP_BASE_URL = import.meta.env.VITE_MCP_URL ?? '';
 
 export interface RepoInfo {
+  id?: string;
   name: string;
   path?: string;
   indexedAt?: string;
   lastCommit?: string;
   stats?: Record<string, number>;
+}
+
+export interface LlmConfigInfo {
+  configured: boolean;
+  provider?: string;
+  model?: string;
+  reasoningEffort?: string;
+  maxTokens?: number;
+  bigContextModel?: string;
 }
 
 export interface ChatHistoryMessage {
@@ -125,17 +135,49 @@ export class MCPClient {
     return h;
   }
 
+  private async request(path: string, init: RequestInit, action: string): Promise<Response> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, init);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        throw e;
+      }
+      const reason = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `${action}: serveur GitNexus injoignable. Vérifie que le backend tourne et que VITE_MCP_URL pointe vers lui. (${reason})`,
+        { cause: e }
+      );
+    }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const hint =
+        res.status >= 500
+          ? ' Vérifie que `gitnexus serve --port 3010` tourne et que le proxy Vite pointe sur ce port.'
+          : '';
+      throw new Error(
+        `${action}: HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.${hint}${formatErrorBody(body)}`
+      );
+    }
+
+    return res;
+  }
+
   async health(): Promise<{ status: string; service: string; version: string }> {
-    const res = await fetch(`${this.baseUrl}/health`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
+    const res = await this.request('/health', { headers: this.headers() }, 'health');
     return res.json();
   }
 
   async listRepos(): Promise<RepoInfo[]> {
-    const res = await fetch(`${this.baseUrl}/api/repos`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`list_repos failed: ${res.status}`);
+    const res = await this.request('/api/repos', { headers: this.headers() }, 'list_repos');
     const data = await res.json();
     return Array.isArray(data?.repos) ? data.repos : [];
+  }
+
+  async llmConfig(): Promise<LlmConfigInfo> {
+    const res = await this.request('/api/llm-config', { headers: this.headers() }, 'llm_config');
+    return res.json();
   }
 
   /**
@@ -145,21 +187,20 @@ export class MCPClient {
    * inspect status fields.
    */
   async callTool<T = McpToolResult>(name: string, args: Record<string, unknown> = {}): Promise<T> {
-    const res = await fetch(`${this.baseUrl}/mcp`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method: 'tools/call',
-        params: { name, arguments: args },
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`callTool ${name}: ${res.status} ${res.statusText} ${body}`);
-    }
+    const res = await this.request(
+      '/mcp',
+      {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method: 'tools/call',
+          params: { name, arguments: args },
+        }),
+      },
+      `callTool ${name}`
+    );
 
     const envelope = (await res.json()) as JsonRpcResponse<T>;
     if (envelope.error) {
@@ -179,17 +220,16 @@ export class MCPClient {
     signal?: AbortSignal,
     onToolCall?: (event: ToolCallStreamEvent) => void
   ): Promise<void> {
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: this.headers({ Accept: 'text/event-stream' }),
-      body: JSON.stringify({ question, repo, history }),
-      signal,
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`chat failed: ${res.status} ${res.statusText} ${body}`);
-    }
+    const res = await this.request(
+      '/api/chat',
+      {
+        method: 'POST',
+        headers: this.headers({ Accept: 'text/event-stream' }),
+        body: JSON.stringify({ question, repo, history }),
+        signal,
+      },
+      'chat'
+    );
     if (!res.body) throw new Error('chat: no response body');
 
     const reader = res.body.getReader();
@@ -284,6 +324,15 @@ class SseDone extends Error {
     super('done');
     this.name = 'SseDone';
   }
+}
+
+function formatErrorBody(body: string): string {
+  const trimmed = body.trim();
+  if (!trimmed) return '';
+  const singleLine = trimmed.replace(/\s+/g, ' ');
+  const truncated =
+    singleLine.length > 300 ? `${singleLine.slice(0, 300)}...` : singleLine;
+  return ` Réponse: ${truncated}`;
 }
 
 export const mcpClient = new MCPClient();

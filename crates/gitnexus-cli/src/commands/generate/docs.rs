@@ -1595,6 +1595,56 @@ fn generate_docs_modules(
             }
         }
 
+        let entry_point_count = info
+            .member_ids
+            .iter()
+            .filter_map(|mid| graph.get_node(mid))
+            .filter(|n| {
+                n.properties
+                    .entry_point_score
+                    .map(|s| s > 0.3)
+                    .unwrap_or(false)
+            })
+            .count();
+
+        writeln!(f, "## Module at a glance")?;
+        writeln!(f)?;
+        writeln!(f, "| Signal | Value |")?;
+        writeln!(f, "|--------|-------|")?;
+        writeln!(f, "| Source files | {} |", files_vec.len())?;
+        writeln!(f, "| Symbols | {} |", info.member_ids.len())?;
+        writeln!(f, "| Entry points | {} |", entry_point_count)?;
+        writeln!(f, "| Internal calls | {} |", internal_calls.len())?;
+        if !info.keywords.is_empty() {
+            writeln!(f, "| Main topics | {} |", info.keywords.join(", "))?;
+        }
+        writeln!(f)?;
+
+        if !files_vec.is_empty() {
+            writeln!(f, "### Primary files")?;
+            writeln!(f)?;
+            for file in files_vec.iter().take(8) {
+                writeln!(f, "- `{}`", file)?;
+            }
+            writeln!(f)?;
+        }
+
+        writeln!(f, "### Reading path")?;
+        writeln!(f)?;
+        writeln!(
+            f,
+            "1. Start with the entry points to understand how the module is reached."
+        )?;
+        writeln!(
+            f,
+            "2. Follow the call graph to see the internal execution paths."
+        )?;
+        writeln!(
+            f,
+            "3. Use the members table as the source map for code-level verification."
+        )?;
+        writeln!(f)?;
+
         if !internal_calls.is_empty() && internal_calls.len() <= 30 {
             writeln!(f, "## Call Graph")?;
             writeln!(f)?;

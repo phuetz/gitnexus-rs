@@ -3,6 +3,7 @@ import clsx from 'clsx';
 import { User, Bot, Copy, RotateCcw, Check, Loader2, Wrench, X } from 'lucide-react';
 import type { Message, ToolCall } from '../../types/chat';
 import { Markdown } from '../ui/Markdown';
+import { formatMessageTimestamp } from '../../utils/dates';
 
 interface Props {
   message: Message;
@@ -13,6 +14,7 @@ interface Props {
 export function ChatMessage({ message, onRegenerate, canRegenerate }: Props) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
+  const timestamp = formatMessageTimestamp(message.createdAt);
 
   const handleCopy = async () => {
     try {
@@ -28,62 +30,82 @@ export function ChatMessage({ message, onRegenerate, canRegenerate }: Props) {
   return (
     <div
       className={clsx(
-        'group flex gap-3 px-4 py-4',
-        isUser ? 'bg-neutral-950/40' : 'bg-transparent'
+        'group flex',
+        isUser ? 'justify-end' : 'justify-start'
       )}
     >
-      <div
-        className={clsx(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
-          isUser ? 'bg-purple-600/20 text-purple-300' : 'bg-emerald-600/20 text-emerald-300'
-        )}
-      >
-        {isUser ? <User size={16} /> : <Bot size={16} />}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center gap-2">
-          <span className="text-xs font-medium text-neutral-500">
-            {isUser ? 'Vous' : 'GitNexus'}
-          </span>
-          {!isUser && message.content && (
-            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="rounded p-1 text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
-                aria-label="Copier la réponse"
-                title={copied ? 'Copié !' : 'Copier'}
+      <div className={clsx('flex max-w-[88%] gap-3', isUser && 'flex-row-reverse')}>
+        <div
+          className={clsx(
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-md border',
+            isUser
+              ? 'border-purple-800/50 bg-purple-600/15 text-purple-300'
+              : 'border-emerald-800/50 bg-emerald-600/15 text-emerald-300'
+          )}
+        >
+          {isUser ? <User size={16} /> : <Bot size={16} />}
+        </div>
+        <div
+          className={clsx(
+            'min-w-0 flex-1 rounded-lg border px-4 py-3',
+            isUser
+              ? 'border-purple-900/50 bg-purple-950/30'
+              : 'border-neutral-900 bg-neutral-900/35'
+          )}
+        >
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-xs font-medium text-neutral-500">
+              {isUser ? 'Vous' : 'GitNexus'}
+            </span>
+            {timestamp && (
+              <time
+                dateTime={new Date(message.createdAt).toISOString()}
+                className="text-[11px] text-neutral-600"
+                title={timestamp}
               >
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-              </button>
-              {onRegenerate && canRegenerate && (
+                {timestamp}
+              </time>
+            )}
+            {message.content && (
+              <div className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                 <button
                   type="button"
-                  onClick={() => onRegenerate(message.id)}
-                  className="rounded p-1 text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
-                  aria-label="Régénérer la réponse"
-                  title="Régénérer"
+                  onClick={handleCopy}
+                  className="rounded p-1 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200"
+                  aria-label={isUser ? 'Copier le message' : 'Copier la réponse'}
+                  title={copied ? 'Copié !' : 'Copier'}
                 >
-                  <RotateCcw size={12} />
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
                 </button>
-              )}
+                {!isUser && onRegenerate && canRegenerate && (
+                  <button
+                    type="button"
+                    onClick={() => onRegenerate(message.id)}
+                    className="rounded p-1 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200"
+                    aria-label="Régénérer la réponse"
+                    title="Régénérer"
+                  >
+                    <RotateCcw size={12} />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-1.5" aria-label="Outils invoqués par l'agent">
+              {message.toolCalls.map((tc) => (
+                <ToolCallBadge key={tc.id} toolCall={tc} />
+              ))}
             </div>
           )}
+          {isUser ? (
+            <div className="whitespace-pre-wrap text-sm leading-6 text-neutral-100">
+              {message.content}
+            </div>
+          ) : (
+            <Markdown>{message.content}</Markdown>
+          )}
         </div>
-        {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5" aria-label="Outils invoqués par l'agent">
-            {message.toolCalls.map((tc) => (
-              <ToolCallBadge key={tc.id} toolCall={tc} />
-            ))}
-          </div>
-        )}
-        {isUser ? (
-          <div className="whitespace-pre-wrap text-sm text-neutral-200">
-            {message.content}
-          </div>
-        ) : (
-          <Markdown>{message.content}</Markdown>
-        )}
       </div>
     </div>
   );

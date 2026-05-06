@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
+use gitnexus_core::llm::PROMPT_CONTEXT_SAFETY;
 
 use crate::commands::chat;
 use crate::state::AppState;
@@ -50,7 +51,7 @@ pub async fn simplify_run(
     let llm_md = chat::call_llm_pub(
         &config,
         &[
-            serde_json::json!({"role": "system", "content": SYSTEM_PROMPT}),
+            serde_json::json!({"role": "system", "content": format!("{}\n\n{}", PROMPT_CONTEXT_SAFETY, SYSTEM_PROMPT)}),
             serde_json::json!({"role": "user", "content": user_prompt}),
         ],
     )

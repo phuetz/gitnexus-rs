@@ -32,6 +32,17 @@ const PRESETS: { label: string; config: Partial<ChatConfig> }[] = [
     },
   },
   {
+    label: "ChatGPT (Codex)",
+    config: {
+      provider: "chatgpt",
+      baseUrl: "https://chatgpt.com/backend-api/codex",
+      model: "gpt-5.5",
+      apiKey: "",
+      maxTokens: 8192,
+      reasoningEffort: "high",
+    },
+  },
+  {
     label: "Anthropic (via proxy)",
     config: {
       provider: "anthropic",
@@ -122,6 +133,8 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
   const applyPreset = (preset: (typeof PRESETS)[number]) => {
     setForm((prev) => ({ ...prev, ...preset.config }));
   };
+
+  const isChatGpt = form.provider.toLowerCase() === "chatgpt";
 
   if (isLoading) {
     return (
@@ -215,12 +228,13 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
             value={form.apiKey}
             onChange={(v) => setForm((f) => ({ ...f, apiKey: v }))}
             type="password"
-            placeholder={t("chat.apiKeyPlaceholder")}
+            placeholder={isChatGpt ? "gitnexus login" : t("chat.apiKeyPlaceholder")}
+            disabled={isChatGpt}
           />
           <p className="text-[10px] -mt-2" style={{ color: "var(--text-4)" }}>
-            For security, the API key is kept in memory for this session and is
-            not written to disk. Use an environment variable for persistent
-            secrets.
+            {isChatGpt
+              ? "ChatGPT uses the Codex OAuth login stored by the CLI; no API key is written here."
+              : "For security, the API key is kept in memory for this session and is not written to disk. Use an environment variable for persistent secrets."}
           </p>
           <Field
             label={t("settings.maxTokens")}
@@ -325,12 +339,14 @@ function Field({
   onChange,
   type = "text",
   placeholder,
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <div>
@@ -342,11 +358,14 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        disabled={disabled}
         className="w-full px-3 py-2 rounded-lg text-[13px] outline-none focus:ring-1 focus:ring-[var(--accent)] transition-all"
         style={{
           background: "var(--surface)",
           border: "1px solid var(--surface-border)",
           color: "var(--text-0)",
+          cursor: disabled ? "not-allowed" : "text",
+          opacity: disabled ? 0.65 : 1,
           fontFamily: type === "password" ? "var(--font-mono)" : "var(--font-body)",
         }}
       />

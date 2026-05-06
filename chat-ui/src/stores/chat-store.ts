@@ -7,6 +7,7 @@ interface ChatState {
   currentSessionId: string | null;
   isStreaming: boolean;
   selectedRepo: string | null;
+  selectedRepoName: string | null;
   inputDraft: string;
   isSfdPanelOpen: boolean;
 
@@ -20,7 +21,7 @@ interface ChatState {
   upsertToolCall: (sessionId: string, messageId: string, toolCall: ToolCall) => void;
   removeMessagesFrom: (sessionId: string, messageId: string) => void;
   setStreaming: (streaming: boolean) => void;
-  setSelectedRepo: (repo: string | null) => void;
+  setSelectedRepo: (repo: string | null, displayName?: string | null) => void;
   setInputDraft: (text: string) => void;
   setSfdPanelOpen: (open: boolean) => void;
 
@@ -36,6 +37,7 @@ export const useChatStore = create<ChatState>()(
       currentSessionId: null,
       isStreaming: false,
       selectedRepo: null,
+      selectedRepoName: null,
       inputDraft: '',
       isSfdPanelOpen: false,
 
@@ -138,7 +140,11 @@ export const useChatStore = create<ChatState>()(
         })),
 
       setStreaming: (streaming) => set({ isStreaming: streaming }),
-      setSelectedRepo: (repo) => set({ selectedRepo: repo }),
+      setSelectedRepo: (repo, displayName) =>
+        set({
+          selectedRepo: repo,
+          selectedRepoName: repo ? (displayName ?? repo) : null,
+        }),
       setInputDraft: (text) => set({ inputDraft: text }),
       setSfdPanelOpen: (open) => set({ isSfdPanelOpen: open }),
 

@@ -21,7 +21,7 @@ export function TodosView() {
     staleTime: 60_000,
   });
 
-  const all = data ?? [];
+  const all = useMemo(() => data ?? [], [data]);
   const filtered = useMemo(
     () => (filter === "all" ? all : all.filter((t) => t.kind === filter)),
     [all, filter],

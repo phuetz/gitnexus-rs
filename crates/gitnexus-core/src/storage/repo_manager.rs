@@ -49,6 +49,27 @@ pub struct RegistryEntry {
     pub stats: Option<RepoStats>,
 }
 
+/// Public, path-redacted identifier for a registry entry.
+///
+/// Repository names are not guaranteed unique: a user can index two folders
+/// named `gitnexus-rs` from different parents. Browser clients need a stable
+/// value to send back to the local server without exposing full filesystem
+/// paths, so derive a short deterministic id from the canonical registry path.
+pub fn registry_entry_id(entry: &RegistryEntry) -> String {
+    repo_id_for_path(&entry.path)
+}
+
+/// Derive the same public id from a path string.
+pub fn repo_id_for_path(path: &str) -> String {
+    let normalized = normalize_repo_id_path(path);
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in normalized.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("repo_{hash:016x}")
+}
+
 // ─── Path Helpers ────────────────────────────────────────────────────────
 
 /// Get the `.gitnexus` storage path for a repository.
@@ -329,5 +350,51 @@ fn paths_equal(a: &str, b: &Path) -> bool {
     #[cfg(not(target_os = "windows"))]
     {
         a_canon == b_canon
+    }
+}
+
+fn normalize_repo_id_path(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    #[cfg(target_os = "windows")]
+    {
+        normalized.to_lowercase()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        normalized
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(path: &str) -> RegistryEntry {
+        RegistryEntry {
+            name: "gitnexus-rs".to_string(),
+            path: path.to_string(),
+            storage_path: format!("{path}/.gitnexus"),
+            indexed_at: "2026-05-06T05:00:00Z".to_string(),
+            last_commit: "unknown".to_string(),
+            stats: None,
+        }
+    }
+
+    #[test]
+    fn registry_entry_id_is_stable_and_path_redacted() {
+        let id = registry_entry_id(&entry("D:/Repos/gitnexus-rs"));
+
+        assert_eq!(id, registry_entry_id(&entry("D:/Repos/gitnexus-rs")));
+        assert!(id.starts_with("repo_"));
+        assert!(!id.contains("Repos"));
+        assert!(!id.contains("gitnexus"));
+    }
+
+    #[test]
+    fn registry_entry_id_disambiguates_duplicate_names() {
+        let first = registry_entry_id(&entry("D:/Repos/gitnexus-rs"));
+        let second = registry_entry_id(&entry("D:/Archive/gitnexus-rs"));
+
+        assert_ne!(first, second);
     }
 }

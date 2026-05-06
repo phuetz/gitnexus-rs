@@ -31,33 +31,6 @@ export function useChat() {
 
   const removeMessagesFrom = useChatStore((s) => s.removeMessagesFrom);
 
-  /**
-   * Drop the assistant message with `assistantMessageId` (and anything after
-   * it), then re-fire the user message that prompted it. Useful when the
-   * answer is wrong, truncated, or just plain unhelpful — one click and the
-   * LLM gets another shot with the same question. Conversation history up to
-   * that point is preserved.
-   */
-  const regenerate = useCallback(
-    async (assistantMessageId: string) => {
-      if (isStreaming) return;
-      const session = getCurrentSession();
-      if (!session) return;
-      const idx = session.messages.findIndex((m) => m.id === assistantMessageId);
-      if (idx === -1 || idx === 0) return;
-      const previousUser = [...session.messages.slice(0, idx)]
-        .reverse()
-        .find((m) => m.role === 'user');
-      if (!previousUser) return;
-      removeMessagesFrom(session.id, previousUser.id);
-      // sendMessage is defined just below; closures resolve at call time.
-      await sendMessageRef.current?.(previousUser.content);
-    },
-    [getCurrentSession, isStreaming, removeMessagesFrom]
-  );
-
-  const sendMessageRef = useRef<((content: string) => Promise<void>) | null>(null);
-
   const sendMessage = useCallback(
     async (content: string) => {
       const trimmed = content.trim();
@@ -109,7 +82,7 @@ export function useChat() {
       let acc = '';
       const onToolCall = (event: ToolCallStreamEvent) => {
         if (event.phase === 'start') {
-          let parsedArgs: Record<string, unknown> = {};
+          let parsedArgs: Record<string, unknown>;
           try {
             parsedArgs = JSON.parse(event.args) as Record<string, unknown>;
           } catch {
@@ -153,7 +126,7 @@ export function useChat() {
           ? '> ⚠️ _Requête annulée._'
           : isStreamErr
             ? `> ❌ **Erreur serveur** : ${msg}`
-            : `> ❌ **Erreur** : ${msg}\n>\n> Vérifie que le serveur tourne : \`gitnexus serve --port 3000\` (ou ajuste \`VITE_MCP_URL\` dans \`.env.local\`).`;
+      : `> ❌ **Erreur** : ${msg}\n>\n> Vérifie que le serveur tourne : \`gitnexus serve --port 3010\` (ou ajuste \`VITE_MCP_URL\` dans \`.env.local\`).`;
         updateMessage(sessionId, assistantId, acc ? `${acc}\n\n${reason}` : reason);
       } finally {
         abortRef.current = null;
@@ -173,7 +146,27 @@ export function useChat() {
     ]
   );
 
-  sendMessageRef.current = sendMessage;
+  /**
+   * Drop the assistant message with `assistantMessageId` (and anything after
+   * it), then re-fire the user message that prompted it. Conversation history
+   * up to that point is preserved.
+   */
+  const regenerate = useCallback(
+    async (assistantMessageId: string) => {
+      if (isStreaming) return;
+      const session = getCurrentSession();
+      if (!session) return;
+      const idx = session.messages.findIndex((m) => m.id === assistantMessageId);
+      if (idx === -1 || idx === 0) return;
+      const previousUser = [...session.messages.slice(0, idx)]
+        .reverse()
+        .find((m) => m.role === 'user');
+      if (!previousUser) return;
+      removeMessagesFrom(session.id, previousUser.id);
+      await sendMessage(previousUser.content);
+    },
+    [getCurrentSession, isStreaming, removeMessagesFrom, sendMessage]
+  );
 
   return { sendMessage, regenerate, cancel, isStreaming };
 }

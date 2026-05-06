@@ -61,7 +61,7 @@ enum Commands {
     /// Start HTTP server for web UI
     Serve {
         /// Port to listen on
-        #[arg(short, long, default_value = "3000")]
+        #[arg(short, long, default_value = "3010")]
         port: u16,
         /// Host address to bind (default: 127.0.0.1)
         #[arg(long, default_value = "127.0.0.1")]
@@ -546,7 +546,7 @@ async fn main() -> anyhow::Result<()> {
             commands::coupling_cmd::run(min, path.as_deref(), json)
         }
         Commands::Ownership { path, json } => commands::ownership_cmd::run(path.as_deref(), json),
-        Commands::Ask { question, path } => commands::ask::run(&question, path.as_deref()),
+        Commands::Ask { question, path } => commands::ask::run(&question, path.as_deref()).await,
         Commands::Report { path, json } => commands::report::run(path.as_deref(), json),
         Commands::Config { action } => match action.as_str() {
             "test" => tokio::task::spawn_blocking(commands::config_cmd::run_test)

@@ -5,6 +5,7 @@ use colored::Colorize;
 use serde_json::Value;
 use std::path::PathBuf;
 
+use gitnexus_core::llm::{sanitize_llm_error_body, PROMPT_CONTEXT_SAFETY};
 use gitnexus_core::trace;
 use gitnexus_db::snapshot;
 
@@ -137,13 +138,13 @@ pub async fn run(trace_file: &str, output_file: Option<&str>, path: Option<&str>
         config.model
     );
 
-    let system_prompt = "You are an expert technical writer and software architect. \
+    let system_prompt = format!("{}\n\n{}", PROMPT_CONTEXT_SAFETY, "You are an expert technical writer and software architect. \
         Your task is to write a comprehensive business process documentation based on an execution trace. \
         You will receive the chronological steps of the execution, including the actual parameter values passed \
         at runtime, and the corresponding source code for each step. \
         Explain the business logic, what data is transformed, the conditions applied, and the outcome of the process. \
         Format the response in clean Markdown with appropriate headings, a high-level summary, and a step-by-step breakdown. \
-        Do not output code blocks of the entire source code, only small snippets if they clarify a specific business rule.";
+        Do not output code blocks of the entire source code, only small snippets if they clarify a specific business rule.");
 
     let user_prompt = format!(
         "Please document the following execution trace:\n\n{}",
@@ -182,6 +183,7 @@ pub async fn run(trace_file: &str, output_file: Option<&str>, path: Option<&str>
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
+        let body = sanitize_llm_error_body(&body, &[&config.api_key], 500);
         return Err(anyhow::anyhow!("LLM HTTP error {}: {}", status, body));
     }
 

@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MermaidBlock } from './MermaidBlock';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { looksLikeMermaid, normalizeBareMermaid } from '../../utils/markdown';
 
 const SyntaxHighlighter = lazy(() =>
   import('react-syntax-highlighter/dist/esm/prism').then((m) => ({ default: m.Prism }))
@@ -16,33 +17,29 @@ export function Markdown({ children }: Props) {
   return (
     <div className="prose prose-invert prose-sm max-w-none prose-pre:bg-transparent prose-pre:border-0 prose-pre:p-0 prose-code:before:content-[''] prose-code:after:content-['']">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {children}
+        {normalizeBareMermaid(children)}
       </ReactMarkdown>
     </div>
   );
 }
 
-// Mermaid graph types we recognise from raw content when the LLM forgot the
-// triple-backtick fence (Gemini drops it about 1 reply in 3 even when the
-// system prompt requests it). Order matches docs.mermaid.live, longest
-// prefixes first so `flowchart` wins over the legacy `graph`.
-const MERMAID_GRAPH_TYPES = [
+const MERMAID_LANGUAGE_ALIASES = new Set([
+  'mermaid',
+  'mermaidjs',
+  'mermaid-js',
+  'mmd',
+  'maid',
+  'maimaid',
+  'mermaide',
+  'diagram',
   'flowchart',
-  'sequenceDiagram',
-  'classDiagram',
-  'erDiagram',
-  'stateDiagram',
-  'gantt',
-  'pie',
-  'mindmap',
-  'gitGraph',
-  'journey',
-  'graph',
-];
+  'sequence',
+  'sequencediagram',
+  'classdiagram',
+]);
 
-function looksLikeMermaid(text: string): boolean {
-  const head = text.trimStart().split(/\s|\n/, 1)[0] ?? '';
-  return MERMAID_GRAPH_TYPES.includes(head);
+function isMermaidLanguage(language: string | undefined): boolean {
+  return !!language && MERMAID_LANGUAGE_ALIASES.has(language.toLowerCase());
 }
 
 const components: Components = {
@@ -58,7 +55,7 @@ const components: Components = {
     // where the model writes `flowchart TD` directly after `Diagramme :`
     // without a triple-backtick header — react-markdown then renders it as
     // a generic code block and we get plain text instead of an SVG.
-    if (language === 'mermaid' || (!language && looksLikeMermaid(raw))) {
+    if (isMermaidLanguage(language) || looksLikeMermaid(raw)) {
       return <MermaidBlock text={raw} />;
     }
 

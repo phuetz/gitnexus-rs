@@ -23,6 +23,19 @@ function MarkdownFallback({ content }: { content: string }) {
   return <div className="whitespace-pre-wrap">{content}</div>;
 }
 
+function formatMessageTime(timestamp: number | undefined): string {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export function ChatMessage({
   message,
   sessionId,
@@ -37,6 +50,7 @@ export function ChatMessage({
 }) {
   const { t } = useI18n();
   const pinMessage = useChatSessionStore((s) => s.pinMessage);
+  const timestamp = formatMessageTime(message.timestamp);
   const handleCopyMessage = useCallback(() => {
     navigator.clipboard.writeText(message.content).then(
       () => toast.success(t("chat.copiedToClipboard")),
@@ -75,6 +89,16 @@ export function ChatMessage({
           <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
             {t("chat.you")}
           </span>
+          {timestamp && (
+            <time
+              dateTime={new Date(message.timestamp).toISOString()}
+              className="text-[10px]"
+              style={{ color: "var(--text-3)" }}
+              title={timestamp}
+            >
+              {timestamp}
+            </time>
+          )}
           {message.pinned && (
             <Pin
               size={10}
@@ -133,6 +157,16 @@ export function ChatMessage({
         <span className="text-[11px] font-medium" style={{ color: "var(--text-3)" }}>
           GitNexus
         </span>
+        {timestamp && (
+          <time
+            dateTime={new Date(message.timestamp).toISOString()}
+            className="text-[10px]"
+            style={{ color: "var(--text-3)" }}
+            title={timestamp}
+          >
+            {timestamp}
+          </time>
+        )}
         {/* Complexity badge inline */}
         {message.complexity && <ComplexityIndicator complexity={message.complexity} />}
         {message.pinned && (

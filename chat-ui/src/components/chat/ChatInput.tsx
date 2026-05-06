@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react';
-import { Send, Square } from 'lucide-react';
+import { Database, Send, Square } from 'lucide-react';
 import { useChat } from '../../hooks/use-chat';
 import { useChatStore } from '../../stores/chat-store';
 
@@ -9,9 +9,11 @@ const MAX_HEIGHT = 200;
 export function ChatInput() {
   const { sendMessage, cancel, isStreaming } = useChat();
   const selectedRepo = useChatStore((s) => s.selectedRepo);
+  const selectedRepoName = useChatStore((s) => s.selectedRepoName);
   const value = useChatStore((s) => s.inputDraft);
   const setValue = useChatStore((s) => s.setInputDraft);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const repoLabel = selectedRepoName ?? selectedRepo;
 
   useEffect(() => {
     const ta = taRef.current;
@@ -36,8 +38,18 @@ export function ChatInput() {
   };
 
   return (
-    <div className="border-t border-neutral-900 bg-neutral-950/60 p-4">
-      <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-xl border border-neutral-800 bg-neutral-900/60 p-2 focus-within:border-neutral-700">
+    <div className="border-t border-neutral-900 bg-neutral-950 p-4">
+      <div className="mx-auto max-w-4xl">
+        <div className="mb-2 flex items-center justify-between gap-3 text-xs text-neutral-500">
+          <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+            <Database size={12} aria-hidden="true" />
+            <span className="truncate">{repoLabel ?? 'Aucun projet sélectionné'}</span>
+          </span>
+          <span className={selectedRepo ? 'text-emerald-400' : 'text-neutral-600'}>
+            {selectedRepo ? 'Prêt' : 'Projet requis'}
+          </span>
+        </div>
+        <div className="flex items-end gap-2 rounded-lg border border-neutral-800 bg-neutral-900/70 p-2 shadow-[0_1px_0_rgba(255,255,255,0.03)] focus-within:border-neutral-700">
         <textarea
           ref={taRef}
           value={value}
@@ -45,21 +57,21 @@ export function ChatInput() {
           onKeyDown={onKeyDown}
           placeholder={
             selectedRepo
-              ? `Pose ta question sur ${selectedRepo}… (Shift+Entrée = newline)`
+              ? `Pose ta question sur ${repoLabel}…`
               : 'Sélectionne un projet en haut à droite avant de poser ta question…'
           }
           aria-label="Message à envoyer au chat"
           aria-busy={isStreaming}
-          className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600"
+          className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-6 text-neutral-100 outline-none placeholder:text-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-600"
           style={{ minHeight: MIN_HEIGHT }}
-          disabled={isStreaming}
+          disabled={isStreaming || !selectedRepo}
         />
         {isStreaming ? (
           <button
             type="button"
             onClick={cancel}
             aria-label="Annuler la requête en cours"
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-600 text-white transition hover:bg-red-500"
+            className="flex h-10 w-10 items-center justify-center rounded-md border border-red-500/30 bg-red-600/90 text-white transition hover:bg-red-500"
             title="Annuler"
           >
             <Square size={14} fill="currentColor" aria-hidden="true" />
@@ -70,16 +82,14 @@ export function ChatInput() {
             onClick={submit}
             disabled={!value.trim() || !selectedRepo}
             aria-label="Envoyer le message"
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-600 text-white transition hover:bg-purple-500 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-600"
+            className="flex h-10 w-10 items-center justify-center rounded-md border border-transparent bg-purple-600 text-white transition hover:bg-purple-500 disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-600"
             title="Envoyer (Entrée)"
           >
             <Send size={16} aria-hidden="true" />
           </button>
         )}
       </div>
-      <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-neutral-600">
-        V1 · backend gitnexus-mcp via SSE · {selectedRepo ?? 'aucun projet'}
-      </p>
+      </div>
     </div>
   );
 }

@@ -14,7 +14,7 @@ import { MessageSquare, Settings2, ChevronDown, Compass, BookOpen, Sparkles } fr
 import { Group, Panel } from "react-resizable-panels";
 import { PanelSeparator } from "../layout/PanelSeparator";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
-import { commands } from "../../lib/tauri-commands";
+import { commands, type ChatConfig } from "../../lib/tauri-commands";
 import { useI18n } from "../../hooks/use-i18n";
 import { useAppStore } from "../../stores/app-store";
 import { useRepos, useOpenRepo } from "../../hooks/use-tauri-query";
@@ -68,6 +68,12 @@ function RepoSelector() {
       <ChevronDown size={14} className="absolute right-2 pointer-events-none" style={{ color: "var(--text-3)" }} />
     </div>
   );
+}
+
+function formatChatConfigLabel(config: ChatConfig | undefined): string {
+  if (!config?.provider || !config.model) return "LLM non configure";
+  const effort = config.reasoningEffort ? ` · ${config.reasoningEffort}` : "";
+  return `${config.provider} / ${config.model}${effort}`;
 }
 
 // ─── Search capabilities banner ──────────────────────────────────────
@@ -168,12 +174,13 @@ export function ChatMode() {
   }, [repos, activeRepo, openRepo, setActiveRepo]);
 
   // Fetch LLM config to detect unconfigured state
-  const { isLoading: configLoading } = useQuery({
+  const { data: chatConfig, isLoading: configLoading } = useQuery({
     queryKey: ["chat-config"],
     queryFn: () => commands.chatGetConfig(),
     // Don't retry aggressively — missing config is not an error
     retry: 1,
   });
+  const llmLabel = formatChatConfigLabel(chatConfig);
 
   const handleNavigateToNode = (nodeId: string) => {
     setMode("explorer");
@@ -212,6 +219,21 @@ export function ChatMode() {
             </div>
             
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className="hidden sm:inline-flex max-w-[320px] items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] transition-colors"
+                style={{
+                  color: chatConfig?.provider ? "var(--text-2)" : "var(--orange)",
+                  border: "1px solid var(--surface-border)",
+                  background: "var(--surface)",
+                }}
+                title={`LLM actif: ${llmLabel}`}
+                aria-label={`LLM actif: ${llmLabel}`}
+              >
+                <Sparkles size={13} style={{ color: chatConfig?.provider ? "var(--accent)" : "var(--orange)" }} />
+                <span className="truncate">{llmLabel}</span>
+              </button>
+
               <button
                 onClick={() => setMode("explorer")}
                 className="p-1.5 rounded-lg transition-colors"

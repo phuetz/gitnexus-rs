@@ -1,12 +1,12 @@
 //! HTML site generator.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use anyhow::Result;
 use colored::Colorize;
-use serde_json::json;
-use tracing::info;
+use serde_json::{json, Value};
+use tracing::{info, warn};
 
 use gitnexus_core::graph::KnowledgeGraph;
 
@@ -227,41 +227,41 @@ pub(super) fn generate_html_site(
         }
     }
 
+    let index_json_path = docs_dir.join("_index.json");
+    let index_value = load_json_file(&index_json_path, json!({ "pages": [] }))?;
+
+    let provenance_path = docs_dir.join("_meta").join("provenance.json");
+    let provenance_value = load_json_file(&provenance_path, json!([]))?;
+    let provenance_ids = provenance_ids_from_value(&provenance_value);
+
+    let backlinks_path = docs_dir.join("_meta").join("backlinks.json");
+    let backlinks_value = load_json_file(&backlinks_path, json!({}))?;
+
     // 3. Build pages JSON
     let pages_json: BTreeMap<String, serde_json::Value> = pages
         .iter()
         .map(|(id, (title, html))| {
+            let page_type = classify_page_from_id(id);
+            let stem = id.split('/').next_back().unwrap_or(id);
+            let enriched = provenance_ids.contains(id) || provenance_ids.contains(stem);
             (
                 id.clone(),
                 serde_json::json!({
                     "title": title,
-                    "html": html
+                    "html": html,
+                    "page_type": page_type,
+                    "enriched": enriched
                 }),
             )
         })
         .collect();
 
-    // 3b. Build PAGE_ORDER (ordered list of page IDs for prev/next navigation)
-    let page_order: Vec<&String> = pages.keys().collect();
-    let page_order_json = serde_json::to_string(&page_order)?;
+    // 3b. Build PAGE_ORDER from the docs index so previous/next follows the
+    // generated wiki navigation instead of BTreeMap alphabetical order.
+    let page_order = page_order_from_index(&index_value, &pages);
+    let page_order_json = script_safe_json(&serde_json::to_string(&page_order)?);
 
     // 3c. Build SEARCH_INDEX (stripped text for full-text search)
-    // Read provenance early to know which pages are enriched
-    let provenance_path_early = docs_dir.join("_meta").join("provenance.json");
-    let provenance_ids: std::collections::HashSet<String> = if provenance_path_early.exists() {
-        let raw = std::fs::read_to_string(&provenance_path_early).unwrap_or_default();
-        serde_json::from_str::<Vec<serde_json::Value>>(&raw)
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|v| {
-                v.get("page_id")
-                    .and_then(|id| id.as_str())
-                    .map(|s| s.to_string())
-            })
-            .collect()
-    } else {
-        std::collections::HashSet::new()
-    };
     let search_index: Vec<serde_json::Value> = pages
         .iter()
         .map(|(id, (title, html))| {
@@ -277,7 +277,7 @@ pub(super) fn generate_html_site(
             })
         })
         .collect();
-    let search_index_json = serde_json::to_string(&search_index)?;
+    let search_index_json = script_safe_json(&serde_json::to_string(&search_index)?);
 
     // 4. Get project stats
     let node_count = graph.node_count();
@@ -308,28 +308,10 @@ pub(super) fn generate_html_site(
         .unwrap_or("<h1>Documentation</h1><p>No pages generated yet.</p>");
 
     // 6. Assemble HTML from template
-    let index_json_path = docs_dir.join("_index.json");
-    let index_json = if index_json_path.exists() {
-        std::fs::read_to_string(&index_json_path)?
-    } else {
-        "{}".to_string()
-    };
-
-    let provenance_path = docs_dir.join("_meta").join("provenance.json");
-    let provenance_json = if provenance_path.exists() {
-        std::fs::read_to_string(&provenance_path).unwrap_or_else(|_| "[]".to_string())
-    } else {
-        "[]".to_string()
-    };
-
-    let backlinks_path = docs_dir.join("_meta").join("backlinks.json");
-    let backlinks_json = if backlinks_path.exists() {
-        std::fs::read_to_string(&backlinks_path).unwrap_or_else(|_| "{}".to_string())
-    } else {
-        "{}".to_string()
-    };
-
-    let pages_json_str = serde_json::to_string(&pages_json)?;
+    let index_json = script_safe_json(&serde_json::to_string(&index_value)?);
+    let provenance_json = script_safe_json(&serde_json::to_string(&provenance_value)?);
+    let backlinks_json = script_safe_json(&serde_json::to_string(&backlinks_value)?);
+    let pages_json_str = script_safe_json(&serde_json::to_string(&pages_json)?);
     let final_html = build_html_template(
         &project_name,
         &stats_str,
@@ -388,6 +370,103 @@ pub(super) fn strip_html_tags(html: &str) -> String {
     result.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn load_json_file(path: &Path, fallback: Value) -> Result<Value> {
+    if !path.exists() {
+        return Ok(fallback);
+    }
+
+    let raw = std::fs::read_to_string(path)?;
+    match serde_json::from_str::<Value>(&raw) {
+        Ok(value) => Ok(value),
+        Err(err) => {
+            warn!(
+                "Could not parse generated docs JSON {}: {}. Falling back to an empty value.",
+                path.display(),
+                err
+            );
+            Ok(fallback)
+        }
+    }
+}
+
+fn script_safe_json(json: &str) -> String {
+    json.replace("</", "<\\/")
+}
+
+fn provenance_ids_from_value(value: &Value) -> HashSet<String> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .get("page_id")
+                .and_then(|id| id.as_str())
+                .map(ToString::to_string)
+        })
+        .collect()
+}
+
+fn page_order_from_index(index: &Value, pages: &BTreeMap<String, (String, String)>) -> Vec<String> {
+    fn page_id_from_nav_item(item: &Value) -> Option<String> {
+        let raw = item
+            .get("path")
+            .or_else(|| item.get("id"))
+            .and_then(|v| v.as_str())?;
+        let page_id = raw
+            .trim_start_matches("./")
+            .strip_suffix(".md")
+            .unwrap_or(raw)
+            .to_string();
+        if page_id.is_empty() {
+            None
+        } else {
+            Some(page_id)
+        }
+    }
+
+    fn push_nav_item(
+        item: &Value,
+        pages: &BTreeMap<String, (String, String)>,
+        seen: &mut HashSet<String>,
+        out: &mut Vec<String>,
+    ) {
+        if let Some(children) = item.get("children").and_then(|v| v.as_array()) {
+            for child in children {
+                push_nav_item(child, pages, seen, out);
+            }
+            return;
+        }
+
+        if let Some(page_id) = page_id_from_nav_item(item) {
+            if pages.contains_key(&page_id) && seen.insert(page_id.clone()) {
+                out.push(page_id);
+            }
+        }
+    }
+
+    let nav_pages = index
+        .get("pages")
+        .and_then(|v| v.as_array())
+        .or_else(|| index.as_array());
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Some(nav_pages) = nav_pages {
+        for item in nav_pages {
+            push_nav_item(item, pages, &mut seen, &mut out);
+        }
+    }
+
+    for id in pages.keys() {
+        if seen.insert(id.clone()) {
+            out.push(id.clone());
+        }
+    }
+
+    out
+}
+
 /// Classify a page ID into a display type for search filtering.
 fn classify_page_from_id(id: &str) -> &'static str {
     let name = id.split('/').next_back().unwrap_or(id);
@@ -415,7 +494,7 @@ fn classify_page_from_id(id: &str) -> &'static str {
 fn build_html_template(
     project_name: &str,
     stats: &str,
-    sidebar_nav: &str,
+    _sidebar_nav: &str,
     first_page_content: &str,
     pages_json: &str,
     page_order_json: &str,
@@ -867,35 +946,97 @@ fn build_html_template(
     const PROVENANCE = {provenance_json};
     const BACKLINKS = {backlinks_json};
     let currentPage = null;
+    let mermaidRetryCount = 0;
+
+    const ICON_ALLOWLIST = new Set([
+      'activity','arrow-right-left','book-open','cloud','cog','component','database',
+      'file-text','flame','folder','git-branch','git-commit','globe','hard-drive',
+      'home','layers','layout','link','route','server','table-2','users','workflow'
+    ]);
+
+    function navPages() {{
+      if (INDEX_JSON && Array.isArray(INDEX_JSON.pages)) return INDEX_JSON.pages;
+      if (Array.isArray(INDEX_JSON)) return INDEX_JSON;
+      return PAGE_ORDER.map(id => ({{
+        id,
+        path: id + '.md',
+        title: PAGES[id] ? PAGES[id].title : id,
+        icon: 'file-text'
+      }}));
+    }}
+
+    function decodeTitle(value) {{
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = String(value || '');
+      return textarea.value;
+    }}
+
+    function safeIcon(name, fallback) {{
+      const candidate = String(name || fallback || 'file-text');
+      return ICON_ALLOWLIST.has(candidate) ? candidate : (fallback || 'file-text');
+    }}
+
+    function appendIcon(parent, name, fallback) {{
+      const icon = document.createElement('i');
+      icon.setAttribute('data-lucide', safeIcon(name, fallback));
+      icon.style.cssText = 'width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;';
+      parent.appendChild(icon);
+    }}
+
+    function navPageId(item) {{
+      const raw = item && (item.path || item.id) ? String(item.path || item.id) : '';
+      return raw.replace(/\.md$/, '').replace(/^\.\//, '');
+    }}
+
+    function appendSidebarLink(parent, item) {{
+      const pageId = navPageId(item);
+      if (!pageId || !PAGES[pageId]) return;
+      const link = document.createElement('a');
+      link.href = '#';
+      link.dataset.page = pageId;
+      link.onclick = function(e) {{
+        e.preventDefault();
+        showPage(pageId);
+        return false;
+      }};
+      appendIcon(link, item.icon, 'file-text');
+      link.appendChild(document.createTextNode(
+        decodeTitle(item.title || (PAGES[pageId] && PAGES[pageId].title) || pageId)
+      ));
+      parent.appendChild(link);
+    }}
 
     function buildDynamicSidebar() {{
       const container = document.getElementById('dynamic-sidebar');
-      if (!INDEX_JSON || !Array.isArray(INDEX_JSON)) {{
-        container.innerHTML = `{sidebar_nav}`; // Fallback
-        return;
-      }}
+      container.replaceChildren();
+      const sections = navPages();
+      if (!sections.length) return;
 
-      let html = '';
-      INDEX_JSON.forEach((section, i) => {{
+      sections.forEach((section, i) => {{
         if (section.children && section.children.length > 0) {{
           var secCollapsed = sessionStorage.getItem('gnx_sec_' + i) === '1';
-          html += '<div class="section-title" style="cursor:pointer;user-select:none;" onclick="toggleSection(this,' + i + ')">'
-            + '<i data-lucide="' + (section.icon || 'folder') + '" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;"></i>'
-            + section.title.toUpperCase()
-            + '<span style="float:right;font-size:10px;margin-right:4px;">' + (secCollapsed ? '\u25b8' : '\u25be') + '</span>'
-            + '</div>';
-          html += '<div id="gnx-sec-' + i + '"' + (secCollapsed ? ' style="display:none"' : '') + '>';
-          section.children.forEach(child => {{
-            const pageId = child.path ? child.path.replace('.md', '') : child.id;
-            html += `<a href="#" data-page="${{pageId}}" onclick="showPage('${{pageId}}'); return false;"><i data-lucide="${{child.icon || 'file-text'}}" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;"></i>${{child.title}}</a>`;
-          }});
-          html += '</div>';
+          const title = document.createElement('div');
+          title.className = 'section-title';
+          title.style.cursor = 'pointer';
+          title.style.userSelect = 'none';
+          title.onclick = function() {{ toggleSection(title, i); }};
+          appendIcon(title, section.icon, 'folder');
+          title.appendChild(document.createTextNode(decodeTitle(section.title || 'Section').toUpperCase()));
+          const arrow = document.createElement('span');
+          arrow.style.cssText = 'float:right;font-size:10px;margin-right:4px;';
+          arrow.textContent = secCollapsed ? '\u25b8' : '\u25be';
+          title.appendChild(arrow);
+          container.appendChild(title);
+
+          const childContainer = document.createElement('div');
+          childContainer.id = 'gnx-sec-' + i;
+          if (secCollapsed) childContainer.style.display = 'none';
+          section.children.forEach(child => appendSidebarLink(childContainer, child));
+          container.appendChild(childContainer);
         }} else {{
-            const pageId = section.path ? section.path.replace('.md', '') : section.id;
-            html += `<a href="#" data-page="${{pageId}}" onclick="showPage('${{pageId}}'); return false;"><i data-lucide="${{section.icon || 'file-text'}}" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;margin-top:-2px;"></i>${{section.title}}</a>`;
+          appendSidebarLink(container, section);
         }}
       }});
-      container.innerHTML = html;
     }}
     function toggleSection(el, i) {{
       var ch = document.getElementById('gnx-sec-' + i);
@@ -952,8 +1093,7 @@ fn build_html_template(
             h1.appendChild(typeBadge);
           }}
         }}
-        const breadcrumb = buildBreadcrumb(id, page.title);
-        content.insertAdjacentHTML('afterbegin', breadcrumb);
+        content.prepend(buildBreadcrumb(id, page.title));
         
         // Estimated reading time
         const wordCount = content.textContent.split(/\\s+/).length;
@@ -977,7 +1117,19 @@ fn build_html_template(
             badge.className = 'provenance-badge';
             badge.title = 'Cliquer pour voir les sources analysées';
             badge.onclick = function() {{ toggleEvPanel(panelId); }};
-            badge.innerHTML = '<i data-lucide="cpu" style="width:12px;height:12px;"></i> Enrichi par <code>' + model + '</code> · ' + ago + ' <span class="provenance-detail">' + sourcesCount + ' source' + (sourcesCount !== 1 ? 's' : '') + '</span>';
+            const badgeIcon = document.createElement('i');
+            badgeIcon.setAttribute('data-lucide', 'cpu');
+            badgeIcon.style.cssText = 'width:12px;height:12px;';
+            const modelCode = document.createElement('code');
+            modelCode.textContent = model;
+            const detail = document.createElement('span');
+            detail.className = 'provenance-detail';
+            detail.textContent = sourcesCount + ' source' + (sourcesCount !== 1 ? 's' : '');
+            badge.appendChild(badgeIcon);
+            badge.appendChild(document.createTextNode(' Enrichi par '));
+            badge.appendChild(modelCode);
+            badge.appendChild(document.createTextNode(' · ' + ago + ' '));
+            badge.appendChild(detail);
             content.insertBefore(badge, content.firstChild);
             // Build evidence panel
             const panel = document.createElement('div');
@@ -1013,8 +1165,24 @@ fn build_html_template(
         if (bl.length > 0) {{
           const blDiv = document.createElement('div');
           blDiv.className = 'backlinks-section';
-          blDiv.innerHTML = '<div class="backlinks-title">Citée dans</div>' +
-            bl.map(p => `<a class="related-page-card" href="#" onclick="showPage('${{p}}');return false;">${{p}}</a>`).join('');
+          const blTitle = document.createElement('div');
+          blTitle.className = 'backlinks-title';
+          blTitle.textContent = 'Citée dans';
+          blDiv.appendChild(blTitle);
+          bl.forEach(function(p) {{
+            const pageId = String(p || '');
+            if (!PAGES[pageId]) return;
+            const a = document.createElement('a');
+            a.className = 'related-page-card';
+            a.href = '#';
+            a.textContent = pageId;
+            a.onclick = function(e) {{
+              e.preventDefault();
+              showPage(pageId);
+              return false;
+            }};
+            blDiv.appendChild(a);
+          }});
           content.appendChild(blDiv);
         }}
 
@@ -1031,17 +1199,30 @@ fn build_html_template(
         `;
         content.insertAdjacentHTML('beforeend', feedbackHtml);
         
-        content.insertAdjacentHTML('beforeend', buildPageNav(id));
+        content.appendChild(buildPageNav(id));
         document.querySelectorAll('.sidebar a[data-page]').forEach(a => a.classList.remove('active'));
-        const link = document.querySelector('.sidebar a[data-page="' + id + '"]');
+        const link = Array.from(document.querySelectorAll('.sidebar a[data-page]')).find(a => a.dataset.page === id);
         if (link) {{ link.classList.add('active'); link.scrollIntoView({{block:'nearest'}}); }}
         
         // Make `<details>` list items clickable if they look like paths
         document.querySelectorAll('details li').forEach(li => {{
             const text = li.textContent.trim();
             if (text.includes('/') && text.includes('.')) {{
-                // Create a basic GitHub-like file icon
-                li.innerHTML = `<i data-lucide="file-code" style="width:12px;height:12px;vertical-align:middle;margin-right:6px;opacity:0.7;"></i><span style="font-family:monospace; font-size:12px; cursor:copy;" onclick="navigator.clipboard.writeText('${{text}}'); this.style.color='var(--accent)'; setTimeout(()=>this.style.color='', 1000);" title="Click to copy path">${{text}}</span>`;
+                li.replaceChildren();
+                const icon = document.createElement('i');
+                icon.setAttribute('data-lucide', 'file-code');
+                icon.style.cssText = 'width:12px;height:12px;vertical-align:middle;margin-right:6px;opacity:0.7;';
+                const span = document.createElement('span');
+                span.style.cssText = 'font-family:monospace;font-size:12px;cursor:copy;';
+                span.title = 'Click to copy path';
+                span.textContent = text;
+                span.onclick = function() {{
+                  navigator.clipboard.writeText(text);
+                  span.style.color = 'var(--accent)';
+                  setTimeout(function() {{ span.style.color = ''; }}, 1000);
+                }};
+                li.appendChild(icon);
+                li.appendChild(span);
             }}
         }});
 
@@ -1121,31 +1302,66 @@ fn build_html_template(
     }};
     function buildBreadcrumb(id, title) {{
       const parts = id.split('/');
-      let html = '<div class="breadcrumb"><a href="#" onclick="showPage(PAGE_ORDER[0]); return false;">Documentation</a>';
+      const breadcrumb = document.createElement('div');
+      breadcrumb.className = 'breadcrumb';
+      const home = document.createElement('a');
+      home.href = '#';
+      home.textContent = 'Documentation';
+      home.onclick = function(e) {{
+        e.preventDefault();
+        showPage(PAGE_ORDER[0]);
+        return false;
+      }};
+      breadcrumb.appendChild(home);
       if (parts.length > 1) {{
-        html += '<span class="sep">&#8250;</span><span>' + parts[0].charAt(0).toUpperCase() + parts[0].slice(1) + '</span>';
+        const sep = document.createElement('span');
+        sep.className = 'sep';
+        sep.textContent = '\u203a';
+        const group = document.createElement('span');
+        group.textContent = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+        breadcrumb.appendChild(sep);
+        breadcrumb.appendChild(group);
       }}
-      html += '<span class="sep">&#8250;</span><span>' + title + '</span></div>';
-      return html;
+      const sep = document.createElement('span');
+      sep.className = 'sep';
+      sep.textContent = '\u203a';
+      const current = document.createElement('span');
+      current.textContent = decodeTitle(title);
+      breadcrumb.appendChild(sep);
+      breadcrumb.appendChild(current);
+      return breadcrumb;
     }}
     function buildPageNav(id) {{
       const idx = PAGE_ORDER.indexOf(id);
-      if (idx === -1) return '';
-      let html = '<div class="page-nav">';
+      const nav = document.createElement('div');
+      nav.className = 'page-nav';
+      if (idx === -1) return nav;
+      const appendNavLink = function(pageId, label, isNext) {{
+        const a = document.createElement('a');
+        a.href = '#';
+        if (isNext) a.className = 'nav-next';
+        a.onclick = function(e) {{
+          e.preventDefault();
+          showPage(pageId);
+          return false;
+        }};
+        const labelEl = document.createElement('span');
+        labelEl.className = 'nav-label';
+        labelEl.textContent = label;
+        const titleEl = document.createElement('span');
+        titleEl.className = 'nav-title';
+        titleEl.textContent = decodeTitle(PAGES[pageId] ? PAGES[pageId].title : pageId);
+        a.appendChild(labelEl);
+        a.appendChild(titleEl);
+        nav.appendChild(a);
+      }};
       if (idx > 0) {{
-        const prev = PAGE_ORDER[idx - 1];
-        html += '<a href="#" onclick="showPage(\'' + prev + '\'); return false;">' +
-          '<span class="nav-label">&larr; Pr&eacute;c&eacute;dent</span>' +
-          '<span class="nav-title">' + (PAGES[prev] ? PAGES[prev].title : prev) + '</span></a>';
+        appendNavLink(PAGE_ORDER[idx - 1], '\u2190 Précédent', false);
       }}
       if (idx < PAGE_ORDER.length - 1) {{
-        const next = PAGE_ORDER[idx + 1];
-        html += '<a class="nav-next" href="#" onclick="showPage(\'' + next + '\'); return false;">' +
-          '<span class="nav-label">Suivant &rarr;</span>' +
-          '<span class="nav-title">' + (PAGES[next] ? PAGES[next].title : next) + '</span></a>';
+        appendNavLink(PAGE_ORDER[idx + 1], 'Suivant \u2192', true);
       }}
-      html += '</div>';
-      return html;
+      return nav;
     }}
     function buildToc() {{
       const headings = document.querySelectorAll('.main h2, .main h3');
@@ -1232,6 +1448,7 @@ fn build_html_template(
       }}
       if (typeof mermaid !== 'undefined') {{
         try {{
+          mermaidRetryCount = 0;
           mermaid.run();
           setTimeout(setupMermaidZoom, 200);
         }} catch(e) {{
@@ -1243,7 +1460,17 @@ fn build_html_template(
           }});
         }}
       }} else {{
-        setTimeout(renderMermaid, 500);
+        mermaidRetryCount += 1;
+        if (mermaidRetryCount < 10) {{
+          setTimeout(renderMermaid, 500);
+        }} else {{
+          document.querySelectorAll('.mermaid').forEach(function(el) {{
+            var errDiv = document.createElement('div');
+            errDiv.style.cssText = 'padding:12px 16px;background:var(--bg-surface);border:1px dashed var(--border);border-radius:6px;color:var(--text-muted);font-size:12px;white-space:pre-wrap;';
+            errDiv.textContent = 'Mermaid indisponible. Le diagramme reste visible en source :\n\n' + (el.getAttribute('data-source') || el.textContent || '');
+            el.replaceWith(errDiv);
+          }});
+        }}
       }}
     }}
 
@@ -1329,9 +1556,12 @@ fn build_html_template(
       try {{
         // We assume the server is running on the same host if served via 'gitnexus serve'
         const repoName = document.querySelector('header h1').textContent;
+        const headers = {{ 'Content-Type': 'application/json' }};
+        const token = window.localStorage.getItem('GITNEXUS_HTTP_TOKEN') || window.localStorage.getItem('gitnexus.httpToken');
+        if (token) headers.Authorization = `Bearer ${{token}}`;
         const response = await fetch('/api/chat', {{
           method: 'POST',
-          headers: {{ 'Content-Type': 'application/json' }},
+          headers,
           body: JSON.stringify({{
             question: text,
             repo: repoName,
@@ -1339,6 +1569,7 @@ fn build_html_template(
           }})
         }});
 
+        if (response.status === 401) throw new Error('Token HTTP GitNexus manquant ou invalide.');
         if (!response.ok) throw new Error('Erreur serveur');
 
         const reader = response.body.getReader();
@@ -1356,7 +1587,7 @@ fn build_html_template(
           container.scrollTop = container.scrollHeight;
         }}
       }} catch (err) {{
-        loadingMsg.textContent = "Désolé, je ne peux pas répondre pour le moment. Assurez-vous que 'gitnexus serve' est en cours d'exécution.";
+        loadingMsg.textContent = err?.message || "Désolé, je ne peux pas répondre pour le moment. Assurez-vous que 'gitnexus serve' est en cours d'exécution.";
         loadingMsg.classList.add('error');
       }} finally {{
         sendBtn.disabled = false;
@@ -1568,4 +1799,51 @@ fn build_html_template(
 </body>
 </html>"##
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn script_json_escapes_script_end_tags() {
+        let json = r#"{"title":"</script><script>alert(1)</script>"}"#;
+        let safe = script_safe_json(json);
+        assert!(!safe.contains("</script>"));
+        assert!(safe.contains("<\\/script>"));
+    }
+
+    #[test]
+    fn page_order_follows_index_pages_and_appends_missing_pages() {
+        let index = json!({
+            "pages": [
+                {"id": "overview", "path": "overview.md"},
+                {"id": "modules", "children": [
+                    {"id": "service", "path": "modules/service.md"}
+                ]}
+            ]
+        });
+        let mut pages = BTreeMap::new();
+        pages.insert(
+            "overview".to_string(),
+            ("Overview".to_string(), String::new()),
+        );
+        pages.insert(
+            "modules/service".to_string(),
+            ("Service".to_string(), String::new()),
+        );
+        pages.insert(
+            "architecture".to_string(),
+            ("Architecture".to_string(), String::new()),
+        );
+
+        assert_eq!(
+            page_order_from_index(&index, &pages),
+            vec![
+                "overview".to_string(),
+                "modules/service".to_string(),
+                "architecture".to_string()
+            ]
+        );
+    }
 }

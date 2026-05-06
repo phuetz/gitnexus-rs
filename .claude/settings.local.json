@@ -89,7 +89,7 @@
       "WebSearch",
       "WebFetch(domain:ai.google.dev)",
       "Bash(\"C:\\\\Users\\\\patri\\\\CascadeProjects\\\\gitnexus-rs\\\\target\\\\release\\\\gitnexus.exe\" config *)",
-      "Bash(curl -s \"https://generativelanguage.googleapis.com/v1beta/openai/models\" -H \"Authorization: Bearer AIzaSyCQ3HGKRdwevz1W72UubIjSkyEVMeAzL1c\")",
+      "Bash(curl -s \"https://generativelanguage.googleapis.com/v1beta/openai/models\" -H \"Authorization: Bearer ${GEMINI_API_KEY}\")",
       "Bash(curl *)",
       "Bash(\"C:/Users/patri/CascadeProjects/gitnexus-rs/target/release/gitnexus.exe\" ask *)"
     ]

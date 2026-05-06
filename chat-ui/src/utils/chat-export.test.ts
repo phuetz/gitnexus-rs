@@ -36,12 +36,13 @@ describe('conversationToMarkdown', () => {
         provider: 'chatgpt',
         model: 'gpt-5.5',
         reasoningEffort: 'high',
+        maxTokens: 8192,
       },
     });
 
     expect(markdown).toContain('# Trace courrier');
     expect(markdown).toContain('- Projet: Alise_v2');
-    expect(markdown).toContain('- LLM: chatgpt / gpt-5.5, raisonnement high');
+    expect(markdown).toContain('- LLM: chatgpt / gpt-5.5, raisonnement high, max 8192 tokens');
     expect(markdown).toContain('- Conversation créée: ');
     expect(markdown).toContain('- Dernière activité: ');
     expect(markdown).toContain('- Messages exportés: 2');

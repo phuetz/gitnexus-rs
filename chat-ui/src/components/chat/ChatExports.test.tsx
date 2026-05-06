@@ -74,7 +74,7 @@ describe('ChatExports', () => {
     const markdown = writeText.mock.calls[0][0];
     expect(markdown).toContain('# Trace courrier');
     expect(markdown).toContain('- Projet: Alise_v2');
-    expect(markdown).toContain('- LLM: chatgpt / gpt-5.5, raisonnement high');
+    expect(markdown).toContain('- LLM: chatgpt / gpt-5.5, raisonnement high, max 8192 tokens');
     expect(markdown).toContain('_Outils: search_code (done)_');
     expect(markdown).toContain('```mermaid');
     expect(screen.getByRole('button', { name: /conversation markdown copiée/i })).toBeTruthy();

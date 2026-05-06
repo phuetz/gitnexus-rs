@@ -45,12 +45,12 @@ export function ChatExports({ llm }: Props) {
   };
 
   const handleMarkdown = () => {
-    if (!session) return;
+    if (!session || !hasContent) return;
     exportMarkdown(session, exportMetadata);
   };
 
   const handlePdf = () => {
-    if (!session) return;
+    if (!session || !hasContent) return;
     try {
       exportPdf(session, exportMetadata, document.getElementById('gitnexus-chat-export-source'));
     } catch (e) {

@@ -80,7 +80,11 @@ function formatLlmLabel(llm: LlmConfigInfo | null): string {
   const provider = llm.provider ?? 'provider inconnu';
   const model = llm.model ?? 'modèle inconnu';
   const effort = llm.reasoningEffort ? `, raisonnement ${llm.reasoningEffort}` : '';
-  return `${provider} / ${model}${effort}`;
+  const maxTokens =
+    typeof llm.maxTokens === 'number' && Number.isFinite(llm.maxTokens)
+      ? `, max ${llm.maxTokens} tokens`
+      : '';
+  return `${provider} / ${model}${effort}${maxTokens}`;
 }
 
 function formatToolCalls(message: Message): string {

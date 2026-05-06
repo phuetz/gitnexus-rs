@@ -835,7 +835,8 @@ fn build_html_template(
               border-bottom:1px solid var(--border); display:flex; align-items:center;
               padding:0 20px; z-index:50; }}
     .header h1 {{ font-size:15px; color:var(--accent); }}
-    .header .stats {{ margin-left:auto; font-size:11px; color:var(--text-muted); margin-right:80px; }}
+    .header .stats {{ margin-left:auto; font-size:11px; color:var(--text-muted); }}
+    .header .generated-at {{ display:none; margin-left:12px; margin-right:80px; font-size:11px; color:var(--text-muted); }}
     body {{ padding-top:48px; }}
     .sidebar {{ width:280px; background:var(--bg-sidebar); border-right:1px solid var(--border);
                overflow-y:auto; padding:16px 0; flex-shrink:0; margin-top:48px; height:calc(100vh - 48px); }}
@@ -1200,6 +1201,7 @@ fn build_html_template(
   <header class="header">
     <h1>{project_name}</h1>
     <span class="stats">{stats}</span>
+    <span id="generated-at" class="generated-at"></span>
     <button class="theme-toggle" onclick="toggleTheme()" aria-label="Basculer le thème">Theme</button>
   </header>
   <nav class="sidebar">
@@ -1308,6 +1310,22 @@ fn build_html_template(
         decodeTitle(item.title || (PAGES[pageId] && PAGES[pageId].title) || pageId)
       ));
       parent.appendChild(link);
+    }}
+
+    function formatGeneratedAt() {{
+      const raw = INDEX_JSON && INDEX_JSON.generatedAt ? String(INDEX_JSON.generatedAt) : '';
+      if (!raw) return '';
+      const date = new Date(raw);
+      return Number.isNaN(date.getTime()) ? raw : date.toLocaleString();
+    }}
+
+    function updateGeneratedAt() {{
+      const el = document.getElementById('generated-at');
+      if (!el) return;
+      const label = formatGeneratedAt();
+      if (!label) return;
+      el.textContent = 'Généré ' + label;
+      el.style.display = 'inline';
     }}
 
     function buildDynamicSidebar() {{
@@ -2183,6 +2201,7 @@ fn build_html_template(
     document.addEventListener('DOMContentLoaded', () => {{
       const saved = localStorage.getItem('theme');
       if (saved) document.documentElement.setAttribute('data-theme', saved);
+      updateGeneratedAt();
       if (typeof mermaid !== 'undefined') {{
         const theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'default' : 'dark';
         mermaid.initialize({{ theme, startOnLoad: false, securityLevel: 'loose' }});
@@ -2410,5 +2429,25 @@ mod tests {
         assert!(html.contains("function queryTokens(q)"));
         assert!(html.contains("return tokens.every(token => haystack.includes(token));"));
         assert!(html.contains(".replace(/[\\u0300-\\u036f]/g, '')"));
+    }
+
+    #[test]
+    fn html_template_surfaces_generated_at_metadata() {
+        let html = build_html_template(
+            "sample",
+            "1 node",
+            "",
+            "<h1>Overview</h1>",
+            "{}",
+            "[]",
+            "[]",
+            r#"{"generatedAt":"2026-05-06T20:00:00+02:00","pages":[]}"#,
+            "[]",
+            "{}",
+        );
+
+        assert!(html.contains(r#"id="generated-at""#));
+        assert!(html.contains("function updateGeneratedAt()"));
+        assert!(html.contains("INDEX_JSON.generatedAt"));
     }
 }

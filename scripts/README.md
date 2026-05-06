@@ -83,6 +83,18 @@ Tester la connexion :
 .\test-chatgpt.cmd
 ```
 
+Diagnostiquer la configuration, les ports et le login sans afficher de secret :
+
+```powershell
+.\doctor-gitnexus.cmd
+```
+
+Equivalent :
+
+```powershell
+.\gitnexus.cmd doctor
+```
+
 ## CLI rapide
 
 ```powershell
@@ -90,6 +102,7 @@ Tester la connexion :
 .\gitnexus.cmd analyze -Repo D:\CascadeProjects\gitnexus-rs-from-c
 .\gitnexus.cmd docs -Repo D:\CascadeProjects\gitnexus-rs-from-c
 .\gitnexus.cmd docs -Repo D:\CascadeProjects\gitnexus-rs-from-c -Enrich
+.\gitnexus.cmd doctor
 ```
 
 ## Tout verifier

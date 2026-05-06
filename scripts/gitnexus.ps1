@@ -13,7 +13,8 @@ param(
         "analyze",
         "serve",
         "docs",
-        "check"
+        "check",
+        "doctor"
     )]
     [string] $Command = "help",
 
@@ -223,6 +224,129 @@ function Test-PortListening {
     }
 }
 
+function Write-DoctorLine {
+    param(
+        [string] $Label,
+        [string] $State,
+        [string] $Detail = ""
+    )
+
+    $color = switch ($State) {
+        "OK" { "Green" }
+        "WARN" { "Yellow" }
+        "KO" { "Red" }
+        default { "Gray" }
+    }
+
+    $suffix = if ($Detail.Trim()) { " - $Detail" } else { "" }
+    Write-Host ("[{0}] {1}{2}" -f $State, $Label, $suffix) -ForegroundColor $color
+}
+
+function Get-ListeningProcessSummary {
+    param([int] $Port)
+
+    $pids = @(Get-ListeningProcessIds -Port $Port)
+    if ($pids.Count -eq 0) {
+        return "libre"
+    }
+
+    $items = foreach ($pidValue in $pids) {
+        $proc = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+        if ($proc) {
+            "$($proc.ProcessName) PID $pidValue"
+        }
+        else {
+            "PID $pidValue"
+        }
+    }
+    return ($items -join ", ")
+}
+
+function Show-Doctor {
+    Write-Step "Diagnostic GitNexus"
+
+    if (Get-Command cargo -ErrorAction SilentlyContinue) {
+        Write-DoctorLine "cargo" "OK" (cargo --version)
+    }
+    else {
+        Write-DoctorLine "cargo" "KO" "introuvable dans le PATH"
+    }
+
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        Write-DoctorLine "npm" "OK" (npm --version)
+    }
+    else {
+        Write-DoctorLine "npm" "KO" "introuvable dans le PATH"
+    }
+
+    $chatDir = Join-Path $RepoRoot "chat-ui"
+    $desktopUiDir = Join-Path $RepoRoot "crates\gitnexus-desktop\ui"
+    Write-DoctorLine "chat-ui" ($(if (Test-Path -LiteralPath $chatDir) { "OK" } else { "KO" })) $chatDir
+    Write-DoctorLine "desktop-ui" ($(if (Test-Path -LiteralPath $desktopUiDir) { "OK" } else { "KO" })) $desktopUiDir
+
+    $homeDir = Resolve-HomeDir
+    $configPath = Join-Path $homeDir ".gitnexus\chat-config.json"
+    if (Test-Path -LiteralPath $configPath) {
+        try {
+            $cfg = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+            $provider = if ($cfg.provider) { [string] $cfg.provider } else { "non renseigne" }
+            $model = if ($cfg.model) { [string] $cfg.model } else { "non renseigne" }
+            $reasoning = if ($cfg.reasoning_effort) { [string] $cfg.reasoning_effort } elseif ($cfg.reasoningEffort) { [string] $cfg.reasoningEffort } else { "non renseigne" }
+            Write-DoctorLine "config ChatGPT" "OK" "provider=$provider model=$model reasoning=$reasoning"
+        }
+        catch {
+            Write-DoctorLine "config ChatGPT" "KO" "JSON illisible: $($_.Exception.Message)"
+        }
+    }
+    else {
+        Write-DoctorLine "config ChatGPT" "WARN" "absente; lance .\config-chatgpt.cmd"
+    }
+
+    $authPath = Join-Path $homeDir ".gitnexus\auth\openai.json"
+    if (Test-Path -LiteralPath $authPath) {
+        Write-DoctorLine "login OAuth ChatGPT" "OK" "tokens presents dans $authPath (valeurs masquees)"
+    }
+    else {
+        Write-DoctorLine "login OAuth ChatGPT" "WARN" "absent; lance .\login-chatgpt.cmd"
+    }
+
+    $backendUrl = "http://127.0.0.1:$BackendPort"
+    if (Test-HttpOk -Url "$backendUrl/health") {
+        Write-DoctorLine "backend HTTP :$BackendPort" "OK" "$backendUrl/health"
+    }
+    elseif (Test-PortListening -Port $BackendPort) {
+        Write-DoctorLine "backend HTTP :$BackendPort" "WARN" "port occupe par $(Get-ListeningProcessSummary -Port $BackendPort), mais /health ne repond pas"
+    }
+    else {
+        Write-DoctorLine "backend HTTP :$BackendPort" "WARN" "port libre; lance .\gitnexus.cmd chat"
+    }
+
+    $chatUrl = "http://127.0.0.1:$ChatPort"
+    if (Test-ChatUiOk -Url $chatUrl) {
+        Write-DoctorLine "client React :$ChatPort" "OK" $chatUrl
+    }
+    elseif (Test-PortListening -Port $ChatPort) {
+        Write-DoctorLine "client React :$ChatPort" "WARN" "port occupe par $(Get-ListeningProcessSummary -Port $ChatPort), mais ce n'est pas le chat GitNexus"
+    }
+    else {
+        Write-DoctorLine "client React :$ChatPort" "WARN" "port libre; lance .\gitnexus.cmd chat"
+    }
+
+    $envPath = Join-Path $chatDir ".env.local"
+    if (Test-Path -LiteralPath $envPath) {
+        $viteUrl = (Get-Content -LiteralPath $envPath | Where-Object { $_ -match "^\s*VITE_MCP_URL=" } | Select-Object -Last 1)
+        if ($viteUrl) {
+            Write-DoctorLine "chat-ui/.env.local" "OK" $viteUrl
+        }
+        else {
+            Write-DoctorLine "chat-ui/.env.local" "WARN" "VITE_MCP_URL absent"
+        }
+    }
+    else {
+        Write-DoctorLine "chat-ui/.env.local" "WARN" "sera cree par .\gitnexus.cmd chat"
+    }
+}
+
 function Get-ChatViteProcesses {
     param(
         [string] $ChatDir,
@@ -339,6 +463,7 @@ Usage:
   .\gitnexus.cmd analyze -Repo D:\x   Indexe un repo
   .\gitnexus.cmd docs -Repo D:\x      Genere le site de doc HTML
   .\gitnexus.cmd check                Lance les validations principales
+  .\gitnexus.cmd doctor               Diagnostique ports/config/login sans secret
 
 Options utiles:
   -Repo <path>             Repo cible pour ask/analyze/docs
@@ -525,5 +650,9 @@ switch ($Command) {
         Set-Location -LiteralPath $RepoRoot
         & cargo fmt --check
         & cargo test -p gitnexus-cli -p gitnexus-mcp -p gitnexus-desktop --target-dir "target-codex/check"
+    }
+
+    "doctor" {
+        Show-Doctor
     }
 }

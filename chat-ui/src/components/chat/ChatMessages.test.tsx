@@ -55,4 +55,22 @@ describe('ChatMessages', () => {
 
     expect(scrollTo).toHaveBeenCalledWith({ top: 1000, behavior: 'smooth' });
   });
+
+  it('offers Mermaid sequence and class prompts from the empty chat state', () => {
+    useChatStore.setState({
+      sessions: [],
+      currentSessionId: null,
+      selectedRepo: 'repo_alise',
+      selectedRepoName: 'Alise_v2',
+      inputDraft: '',
+    });
+
+    render(<ChatMessages />);
+
+    fireEvent.click(screen.getByRole('button', { name: /sequenceDiagram/i }));
+    expect(useChatStore.getState().inputDraft).toContain('sequenceDiagram');
+
+    fireEvent.click(screen.getByRole('button', { name: /classDiagram/i }));
+    expect(useChatStore.getState().inputDraft).toContain('classDiagram');
+  });
 });

@@ -5,7 +5,6 @@ import {
   GitBranch,
   Network,
   Plug,
-  Skull,
   MessageSquareText,
 } from 'lucide-react';
 import { useChatStore } from '../../stores/chat-store';
@@ -13,11 +12,40 @@ import { useChat } from '../../hooks/use-chat';
 import { ChatMessage } from './ChatMessage';
 
 const SUGGESTIONS = [
-  { icon: BarChart3, label: 'Zones à risque', prompt: 'Identifie les zones les plus risquées. Si l’historique Git est disponible, utilise les hotspots; sinon base-toi sur le graphe d’appels et les dépendances.' },
-  { icon: Network, label: 'Architecture', prompt: 'Donne-moi une vue d\'ensemble de l\'architecture du projet en 5 points clés.' },
-  { icon: GitBranch, label: 'Flux Mermaid', prompt: 'Trace un flux métier important avec un diagramme Mermaid, puis détaille les étapes et les sources.' },
-  { icon: Plug, label: 'Endpoints', prompt: 'Liste les endpoints HTTP exposés par ce projet et leurs handlers.' },
-  { icon: Skull, label: 'Code mort', prompt: 'Identifie le code mort ou les candidats à supprimer.' },
+  {
+    icon: GitBranch,
+    label: 'Flux Mermaid',
+    prompt:
+      'Trace un flux métier important avec un diagramme Mermaid flowchart TD, puis détaille les étapes, les fichiers et les méthodes sources.',
+  },
+  {
+    icon: GitBranch,
+    label: 'Séquence Mermaid',
+    prompt:
+      'Génère un diagramme Mermaid sequenceDiagram pour un flux applicatif représentatif, avec les couches MVC, services, règles, persistence et les appels clés.',
+  },
+  {
+    icon: Network,
+    label: 'Classes Mermaid',
+    prompt:
+      'Génère un diagramme Mermaid classDiagram des classes principales d’un module important, puis explique les responsabilités et dépendances.',
+  },
+  {
+    icon: Network,
+    label: 'Architecture',
+    prompt: 'Donne-moi une vue d’ensemble de l’architecture du projet en 5 points clés, avec les frontières entre couches et modules.',
+  },
+  {
+    icon: Plug,
+    label: 'Endpoints',
+    prompt: 'Liste les endpoints HTTP exposés par ce projet, leurs handlers, services appelés et les risques d’intégration.',
+  },
+  {
+    icon: BarChart3,
+    label: 'Risques',
+    prompt:
+      'Identifie les zones les plus risquées. Si l’historique Git est disponible, utilise les hotspots; sinon base-toi sur le graphe d’appels, les dépendances et le code mort.',
+  },
 ];
 
 export function ChatMessages() {

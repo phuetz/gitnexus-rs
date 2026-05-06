@@ -1550,11 +1550,13 @@ fn build_html_template(
           blDiv.appendChild(blTitle);
           bl.forEach(function(p) {{
             const pageId = String(p || '');
-            if (!PAGES[pageId]) return;
+            const targetPage = PAGES[pageId];
+            if (!targetPage) return;
             const a = document.createElement('a');
             a.className = 'related-page-card';
             a.href = '#';
-            a.textContent = pageId;
+            a.textContent = targetPage.title || pageId;
+            a.title = pageId;
             a.onclick = function(e) {{
               e.preventDefault();
               showPage(pageId);
@@ -2528,5 +2530,25 @@ mod tests {
         assert!(html.contains("function writeClipboard(text, successMessage)"));
         assert!(html.contains("function clipboardFallback(text)"));
         assert!(html.contains("base + '#' + pageId"));
+    }
+
+    #[test]
+    fn html_template_backlinks_use_page_titles() {
+        let html = build_html_template(
+            "sample",
+            "1 node",
+            "",
+            "<h1>Overview</h1>",
+            "{}",
+            "[]",
+            "[]",
+            r#"{"generatedAt":"2026-05-06T20:00:00+02:00","pages":[]}"#,
+            "[]",
+            "{}",
+        );
+
+        assert!(html.contains("const targetPage = PAGES[pageId];"));
+        assert!(html.contains("a.textContent = targetPage.title || pageId;"));
+        assert!(html.contains("a.title = pageId;"));
     }
 }

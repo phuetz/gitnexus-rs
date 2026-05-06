@@ -18,6 +18,40 @@ export interface LlmConfigInfo {
   bigContextModel?: string;
 }
 
+export interface DiagnosticsRepoInfo {
+  id: string;
+  name: string;
+  indexedAt?: string;
+  pathExposed: boolean;
+}
+
+export interface ChatGptOAuthDiagnostics {
+  loggedIn: boolean;
+  status: 'logged_in' | 'missing' | 'incomplete' | 'invalid' | 'unreadable' | string;
+  tokenFilePresent: boolean;
+  tokenFileReadable: boolean;
+  refreshTokenPresent: boolean;
+  lastRefresh?: string | null;
+  storage: string;
+  errorKind?: string;
+}
+
+export interface DiagnosticsInfo {
+  service: string;
+  version: string;
+  generatedAtUnixMs: number;
+  httpAuthRequired: boolean;
+  repoPathsExposed: boolean;
+  repos: {
+    count: number;
+    names: DiagnosticsRepoInfo[];
+  };
+  llm: LlmConfigInfo;
+  auth?: {
+    chatgptOAuth?: ChatGptOAuthDiagnostics;
+  };
+}
+
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -177,6 +211,15 @@ export class MCPClient {
 
   async llmConfig(): Promise<LlmConfigInfo> {
     const res = await this.request('/api/llm-config', { headers: this.headers() }, 'llm_config');
+    return res.json();
+  }
+
+  async diagnostics(): Promise<DiagnosticsInfo> {
+    const res = await this.request(
+      '/api/diagnostics',
+      { headers: this.headers() },
+      'diagnostics'
+    );
     return res.json();
   }
 

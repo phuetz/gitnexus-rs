@@ -3,7 +3,9 @@
 //! Provides JSON-RPC endpoint (POST /mcp) and REST API endpoints for
 //! direct HTTP integration without MCP protocol overhead.
 
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
     body::Bytes,
@@ -19,6 +21,7 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 
+use gitnexus_core::secret_store::{decode_secret_from_storage, secret_payload_needs_migration};
 use gitnexus_core::storage::repo_manager::registry_entry_id;
 
 use crate::backend::local::LocalBackend;
@@ -79,6 +82,7 @@ pub fn mcp_http_router() -> Router<SharedBackend> {
         .route("/mcp", post(mcp_handler))
         .route("/api/repos", get(repos_handler))
         .route("/api/llm-config", get(llm_config_handler))
+        .route("/api/diagnostics", get(diagnostics_handler))
         .route("/api/repos/:name/search", get(search_handler))
         .route("/api/repos/:name/stats", get(stats_handler))
         .route("/api/repos/:name/hotspots", get(hotspots_handler));
@@ -175,17 +179,173 @@ async fn health_handler() -> impl IntoResponse {
 ///
 /// Deliberately omits secrets (`api_key`) and provider endpoint details.
 async fn llm_config_handler() -> impl IntoResponse {
+    Json(llm_config_payload())
+}
+
+fn llm_config_payload() -> Value {
     match crate::llm_config::load_llm_config() {
-        Some(config) => Json(json!({
+        Some(config) => json!({
             "configured": true,
             "provider": crate::llm_config::display_provider(&config),
             "model": config.model,
             "reasoningEffort": config.reasoning_effort,
             "maxTokens": config.max_tokens,
             "bigContextModel": config.big_context_model,
-        })),
-        None => Json(json!({ "configured": false })),
+        }),
+        None => json!({ "configured": false }),
     }
+}
+
+/// GET /api/diagnostics — Safe runtime metadata for the local chat UI.
+///
+/// This intentionally excludes tokens, API keys, OAuth account data, provider
+/// base URLs, and repository filesystem paths unless the existing path-exposure
+/// flag is enabled elsewhere. The goal is to help a local user diagnose setup
+/// issues without creating a support bundle full of secrets.
+async fn diagnostics_handler(State(backend): State<SharedBackend>) -> impl IntoResponse {
+    let backend_guard = backend.lock().await;
+    Json(diagnostics_payload(&backend_guard))
+}
+
+fn diagnostics_payload(backend: &LocalBackend) -> Value {
+    let repos = backend.registry();
+    let expose_paths = expose_repo_paths();
+    let generated_at_unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+
+    json!({
+        "service": "gitnexus",
+        "version": env!("CARGO_PKG_VERSION"),
+        "generatedAtUnixMs": generated_at_unix_ms,
+        "httpAuthRequired": http_auth_token().is_some(),
+        "repoPathsExposed": expose_paths,
+        "repos": {
+            "count": repos.len(),
+            "names": repos.iter().map(|entry| {
+                json!({
+                    "id": registry_entry_id(entry),
+                    "name": entry.name,
+                    "pathExposed": expose_paths,
+                    "indexedAt": entry.indexed_at,
+                })
+            }).collect::<Vec<_>>(),
+        },
+        "llm": llm_config_payload(),
+        "auth": {
+            "chatgptOAuth": chatgpt_oauth_status_payload(),
+        },
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct StoredChatGptAuthFile {
+    pub tokens: StoredChatGptTokens,
+    #[serde(default, rename = "last_refresh")]
+    pub last_refresh: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StoredChatGptTokens {
+    #[serde(default)]
+    pub id_token: String,
+    #[serde(default)]
+    pub access_token: String,
+    #[serde(default)]
+    pub refresh_token: String,
+}
+
+fn chatgpt_auth_file_path() -> PathBuf {
+    gitnexus_core::storage::repo_manager::get_global_dir()
+        .join("auth")
+        .join("openai.json")
+}
+
+fn chatgpt_oauth_status_payload() -> Value {
+    chatgpt_oauth_status_payload_at(&chatgpt_auth_file_path())
+}
+
+fn chatgpt_oauth_status_payload_at(path: &FsPath) -> Value {
+    let stored = match std::fs::read(path) {
+        Ok(stored) => stored,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return json!({
+                "loggedIn": false,
+                "status": "missing",
+                "tokenFilePresent": false,
+                "tokenFileReadable": false,
+                "refreshTokenPresent": false,
+                "storage": "none",
+            });
+        }
+        Err(err) => {
+            return json!({
+                "loggedIn": false,
+                "status": "unreadable",
+                "tokenFilePresent": true,
+                "tokenFileReadable": false,
+                "refreshTokenPresent": false,
+                "storage": "unknown",
+                "errorKind": format!("{:?}", err.kind()),
+            });
+        }
+    };
+
+    let storage = if cfg!(windows) {
+        if secret_payload_needs_migration(&stored) {
+            "legacy_plaintext"
+        } else {
+            "dpapi"
+        }
+    } else {
+        "file"
+    };
+
+    let decoded = match decode_secret_from_storage(&stored) {
+        Ok(decoded) => decoded,
+        Err(_) => {
+            return json!({
+                "loggedIn": false,
+                "status": "unreadable",
+                "tokenFilePresent": true,
+                "tokenFileReadable": false,
+                "refreshTokenPresent": false,
+                "storage": storage,
+                "errorKind": "secret_storage",
+            });
+        }
+    };
+
+    let parsed: StoredChatGptAuthFile = match serde_json::from_slice(&decoded) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            return json!({
+                "loggedIn": false,
+                "status": "invalid",
+                "tokenFilePresent": true,
+                "tokenFileReadable": true,
+                "refreshTokenPresent": false,
+                "storage": storage,
+                "errorKind": "json",
+            });
+        }
+    };
+
+    let has_access_token = !parsed.tokens.access_token.trim().is_empty();
+    let has_refresh_token = !parsed.tokens.refresh_token.trim().is_empty();
+    let has_id_token = !parsed.tokens.id_token.trim().is_empty();
+    let logged_in = has_access_token && has_refresh_token && has_id_token;
+
+    json!({
+        "loggedIn": logged_in,
+        "status": if logged_in { "logged_in" } else { "incomplete" },
+        "tokenFilePresent": true,
+        "tokenFileReadable": true,
+        "refreshTokenPresent": has_refresh_token,
+        "lastRefresh": parsed.last_refresh,
+        "storage": storage,
+    })
 }
 
 /// GET /api/repos — List indexed repositories
@@ -334,5 +494,75 @@ mod tests {
         std::env::set_var("GITNEXUS_EXPOSE_REPO_PATHS", "true");
         assert!(expose_repo_paths());
         std::env::remove_var("GITNEXUS_EXPOSE_REPO_PATHS");
+    }
+
+    #[test]
+    fn test_diagnostics_payload_omits_secrets_and_paths_by_default() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("GITNEXUS_EXPOSE_REPO_PATHS");
+        std::env::remove_var("GITNEXUS_HTTP_TOKEN");
+
+        let backend = LocalBackend::new();
+        let payload = diagnostics_payload(&backend);
+        let text = serde_json::to_string(&payload).unwrap();
+
+        assert_eq!(payload["service"], "gitnexus");
+        assert_eq!(payload["repoPathsExposed"], false);
+        assert_eq!(payload["httpAuthRequired"], false);
+        assert!(!text.contains("api_key"));
+        assert!(!text.contains("access_token"));
+        assert!(!text.contains("refresh_token"));
+    }
+
+    #[test]
+    fn test_chatgpt_oauth_status_missing_is_safe() {
+        let path = unique_temp_auth_path("missing");
+        let payload = chatgpt_oauth_status_payload_at(&path);
+        let text = serde_json::to_string(&payload).unwrap();
+
+        assert_eq!(payload["loggedIn"], false);
+        assert_eq!(payload["status"], "missing");
+        assert_eq!(payload["tokenFilePresent"], false);
+        assert!(!text.contains("openai.json"));
+        assert!(!text.contains("access_token"));
+        assert!(!text.contains("refresh_token"));
+    }
+
+    #[test]
+    fn test_chatgpt_oauth_status_valid_file_omits_token_values() {
+        let path = unique_temp_auth_path("valid");
+        let raw = json!({
+            "tokens": {
+                "id_token": "secret-id-token",
+                "access_token": "secret-access-token",
+                "refresh_token": "secret-refresh-token"
+            },
+            "last_refresh": "2026-05-06T20:00:00Z"
+        })
+        .to_string();
+        std::fs::write(&path, raw).unwrap();
+
+        let payload = chatgpt_oauth_status_payload_at(&path);
+        let text = serde_json::to_string(&payload).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(payload["loggedIn"], true);
+        assert_eq!(payload["status"], "logged_in");
+        assert_eq!(payload["refreshTokenPresent"], true);
+        assert_eq!(payload["lastRefresh"], "2026-05-06T20:00:00Z");
+        assert!(!text.contains("secret-id-token"));
+        assert!(!text.contains("secret-access-token"));
+        assert!(!text.contains("secret-refresh-token"));
+    }
+
+    fn unique_temp_auth_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        std::env::temp_dir().join(format!(
+            "gitnexus-chatgpt-auth-status-{label}-{}-{nanos}.json",
+            std::process::id()
+        ))
     }
 }

@@ -7,6 +7,7 @@ import { BackendStatus } from './BackendStatus';
 import { SfdDraftsPanel } from './SfdDraftsPanel';
 import { ChatExports } from './ChatExports';
 import { LlmStatus } from './LlmStatus';
+import { SystemDiagnostics } from './SystemDiagnostics';
 import { useChatStore } from '../../stores/chat-store';
 import { useLlmConfig } from '../../hooks/use-llm-config';
 
@@ -32,6 +33,7 @@ export function ChatPanel() {
           <div className="ml-auto flex items-center gap-2">
             <BackendStatus />
             <LlmStatus llm={llm} />
+            <SystemDiagnostics />
             <ChatExports llm={llm} />
             <ProjectSelector />
             <button

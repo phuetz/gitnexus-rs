@@ -10,11 +10,17 @@ import { LlmStatus } from './LlmStatus';
 import { SystemDiagnostics } from './SystemDiagnostics';
 import { useChatStore } from '../../stores/chat-store';
 import { useLlmConfig } from '../../hooks/use-llm-config';
+import { formatMessageTimestamp } from '../../utils/dates';
 
 export function ChatPanel() {
+  const session = useChatStore((s) => s.getCurrentSession());
   const isSfdOpen = useChatStore((s) => s.isSfdPanelOpen);
   const setSfdOpen = useChatStore((s) => s.setSfdPanelOpen);
   const llm = useLlmConfig();
+  const sessionTitle = session?.title.trim() || 'GitNexus Chat';
+  const sessionSubtitle = session
+    ? `${session.messages.length} message${session.messages.length > 1 ? 's' : ''} - Dernière activité ${formatMessageTimestamp(session.updatedAt) || 'inconnue'}`
+    : 'Analyse de code et recherche outillée';
 
   return (
     <div className="flex h-full w-full bg-neutral-950 text-neutral-100">
@@ -26,8 +32,8 @@ export function ChatPanel() {
               <MessageSquareText className="h-4 w-4" aria-hidden />
             </div>
             <div className="min-w-0">
-              <div className="truncate font-medium text-neutral-100">GitNexus Chat</div>
-              <div className="truncate text-xs text-neutral-500">Analyse de code et recherche outillée</div>
+              <div className="truncate font-medium text-neutral-100">{sessionTitle}</div>
+              <div className="truncate text-xs text-neutral-500">{sessionSubtitle}</div>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-2">

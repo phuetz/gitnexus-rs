@@ -58,4 +58,37 @@ describe('ChatPanel', () => {
     expect(screen.getAllByText('GitNexus Chat').length).toBeGreaterThan(0);
     expect(screen.getByText('Aucune conversation. Crée-en une pour démarrer.')).toBeTruthy();
   });
+
+  it('surfaces active conversation metadata in the header', () => {
+    useChatStore.setState({
+      sessions: [
+        {
+          id: 's1',
+          title: 'Flux courrier',
+          createdAt: 1774507049000,
+          updatedAt: 1774507059000,
+          messages: [
+            {
+              id: 'm1',
+              role: 'user',
+              content: 'Trace le flux courrier',
+              createdAt: 1774507049000,
+            },
+            {
+              id: 'm2',
+              role: 'assistant',
+              content: 'Réponse longue avec diagramme et sources.',
+              createdAt: 1774507059000,
+            },
+          ],
+        },
+      ],
+      currentSessionId: 's1',
+    });
+
+    render(<ChatPanel />);
+
+    expect(screen.getAllByText('Flux courrier').length).toBeGreaterThan(0);
+    expect(screen.getByText(/2 messages - Dernière activité/i)).toBeTruthy();
+  });
 });

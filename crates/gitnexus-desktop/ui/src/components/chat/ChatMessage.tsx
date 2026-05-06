@@ -8,6 +8,7 @@ import type { QueryComplexity } from "../../lib/tauri-commands";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { CodeReviewPanel } from "./CodeReviewPanel";
 import { SimplifyPanel } from "./SimplifyPanel";
+import { copyTextToClipboard } from "../../lib/clipboard";
 
 const ResearchPlanViewer = lazy(() =>
   import("./ResearchPlanViewer").then((m) => ({ default: m.ResearchPlanViewer })),
@@ -51,11 +52,13 @@ export function ChatMessage({
   const { t } = useI18n();
   const pinMessage = useChatSessionStore((s) => s.pinMessage);
   const timestamp = formatMessageTime(message.timestamp);
-  const handleCopyMessage = useCallback(() => {
-    navigator.clipboard.writeText(message.content).then(
-      () => toast.success(t("chat.copiedToClipboard")),
-      () => toast.error(t("chat.copyFailed")),
-    );
+  const handleCopyMessage = useCallback(async () => {
+    const ok = await copyTextToClipboard(message.content);
+    if (ok) {
+      toast.success(t("chat.copiedToClipboard"));
+    } else {
+      toast.error(t("chat.copyFailed"));
+    }
   }, [message.content, t]);
 
   const handleExportMessage = useCallback(() => {

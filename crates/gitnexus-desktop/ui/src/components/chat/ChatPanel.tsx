@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
+import { copyTextToClipboard } from "../../lib/clipboard";
 import type {
   ChatSmartResponse,
   FeatureDevArtifact,
@@ -617,11 +618,13 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
             {messages.length > 0 && (
               <>
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(buildChatMarkdown(activeRepo, activeSession, messages)).then(
-                      () => toast.success("Chat copied as Markdown"),
-                      (e) => toast.error(t("chat.exportFailed").replace("{0}", String(e))),
-                    );
+                  onClick={async () => {
+                    const copied = await copyTextToClipboard(buildChatMarkdown(activeRepo, activeSession, messages));
+                    if (copied) {
+                      toast.success("Chat copied as Markdown");
+                    } else {
+                      toast.error(t("chat.copyFailed"));
+                    }
                   }}
                   className="flex h-7 w-7 items-center justify-center rounded-md text-[11px] hover:bg-[var(--bg-3)]"
                   style={{ color: "var(--text-3)" }}

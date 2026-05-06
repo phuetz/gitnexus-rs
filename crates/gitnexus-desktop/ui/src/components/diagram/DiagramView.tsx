@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Workflow, Copy } from "lucide-react";
 import { commands, type SearchResult } from "../../lib/tauri-commands";
+import { copyTextToClipboard } from "../../lib/clipboard";
 import { useI18n } from "../../hooks/use-i18n";
 import { useAppStore } from "../../stores/app-store";
 import { SymbolAutocomplete } from "../shared/SymbolAutocomplete";
@@ -76,10 +77,10 @@ export function DiagramView() {
 
   const handleCopy = async () => {
     if (diagram?.mermaid) {
-      try {
-        await navigator.clipboard.writeText("```mermaid\n" + diagram.mermaid + "\n```");
+      const ok = await copyTextToClipboard("```mermaid\n" + diagram.mermaid + "\n```");
+      if (ok) {
         toast.success(t("diagram.copied"));
-      } catch {
+      } else {
         toast.error(t("diagram.copyFailed"));
       }
     }

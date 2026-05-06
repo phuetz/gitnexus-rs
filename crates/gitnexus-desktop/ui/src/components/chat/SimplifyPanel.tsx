@@ -20,6 +20,7 @@ import type {
   SimplifyArtifact,
   SimplifyProposal,
 } from "../../lib/tauri-commands";
+import { copyTextToClipboard } from "../../lib/clipboard";
 
 interface Props {
   artifact: SimplifyArtifact;
@@ -37,8 +38,12 @@ export function SimplifyPanel({ artifact }: Props) {
   const [showSignals, setShowSignals] = useState(false);
 
   const copy = async () => {
-    await navigator.clipboard.writeText(artifact.markdown);
-    toast.success("Simplify report copied");
+    const ok = await copyTextToClipboard(artifact.markdown);
+    if (ok) {
+      toast.success("Simplify report copied");
+    } else {
+      toast.error("Failed to copy simplify report");
+    }
   };
   const download = () => {
     const blob = new Blob([artifact.markdown], { type: "text/markdown" });

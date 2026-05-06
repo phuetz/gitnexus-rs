@@ -26,6 +26,7 @@ import type {
   FeatureDevSection,
   ReviewIssue,
 } from "../../lib/tauri-commands";
+import { copyTextToClipboard } from "../../lib/clipboard";
 
 const ChatMarkdown = lazy(() =>
   import("./ChatMarkdown").then((m) => ({ default: m.ChatMarkdown })),
@@ -55,8 +56,12 @@ export function ArtifactPanel({ artifact, activePhase }: Props) {
   const fullMarkdown = useMemo(() => buildFullMarkdown(artifact), [artifact]);
 
   const copyAll = async () => {
-    await navigator.clipboard.writeText(fullMarkdown);
-    toast.success("Artifact copied to clipboard");
+    const copied = await copyTextToClipboard(fullMarkdown);
+    if (copied) {
+      toast.success("Artifact copied to clipboard");
+    } else {
+      toast.error("Failed to copy artifact");
+    }
   };
 
   const downloadAll = () => {
@@ -331,10 +336,14 @@ function CopyAsTodos({ steps }: { steps: string[] }) {
   const [copied, setCopied] = useState(false);
   const todos = steps.map((s, i) => `- [ ] ${i + 1}. ${s}`).join("\n");
   const copy = async () => {
-    await navigator.clipboard.writeText(todos);
-    setCopied(true);
-    toast.success("Build sequence copied as TODOs");
-    setTimeout(() => setCopied(false), 1200);
+    const ok = await copyTextToClipboard(todos);
+    if (ok) {
+      setCopied(true);
+      toast.success("Build sequence copied as TODOs");
+      setTimeout(() => setCopied(false), 1200);
+    } else {
+      toast.error("Failed to copy build sequence");
+    }
   };
   return (
     <button

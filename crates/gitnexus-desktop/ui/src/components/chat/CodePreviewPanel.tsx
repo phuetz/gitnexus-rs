@@ -3,6 +3,7 @@ import { X, Copy, Check, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useAppStore } from "../../stores/app-store";
 import { commands } from "../../lib/tauri-commands";
+import { copyTextToClipboard } from "../../lib/clipboard";
 import {
   ensureUiLanguageLoaded,
   getUiHighlighter,
@@ -77,12 +78,15 @@ export function CodePreviewPanel({
     return () => { cancelled = true; };
   }, [filePath, extension, startLine, endLine]);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code).then(() => {
+  const handleCopy = async () => {
+    const ok = await copyTextToClipboard(code);
+    if (ok) {
       setCheckCopied(true);
       setTimeout(() => setCheckCopied(false), 2000);
       toast.success("Copied to clipboard");
-    });
+    } else {
+      toast.error("Failed to copy code");
+    }
   };
 
   return (

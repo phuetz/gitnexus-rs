@@ -8,6 +8,7 @@ import { commands } from "../../lib/tauri-commands";
 import type { Message, ToolCall, ToolCallStatus } from "../../stores/chat-session-store";
 import { useChatSessionStore } from "../../stores/chat-session-store";
 import { useShikiHighlighter } from "../../hooks/use-shiki-highlighter";
+import { copyTextToClipboard } from "../../lib/clipboard";
 
 function extractTextFromChildren(children: React.ReactNode): string {
   if (typeof children === "string") return children;
@@ -279,15 +280,15 @@ function MermaidDiagram({ chart }: { chart: string }) {
     if (svgEl) el.appendChild(document.importNode(svgEl, true));
   }, [svg]);
 
-  const copySource = () => {
-    navigator.clipboard.writeText(chart).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-        toast.success("Mermaid source copied.");
-      },
-      () => toast.error("Failed to copy Mermaid source."),
-    );
+  const copySource = async () => {
+    const ok = await copyTextToClipboard(chart);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      toast.success("Mermaid source copied.");
+    } else {
+      toast.error("Failed to copy Mermaid source.");
+    }
   };
 
   const downloadSvg = () => {
@@ -494,7 +495,14 @@ function ShikiCodeBlock({ code, langHint, rawChildren }: { code: string; langHin
       <button
         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity px-2 py-1 rounded text-[11px]"
         style={{ background: "var(--bg-3)", color: "var(--text-2)" }}
-        onClick={() => { navigator.clipboard.writeText(code).then(() => toast.success("Copied!"), () => toast.error("Failed")); }}
+        onClick={async () => {
+          const ok = await copyTextToClipboard(code);
+          if (ok) {
+            toast.success("Copied!");
+          } else {
+            toast.error("Failed");
+          }
+        }}
       >
         <Copy size={12} className="inline mr-1" />Copy
       </button>

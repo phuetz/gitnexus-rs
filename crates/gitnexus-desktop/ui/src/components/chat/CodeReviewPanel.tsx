@@ -23,6 +23,7 @@ import type {
   CodeReviewArtifact,
   ReviewIssue,
 } from "../../lib/tauri-commands";
+import { copyTextToClipboard } from "../../lib/clipboard";
 
 const ChatMarkdown = lazy(() =>
   import("./ChatMarkdown").then((m) => ({ default: m.ChatMarkdown })),
@@ -36,8 +37,12 @@ export function CodeReviewPanel({ artifact }: Props) {
   const [showSignals, setShowSignals] = useState(true);
 
   const copy = async () => {
-    await navigator.clipboard.writeText(artifact.markdown);
-    toast.success("Review copied to clipboard");
+    const ok = await copyTextToClipboard(artifact.markdown);
+    if (ok) {
+      toast.success("Review copied to clipboard");
+    } else {
+      toast.error("Failed to copy review");
+    }
   };
 
   const download = () => {

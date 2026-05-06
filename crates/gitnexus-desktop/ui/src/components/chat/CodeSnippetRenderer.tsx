@@ -8,6 +8,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { ChevronDown, ChevronRight, Copy, Check, FileCode, ExternalLink } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
+import { copyTextToClipboard } from "../../lib/clipboard";
 
 const LANG_COLORS: Record<string, string> = {
   typescript: "#3178c6",
@@ -64,14 +65,13 @@ export function CodeSnippetRenderer({
   const isLong = lines.length > maxLines;
   const displayLines = expanded || !isLong ? lines : lines.slice(0, maxLines);
 
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(code).then(() => {
+  const handleCopy = useCallback(async () => {
+    const ok = await copyTextToClipboard(code);
+    if (ok) {
       setCopied(true);
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
       copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
-    }).catch((err) => {
-      console.debug("Clipboard API unavailable:", err);
-    });
+    }
   }, [code]);
 
   return (

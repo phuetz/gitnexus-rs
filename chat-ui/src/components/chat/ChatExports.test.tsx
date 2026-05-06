@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LlmConfigState } from '../../hooks/use-llm-config';
 import { useChatStore } from '../../stores/chat-store';
 import { ChatExports } from './ChatExports';
@@ -20,6 +20,10 @@ function readyLlm(): LlmConfigState {
 }
 
 describe('ChatExports', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     localStorage.clear();
     useChatStore.setState({
@@ -78,5 +82,36 @@ describe('ChatExports', () => {
     expect(markdown).toContain('_Outils: search_code (done)_');
     expect(markdown).toContain('```mermaid');
     expect(screen.getByRole('button', { name: /conversation markdown copiée/i })).toBeTruthy();
+  });
+
+  it('shows a non-blocking error when Markdown cannot be copied', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+    });
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: undefined,
+    });
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+
+    render(<ChatExports llm={readyLlm()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /copier la conversation en markdown/i }));
+
+    expect(await screen.findByText('Copie impossible')).toBeTruthy();
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows a non-blocking error when PDF export is blocked', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    vi.spyOn(window, 'open').mockReturnValue(null);
+
+    render(<ChatExports llm={readyLlm()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /exporter la conversation en pdf/i }));
+
+    expect(await screen.findByText(/fenêtre d’export pdf/i)).toBeTruthy();
+    expect(alertSpy).not.toHaveBeenCalled();
   });
 });

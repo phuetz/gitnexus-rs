@@ -9,11 +9,17 @@ import {
 import type { Message } from '../types/chat';
 
 const newId = () => crypto.randomUUID();
+const DEFAULT_SESSION_TITLE = 'Nouvelle conversation';
+
+function titleFromMessage(content: string): string {
+  return content.replace(/\s+/g, ' ').trim().slice(0, 80) || DEFAULT_SESSION_TITLE;
+}
 
 export function useChat() {
   const currentSessionId = useChatStore((s) => s.currentSessionId);
   const selectedRepo = useChatStore((s) => s.selectedRepo);
   const createSession = useChatStore((s) => s.createSession);
+  const renameSession = useChatStore((s) => s.renameSession);
   const appendMessage = useChatStore((s) => s.appendMessage);
   const updateMessage = useChatStore((s) => s.updateMessage);
   const upsertToolCall = useChatStore((s) => s.upsertToolCall);
@@ -45,15 +51,23 @@ export function useChat() {
           createdAt: Date.now(),
         };
         let sid = currentSessionId;
-        if (!sid) sid = createSession('Nouvelle conversation');
+        if (!sid) sid = createSession(DEFAULT_SESSION_TITLE);
         appendMessage(sid, errMsg);
         return;
       }
 
       let sessionId = currentSessionId;
-      if (!sessionId) sessionId = createSession(trimmed.slice(0, 60));
+      if (!sessionId) sessionId = createSession(titleFromMessage(trimmed));
 
       const previous = getCurrentSession();
+      if (
+        previous &&
+        previous.id === sessionId &&
+        previous.messages.length === 0 &&
+        previous.title === DEFAULT_SESSION_TITLE
+      ) {
+        renameSession(sessionId, titleFromMessage(trimmed));
+      }
       const history: ChatHistoryMessage[] = (previous?.messages ?? [])
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
@@ -139,6 +153,7 @@ export function useChat() {
       currentSessionId,
       getCurrentSession,
       isStreaming,
+      renameSession,
       selectedRepo,
       setStreaming,
       updateMessage,

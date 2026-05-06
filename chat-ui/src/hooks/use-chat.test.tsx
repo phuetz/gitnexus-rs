@@ -45,4 +45,33 @@ describe('useChat', () => {
       expect(useChatStore.getState().isStreaming).toBe(false);
     });
   });
+
+  it('renames an empty default session from the first user message', async () => {
+    useChatStore.setState({
+      sessions: [
+        {
+          id: 's1',
+          title: 'Nouvelle conversation',
+          createdAt: 1778000000000,
+          updatedAt: 1778000000000,
+          messages: [],
+        },
+      ],
+      currentSessionId: 's1',
+    });
+    vi.spyOn(mcpClient, 'chatStream').mockImplementation(
+      async (_repo, _question, _history, onDelta) => {
+        onDelta('Réponse OK');
+      }
+    );
+
+    render(<SendProbe />);
+    fireEvent.click(screen.getByRole('button', { name: 'Envoyer' }));
+
+    await waitFor(() => {
+      const session = useChatStore.getState().sessions[0];
+      expect(session.title).toBe('Trace le flux courrier');
+      expect(session.messages.map((message) => message.role)).toEqual(['user', 'assistant']);
+    });
+  });
 });

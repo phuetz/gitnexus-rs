@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, RefreshCw, ShieldCheck, TriangleAlert, X } from 'lucide-react';
+import { Activity, Check, Copy, RefreshCw, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import clsx from 'clsx';
 import { mcpClient, type DiagnosticsInfo } from '../../api/mcp-client';
 import { useChatStore } from '../../stores/chat-store';
@@ -14,6 +14,7 @@ export function SystemDiagnostics() {
   const [status, setStatus] = useState<DiagnosticsStatus>('idle');
   const [diagnostics, setDiagnostics] = useState<DiagnosticsInfo | null>(null);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const refresh = async () => {
     setStatus('loading');
@@ -34,6 +35,25 @@ export function SystemDiagnostics() {
     setOpen(nextOpen);
     if (nextOpen && status === 'idle') {
       void refresh();
+    }
+  };
+
+  const copyReport = async () => {
+    if (!diagnostics) return;
+    try {
+      await navigator.clipboard.writeText(
+        formatDiagnosticsReport({
+          diagnostics,
+          selectedRepo,
+          selectedRepoName,
+          frontend: window.location.host || 'navigateur local',
+          backend: mcpClient.baseUrl || 'proxy Vite / même origine',
+        })
+      );
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard can be unavailable in restricted browser contexts.
     }
   };
 
@@ -72,6 +92,20 @@ export function SystemDiagnostics() {
               <div className="mt-1 text-neutral-500">{statusLabel(status, diagnostics)}</div>
             </div>
             <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void copyReport()}
+                disabled={!diagnostics}
+                className="rounded-md border border-neutral-800 p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Copier le rapport de diagnostic"
+                title={copied ? 'Copié' : 'Copier le rapport'}
+              >
+                {copied ? (
+                  <Check className="h-3.5 w-3.5 text-emerald-300" aria-hidden />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" aria-hidden />
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() => void refresh()}
@@ -314,4 +348,52 @@ function formatIndexedAt(raw: string | null | undefined): string {
   const date = parseIndexedAt(raw);
   if (!date) return 'date inconnue';
   return date.toLocaleDateString();
+}
+
+function formatDiagnosticsReport({
+  diagnostics,
+  selectedRepo,
+  selectedRepoName,
+  frontend,
+  backend,
+}: {
+  diagnostics: DiagnosticsInfo;
+  selectedRepo: string | null;
+  selectedRepoName: string | null;
+  frontend: string;
+  backend: string;
+}): string {
+  const llm = diagnostics.llm;
+  const oauth = diagnostics.auth?.chatgptOAuth;
+  const repos = diagnostics.repos.names;
+  const repoLines =
+    repos.length > 0
+      ? repos
+          .slice(0, 10)
+          .map((repo) => `- ${repo.name} (${repo.id}) index=${formatIndexedAt(repo.indexedAt)}`)
+          .join('\n')
+      : '- aucun projet indexé';
+
+  return [
+    '# Diagnostic GitNexus',
+    '',
+    `Généré: ${formatExportTimestamp(diagnostics.generatedAtUnixMs)}`,
+    `Frontend: ${frontend}`,
+    `Backend: ${backend}`,
+    `Service: ${diagnostics.service} ${diagnostics.version}`,
+    `Projet actif: ${selectedRepoName ?? selectedRepo ?? 'aucun projet sélectionné'}`,
+    `Auth HTTP: ${diagnostics.httpAuthRequired ? 'requise' : 'non requise'}`,
+    `Chemins repo: ${diagnostics.repoPathsExposed ? 'exposés' : 'masqués'}`,
+    '',
+    '## LLM',
+    `Provider: ${llm.configured ? (llm.provider ?? 'inconnu') : 'non configuré'}`,
+    `Modèle: ${llm.model ?? 'non défini'}`,
+    `Raisonnement: ${llm.reasoningEffort ?? 'défaut'}`,
+    `Max tokens: ${llm.maxTokens ? String(llm.maxTokens) : 'défaut'}`,
+    `OAuth ChatGPT: ${oauthStatusLabel(oauth?.status)}`,
+    `Dernier refresh: ${formatOAuthRefresh(oauth?.lastRefresh)}`,
+    '',
+    `## Index local (${diagnostics.repos.count} projet(s))`,
+    repoLines,
+  ].join('\n');
 }

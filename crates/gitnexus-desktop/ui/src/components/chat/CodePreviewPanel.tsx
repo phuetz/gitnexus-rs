@@ -3,9 +3,18 @@ import { X, Copy, Check, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useAppStore } from "../../stores/app-store";
 import { commands } from "../../lib/tauri-commands";
+import {
+  ensureUiLanguageLoaded,
+  getUiHighlighter,
+  resolveUiLanguage,
+} from "../../lib/shiki-runtime";
 
-// Note: Shiki is handled via dynamic import to avoid bundling issues
-// in this environment if createHighlighter is missing.
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 export function CodePreviewPanel({
   filePath,
@@ -39,32 +48,16 @@ export function CodePreviewPanel({
         
         setCode(result.content);
 
-        // Fallback to simple pre if shiki fails or is being weird
-        setHtml(`<pre><code>${result.content.replace(/</g, "&lt;")}</code></pre>`);
+        setHtml(`<pre><code>${escapeHtml(result.content)}</code></pre>`);
 
         try {
-          const { createHighlighter } = await import("shiki");
-          const highlighter = await createHighlighter({
-            langs: ["rust", "typescript", "javascript", "csharp", "python", "go", "json", "markdown"],
-            themes: ["tokyo-night"],
-          });
-
-          const langMap: Record<string, string> = {
-            rs: "rust",
-            ts: "typescript",
-            tsx: "typescript",
-            js: "javascript",
-            jsx: "javascript",
-            cs: "csharp",
-            py: "python",
-            go: "go",
-            json: "json",
-            md: "markdown",
-          };
+          const highlighter = await getUiHighlighter();
+          const lang = resolveUiLanguage(extension);
+          const langOk = lang ? await ensureUiLanguageLoaded(highlighter, lang) : false;
 
           const generatedHtml = highlighter.codeToHtml(result.content, {
-            lang: langMap[extension] || "text",
-            theme: "tokyo-night",
+            lang: langOk && lang ? lang : ("text" as never),
+            theme: "tokyo-night" as never,
           });
           
           if (!cancelled) {

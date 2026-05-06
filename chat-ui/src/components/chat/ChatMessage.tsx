@@ -4,6 +4,7 @@ import { User, Bot, Copy, RotateCcw, Check, Loader2, Wrench, X } from 'lucide-re
 import type { Message, ToolCall } from '../../types/chat';
 import { Markdown } from '../ui/Markdown';
 import { formatMessageTimestamp } from '../../utils/dates';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface Props {
   message: Message;
@@ -17,13 +18,10 @@ export function ChatMessage({ message, onRegenerate, canRegenerate }: Props) {
   const timestamp = formatMessageTimestamp(message.createdAt);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(message.content);
+    const ok = await copyTextToClipboard(message.content);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard access can be denied (insecure context, focus). Silently
-      // ignore — the user can still select & Ctrl+C as a fallback.
     }
   };
 

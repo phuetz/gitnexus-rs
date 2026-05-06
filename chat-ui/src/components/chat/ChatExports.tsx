@@ -3,6 +3,7 @@ import { Check, Copy, FileDown, Printer } from 'lucide-react';
 import type { LlmConfigState } from '../../hooks/use-llm-config';
 import { useChatStore } from '../../stores/chat-store';
 import { conversationToMarkdown, exportMarkdown, exportPdf } from '../../utils/chat-export';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface Props {
   llm: LlmConfigState;
@@ -31,15 +32,15 @@ export function ChatExports({ llm }: Props) {
 
   const handleCopyMarkdown = async () => {
     if (!session || !hasContent) return;
-    try {
-      await navigator.clipboard.writeText(conversationToMarkdown(session, exportMetadata));
+    const ok = await copyTextToClipboard(conversationToMarkdown(session, exportMetadata));
+    if (ok) {
       setCopied(true);
       if (copiedResetTimer.current !== null) {
         window.clearTimeout(copiedResetTimer.current);
       }
       copiedResetTimer.current = window.setTimeout(() => setCopied(false), 1600);
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+    } else {
+      window.alert('Impossible de copier la conversation dans ce navigateur.');
     }
   };
 

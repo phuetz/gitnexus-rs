@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { mcpClient, type DiagnosticsInfo } from '../../api/mcp-client';
 import { useChatStore } from '../../stores/chat-store';
 import { formatExportTimestamp, parseIndexedAt } from '../../utils/dates';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 type DiagnosticsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -40,20 +41,18 @@ export function SystemDiagnostics() {
 
   const copyReport = async () => {
     if (!diagnostics) return;
-    try {
-      await navigator.clipboard.writeText(
-        formatDiagnosticsReport({
-          diagnostics,
-          selectedRepo,
-          selectedRepoName,
-          frontend: window.location.host || 'navigateur local',
-          backend: mcpClient.baseUrl || 'proxy Vite / même origine',
-        })
-      );
+    const ok = await copyTextToClipboard(
+      formatDiagnosticsReport({
+        diagnostics,
+        selectedRepo,
+        selectedRepoName,
+        frontend: window.location.host || 'navigateur local',
+        backend: mcpClient.baseUrl || 'proxy Vite / même origine',
+      })
+    );
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-    } catch {
-      // Clipboard can be unavailable in restricted browser contexts.
     }
   };
 

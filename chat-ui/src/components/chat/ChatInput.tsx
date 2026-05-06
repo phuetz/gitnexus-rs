@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react';
 import { Database, Send, Square } from 'lucide-react';
 import { useChat } from '../../hooks/use-chat';
 import { useChatStore } from '../../stores/chat-store';
@@ -12,8 +12,23 @@ export function ChatInput() {
   const selectedRepoName = useChatStore((s) => s.selectedRepoName);
   const value = useChatStore((s) => s.inputDraft);
   const setValue = useChatStore((s) => s.setInputDraft);
+  const session = useChatStore((s) => s.getCurrentSession());
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const historyIndexRef = useRef(-1);
+  const draftBeforeHistoryRef = useRef('');
   const repoLabel = selectedRepoName ?? selectedRepo;
+  const promptHistory = useMemo(() => {
+    const seen = new Set<string>();
+    return [...(session?.messages ?? [])]
+      .reverse()
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content.trim())
+      .filter((content) => {
+        if (!content || seen.has(content)) return false;
+        seen.add(content);
+        return true;
+      });
+  }, [session?.messages]);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -24,16 +39,57 @@ export function ChatInput() {
 
   const submit = () => {
     if (!value.trim() || isStreaming) return;
+    historyIndexRef.current = -1;
+    draftBeforeHistoryRef.current = '';
     void sendMessage(value);
     setValue('');
     // Re-focus textarea après envoi (productivité clavier).
     requestAnimationFrame(() => taRef.current?.focus());
   };
 
+  const restoreHistoryEntry = (nextIndex: number) => {
+    historyIndexRef.current = nextIndex;
+    setValue(promptHistory[nextIndex] ?? '');
+    requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (!ta) return;
+      const end = ta.value.length;
+      ta.setSelectionRange(end, end);
+    });
+  };
+
+  const resetHistoryNavigation = (nextValue: string) => {
+    historyIndexRef.current = -1;
+    draftBeforeHistoryRef.current = nextValue;
+    setValue(nextValue);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       submit();
+      return;
+    }
+
+    if (e.key === 'ArrowUp' && promptHistory.length > 0) {
+      const browsingHistory = historyIndexRef.current >= 0;
+      if (value.trim() === '' || browsingHistory) {
+        e.preventDefault();
+        if (!browsingHistory) draftBeforeHistoryRef.current = value;
+        restoreHistoryEntry(Math.min(historyIndexRef.current + 1, promptHistory.length - 1));
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown' && historyIndexRef.current >= 0) {
+      e.preventDefault();
+      const nextIndex = historyIndexRef.current - 1;
+      if (nextIndex >= 0) {
+        restoreHistoryEntry(nextIndex);
+      } else {
+        historyIndexRef.current = -1;
+        setValue(draftBeforeHistoryRef.current);
+      }
     }
   };
 
@@ -53,7 +109,7 @@ export function ChatInput() {
         <textarea
           ref={taRef}
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => resetHistoryNavigation(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder={
             selectedRepo

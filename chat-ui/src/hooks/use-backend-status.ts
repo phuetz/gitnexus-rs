@@ -103,10 +103,10 @@ export function useBackendStatus(
           lastSuccessAt: prev.lastSuccessAt,
           lastAttemptAt: failedAt,
           nextProbeAt: failedAt + pollIntervalMs,
-          message:
-            prev.lastSuccessAt > 0
-              ? `Serveur injoignable depuis ${formatAge(failedAt - prev.lastSuccessAt)}. ${reason}`
-              : `Serveur injoignable. Lance \`gitnexus serve --port 3010\` puis recharge la page. (${reason})`,
+          message: formatBackendOfflineMessage(
+            reason,
+            prev.lastSuccessAt > 0 ? failedAt - prev.lastSuccessAt : null,
+          ),
         }));
       } finally {
         if (!cancelled) {
@@ -139,4 +139,16 @@ function formatAge(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
   if (ms < 60 * 60_000) return `${Math.round(ms / 60_000)} min`;
   return `${Math.round(ms / (60 * 60_000))} h`;
+}
+
+export function formatBackendOfflineMessage(reason: string, offlineForMs: number | null): string {
+  const proxyHint = /\b502\b|bad gateway/i.test(reason)
+    ? ' Un 502 indique souvent que le proxy Vite pointe vers un backend arrêté ou vers le mauvais port.'
+    : '';
+
+  if (offlineForMs !== null) {
+    return `Serveur injoignable depuis ${formatAge(offlineForMs)}.${proxyHint} ${reason}`.trim();
+  }
+
+  return `Serveur injoignable.${proxyHint} Lance \`.\\gitnexus.cmd chat -RestartBackend\` depuis le dépôt, ou \`.\\gitnexus.cmd doctor\` pour vérifier les ports. (${reason})`;
 }

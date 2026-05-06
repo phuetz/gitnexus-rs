@@ -143,7 +143,7 @@ pub(super) fn generate_html_site(
     let mut section_num: usize = 1;
 
     sidebar_html.push_str(&format!(
-        "<div class=\"section-title\">{}. OVERVIEW</div>\n",
+        "<div class=\"section-title\">{}. VUE D'ENSEMBLE</div>\n",
         section_num
     ));
     for (sub_idx, (id, (title, _))) in overview_pages.iter().enumerate() {
@@ -166,7 +166,7 @@ pub(super) fn generate_html_site(
     if !ctrl_pages.is_empty() {
         section_num += 1;
         sidebar_html.push_str(&format!(
-            "<div class=\"section-title\">{}. CONTROLLERS</div>\n",
+            "<div class=\"section-title\">{}. CONTROLEURS</div>\n",
             section_num
         ));
         for (sub_idx, (id, (title, _))) in ctrl_pages.iter().enumerate() {
@@ -185,7 +185,7 @@ pub(super) fn generate_html_site(
     if !data_pages.is_empty() {
         section_num += 1;
         sidebar_html.push_str(&format!(
-            "<div class=\"section-title\">{}. DATA MODEL</div>\n",
+            "<div class=\"section-title\">{}. MODELE DE DONNEES</div>\n",
             section_num
         ));
         for (sub_idx, (id, (title, _))) in data_pages.iter().enumerate() {
@@ -223,7 +223,7 @@ pub(super) fn generate_html_site(
     if !process_pages.is_empty() {
         section_num += 1;
         sidebar_html.push_str(&format!(
-            "<div class=\"section-title\">{}. BUSINESS PROCESSES</div>\n",
+            "<div class=\"section-title\">{}. PROCESSUS METIER</div>\n",
             section_num
         ));
         for (sub_idx, (id, (title, _))) in process_pages.iter().enumerate() {
@@ -835,7 +835,7 @@ fn build_html_template(
     let stats = stats.as_str();
     format!(
         r##"<!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="fr" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1228,9 +1228,9 @@ fn build_html_template(
           style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;">
         <div id="search-filters" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
           <button class="search-filter active" data-filter="all" onclick="setSearchFilter('all',this)">Tout</button>
-          <button class="search-filter" data-filter="Controller" onclick="setSearchFilter('Controller',this)">Controllers</button>
+          <button class="search-filter" data-filter="Controller" onclick="setSearchFilter('Controller',this)">Controleurs</button>
           <button class="search-filter" data-filter="Service" onclick="setSearchFilter('Service',this)">Services</button>
-          <button class="search-filter" data-filter="DataModel" onclick="setSearchFilter('DataModel',this)">Data</button>
+          <button class="search-filter" data-filter="DataModel" onclick="setSearchFilter('DataModel',this)">Donnees</button>
           <button class="search-filter" data-filter="enriched" onclick="setSearchFilter('enriched',this)">Enrichi ✓</button>
         </div>
       </div>
@@ -1247,7 +1247,7 @@ fn build_html_template(
   </header>
   <nav class="sidebar">
     <div class="search">
-      <input type="text" placeholder="Filter pages..." oninput="filterPages(this.value)">
+      <input type="text" placeholder="Filtrer les pages..." oninput="filterPages(this.value)">
     </div>
     <div id="dynamic-sidebar"></div>
   </nav>
@@ -1255,7 +1255,7 @@ fn build_html_template(
     {first_page_content}
   </main>
   <aside class="toc" id="toc">
-    <h3>On this page</h3>
+    <h3>Dans cette page</h3>
     <div id="toc-links"></div>
   </aside>
 
@@ -2551,6 +2551,28 @@ mod tests {
         assert!(html.contains("function queryTokens(q)"));
         assert!(html.contains("return tokens.every(token => haystack.includes(token));"));
         assert!(html.contains(".replace(/[\\u0300-\\u036f]/g, '')"));
+    }
+
+    #[test]
+    fn html_template_uses_french_navigation_labels() {
+        let html = build_html_template(
+            "sample",
+            "1 node",
+            "",
+            "<h1>Overview</h1>",
+            "{}",
+            "[]",
+            "[]",
+            r#"{"pages":[]}"#,
+            "[]",
+            "{}",
+        );
+
+        assert!(html.contains(r#"<html lang="fr""#));
+        assert!(html.contains("Filtrer les pages..."));
+        assert!(html.contains("<h3>Dans cette page</h3>"));
+        assert!(html.contains(">Controleurs</button>"));
+        assert!(html.contains(">Donnees</button>"));
     }
 
     #[test]

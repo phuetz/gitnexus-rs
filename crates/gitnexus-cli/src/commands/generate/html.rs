@@ -85,6 +85,13 @@ pub(super) fn generate_html_site(
         ));
     }
 
+    let index_json_path = docs_dir.join("_index.json");
+    let mut index_value = load_json_file(&index_json_path, json!({ "pages": [] }))?;
+
+    let prompt_audit_path = docs_dir.join("_meta").join("prompt-audit.json");
+    let prompt_audit_value = load_json_file(&prompt_audit_path, Value::Null)?;
+    insert_prompt_audit_page(&mut pages, &mut index_value, &prompt_audit_value);
+
     // 2. Build sidebar HTML with numbered sections
     let mut sidebar_html = String::new();
 
@@ -226,9 +233,6 @@ pub(super) fn generate_html_site(
             ));
         }
     }
-
-    let index_json_path = docs_dir.join("_index.json");
-    let index_value = load_json_file(&index_json_path, json!({ "pages": [] }))?;
 
     let provenance_path = docs_dir.join("_meta").join("provenance.json");
     let provenance_value = load_json_file(&provenance_path, json!([]))?;
@@ -393,6 +397,241 @@ fn script_safe_json(json: &str) -> String {
     json.replace("</", "<\\/")
 }
 
+const PROMPT_AUDIT_PAGE_ID: &str = "prompt-audit";
+
+fn insert_prompt_audit_page(
+    pages: &mut BTreeMap<String, (String, String)>,
+    index: &mut Value,
+    audit: &Value,
+) {
+    if audit.is_null() {
+        return;
+    }
+
+    pages.insert(
+        PROMPT_AUDIT_PAGE_ID.to_string(),
+        (
+            "Audit des prompts".to_string(),
+            render_prompt_audit_page(audit),
+        ),
+    );
+    append_prompt_audit_nav(index);
+}
+
+fn append_prompt_audit_nav(index: &mut Value) {
+    if nav_contains_page_id(index, PROMPT_AUDIT_PAGE_ID) {
+        return;
+    }
+
+    let audit_section = json!({
+        "id": "audit",
+        "title": "Audit",
+        "icon": "shield-check",
+        "children": [
+            {
+                "id": PROMPT_AUDIT_PAGE_ID,
+                "path": "prompt-audit.md",
+                "title": "Audit des prompts",
+                "icon": "shield-check"
+            }
+        ]
+    });
+
+    if let Some(pages) = index.get_mut("pages").and_then(Value::as_array_mut) {
+        pages.push(audit_section);
+    } else if let Some(pages) = index.as_array_mut() {
+        pages.push(audit_section);
+    } else {
+        *index = json!({ "pages": [audit_section] });
+    }
+}
+
+fn nav_contains_page_id(value: &Value, page_id: &str) -> bool {
+    if let Some(id) = nav_item_page_id(value) {
+        if id == page_id {
+            return true;
+        }
+    }
+    value
+        .get("pages")
+        .or_else(|| value.get("children"))
+        .and_then(Value::as_array)
+        .or_else(|| value.as_array())
+        .is_some_and(|items| items.iter().any(|item| nav_contains_page_id(item, page_id)))
+}
+
+fn nav_item_page_id(item: &Value) -> Option<String> {
+    let raw = item
+        .get("path")
+        .or_else(|| item.get("id"))
+        .and_then(|v| v.as_str())?;
+    let page_id = raw
+        .trim_start_matches("./")
+        .strip_suffix(".md")
+        .unwrap_or(raw)
+        .to_string();
+    if page_id.is_empty() {
+        None
+    } else {
+        Some(page_id)
+    }
+}
+
+fn render_prompt_audit_page(audit: &Value) -> String {
+    let project = audit_text(audit, &["project", "name"], "repository");
+    let generated_at = audit_text(audit, &["generatedAt"], "inconnu");
+    let target = audit_text(audit, &["run", "target"], "inconnu");
+    let provider = audit_text(audit, &["llm", "provider"], "non configure");
+    let model = audit_text(audit, &["llm", "model"], "non configure");
+    let configured_reasoning = audit_text(
+        audit,
+        &["llm", "reasoningEffortConfigured"],
+        "non configure",
+    );
+    let effective_reasoning = audit_text(
+        audit,
+        &["llm", "reasoningEffortEffectiveForEnrichment"],
+        "non configure",
+    );
+    let profile_name = audit_text(audit, &["enrichment", "profile", "name"], "default");
+    let language = audit_text(audit, &["enrichment", "language"], "fr");
+    let citations = audit_bool(audit, &["enrichment", "citations"])
+        .map(yes_no)
+        .unwrap_or("Non renseigne");
+    let evidence_role = audit_text(
+        audit,
+        &["enrichment", "contextPolicy", "evidenceRole"],
+        "user",
+    );
+    let system_policy = audit_text(audit, &["enrichment", "rolePolicy", "system"], "");
+    let user_policy = audit_text(audit, &["enrichment", "rolePolicy", "user"], "");
+    let families_html = render_prompt_families(audit);
+    let privacy_html = render_prompt_audit_privacy(audit);
+
+    format!(
+        r#"<h1>Audit des prompts</h1>
+<p class="lead">Vue de controle de la generation documentaire pour <strong>{project}</strong>. Ce rapport decrit la configuration LLM, les familles de prompts et les frontieres de roles sans recopier les prompts complets ni les extraits du depot.</p>
+<div class="audit-grid">
+  <section class="audit-card">
+    <h2>Execution</h2>
+    <dl class="audit-kv">
+      <dt>Genere le</dt><dd>{generated_at}</dd>
+      <dt>Cible</dt><dd><code>{target}</code></dd>
+      <dt>Langue</dt><dd><code>{language}</code></dd>
+      <dt>Citations</dt><dd>{citations}</dd>
+    </dl>
+  </section>
+  <section class="audit-card">
+    <h2>LLM</h2>
+    <dl class="audit-kv">
+      <dt>Provider</dt><dd><code>{provider}</code></dd>
+      <dt>Modele</dt><dd><code>{model}</code></dd>
+      <dt>Profil</dt><dd><code>{profile_name}</code></dd>
+      <dt>Reflexion configuree</dt><dd><code>{configured_reasoning}</code></dd>
+      <dt>Reflexion effective docs</dt><dd><code>{effective_reasoning}</code></dd>
+    </dl>
+  </section>
+</div>
+<section class="audit-card audit-wide">
+  <h2>Frontieres de roles</h2>
+  <dl class="audit-kv">
+    <dt>Role des preuves</dt><dd><code>{evidence_role}</code></dd>
+    <dt>System</dt><dd>{system_policy}</dd>
+    <dt>User</dt><dd>{user_policy}</dd>
+  </dl>
+</section>
+<section class="audit-card audit-wide">
+  <h2>Familles de prompts</h2>
+  <div class="audit-family-list">{families_html}</div>
+</section>
+<section class="audit-card audit-wide">
+  <h2>Confidentialite</h2>
+  <p class="audit-muted">Ce manifeste est volontairement metadata-only. Les prompts complets, les extraits de preuves, les tokens OAuth, les cles API, les endpoints provider et les chemins locaux ne sont pas stockes dans cette page.</p>
+  <div class="audit-privacy-list">{privacy_html}</div>
+</section>"#
+    )
+}
+
+fn render_prompt_families(audit: &Value) -> String {
+    audit
+        .get("enrichment")
+        .and_then(|v| v.get("promptFamilies"))
+        .and_then(Value::as_array)
+        .map(|families| {
+            families
+                .iter()
+                .map(|family| {
+                    let id = audit_text(family, &["id"], "prompt");
+                    let purpose = audit_text(family, &["purpose"], "");
+                    let system_has_evidence =
+                        audit_bool(family, &["systemRoleContainsEvidence"]).unwrap_or(false);
+                    let user_has_evidence =
+                        audit_bool(family, &["userRoleContainsEvidence"]).unwrap_or(false);
+                    format!(
+                        r#"<article class="audit-family">
+  <code>{id}</code>
+  <p>{purpose}</p>
+  <span class="audit-pill {system_class}">system preuves: {system}</span>
+  <span class="audit-pill {user_class}">user preuves: {user}</span>
+</article>"#,
+                        system_class = if system_has_evidence { "warn" } else { "ok" },
+                        user_class = if user_has_evidence { "info" } else { "ok" },
+                        system = yes_no(system_has_evidence),
+                        user = yes_no(user_has_evidence),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_else(|| {
+            "<p class=\"audit-muted\">Aucune famille de prompt declaree.</p>".to_string()
+        })
+}
+
+fn render_prompt_audit_privacy(audit: &Value) -> String {
+    [
+        ("storesLlmSecrets", "Secrets LLM stockes"),
+        ("storesOauthTokens", "Tokens OAuth stockes"),
+        ("storesProviderEndpoint", "Endpoint provider stocke"),
+        ("storesRepositoryPaths", "Chemins locaux stockes"),
+    ]
+    .into_iter()
+    .map(|(key, label)| {
+        let value = audit_bool(audit, &["privacy", key]).unwrap_or(false);
+        format!(
+            r#"<span class="audit-pill {class}">{label}: {value}</span>"#,
+            class = if value { "warn" } else { "ok" },
+            label = super::markdown::html_escape(label),
+            value = yes_no(value),
+        )
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+fn audit_text(value: &Value, path: &[&str], fallback: &str) -> String {
+    let raw = path
+        .iter()
+        .try_fold(value, |current, key| current.get(*key))
+        .and_then(|v| if v.is_null() { None } else { v.as_str() })
+        .unwrap_or(fallback);
+    super::markdown::html_escape(raw)
+}
+
+fn audit_bool(value: &Value, path: &[&str]) -> Option<bool> {
+    path.iter()
+        .try_fold(value, |current, key| current.get(*key))
+        .and_then(Value::as_bool)
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value {
+        "Oui"
+    } else {
+        "Non"
+    }
+}
+
 fn provenance_ids_from_value(value: &Value) -> HashSet<String> {
     value
         .as_array()
@@ -408,23 +647,6 @@ fn provenance_ids_from_value(value: &Value) -> HashSet<String> {
 }
 
 fn page_order_from_index(index: &Value, pages: &BTreeMap<String, (String, String)>) -> Vec<String> {
-    fn page_id_from_nav_item(item: &Value) -> Option<String> {
-        let raw = item
-            .get("path")
-            .or_else(|| item.get("id"))
-            .and_then(|v| v.as_str())?;
-        let page_id = raw
-            .trim_start_matches("./")
-            .strip_suffix(".md")
-            .unwrap_or(raw)
-            .to_string();
-        if page_id.is_empty() {
-            None
-        } else {
-            Some(page_id)
-        }
-    }
-
     fn push_nav_item(
         item: &Value,
         pages: &BTreeMap<String, (String, String)>,
@@ -438,7 +660,7 @@ fn page_order_from_index(index: &Value, pages: &BTreeMap<String, (String, String
             return;
         }
 
-        if let Some(page_id) = page_id_from_nav_item(item) {
+        if let Some(page_id) = nav_item_page_id(item) {
             if pages.contains_key(&page_id) && seen.insert(page_id.clone()) {
                 out.push(page_id);
             }
@@ -482,6 +704,8 @@ fn classify_page_from_id(id: &str) -> &'static str {
         "Overview"
     } else if name == "architecture" {
         "Architecture"
+    } else if name.contains("audit") || name.contains("prompt") {
+        "Audit"
     } else if name.contains("view") || name.contains("ui") {
         "UI"
     } else {
@@ -658,6 +882,21 @@ fn build_html_template(
     .callout-tip {{ background: rgba(74,222,128,0.08); border-color: #4ade80; }}
     .callout-warning {{ background: rgba(251,191,36,0.08); border-color: #fbbf24; }}
     .callout-danger {{ background: rgba(248,113,113,0.08); border-color: #f87171; }}
+    .audit-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin:20px 0; }}
+    .audit-card {{ background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; padding:18px; margin:16px 0; }}
+    .audit-card h2 {{ margin-top:0; }}
+    .audit-wide {{ margin-top:20px; }}
+    .audit-kv {{ display:grid; grid-template-columns:minmax(150px,0.42fr) 1fr; gap:8px 14px; font-size:13px; }}
+    .audit-kv dt {{ color:var(--text-muted); }}
+    .audit-kv dd {{ min-width:0; word-break:break-word; }}
+    .audit-family {{ border-top:1px solid var(--border); padding:12px 0; }}
+    .audit-family:first-child {{ border-top:0; padding-top:0; }}
+    .audit-family p {{ margin:6px 0 8px; color:var(--text-muted); font-size:13px; }}
+    .audit-pill {{ display:inline-flex; align-items:center; gap:4px; border:1px solid var(--border); border-radius:999px; padding:3px 8px; margin:3px 6px 3px 0; font-size:11px; color:var(--text-muted); }}
+    .audit-pill.ok {{ color:#4ade80; border-color:rgba(74,222,128,0.32); background:rgba(74,222,128,0.08); }}
+    .audit-pill.warn {{ color:#f87171; border-color:rgba(248,113,113,0.34); background:rgba(248,113,113,0.08); }}
+    .audit-pill.info {{ color:var(--accent); border-color:rgba(106,161,248,0.34); background:rgba(106,161,248,0.08); }}
+    .audit-muted {{ color:var(--text-muted); font-size:13px; }}
     
     /* Dashboard Cards */
     .dashboard-grid {{
@@ -951,7 +1190,7 @@ fn build_html_template(
     const ICON_ALLOWLIST = new Set([
       'activity','arrow-right-left','book-open','cloud','cog','component','database',
       'file-text','flame','folder','git-branch','git-commit','globe','hard-drive',
-      'home','layers','layout','link','route','server','table-2','users','workflow'
+      'home','layers','layout','link','route','server','shield-check','table-2','users','workflow'
     ]);
 
     function navPages() {{
@@ -1845,5 +2084,90 @@ mod tests {
                 "architecture".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn prompt_audit_page_escapes_manifest_strings() {
+        let audit = json!({
+            "project": { "name": "<script>alert(1)</script>" },
+            "generatedAt": "2026-05-06T20:00:00Z",
+            "run": { "target": "html" },
+            "llm": {
+                "provider": "chatgpt",
+                "model": "<img src=x onerror=alert(1)>",
+                "reasoningEffortConfigured": "high",
+                "reasoningEffortEffectiveForEnrichment": "medium"
+            },
+            "enrichment": {
+                "language": "fr",
+                "citations": true,
+                "profile": { "name": "fast" },
+                "contextPolicy": { "evidenceRole": "user" },
+                "rolePolicy": {
+                    "system": "rules only",
+                    "user": "untrusted evidence"
+                },
+                "promptFamilies": [{
+                    "id": "docs.test",
+                    "purpose": "<script>bad()</script>",
+                    "systemRoleContainsEvidence": false,
+                    "userRoleContainsEvidence": true
+                }]
+            },
+            "privacy": {
+                "storesLlmSecrets": false,
+                "storesOauthTokens": false,
+                "storesProviderEndpoint": false,
+                "storesRepositoryPaths": false
+            }
+        });
+
+        let html = render_prompt_audit_page(&audit);
+
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;img"));
+    }
+
+    #[test]
+    fn prompt_audit_page_is_added_to_navigation_once() {
+        fn count_prompt_audit_nav_items(value: &Value) -> usize {
+            let own = usize::from(nav_item_page_id(value).as_deref() == Some(PROMPT_AUDIT_PAGE_ID));
+            own + value
+                .get("pages")
+                .or_else(|| value.get("children"))
+                .and_then(Value::as_array)
+                .or_else(|| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .map(count_prompt_audit_nav_items)
+                        .sum::<usize>()
+                })
+                .unwrap_or(0)
+        }
+
+        let audit = json!({
+            "project": { "name": "sample" },
+            "llm": { "provider": "chatgpt", "model": "gpt-5.5" },
+            "enrichment": {
+                "profile": { "name": "fast" },
+                "promptFamilies": []
+            },
+            "privacy": {}
+        });
+        let mut pages = BTreeMap::new();
+        let mut index = json!({
+            "pages": [
+                { "id": "overview", "path": "overview.md", "title": "Overview" }
+            ]
+        });
+
+        insert_prompt_audit_page(&mut pages, &mut index, &audit);
+        insert_prompt_audit_page(&mut pages, &mut index, &audit);
+
+        assert!(pages.contains_key(PROMPT_AUDIT_PAGE_ID));
+        assert_eq!(count_prompt_audit_nav_items(&index), 1);
     }
 }

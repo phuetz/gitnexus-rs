@@ -1323,6 +1323,15 @@ fn build_html_template(
       return ICON_ALLOWLIST.has(candidate) ? candidate : (fallback || 'file-text');
     }}
 
+    const SECTION_LABELS = {{
+      overview: "Vue d'ensemble",
+      modules: 'Modules',
+      processes: 'Processus metier',
+      controllers: 'Controleurs',
+      'data-model': 'Modele de donnees',
+      architecture: 'Architecture',
+    }};
+
     function appendIcon(parent, name, fallback) {{
       const icon = document.createElement('i');
       icon.setAttribute('data-lucide', safeIcon(name, fallback));
@@ -1333,6 +1342,14 @@ fn build_html_template(
     function navPageId(item) {{
       const raw = item && (item.path || item.id) ? String(item.path || item.id) : '';
       return raw.replace(/\.md$/, '').replace(/^\.\//, '');
+    }}
+
+    function navSectionTitle(section) {{
+      const raw = section && (section.title || section.id || section.path)
+        ? String(section.title || section.id || section.path)
+        : 'Section';
+      const key = raw.replace(/\.md$/, '').replace(/^\.\//, '').toLowerCase();
+      return decodeTitle(SECTION_LABELS[key] || raw);
     }}
 
     function appendSidebarLink(parent, item) {{
@@ -1384,7 +1401,7 @@ fn build_html_template(
           title.style.userSelect = 'none';
           title.onclick = function() {{ toggleSection(title, i); }};
           appendIcon(title, section.icon, 'folder');
-          title.appendChild(document.createTextNode(decodeTitle(section.title || 'Section').toUpperCase()));
+          title.appendChild(document.createTextNode(navSectionTitle(section).toUpperCase()));
           const arrow = document.createElement('span');
           arrow.style.cssText = 'float:right;font-size:10px;margin-right:4px;';
           arrow.textContent = secCollapsed ? '\u25b8' : '\u25be';
@@ -2573,6 +2590,8 @@ mod tests {
         assert!(html.contains("<h3>Dans cette page</h3>"));
         assert!(html.contains(">Controleurs</button>"));
         assert!(html.contains(">Donnees</button>"));
+        assert!(html.contains("const SECTION_LABELS"));
+        assert!(html.contains("navSectionTitle(section).toUpperCase()"));
     }
 
     #[test]

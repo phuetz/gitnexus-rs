@@ -18,6 +18,7 @@ import {
   Wrench,
   Search,
   FileJson,
+  Copy,
   BookOpen,
   GitBranch,
   Network,
@@ -615,6 +616,20 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
             </button>
             {messages.length > 0 && (
               <>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(buildChatMarkdown(activeRepo, activeSession, messages)).then(
+                      () => toast.success("Chat copied as Markdown"),
+                      (e) => toast.error(t("chat.exportFailed").replace("{0}", String(e))),
+                    );
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-[11px] hover:bg-[var(--bg-3)]"
+                  style={{ color: "var(--text-3)" }}
+                  title="Copy chat as Markdown"
+                  aria-label="Copy chat as Markdown"
+                >
+                  <Copy size={12} />
+                </button>
                 <button
                   onClick={() => {
                     downloadTextFile(

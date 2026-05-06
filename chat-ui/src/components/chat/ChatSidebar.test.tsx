@@ -62,6 +62,18 @@ describe('ChatSidebar', () => {
     expect(screen.getByText('1/2 sessions')).toBeTruthy();
   });
 
+  it('filters conversations with multiple accent-insensitive tokens', () => {
+    render(<ChatSidebar />);
+
+    fireEvent.change(screen.getByRole('searchbox', { name: /rechercher une conversation/i }), {
+      target: { value: 'controleurs services' },
+    });
+
+    expect(screen.queryByText('Flux courrier')).toBeNull();
+    expect(screen.getByText('Architecture MVC')).toBeTruthy();
+    expect(screen.getByText('1/2 sessions')).toBeTruthy();
+  });
+
   it('shows an empty search state', () => {
     render(<ChatSidebar />);
 

@@ -14,18 +14,18 @@ export function ChatSidebar() {
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
-  const normalizedQuery = query.trim().toLowerCase();
+  const queryTokens = useMemo(() => searchTokens(query), [query]);
   const filteredSessions = useMemo(() => {
-    if (!normalizedQuery) return sessions;
+    if (queryTokens.length === 0) return sessions;
     return sessions.filter((session) => {
-      const haystack = [
+      const haystack = normalizeSearchText([
         session.title,
         ...session.messages.map((message) => message.content),
-      ].join('\n').toLowerCase();
-      return haystack.includes(normalizedQuery);
+      ].join('\n'));
+      return queryTokens.every((token) => haystack.includes(token));
     });
-  }, [normalizedQuery, sessions]);
-  const sessionCountLabel = normalizedQuery
+  }, [queryTokens, sessions]);
+  const sessionCountLabel = queryTokens.length > 0
     ? `${filteredSessions.length}/${sessions.length}`
     : String(sessions.length);
 
@@ -181,4 +181,18 @@ export function ChatSidebar() {
       </div>
     </aside>
   );
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function searchTokens(value: string): string[] {
+  return normalizeSearchText(value)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
 }

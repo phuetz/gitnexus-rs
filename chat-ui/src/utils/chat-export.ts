@@ -24,6 +24,11 @@ export function conversationToMarkdown(session: Session, metadata: ExportMetadat
   for (const message of messages) {
     lines.push(`## ${messageLabel(message)}`);
     lines.push('');
+    const toolSummary = formatToolCalls(message);
+    if (toolSummary) {
+      lines.push(`_Outils: ${toolSummary}_`);
+      lines.push('');
+    }
     lines.push(message.content.trim());
     lines.push('');
   }
@@ -76,6 +81,12 @@ function formatLlmLabel(llm: LlmConfigInfo | null): string {
   const model = llm.model ?? 'modèle inconnu';
   const effort = llm.reasoningEffort ? `, raisonnement ${llm.reasoningEffort}` : '';
   return `${provider} / ${model}${effort}`;
+}
+
+function formatToolCalls(message: Message): string {
+  const calls = message.toolCalls ?? [];
+  if (calls.length === 0) return '';
+  return calls.map((call) => `${call.name} (${call.status})`).join(', ');
 }
 
 function downloadTextFile(filename: string, content: string) {

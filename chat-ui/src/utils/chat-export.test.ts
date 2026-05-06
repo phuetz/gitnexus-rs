@@ -19,6 +19,10 @@ const session: Session = {
       role: 'assistant',
       content: '```mermaid\nflowchart TD\nA --> B\n```',
       createdAt: 1774507059000,
+      toolCalls: [
+        { id: 't1', name: 'search_code', args: { query: 'courrier' }, status: 'done' },
+        { id: 't2', name: 'trace_files', args: { symbol: 'Courrier' }, status: 'error' },
+      ],
     },
   ],
 };
@@ -42,6 +46,7 @@ describe('conversationToMarkdown', () => {
     expect(markdown).toContain('- Dernière activité: ');
     expect(markdown).toContain('- Messages exportés: 2');
     expect(markdown).toContain('## Vous - ');
+    expect(markdown).toContain('_Outils: search_code (done), trace_files (error)_');
     expect(markdown).toContain('Trace le flux');
     expect(markdown).toContain('```mermaid');
   });

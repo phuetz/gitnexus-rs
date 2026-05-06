@@ -75,14 +75,49 @@ describe('SystemDiagnostics', () => {
     await waitFor(() => {
       expect(screen.getByText('Diagnostic GitNexus')).toBeTruthy();
       expect(screen.getByText('gitnexus 0.1.0')).toBeTruthy();
-      expect(screen.getByText('Alise_v2')).toBeTruthy();
+      expect(screen.getAllByText('Alise_v2').length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText('chatgpt')).toBeTruthy();
       expect(screen.getByText('gpt-5.5')).toBeTruthy();
       expect(screen.getByText('masqués')).toBeTruthy();
       expect(screen.getByText('connecté')).toBeTruthy();
+      expect(screen.getByText('Index local')).toBeTruthy();
+      expect(screen.getByText('repo_alise')).toBeTruthy();
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns when the active project is absent from backend diagnostics', async () => {
+    useChatStore.setState({
+      selectedRepo: 'repo_missing',
+      selectedRepoName: 'Projet manquant',
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          service: 'gitnexus',
+          version: '0.1.0',
+          generatedAtUnixMs: 1778000000000,
+          httpAuthRequired: false,
+          repoPathsExposed: false,
+          repos: {
+            count: 1,
+            names: [{ id: 'repo_alise', name: 'Alise_v2', pathExposed: false }],
+          },
+          llm: { configured: false },
+        })
+      )
+    );
+
+    render(<SystemDiagnostics />);
+    fireEvent.click(screen.getByRole('button', { name: /ouvrir le diagnostic système/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Projet actif absent de \/api\/diagnostics/i)).toBeTruthy();
+      expect(screen.getByText(/RestartBackend/)).toBeTruthy();
+    });
   });
 
   it('keeps backend failures actionable inside the panel', async () => {

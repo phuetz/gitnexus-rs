@@ -3,7 +3,7 @@ import { Activity, RefreshCw, ShieldCheck, TriangleAlert, X } from 'lucide-react
 import clsx from 'clsx';
 import { mcpClient, type DiagnosticsInfo } from '../../api/mcp-client';
 import { useChatStore } from '../../stores/chat-store';
-import { formatExportTimestamp } from '../../utils/dates';
+import { formatExportTimestamp, parseIndexedAt } from '../../utils/dates';
 
 type DiagnosticsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -127,6 +127,12 @@ function DiagnosticsBody({
   const backend = mcpClient.baseUrl || 'proxy Vite / même origine';
   const llm = diagnostics?.llm;
   const oauth = diagnostics?.auth?.chatgptOAuth;
+  const repos = diagnostics?.repos.names ?? [];
+  const activeRepoMissing = Boolean(
+    diagnostics &&
+      selectedRepo &&
+      !repos.some((repo) => repo.id === selectedRepo || repo.name === selectedRepo)
+  );
 
   return (
     <div className="space-y-3">
@@ -160,6 +166,53 @@ function DiagnosticsBody({
           label="Repos indexés"
           value={diagnostics ? String(diagnostics.repos.count) : '...'}
         />
+      </div>
+
+      {activeRepoMissing && (
+        <div className="rounded-md border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-amber-200">
+          Projet actif absent de /api/diagnostics. Rafraîchis la liste des projets ou relance le
+          backend avec <code className="rounded bg-neutral-900 px-1">.\gitnexus.cmd chat -RestartBackend</code>.
+        </div>
+      )}
+
+      <div className="rounded-md border border-neutral-800 bg-neutral-900/40 p-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="font-medium text-neutral-100">Index local</div>
+          <div className="text-[11px] text-neutral-500">
+            {diagnostics ? `${diagnostics.repos.count} projet(s)` : 'lecture...'}
+          </div>
+        </div>
+        {repos.length > 0 ? (
+          <div className="space-y-1.5">
+            {repos.slice(0, 6).map((repo) => (
+              <div
+                key={repo.id}
+                className="flex items-center justify-between gap-3 rounded border border-neutral-800 bg-neutral-950/40 px-2 py-1.5"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-neutral-200" title={repo.name}>
+                    {repo.name}
+                  </div>
+                  <div className="truncate font-mono text-[10px] text-neutral-600" title={repo.id}>
+                    {repo.id}
+                  </div>
+                </div>
+                <div className="shrink-0 text-right text-[11px] text-neutral-500">
+                  {formatIndexedAt(repo.indexedAt)}
+                </div>
+              </div>
+            ))}
+            {repos.length > 6 && (
+              <div className="text-[11px] text-neutral-500">
+                +{repos.length - 6} autre(s) projet(s)
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded border border-dashed border-neutral-800 px-2 py-3 text-center text-neutral-500">
+            {diagnostics ? 'Aucun projet indexé' : 'Lecture des projets...'}
+          </div>
+        )}
       </div>
 
       <div className="rounded-md border border-neutral-800 bg-neutral-900/40 p-3">
@@ -255,4 +308,10 @@ function formatOAuthRefresh(raw: string | null | undefined): string {
   const timestamp = new Date(raw).getTime();
   if (Number.isNaN(timestamp)) return raw;
   return formatExportTimestamp(timestamp);
+}
+
+function formatIndexedAt(raw: string | null | undefined): string {
+  const date = parseIndexedAt(raw);
+  if (!date) return 'date inconnue';
+  return date.toLocaleDateString();
 }

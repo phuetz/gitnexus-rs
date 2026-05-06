@@ -181,6 +181,24 @@ function Test-HttpOk {
     }
 }
 
+function Get-HttpJson {
+    param([string] $Url)
+    try {
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3
+        if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
+            return $null
+        }
+        $content = [string] $response.Content
+        if (-not $content.Trim()) {
+            return $null
+        }
+        return $content | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+}
+
 function Test-ChatUiOk {
     param([string] $Url)
     try {
@@ -311,7 +329,8 @@ function Show-Doctor {
     }
 
     $backendUrl = "http://127.0.0.1:$BackendPort"
-    if (Test-HttpOk -Url "$backendUrl/health") {
+    $backendOk = Test-HttpOk -Url "$backendUrl/health"
+    if ($backendOk) {
         Write-DoctorLine "backend HTTP :$BackendPort" "OK" "$backendUrl/health"
     }
     elseif (Test-PortListening -Port $BackendPort) {
@@ -319,6 +338,38 @@ function Show-Doctor {
     }
     else {
         Write-DoctorLine "backend HTTP :$BackendPort" "WARN" "port libre; lance .\gitnexus.cmd chat"
+    }
+
+    if ($backendOk) {
+        $diag = Get-HttpJson -Url "$backendUrl/api/diagnostics"
+        if ($diag) {
+            $repoCount = if ($diag.repos -and $null -ne $diag.repos.count) { [string] $diag.repos.count } else { "?" }
+            $llmProvider = if ($diag.llm -and $diag.llm.provider) { [string] $diag.llm.provider } elseif ($diag.llm -and $diag.llm.configured -eq $false) { "non configure" } else { "?" }
+            $llmModel = if ($diag.llm -and $diag.llm.model) { [string] $diag.llm.model } else { "modele ?" }
+            Write-DoctorLine "diagnostic backend" "OK" "repos=$repoCount llm=$llmProvider/$llmModel"
+        }
+        else {
+            Write-DoctorLine "diagnostic backend" "WARN" "$backendUrl/api/diagnostics ne repond pas"
+        }
+
+        $repoPayload = Get-HttpJson -Url "$backendUrl/api/repos"
+        if ($repoPayload -and $null -ne $repoPayload.repos) {
+            $repoItems = @($repoPayload.repos)
+            $repoNames = @($repoItems |
+                ForEach-Object {
+                    if ($_.name) { [string] $_.name } elseif ($_.id) { [string] $_.id } else { "repo ?" }
+                } |
+                Select-Object -First 3)
+            $extra = if ($repoItems.Count -gt 3) { ", +$($repoItems.Count - 3)" } else { "" }
+            $detail = "repos=$($repoItems.Count)"
+            if ($repoNames.Count -gt 0) {
+                $detail += " ($($repoNames -join ', ')$extra)"
+            }
+            Write-DoctorLine "api/repos" "OK" $detail
+        }
+        else {
+            Write-DoctorLine "api/repos" "WARN" "$backendUrl/api/repos ne repond pas"
+        }
     }
 
     $chatUrl = "http://127.0.0.1:$ChatPort"

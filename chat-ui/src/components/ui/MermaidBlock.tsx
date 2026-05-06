@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import DOMPurify from 'dompurify';
-import { Check, Code2, Copy, Download, Loader2 } from 'lucide-react';
+import { Check, Code2, Copy, Download, Loader2, Maximize2, X } from 'lucide-react';
 import { copyTextToClipboard } from '../../utils/clipboard';
 
 /**
@@ -44,6 +44,7 @@ export function MermaidBlock({ text }: Props) {
   }>({ text: '', svg: null, error: null });
   const [showSource, setShowSource] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const isCurrentRender = renderState.text === text;
   const svg = isCurrentRender ? renderState.svg : null;
   const error = isCurrentRender ? renderState.error : null;
@@ -105,6 +106,15 @@ export function MermaidBlock({ text }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [expanded]);
+
   return (
     <div
       className="my-3 overflow-hidden rounded-md border border-neutral-800 bg-neutral-950/70"
@@ -122,6 +132,16 @@ export function MermaidBlock({ text }: Props) {
           <span className="truncate font-medium text-neutral-300">Mermaid</span>
         </div>
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            disabled={!svg}
+            className="rounded p-1.5 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Agrandir le diagramme Mermaid"
+            title="Agrandir"
+          >
+            <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
           <button
             type="button"
             onClick={downloadSvg}
@@ -185,6 +205,31 @@ export function MermaidBlock({ text }: Props) {
       {showSource && !error && (
         <div className="border-t border-neutral-800 p-3">
           <SourceBlock text={text} />
+        </div>
+      )}
+
+      {expanded && svg && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Diagramme Mermaid agrandi"
+          onClick={() => setExpanded(false)}
+        >
+          <button
+            type="button"
+            className="absolute right-5 top-5 rounded-md border border-neutral-700 bg-neutral-950 p-2 text-neutral-300 hover:bg-neutral-900 hover:text-white"
+            onClick={() => setExpanded(false)}
+            aria-label="Fermer le diagramme agrandi"
+            title="Fermer"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <div
+            className="max-h-[88vh] max-w-[94vw] overflow-auto rounded-lg border border-neutral-800 bg-neutral-950 p-6 text-neutral-100 shadow-2xl [&_svg]:max-w-none"
+            onClick={(event) => event.stopPropagation()}
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
         </div>
       )}
     </div>

@@ -91,6 +91,24 @@ describe('MermaidBlock', () => {
     click.mockRestore();
   });
 
+  it('can open rendered diagrams in a larger modal', async () => {
+    render(<MermaidBlock text="flowchart TD\nA --> B" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /agrandir le diagramme mermaid/i })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /agrandir le diagramme mermaid/i }));
+
+    expect(screen.getByRole('dialog', { name: /diagramme mermaid agrandi/i })).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /diagramme mermaid agrandi/i })).toBeNull();
+    });
+  });
+
   it('keeps the source visible when Mermaid cannot render the graph', async () => {
     mermaidMock.render.mockRejectedValue(new Error('Parse error'));
 

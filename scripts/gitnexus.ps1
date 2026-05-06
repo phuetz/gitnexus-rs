@@ -404,7 +404,13 @@ function Show-Doctor {
     if (Test-Path -LiteralPath $envPath) {
         $viteUrl = (Get-Content -LiteralPath $envPath | Where-Object { $_ -match "^\s*VITE_MCP_URL=" } | Select-Object -Last 1)
         if ($viteUrl) {
-            Write-DoctorLine "chat-ui/.env.local" "OK" $viteUrl
+            $viteValue = ([string] $viteUrl) -replace "^\s*VITE_MCP_URL\s*=", ""
+            if ($viteValue.Trim() -eq $backendUrl) {
+                Write-DoctorLine "chat-ui/.env.local" "OK" $viteUrl
+            }
+            else {
+                Write-DoctorLine "chat-ui/.env.local" "WARN" "$viteUrl (attendu VITE_MCP_URL=$backendUrl)"
+            }
         }
         else {
             Write-DoctorLine "chat-ui/.env.local" "WARN" "VITE_MCP_URL absent"

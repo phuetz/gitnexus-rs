@@ -95,6 +95,11 @@ Equivalent :
 .\gitnexus.cmd doctor
 ```
 
+Le diagnostic verifie aussi que `chat-ui/.env.local` pointe vers le backend
+attendu pour le port choisi. C'est utile apres des essais avec `-BackendPort`
+ou `-ChatPort`, quand le client React peut demarrer correctement mais interroger
+un ancien serveur.
+
 ## CLI rapide
 
 ```powershell

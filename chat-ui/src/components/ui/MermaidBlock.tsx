@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import DOMPurify from 'dompurify';
-import { Check, Code2, Copy, Loader2 } from 'lucide-react';
+import { Check, Code2, Copy, Download, Loader2 } from 'lucide-react';
 
 /**
  * Renders a Mermaid diagram from raw text.
@@ -91,6 +91,21 @@ export function MermaidBlock({ text }: Props) {
     }
   };
 
+  const downloadSvg = () => {
+    if (!svg) return;
+    const blob = new Blob([ensureSvgNamespace(svg)], {
+      type: 'image/svg+xml;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'gitnexus-diagram.svg';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div
       className="my-3 overflow-hidden rounded-md border border-neutral-800 bg-neutral-950/70"
@@ -108,6 +123,16 @@ export function MermaidBlock({ text }: Props) {
           <span className="truncate font-medium text-neutral-300">Mermaid</span>
         </div>
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={downloadSvg}
+            disabled={!svg}
+            className="rounded p-1.5 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Télécharger le diagramme Mermaid en SVG"
+            title="Télécharger SVG"
+          >
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
           <button
             type="button"
             onClick={() => setShowSource((value) => !value)}
@@ -165,6 +190,14 @@ export function MermaidBlock({ text }: Props) {
       )}
     </div>
   );
+}
+
+function ensureSvgNamespace(svg: string): string {
+  const trimmed = svg.trimStart();
+  const namespaced = /<svg\b[^>]*\sxmlns=/.test(trimmed)
+    ? trimmed
+    : trimmed.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${namespaced}`;
 }
 
 function SourceBlock({ text }: { text: string }) {

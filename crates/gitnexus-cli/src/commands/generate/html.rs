@@ -1513,13 +1513,7 @@ fn build_html_template(
         buildToc();
         addCopyButtons();
         renderMermaid();
-        if (typeof hljs !== 'undefined') {{
-          document.querySelectorAll('pre code').forEach(block => {{
-            if (!block.classList.contains('language-mermaid')) {{
-              hljs.highlightElement(block);
-            }}
-          }});
-        }}
+        highlightCodeBlocks();
         if (typeof lucide !== 'undefined') {{
           lucide.createIcons({{
             attrs: {{
@@ -1688,6 +1682,124 @@ fn build_html_template(
         }});
       }}, {{ threshold: 0.3, rootMargin: '-80px 0px -60% 0px' }});
       document.querySelectorAll('h2[id], h3[id]').forEach(h => observer.observe(h));
+    }}
+    function codeLanguage(block) {{
+      var match = (block.className || '').match(/language-([\w-]+)/);
+      return match ? match[1].toLowerCase() : '';
+    }}
+    function escapeCodeHtml(value) {{
+      return String(value).replace(/[&<>]/g, function(ch) {{
+        return ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&gt;';
+      }});
+    }}
+    function keywordsForLang(lang) {{
+      var common = ['if','else','for','foreach','while','switch','case','return','new','try','catch','finally','throw','true','false','null','async','await','class','struct','enum','interface','public','private','protected','static','void','var','let','const','function','import','export','from'];
+      var byLang = {{
+        csharp: ['using','namespace','readonly','internal','override','virtual','sealed','partial','string','int','long','bool','decimal','double','object','Task','List','IEnumerable'],
+        cs: ['using','namespace','readonly','internal','override','virtual','sealed','partial','string','int','long','bool','decimal','double','object','Task','List','IEnumerable'],
+        javascript: ['const','let','var','function','return','import','from','export','default','class','extends','async','await','Promise','null','undefined'],
+        js: ['const','let','var','function','return','import','from','export','default','class','extends','async','await','Promise','null','undefined'],
+        typescript: ['const','let','var','function','return','import','from','export','default','class','extends','interface','type','implements','async','await','Promise','null','undefined'],
+        ts: ['const','let','var','function','return','import','from','export','default','class','extends','interface','type','implements','async','await','Promise','null','undefined'],
+        rust: ['fn','let','mut','pub','use','mod','impl','trait','struct','enum','match','if','else','for','while','loop','return','async','await','Option','Result','Some','None','true','false'],
+        sql: ['select','from','where','join','inner','left','right','outer','on','group','by','order','insert','update','delete','create','table','view','as','and','or','not','null','is','in']
+      }};
+      return new Set((byLang[lang] || common).concat(common));
+    }}
+    function fallbackHighlightXml(text) {{
+      var out = '';
+      var i = 0;
+      while (i < text.length) {{
+        if (text[i] === '<') {{
+          var end = text.indexOf('>', i + 1);
+          if (end === -1) end = text.length - 1;
+          out += '<span class="hljs-keyword">' + escapeCodeHtml(text.slice(i, end + 1)) + '</span>';
+          i = end + 1;
+        }} else {{
+          var next = text.indexOf('<', i);
+          if (next === -1) next = text.length;
+          out += escapeCodeHtml(text.slice(i, next));
+          i = next;
+        }}
+      }}
+      return out;
+    }}
+    function fallbackHighlightText(text, lang) {{
+      if (lang === 'xml' || lang === 'html' || lang === 'cshtml') return fallbackHighlightXml(text);
+      var keywords = keywordsForLang(lang);
+      var out = '';
+      var i = 0;
+      while (i < text.length) {{
+        var ch = text[i];
+        if (text.startsWith('//', i)) {{
+          var lineEnd = text.indexOf('\n', i);
+          if (lineEnd === -1) lineEnd = text.length;
+          out += '<span class="hljs-comment">' + escapeCodeHtml(text.slice(i, lineEnd)) + '</span>';
+          i = lineEnd;
+          continue;
+        }}
+        if (text.startsWith('/*', i)) {{
+          var blockEnd = text.indexOf('*/', i + 2);
+          blockEnd = blockEnd === -1 ? text.length : blockEnd + 2;
+          out += '<span class="hljs-comment">' + escapeCodeHtml(text.slice(i, blockEnd)) + '</span>';
+          i = blockEnd;
+          continue;
+        }}
+        if (ch === '"' || ch === "'" || ch === '`') {{
+          var quote = ch;
+          var j = i + 1;
+          while (j < text.length) {{
+            if (text[j] === '\\') {{ j += 2; continue; }}
+            if (text[j] === quote) {{ j += 1; break; }}
+            j += 1;
+          }}
+          out += '<span class="hljs-string">' + escapeCodeHtml(text.slice(i, j)) + '</span>';
+          i = j;
+          continue;
+        }}
+        if (/[0-9]/.test(ch)) {{
+          var n = i + 1;
+          while (n < text.length && /[0-9A-Fa-fxX_.]/.test(text[n])) n += 1;
+          out += '<span class="hljs-number">' + escapeCodeHtml(text.slice(i, n)) + '</span>';
+          i = n;
+          continue;
+        }}
+        if (/[A-Za-z_]/.test(ch)) {{
+          var w = i + 1;
+          while (w < text.length && /[A-Za-z0-9_]/.test(text[w])) w += 1;
+          var word = text.slice(i, w);
+          out += keywords.has(word) || keywords.has(word.toLowerCase())
+            ? '<span class="hljs-keyword">' + escapeCodeHtml(word) + '</span>'
+            : escapeCodeHtml(word);
+          i = w;
+          continue;
+        }}
+        out += escapeCodeHtml(ch);
+        i += 1;
+      }}
+      return out;
+    }}
+    function applyFallbackHighlighting() {{
+      document.querySelectorAll('pre code').forEach(function(block) {{
+        if (block.classList.contains('language-mermaid')) return;
+        if (block.dataset.fallbackHighlighted === '1') return;
+        var lang = codeLanguage(block);
+        block.innerHTML = fallbackHighlightText(block.textContent, lang);
+        block.dataset.fallbackHighlighted = '1';
+        block.classList.add('hljs');
+        block.classList.add('fallback-hljs');
+      }});
+    }}
+    function highlightCodeBlocks() {{
+      if (typeof hljs !== 'undefined') {{
+        document.querySelectorAll('pre code').forEach(block => {{
+          if (!block.classList.contains('language-mermaid')) {{
+            hljs.highlightElement(block);
+          }}
+        }});
+      }} else {{
+        applyFallbackHighlighting();
+      }}
     }}
     function addCopyButtons() {{
       document.querySelectorAll('pre').forEach(pre => {{
@@ -2050,13 +2162,7 @@ fn build_html_template(
       addCopyButtons();
       initSearch();
       initScrollSpy();
-      if (typeof hljs !== 'undefined') {{
-        document.querySelectorAll('pre code').forEach(block => {{
-          if (!block.classList.contains('language-mermaid')) {{
-            hljs.highlightElement(block);
-          }}
-        }});
-      }}
+      highlightCodeBlocks();
       if (typeof lucide !== 'undefined') {{
         lucide.createIcons({{
           attrs: {{
@@ -2225,5 +2331,25 @@ mod tests {
             .any(|path| path.ends_with("chat-ui/node_modules/mermaid/dist/mermaid.min.js")));
         assert!(candidates.iter().any(|path| path
             .ends_with("crates/gitnexus-desktop/ui/node_modules/mermaid/dist/mermaid.min.js")));
+    }
+
+    #[test]
+    fn html_template_includes_syntax_highlight_fallback() {
+        let html = build_html_template(
+            "sample",
+            "1 node",
+            "",
+            "<h1>Overview</h1><pre><code class=\"language-csharp\">public class A {}</code></pre>",
+            "{}",
+            "[]",
+            "[]",
+            r#"{"pages":[]}"#,
+            "[]",
+            "{}",
+        );
+
+        assert!(html.contains("function applyFallbackHighlighting()"));
+        assert!(html.contains("function fallbackHighlightText(text, lang)"));
+        assert!(html.contains("highlightCodeBlocks();"));
     }
 }

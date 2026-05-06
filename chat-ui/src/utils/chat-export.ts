@@ -8,17 +8,20 @@ interface ExportMetadata {
 }
 
 export function conversationToMarkdown(session: Session, metadata: ExportMetadata): string {
+  const messages = exportableMessages(session);
   const lines: string[] = [
     `# ${session.title || 'Conversation GitNexus'}`,
     '',
     `- Projet: ${metadata.repo ?? 'non sélectionné'}`,
     `- LLM: ${formatLlmLabel(metadata.llm)}`,
+    `- Conversation créée: ${formatExportTimestamp(session.createdAt) || 'inconnue'}`,
+    `- Dernière activité: ${formatExportTimestamp(session.updatedAt) || 'inconnue'}`,
+    `- Messages exportés: ${messages.length}`,
     `- Export: ${formatExportTimestamp(Date.now())}`,
     '',
   ];
 
-  for (const message of session.messages) {
-    if (!message.content.trim()) continue;
+  for (const message of messages) {
     lines.push(`## ${messageLabel(message)}`);
     lines.push('');
     lines.push(message.content.trim());
@@ -88,8 +91,7 @@ function downloadTextFile(filename: string, content: string) {
 }
 
 function fallbackTranscriptHtml(session: Session): string {
-  return session.messages
-    .filter((message) => message.content.trim())
+  return exportableMessages(session)
     .map(
       (message) => `
         <section class="print-message print-message-${escapeHtml(message.role)}">
@@ -101,6 +103,7 @@ function fallbackTranscriptHtml(session: Session): string {
 }
 
 function printableHtml(session: Session, metadata: ExportMetadata, transcriptHtml: string): string {
+  const messages = exportableMessages(session);
   return `<!doctype html>
 <html lang="fr">
 <head>
@@ -166,11 +169,18 @@ function printableHtml(session: Session, metadata: ExportMetadata, transcriptHtm
     <h1>${escapeHtml(session.title || 'Conversation GitNexus')}</h1>
     <div class="meta">Projet : ${escapeHtml(metadata.repo ?? 'non sélectionné')}</div>
     <div class="meta">LLM : ${escapeHtml(formatLlmLabel(metadata.llm))}</div>
+    <div class="meta">Conversation créée : ${escapeHtml(formatExportTimestamp(session.createdAt) || 'inconnue')}</div>
+    <div class="meta">Dernière activité : ${escapeHtml(formatExportTimestamp(session.updatedAt) || 'inconnue')}</div>
+    <div class="meta">Messages exportés : ${messages.length}</div>
     <div class="meta">Export : ${escapeHtml(formatExportTimestamp(Date.now()))}</div>
   </header>
   <main class="chat-transcript">${transcriptHtml}</main>
 </body>
 </html>`;
+}
+
+function exportableMessages(session: Session): Message[] {
+  return session.messages.filter((message) => message.content.trim());
 }
 
 function escapeHtml(value: string): string {

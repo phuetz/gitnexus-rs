@@ -38,9 +38,33 @@ describe('conversationToMarkdown', () => {
     expect(markdown).toContain('# Trace courrier');
     expect(markdown).toContain('- Projet: Alise_v2');
     expect(markdown).toContain('- LLM: chatgpt / gpt-5.5, raisonnement high');
+    expect(markdown).toContain('- Conversation créée: ');
+    expect(markdown).toContain('- Dernière activité: ');
+    expect(markdown).toContain('- Messages exportés: 2');
     expect(markdown).toContain('## Vous - ');
     expect(markdown).toContain('Trace le flux');
     expect(markdown).toContain('```mermaid');
+  });
+
+  it('does not count empty streaming placeholders in exported metadata', () => {
+    const markdown = conversationToMarkdown(
+      {
+        ...session,
+        messages: [
+          ...session.messages,
+          {
+            id: 'm3',
+            role: 'assistant',
+            content: '   ',
+            createdAt: 1774507069000,
+          },
+        ],
+      },
+      { repo: 'Alise_v2', llm: null }
+    );
+
+    expect(markdown).toContain('- Messages exportés: 2');
+    expect(markdown.match(/^## /gm)).toHaveLength(2);
   });
 });
 

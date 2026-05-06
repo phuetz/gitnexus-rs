@@ -1648,12 +1648,14 @@ fn build_html_template(
                 icon.style.cssText = 'width:12px;height:12px;vertical-align:middle;margin-right:6px;opacity:0.7;';
                 const span = document.createElement('span');
                 span.style.cssText = 'font-family:monospace;font-size:12px;cursor:copy;';
-                span.title = 'Click to copy path';
+                span.title = 'Copier le chemin';
                 span.textContent = text;
                 span.onclick = function() {{
-                  navigator.clipboard.writeText(text);
-                  span.style.color = 'var(--accent)';
-                  setTimeout(function() {{ span.style.color = ''; }}, 1000);
+                  writeClipboard(text, 'Chemin copié').then(function(ok) {{
+                    if (!ok) return;
+                    span.style.color = 'var(--accent)';
+                    setTimeout(function() {{ span.style.color = ''; }}, 1000);
+                  }});
                 }};
                 li.appendChild(icon);
                 li.appendChild(span);
@@ -2639,6 +2641,7 @@ mod tests {
         assert!(html.contains("function writeClipboard(text, successMessage)"));
         assert!(html.contains("function clipboardFallback(text)"));
         assert!(html.contains("base + '#' + pageId"));
+        assert!(html.contains("writeClipboard(text, 'Chemin copié')"));
         assert!(html.contains("writeClipboard(pre.textContent || '', 'Code copié')"));
         assert!(html.contains("writeClipboard(src, 'Source Mermaid copiée')"));
     }

@@ -15,10 +15,32 @@ const MERMAID_GRAPH_TYPES = [
 const MERMAID_START_RE =
   /^\s*(flowchart\s+(?:TB|TD|BT|RL|LR)|graph\s+(?:TB|TD|BT|RL|LR)|sequenceDiagram|classDiagram(?:-v2)?|erDiagram|stateDiagram(?:-v2)?|gantt|pie\b|mindmap|gitGraph|journey)\b/i;
 
+const CODE_LANGUAGE_ALIASES = new Map<string, string>([
+  ['c#', 'csharp'],
+  ['cs', 'csharp'],
+  ['ps1', 'powershell'],
+  ['pwsh', 'powershell'],
+  ['shell', 'bash'],
+  ['sh', 'bash'],
+  ['zsh', 'bash'],
+  ['js', 'javascript'],
+  ['jsx', 'jsx'],
+  ['ts', 'typescript'],
+  ['tsx', 'tsx'],
+  ['py', 'python'],
+  ['yml', 'yaml'],
+]);
+
 const MERMAID_LINE_RE = new RegExp(
   String.raw`^\s*(subgraph\b|end\b|participant\b|actor\b|autonumber\b|loop\b|alt\b|opt\b|else\b|par\b|and\b|rect\b|note\b|activate\b|deactivate\b|class\b|classDef\b|click\b|style\b|linkStyle\b|title\b|section\b|dateFormat\b|axisFormat\b|todayMarker\b|[A-Za-z0-9_]+(?:\s*(?:-->|---|-.->|==>|-\.-|--|:::|::)|\s*[\[\(\{>]))`,
   'i'
 );
+
+export function normalizeCodeFenceLanguage(language: string | undefined): string | undefined {
+  const normalized = language?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  return CODE_LANGUAGE_ALIASES.get(normalized) ?? normalized;
+}
 
 export function looksLikeMermaid(text: string): boolean {
   const head = text.trimStart().split(/\s|\n/, 1)[0] ?? '';

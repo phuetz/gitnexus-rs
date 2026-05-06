@@ -3,7 +3,11 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MermaidBlock } from './MermaidBlock';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { looksLikeMermaid, normalizeBareMermaid } from '../../utils/markdown';
+import {
+  looksLikeMermaid,
+  normalizeBareMermaid,
+  normalizeCodeFenceLanguage,
+} from '../../utils/markdown';
 
 const SyntaxHighlighter = lazy(() =>
   import('react-syntax-highlighter/dist/esm/prism').then((m) => ({ default: m.Prism }))
@@ -45,8 +49,9 @@ function isMermaidLanguage(language: string | undefined): boolean {
 const components: Components = {
   code(props) {
     const { className, children, ...rest } = props;
-    const match = /language-(\w+)/.exec(className ?? '');
-    const language = match?.[1];
+    const match = /language-([^\s]+)/.exec(className ?? '');
+    const rawLanguage = match?.[1];
+    const language = normalizeCodeFenceLanguage(rawLanguage);
     const raw = String(children).replace(/\n$/, '');
 
     // Explicit fence wins. Defensive fallback: if the block has no language
@@ -55,7 +60,7 @@ const components: Components = {
     // where the model writes `flowchart TD` directly after `Diagramme :`
     // without a triple-backtick header — react-markdown then renders it as
     // a generic code block and we get plain text instead of an SVG.
-    if (isMermaidLanguage(language) || looksLikeMermaid(raw)) {
+    if (isMermaidLanguage(rawLanguage) || isMermaidLanguage(language) || looksLikeMermaid(raw)) {
       return <MermaidBlock text={raw} />;
     }
 

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Markdown } from './Markdown';
-import { normalizeBareMermaid } from '../../utils/markdown';
+import { normalizeBareMermaid, normalizeCodeFenceLanguage } from '../../utils/markdown';
 
 vi.mock('./MermaidBlock', () => ({
   MermaidBlock: ({ text }: { text: string }) => (
@@ -30,6 +30,22 @@ flowchart TD
 \`\`\``;
 
     expect(normalizeBareMermaid(markdown)).toBe(markdown);
+  });
+});
+
+describe('normalizeCodeFenceLanguage', () => {
+  it('maps common LLM language aliases to highlighter names', () => {
+    expect(normalizeCodeFenceLanguage('cs')).toBe('csharp');
+    expect(normalizeCodeFenceLanguage('c#')).toBe('csharp');
+    expect(normalizeCodeFenceLanguage('ts')).toBe('typescript');
+    expect(normalizeCodeFenceLanguage('js')).toBe('javascript');
+    expect(normalizeCodeFenceLanguage('ps1')).toBe('powershell');
+    expect(normalizeCodeFenceLanguage('shell')).toBe('bash');
+  });
+
+  it('keeps unknown language tags instead of dropping highlighting', () => {
+    expect(normalizeCodeFenceLanguage('rust')).toBe('rust');
+    expect(normalizeCodeFenceLanguage(undefined)).toBeUndefined();
   });
 });
 

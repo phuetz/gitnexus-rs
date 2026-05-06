@@ -110,6 +110,9 @@ un ancien serveur.
 .\gitnexus.cmd doctor
 ```
 
+La commande `docs` ouvre automatiquement le site HTML genere. Ajoutez
+`-NoBrowser` pour produire les fichiers sans ouvrir de fenetre.
+
 ## Tout verifier
 
 ```powershell

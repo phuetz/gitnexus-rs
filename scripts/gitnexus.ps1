@@ -688,6 +688,23 @@ switch ($Command) {
 
     "docs" {
         Require-Command "cargo"
+        $repoForDocs = if ([System.IO.Path]::IsPathRooted($Repo)) {
+            $Repo
+        }
+        else {
+            Join-Path $RepoRoot $Repo
+        }
+        $docsDir = if ($OutputDir.Trim()) {
+            if ([System.IO.Path]::IsPathRooted($OutputDir)) {
+                $OutputDir
+            }
+            else {
+                Join-Path $RepoRoot $OutputDir
+            }
+        }
+        else {
+            Join-Path $repoForDocs ".gitnexus\docs"
+        }
         $args = @("generate", "html", "--path", "$Repo")
         if ($OutputDir.Trim()) {
             $args += @("--output-dir", "$OutputDir")
@@ -696,6 +713,11 @@ switch ($Command) {
             $args += @("--enrich")
         }
         Invoke-GitNexusCli @args
+        $htmlPath = Join-Path $docsDir "index.html"
+        if ((-not $NoBrowser) -and (Test-Path -LiteralPath $htmlPath)) {
+            Write-Step "Ouverture documentation HTML: $htmlPath"
+            Start-Process $htmlPath | Out-Null
+        }
     }
 
     "check" {

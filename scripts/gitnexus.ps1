@@ -529,18 +529,24 @@ GitNexus helper scripts
 
 Usage:
   .\gitnexus.cmd chat                 Lance le client chat React + backend HTTP
+  .\gitnexus.cmd chat -ChatPort 5174  Lance le chat sur le port historique
+  .\gitnexus.cmd chat -RestartBackend Redemarre le backend local proprement
+  .\gitnexus.cmd chat -RestartChat    Redemarre le client React proprement
   .\gitnexus.cmd desktop              Lance l'application desktop Tauri
   .\gitnexus.cmd login                Connexion OAuth ChatGPT
   .\gitnexus.cmd config-chatgpt       Configure ChatGPT Pro avec gpt-5.5
   .\gitnexus.cmd test-chatgpt         Teste la config et le login
   .\gitnexus.cmd ask -Question "..."  Pose une question en CLI
   .\gitnexus.cmd analyze -Repo D:\x   Indexe un repo
-  .\gitnexus.cmd docs -Repo D:\x      Genere le site de doc HTML
+  .\gitnexus.cmd docs -Repo D:\x      Genere et ouvre le site de doc HTML
+  .\gitnexus.cmd docs -Repo D:\x -Enrich
+                                      Genere la doc avec enrichissement LLM
   .\gitnexus.cmd check                Lance les validations principales
   .\gitnexus.cmd doctor               Diagnostique ports/config/login sans secret
 
 Options utiles:
   -Repo <path>             Repo cible pour ask/analyze/docs
+  -OutputDir <path>        Dossier de sortie pour docs
   -Model gpt-5.5           Modele ChatGPT
   -Reasoning high          none|minimal|low|medium|high|xhigh
   -BackendPort 3010        Port du serveur GitNexus HTTP
@@ -556,6 +562,7 @@ Notes:
   chat reutilise un backend/client deja sain si le port repond.
   Ajoute -RestartBackend apres une modification Rust du backend.
   Ajoute -RestartChat apres une modification du client React si HMR semble bloque.
+  docs ouvre index.html automatiquement; ajoute -NoBrowser pour generer seulement.
   Si un port est occupe par autre chose, le script s'arrete au lieu
   de basculer silencieusement vers un autre port.
 "@

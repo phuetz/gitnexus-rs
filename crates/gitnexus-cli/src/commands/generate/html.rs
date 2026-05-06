@@ -1453,20 +1453,23 @@ fn build_html_template(
     }}
 
     function writeClipboard(text, successMessage) {{
+      const onSuccess = () => {{
+        showToast(successMessage);
+        return true;
+      }};
       const onFailure = () => {{
         if (clipboardFallback(text)) {{
-          showToast(successMessage);
-        }} else {{
-          showToast("Copie impossible.");
+          return onSuccess();
         }}
+        showToast("Copie impossible.");
+        return false;
       }};
       if (navigator.clipboard && window.isSecureContext) {{
         return navigator.clipboard.writeText(text)
-          .then(() => showToast(successMessage))
+          .then(onSuccess)
           .catch(onFailure);
       }}
-      onFailure();
-      return Promise.resolve();
+      return Promise.resolve(onFailure());
     }}
 
     function currentPageUrl() {{
@@ -1959,7 +1962,8 @@ fn build_html_template(
         btn.className = 'copy-btn';
         btn.textContent = 'Copier';
         btn.onclick = () => {{
-          navigator.clipboard.writeText(pre.textContent).then(() => {{
+          writeClipboard(pre.textContent || '', 'Code copié').then((ok) => {{
+            if (!ok) return;
             btn.textContent = '\u2713 Copi\u00e9';
             btn.classList.add('copied');
             setTimeout(() => {{ btn.textContent = 'Copier'; btn.classList.remove('copied'); }}, 1500);
@@ -2032,7 +2036,8 @@ fn build_html_template(
         srcBtn.onclick = function(e) {{
           e.stopPropagation();
           var src = div.getAttribute('data-source') || '';
-          navigator.clipboard.writeText(src).then(function() {{
+          writeClipboard(src, 'Source Mermaid copiée').then(function(ok) {{
+            if (!ok) return;
             srcBtn.textContent = '\u2713 Copi\u00e9';
             setTimeout(function() {{ srcBtn.textContent = 'Copier source'; }}, 1500);
           }});
@@ -2634,6 +2639,8 @@ mod tests {
         assert!(html.contains("function writeClipboard(text, successMessage)"));
         assert!(html.contains("function clipboardFallback(text)"));
         assert!(html.contains("base + '#' + pageId"));
+        assert!(html.contains("writeClipboard(pre.textContent || '', 'Code copié')"));
+        assert!(html.contains("writeClipboard(src, 'Source Mermaid copiée')"));
     }
 
     #[test]

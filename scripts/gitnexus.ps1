@@ -67,6 +67,22 @@ function Require-Command {
     }
 }
 
+function Invoke-Native {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $FilePath,
+
+        [string[]] $Arguments = @()
+    )
+
+    & $FilePath @Arguments
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+    if ($exitCode -ne 0) {
+        $joinedArgs = $Arguments -join " "
+        throw "Commande echouee ($exitCode): $FilePath $joinedArgs"
+    }
+}
+
 function Quote-ForPowerShell {
     param([string] $Value)
     return "'" + $Value.Replace("'", "''") + "'"
@@ -75,7 +91,8 @@ function Quote-ForPowerShell {
 function Invoke-GitNexusCli {
     param([Parameter(ValueFromRemainingArguments = $true)] [string[]] $CliArgs)
     Set-Location -LiteralPath $RepoRoot
-    & cargo run -p gitnexus-cli --target-dir $CliTargetDir -- @CliArgs
+    $cargoArgs = @("run", "-p", "gitnexus-cli", "--target-dir", $CliTargetDir, "--") + $CliArgs
+    Invoke-Native -FilePath cargo -Arguments $cargoArgs
 }
 
 function Ensure-NpmInstall {
@@ -85,7 +102,7 @@ function Ensure-NpmInstall {
         Write-Step "Installation npm dans $Directory"
         Push-Location -LiteralPath $Directory
         try {
-            & npm install
+            Invoke-Native -FilePath npm -Arguments @("install")
         }
         finally {
             Pop-Location
@@ -650,7 +667,7 @@ switch ($Command) {
 
         Write-Step "Lancement application desktop Tauri"
         Set-Location -LiteralPath $RepoRoot
-        & cargo run -p gitnexus-desktop --target-dir $DesktopTargetDir
+        Invoke-Native -FilePath cargo -Arguments @("run", "-p", "gitnexus-desktop", "--target-dir", $DesktopTargetDir)
     }
 
     "ask" {
@@ -686,21 +703,21 @@ switch ($Command) {
 
         Write-Step "Verification chat-ui: lint, tests, build"
         Invoke-InDirectory -Directory $chatDir -Script {
-            & npm run lint
-            & npm run test
-            & npm run build
+            Invoke-Native -FilePath npm -Arguments @("run", "lint")
+            Invoke-Native -FilePath npm -Arguments @("run", "test")
+            Invoke-Native -FilePath npm -Arguments @("run", "build")
         }
 
         Write-Step "Verification desktop UI: lint, build"
         Invoke-InDirectory -Directory $desktopUiDir -Script {
-            & npm run lint
-            & npm run build
+            Invoke-Native -FilePath npm -Arguments @("run", "lint")
+            Invoke-Native -FilePath npm -Arguments @("run", "build")
         }
 
         Write-Step "Verification Rust: fmt + tests CLI/MCP/Desktop"
         Set-Location -LiteralPath $RepoRoot
-        & cargo fmt --check
-        & cargo test -p gitnexus-cli -p gitnexus-mcp -p gitnexus-desktop --target-dir "target-codex/check"
+        Invoke-Native -FilePath cargo -Arguments @("fmt", "--check")
+        Invoke-Native -FilePath cargo -Arguments @("test", "-p", "gitnexus-cli", "-p", "gitnexus-mcp", "-p", "gitnexus-desktop", "--target-dir", "target-codex/check")
     }
 
     "doctor" {

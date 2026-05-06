@@ -2,15 +2,14 @@ import { lazy, Suspense } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MermaidBlock } from './MermaidBlock';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
   looksLikeMermaid,
   normalizeBareMermaid,
   normalizeCodeFenceLanguage,
 } from '../../utils/markdown';
 
-const SyntaxHighlighter = lazy(() =>
-  import('react-syntax-highlighter/dist/esm/prism').then((m) => ({ default: m.Prism }))
+const SyntaxCodeBlock = lazy(() =>
+  import('./SyntaxCodeBlock').then((m) => ({ default: m.SyntaxCodeBlock }))
 );
 
 interface Props {
@@ -80,19 +79,7 @@ const components: Components = {
           </pre>
         }
       >
-        <SyntaxHighlighter
-          language={language}
-          style={vscDarkPlus}
-          PreTag="div"
-          customStyle={{
-            margin: '0.5rem 0',
-            borderRadius: '0.375rem',
-            border: '1px solid rgb(38 38 38)',
-            fontSize: '0.8125rem',
-          }}
-        >
-          {raw}
-        </SyntaxHighlighter>
+        <SyntaxCodeBlock language={language} code={raw} />
       </Suspense>
     );
   },

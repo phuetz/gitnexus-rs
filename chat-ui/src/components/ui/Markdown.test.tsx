@@ -74,4 +74,10 @@ flowchart TD
 
     expect(screen.getByTestId('mermaid-block').textContent).toContain('sequenceDiagram');
   });
+
+  it('keeps code readable while the syntax highlighter chunk loads', () => {
+    render(<Markdown>{'```ts\nconst value: number = 1;\n```'}</Markdown>);
+
+    expect(screen.getByText(/const value: number = 1/)).toBeTruthy();
+  });
 });

@@ -1,4 +1,4 @@
-import { Copy, GitBranch, RefreshCw, ChevronDown, ChevronRight, Pin, PinOff, Loader2, CheckCircle2, XCircle, Clock, Lightbulb, AlertTriangle, Info, AlertCircle } from "lucide-react";
+import { Copy, GitBranch, RefreshCw, ChevronDown, ChevronRight, Pin, PinOff, Loader2, CheckCircle2, XCircle, Clock, Lightbulb, AlertTriangle, Info, AlertCircle, Download, Code2, Check } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
@@ -231,6 +231,8 @@ function MermaidDiagram({ chart }: { chart: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [showSource, setShowSource] = useState(false);
+  const [copied, setCopied] = useState(false);
   const reactId = useId();
   const mermaidId = `mermaid-chat-${reactId.replace(/:/g, "")}`;
   const theme = useAppStore((s) => s.theme);
@@ -247,7 +249,9 @@ function MermaidDiagram({ chart }: { chart: string }) {
         await initMermaid(isDark);
         const { svg: rendered } = await mermaid.render(mermaidId, chart.trim());
         if (!cancelled) {
-          setSvg(rendered);
+          const safeSvg = sanitizeMermaidSvg(rendered);
+          if (!safeSvg) throw new Error("Mermaid produced invalid SVG output");
+          setSvg(safeSvg);
           setError(null);
         }
       } catch (err) {
@@ -263,21 +267,43 @@ function MermaidDiagram({ chart }: { chart: string }) {
     return () => { cancelled = true; };
   }, [chart, mermaidId, isDark]);
 
-  // Render via DOM ref instead of dangerouslySetInnerHTML.
-  // Mermaid's securityLevel:"strict" already strips event handlers;
-  // we add defence-in-depth by removing <script> elements.
+  // Render via DOM ref instead of dangerouslySetInnerHTML. The SVG string was
+  // already sanitized for script-like tags, event attributes, and JS URLs.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !svg) return;
     el.textContent = "";
-    const wrapper = document.createElement("div");
-    wrapper.textContent = "";
     const parser = new DOMParser();
     const doc = parser.parseFromString(svg, "image/svg+xml");
-    doc.querySelectorAll("script,iframe,object,embed").forEach((n) => n.remove());
     const svgEl = doc.documentElement;
     if (svgEl) el.appendChild(document.importNode(svgEl, true));
   }, [svg]);
+
+  const copySource = () => {
+    navigator.clipboard.writeText(chart).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+        toast.success("Mermaid source copied.");
+      },
+      () => toast.error("Failed to copy Mermaid source."),
+    );
+  };
+
+  const downloadSvg = () => {
+    if (!svg) return;
+    const blob = new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${svg}`], {
+      type: "image/svg+xml;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "gitnexus-diagram.svg";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
 
   if (error) {
     return (
@@ -287,20 +313,107 @@ function MermaidDiagram({ chart }: { chart: string }) {
       >
         <p className="font-medium mb-1">Failed to render Mermaid diagram</p>
         <pre className="whitespace-pre-wrap">{error}</pre>
+        <pre className="mt-2 whitespace-pre-wrap rounded p-2" style={{ background: "var(--bg-0)", color: "var(--text-2)" }}>
+          {chart}
+        </pre>
       </div>
     );
   }
 
   return (
     <div
-      ref={containerRef}
-      className="my-4 flex justify-center overflow-x-auto rounded-lg p-4"
+      className="my-4 overflow-hidden rounded-lg"
       style={{
         background: "var(--bg-1)",
         border: "1px solid var(--surface-border)",
       }}
-    />
+    >
+      <div
+        className="flex items-center justify-between gap-3 px-3 py-2 text-[11px]"
+        style={{ borderBottom: "1px solid var(--surface-border)", background: "var(--bg-2)", color: "var(--text-2)" }}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          {svg ? (
+            <span className="h-2 w-2 rounded-full" style={{ background: "var(--green)" }} aria-hidden="true" />
+          ) : (
+            <Loader2 size={13} className="animate-spin" style={{ color: "var(--orange)" }} aria-hidden="true" />
+          )}
+          <span className="truncate font-medium">Mermaid</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={downloadSvg}
+            disabled={!svg}
+            className="rounded p-1.5 transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ color: "var(--text-3)" }}
+            aria-label="Download Mermaid diagram as SVG"
+            title="Download SVG"
+          >
+            <Download size={13} />
+          </button>
+          <button
+            onClick={() => setShowSource((value) => !value)}
+            className="rounded p-1.5"
+            style={{ color: "var(--text-3)" }}
+            aria-label={showSource ? "Hide Mermaid source" : "Show Mermaid source"}
+            aria-pressed={showSource}
+            title={showSource ? "Hide source" : "Show source"}
+          >
+            <Code2 size={13} />
+          </button>
+          <button
+            onClick={copySource}
+            className="rounded p-1.5"
+            style={{ color: "var(--text-3)" }}
+            aria-label="Copy Mermaid source"
+            title={copied ? "Copied" : "Copy source"}
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+          </button>
+        </div>
+      </div>
+      <div
+        ref={containerRef}
+        className="flex min-h-28 justify-center overflow-x-auto p-4"
+      >
+        {!svg && (
+          <div className="flex w-full items-center justify-center rounded border border-dashed p-8 text-[11px]" style={{ borderColor: "var(--surface-border)", color: "var(--text-3)" }}>
+            Rendering diagram...
+          </div>
+        )}
+      </div>
+      {showSource && (
+        <div className="p-3" style={{ borderTop: "1px solid var(--surface-border)" }}>
+          <pre className="max-h-80 overflow-auto rounded p-2 text-[11px]" style={{ background: "var(--bg-0)", color: "var(--text-2)" }}>
+            {chart}
+          </pre>
+        </div>
+      )}
+    </div>
   );
+}
+
+function sanitizeMermaidSvg(svg: string): string {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svg, "image/svg+xml");
+  doc.querySelectorAll("script,iframe,object,embed").forEach((node) => node.remove());
+  doc.querySelectorAll("*").forEach((node) => {
+    Array.from(node.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      const isScriptUrl =
+        (name === "href" || name.endsWith(":href")) && value.startsWith("javascript:");
+      if (name.startsWith("on") || isScriptUrl) {
+        node.removeAttribute(attr.name);
+      }
+    });
+  });
+  const svgEl = doc.documentElement;
+  if (!svgEl || svgEl.nodeName.toLowerCase() !== "svg") return "";
+  if (!svgEl.getAttribute("xmlns")) {
+    svgEl.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  }
+  return new XMLSerializer().serializeToString(svgEl);
 }
 
 // ─── Callout detection ───────────────────────────────────────────────

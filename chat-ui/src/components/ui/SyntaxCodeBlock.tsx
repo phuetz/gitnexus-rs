@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { Check, Copy } from 'lucide-react';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
@@ -64,28 +66,57 @@ interface Props {
 
 export function SyntaxCodeBlock({ language, code }: Props) {
   const resolvedLanguage = resolveLanguage(language);
-  if (!resolvedLanguage) {
-    return (
-      <pre className="my-2 overflow-x-auto rounded-md border border-neutral-800 bg-neutral-900 p-3 text-xs">
-        <code>{code}</code>
-      </pre>
-    );
-  }
+  const [copied, setCopied] = useState(false);
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard access can be denied; the code remains selectable.
+    }
+  };
 
-  return (
+  const body = !resolvedLanguage ? (
+    <pre className="overflow-x-auto bg-neutral-900 p-3 text-xs">
+      <code>{code}</code>
+    </pre>
+  ) : (
     <SyntaxHighlighter
       language={resolvedLanguage}
       style={vscDarkPlus}
       PreTag="div"
       customStyle={{
-        margin: '0.5rem 0',
-        borderRadius: '0.375rem',
-        border: '1px solid rgb(38 38 38)',
+        margin: 0,
+        borderRadius: 0,
+        border: 0,
         fontSize: '0.8125rem',
       }}
     >
       {code}
     </SyntaxHighlighter>
+  );
+
+  return (
+    <div className="my-2 overflow-hidden rounded-md border border-neutral-800 bg-neutral-950/70">
+      <div className="flex items-center justify-between gap-3 border-b border-neutral-800 bg-neutral-900/55 px-3 py-1.5 text-xs">
+        <span className="truncate font-mono text-neutral-400">{resolvedLanguage ?? language}</span>
+        <button
+          type="button"
+          onClick={() => void copyCode()}
+          className="rounded p-1.5 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-100"
+          aria-label="Copier le bloc de code"
+          title={copied ? 'Copié !' : 'Copier le code'}
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5" aria-hidden="true" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+          )}
+        </button>
+      </div>
+      <div className="overflow-x-auto">{body}</div>
+    </div>
   );
 }
 

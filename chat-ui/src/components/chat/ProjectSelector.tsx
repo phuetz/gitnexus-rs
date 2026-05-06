@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, FolderOpen, RefreshCw, AlertCircle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronDown, FolderOpen, RefreshCw, AlertCircle, Search } from 'lucide-react';
 import clsx from 'clsx';
 import { mcpClient, type RepoInfo } from '../../api/mcp-client';
 import { useChatStore } from '../../stores/chat-store';
@@ -38,6 +38,7 @@ export function ProjectSelector() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
 
   const fetchRepos = useCallback(async () => {
     setLoading(true);
@@ -74,6 +75,13 @@ export function ProjectSelector() {
 
   const selectedRepoInfo = repos.find((repo) => repoMatchesSelection(repo, selectedRepo));
   const duplicateNames = countRepoNames(repos);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredRepos = useMemo(() => {
+    if (!normalizedQuery) return repos;
+    return repos.filter((repo) =>
+      [repo.name, repo.id ?? '', repo.path ?? ''].join('\n').toLowerCase().includes(normalizedQuery)
+    );
+  }, [normalizedQuery, repos]);
   const label = selectedRepoInfo
     ? repoDisplayName(selectedRepoInfo, duplicateNames)
     : selectedRepo ?? (loading ? 'Chargement…' : 'Aucun projet');
@@ -108,9 +116,17 @@ export function ProjectSelector() {
       {open && (
         <div className="absolute left-0 top-full z-10 mt-1 max-h-80 w-72 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 shadow-xl">
           <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
-            <span className="text-xs font-medium uppercase tracking-wider text-neutral-500">
-              Projets indexés
-            </span>
+            <div className="min-w-0">
+              <div className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                Projets indexés
+              </div>
+              {repos.length > 0 && (
+                <div className="text-[11px] text-neutral-600">
+                  {normalizedQuery ? `${filteredRepos.length}/${repos.length}` : repos.length}{' '}
+                  projet(s)
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={(e) => {
@@ -124,6 +140,20 @@ export function ProjectSelector() {
               <RefreshCw size={12} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
             </button>
           </div>
+
+          {!error && repos.length > 0 && (
+            <label className="m-2 flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-950/60 px-2 py-1.5 text-xs text-neutral-500 focus-within:border-neutral-700">
+              <Search size={13} aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Rechercher..."
+                aria-label="Rechercher un projet"
+                className="min-w-0 flex-1 bg-transparent text-neutral-200 outline-none placeholder:text-neutral-600"
+              />
+            </label>
+          )}
 
           {error && (
             <div className="px-3 py-3 text-xs text-amber-300">
@@ -141,7 +171,13 @@ export function ProjectSelector() {
             </div>
           )}
 
-          {repos.map((repo, index) => {
+          {!error && filteredRepos.length === 0 && repos.length > 0 && (
+            <div className="px-3 py-3 text-xs text-neutral-500">
+              Aucun projet ne correspond à cette recherche.
+            </div>
+          )}
+
+          {filteredRepos.map((repo, index) => {
             const idSuffix = duplicateNames[repo.name] > 1 ? shortRepoId(repo) : null;
             return (
               <button

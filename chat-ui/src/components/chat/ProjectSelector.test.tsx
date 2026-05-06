@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectSelector } from './ProjectSelector';
 import { useChatStore } from '../../stores/chat-store';
@@ -116,5 +116,39 @@ describe('ProjectSelector', () => {
       expect(useChatStore.getState().selectedRepoName).toBe('Alise_v2');
       expect(screen.getByText('Alise_v2')).toBeTruthy();
     });
+  });
+
+  it('filters the dropdown by project name, id or path', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/repos')) {
+          return jsonResponse({
+            repos: [
+              { id: 'repo_alise', name: 'Alise_v2', path: 'D:/Repos/Alise_v2' },
+              { id: 'repo_courrier', name: 'Courrier', path: 'D:/Repos/Courrier' },
+              { id: 'repo_billing', name: 'BillingApp', path: 'D:/Repos/Facturation' },
+            ],
+          });
+        }
+        return jsonResponse({}, { status: 404 });
+      })
+    );
+
+    render(<ProjectSelector />);
+
+    await waitFor(() => {
+      expect(useChatStore.getState().selectedRepo).toBe('repo_alise');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /sélectionner le projet/i }));
+    fireEvent.change(screen.getByRole('searchbox', { name: /rechercher un projet/i }), {
+      target: { value: 'facturation' },
+    });
+
+    expect(screen.getByText('BillingApp')).toBeTruthy();
+    expect(screen.queryByText('Courrier')).toBeNull();
+    expect(screen.getByText('1/3 projet(s)')).toBeTruthy();
   });
 });

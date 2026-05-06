@@ -31,6 +31,35 @@ flowchart TD
 
     expect(normalizeBareMermaid(markdown)).toBe(markdown);
   });
+
+  it('keeps unindented sequence diagram arrows inside the Mermaid block', () => {
+    const normalized = normalizeBareMermaid(`Flux détaillé
+sequenceDiagram
+MVC->>BAL: CreerCourrierMasse
+BAL-->>MVC: PDF fusionné
+Étapes détaillées`);
+
+    expect(normalized).toContain('```mermaid\nsequenceDiagram');
+    expect(normalized).toContain('MVC->>BAL: CreerCourrierMasse');
+    expect(normalized).toContain('BAL-->>MVC: PDF fusionné');
+    expect(normalized).toContain('```\nÉtapes détaillées');
+  });
+
+  it('keeps class diagram members and closing braces inside the Mermaid block', () => {
+    const normalized = normalizeBareMermaid(`Vue classes
+classDiagram
+class CourrierController {
++ImprimerListeCourrierMasse()
+}
+CourrierController --> CourriersService
+Sources`);
+
+    expect(normalized).toContain('```mermaid\nclassDiagram');
+    expect(normalized).toContain('class CourrierController {');
+    expect(normalized).toContain('+ImprimerListeCourrierMasse()');
+    expect(normalized).toContain('}\nCourrierController --> CourriersService');
+    expect(normalized).toContain('```\nSources');
+  });
 });
 
 describe('normalizeCodeFenceLanguage', () => {

@@ -2,8 +2,10 @@ const MERMAID_GRAPH_TYPES = [
   'flowchart',
   'sequenceDiagram',
   'classDiagram',
+  'classDiagram-v2',
   'erDiagram',
   'stateDiagram',
+  'stateDiagram-v2',
   'gantt',
   'pie',
   'mindmap',
@@ -32,7 +34,7 @@ const CODE_LANGUAGE_ALIASES = new Map<string, string>([
 ]);
 
 const MERMAID_LINE_RE = new RegExp(
-  String.raw`^\s*(subgraph\b|end\b|participant\b|actor\b|autonumber\b|loop\b|alt\b|opt\b|else\b|par\b|and\b|rect\b|note\b|activate\b|deactivate\b|class\b|classDef\b|click\b|style\b|linkStyle\b|title\b|section\b|dateFormat\b|axisFormat\b|todayMarker\b|[A-Za-z0-9_]+(?:\s*(?:-->|---|-.->|==>|-\.-|--|:::|::)|\s*[\[\(\{>]))`,
+  String.raw`^\s*(?:\}|[+\-#~]\w|subgraph\b|end\b|participant\b|actor\b|autonumber\b|loop\b|alt\b|opt\b|else\b|par\b|and\b|rect\b|note\b|activate\b|deactivate\b|class\b|classDef\b|click\b|style\b|linkStyle\b|title\b|section\b|dateFormat\b|axisFormat\b|todayMarker\b|[A-Za-z0-9_.-]+(?:\s*(?:-->|---|-.->|==>|-\.-|--|:::|::|[-=]+>>[+\-]?|--x|-x|--\)|-\))|\s*[\[\(\{>]))`,
   'i'
 );
 

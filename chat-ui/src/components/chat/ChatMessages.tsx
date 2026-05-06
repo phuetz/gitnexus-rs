@@ -1,5 +1,13 @@
-import { useEffect, useRef } from 'react';
-import { BarChart3, GitBranch, Network, Plug, Skull, MessageSquareText } from 'lucide-react';
+import { type UIEvent, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ArrowDown,
+  BarChart3,
+  GitBranch,
+  Network,
+  Plug,
+  Skull,
+  MessageSquareText,
+} from 'lucide-react';
 import { useChatStore } from '../../stores/chat-store';
 import { useChat } from '../../hooks/use-chat';
 import { ChatMessage } from './ChatMessage';
@@ -20,11 +28,44 @@ export function ChatMessages() {
   const setInputDraft = useChatStore((s) => s.setInputDraft);
   const { regenerate } = useChat();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [isNearBottom, setIsNearBottom] = useState(true);
   const repoLabel = selectedRepoName ?? selectedRepo;
 
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const container = scrollRef.current;
+    if (!container) return;
+    if (typeof container.scrollTo === 'function') {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, []);
+
+  const updateNearBottom = useCallback((container: HTMLDivElement) => {
+    const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setIsNearBottom(distance < 140);
+  }, []);
+
+  const handleScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      updateNearBottom(event.currentTarget);
+    },
+    [updateNearBottom]
+  );
+
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [session?.messages.length, isStreaming]);
+    const frame = window.requestAnimationFrame(() => {
+      scrollToBottom('auto');
+      setIsNearBottom(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [session?.id, scrollToBottom]);
+
+  useEffect(() => {
+    if (isNearBottom) {
+      scrollToBottom('smooth');
+    }
+  }, [session?.messages.length, isStreaming, isNearBottom, scrollToBottom]);
 
   if (!session || session.messages.length === 0) {
     return (
@@ -75,7 +116,14 @@ export function ChatMessages() {
   }
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto" role="log" aria-live="polite" aria-relevant="additions text">
+    <div
+      ref={scrollRef}
+      className="relative h-full overflow-y-auto"
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions text"
+      onScroll={handleScroll}
+    >
       <div id="gitnexus-chat-export-source" className="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-5">
         {session.messages.map((m, i) => (
           <ChatMessage
@@ -99,6 +147,20 @@ export function ChatMessages() {
           </div>
         )}
       </div>
+      {!isNearBottom && (
+        <button
+          type="button"
+          onClick={() => {
+            scrollToBottom('smooth');
+            setIsNearBottom(true);
+          }}
+          className="sticky bottom-4 z-10 ml-auto mr-6 mb-4 flex h-9 w-9 items-center justify-center rounded-full border border-neutral-800 bg-neutral-900 text-neutral-300 shadow-lg shadow-black/30 transition hover:border-neutral-700 hover:bg-neutral-800 hover:text-neutral-100"
+          aria-label="Aller au dernier message"
+          title="Aller au dernier message"
+        >
+          <ArrowDown size={16} aria-hidden />
+        </button>
+      )}
     </div>
   );
 }

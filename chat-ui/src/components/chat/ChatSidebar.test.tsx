@@ -51,6 +51,7 @@ describe('ChatSidebar', () => {
 
     expect(screen.getByText('Flux courrier')).toBeTruthy();
     expect(screen.getByText('Architecture MVC')).toBeTruthy();
+    expect(screen.getAllByText(/1 message/)).toHaveLength(2);
 
     fireEvent.change(screen.getByRole('searchbox', { name: /rechercher une conversation/i }), {
       target: { value: 'repository' },

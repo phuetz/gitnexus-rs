@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { Plus, MessageSquare, Trash2, Library, Search } from 'lucide-react';
 import { useChatStore } from '../../stores/chat-store';
+import { formatMessageTimestamp } from '../../utils/dates';
 
 export function ChatSidebar() {
   const sessions = useChatStore((s) => s.sessions);
@@ -70,32 +71,46 @@ export function ChatSidebar() {
             Aucune conversation ne correspond à cette recherche.
           </p>
         ) : (
-          filteredSessions.map((session) => (
-            <div
-              key={session.id}
-              onClick={() => selectSession(session.id)}
-              className={clsx(
-                'group flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition',
-                session.id === currentSessionId
-                  ? 'border-neutral-700 bg-neutral-800/80 text-neutral-100'
-                  : 'border-transparent text-neutral-400 hover:border-neutral-900 hover:bg-neutral-900/80'
-              )}
-            >
-              <MessageSquare size={14} className="shrink-0 opacity-60" aria-hidden="true" />
-              <span className="flex-1 truncate">{session.title}</span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteSession(session.id);
-                }}
-                aria-label={`Supprimer la conversation "${session.title}"`}
-                className="opacity-0 transition group-hover:opacity-100 hover:text-red-400"
+          filteredSessions.map((session) => {
+            const updatedAt = formatMessageTimestamp(session.updatedAt);
+            const messageCount = session.messages.length;
+            const activityLabel = [
+              `${messageCount} message${messageCount > 1 ? 's' : ''}`,
+              updatedAt,
+            ].filter(Boolean).join(' · ');
+
+            return (
+              <div
+                key={session.id}
+                onClick={() => selectSession(session.id)}
+                className={clsx(
+                  'group flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm transition',
+                  session.id === currentSessionId
+                    ? 'border-neutral-700 bg-neutral-800/80 text-neutral-100'
+                    : 'border-transparent text-neutral-400 hover:border-neutral-900 hover:bg-neutral-900/80'
+                )}
               >
-                <Trash2 size={14} aria-hidden="true" />
-              </button>
-            </div>
-          ))
+                <MessageSquare size={14} className="mt-0.5 shrink-0 opacity-60" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate">{session.title}</span>
+                  <span className="mt-0.5 block truncate text-[11px] text-neutral-600 group-hover:text-neutral-500">
+                    {activityLabel}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteSession(session.id);
+                  }}
+                  aria-label={`Supprimer la conversation "${session.title}"`}
+                  className="mt-0.5 opacity-0 transition group-hover:opacity-100 hover:text-red-400 focus:opacity-100"
+                >
+                  <Trash2 size={14} aria-hidden="true" />
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
 

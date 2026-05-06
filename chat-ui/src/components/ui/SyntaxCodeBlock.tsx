@@ -24,6 +24,7 @@ import swift from 'react-syntax-highlighter/dist/esm/languages/prism/swift';
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 const LANGUAGES = {
   bash,
@@ -68,12 +69,10 @@ export function SyntaxCodeBlock({ language, code }: Props) {
   const resolvedLanguage = resolveLanguage(language);
   const [copied, setCopied] = useState(false);
   const copyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
+    const ok = await copyTextToClipboard(code);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard access can be denied; the code remains selectable.
     }
   };
 

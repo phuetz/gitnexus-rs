@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react';
 import DOMPurify from 'dompurify';
 import { Check, Code2, Copy, Download, Loader2 } from 'lucide-react';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 /**
  * Renders a Mermaid diagram from raw text.
@@ -82,12 +83,10 @@ export function MermaidBlock({ text }: Props) {
   }, [text, svgId]);
 
   const copySource = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard access can be denied; the source remains selectable below.
     }
   };
 

@@ -4,7 +4,15 @@ Derniere mise a jour: 2026-05-07
 
 ## Reponse courte
 
-Oui, GitNexus peut devenir une application React capable de naviguer dans les sources et dans le graphe. Une partie importante existe deja dans l'application desktop Tauri. Le client `chat-ui` web autonome doit encore recevoir une surface dediee et des endpoints HTTP limites pour exposer ces capacites sans donner au navigateur un acces libre au disque.
+Oui. GitNexus peut maintenant commencer a naviguer dans les sources et dans le graphe depuis le client React autonome `chat-ui`.
+
+La premiere version web expose un panneau `Explorer` dans le chat:
+
+- onglet `Sources`: arborescence read-only, filtre, apercu source avec numeros de lignes;
+- onglet `Graphe`: recherche de symboles, voisinage graphe, carte SVG cliquable;
+- rebond vers le chat: un fichier ou un noeud peut alimenter le brouillon de question.
+
+Cette surface reste volontairement bornee: le navigateur passe par des endpoints HTTP read-only, et le backend refuse les chemins qui sortent du depot indexe.
 
 ## Etat actuel
 
@@ -35,7 +43,7 @@ Conclusion: pour le desktop, la navigation sources + graphe est deja presente et
 
 ### Chat React autonome (`chat-ui`)
 
-Le client web autonome est aujourd'hui centre sur la conversation:
+Le client web autonome est centre sur la conversation et possede maintenant un premier espace d'exploration:
 
 - selection de projet indexe;
 - streaming `/api/chat`;
@@ -44,8 +52,13 @@ Le client web autonome est aujourd'hui centre sur la conversation:
 - coloration syntaxique;
 - exports Markdown/PDF;
 - diagnostics backend.
+- bouton `Explorer`;
+- navigation dans l'arbre des fichiers;
+- lecture d'extraits source;
+- recherche de symboles;
+- voisinage graphe avec carte SVG cliquable.
 
-Il ne dispose pas encore d'un vrai explorateur source/graphe. C'est la prochaine etape naturelle.
+Il reste a relier automatiquement les citations de fichiers dans les reponses du chat vers cet explorateur.
 
 ### Site HTML genere
 
@@ -133,20 +146,20 @@ Une palette `Ctrl+K` devrait chercher:
 - noeuds du graphe;
 - pages de documentation generees.
 
-## API HTTP proposee pour `chat-ui`
+## API HTTP pour `chat-ui`
 
-Les noms exacts peuvent evoluer, mais la surface devrait rester petite et read-only au depart.
+La surface web reste petite et read-only au depart.
 
-| Endpoint | Role |
-| --- | --- |
-| `GET /api/repos` | Liste des projets indexes |
-| `GET /api/repos/{repo}/files?path=` | Arborescence bornee au repo |
-| `GET /api/repos/{repo}/source?path=&start=&end=` | Lecture d'un fichier ou extrait |
-| `GET /api/repos/{repo}/symbols?q=&limit=` | Recherche de symboles |
-| `GET /api/repos/{repo}/graph?zoom=&max_nodes=` | Graphe global limite |
-| `GET /api/repos/{repo}/graph/neighborhood?node_id=&depth=` | Sous-graphe autour d'un noeud |
-| `GET /api/repos/{repo}/context?node_id=` | Callers, callees, imports, communaute |
-| `GET /api/repos/{repo}/impact?node_id=&direction=&depth=` | Impact amont/aval |
+| Endpoint | Role | Statut |
+| --- | --- | --- |
+| `GET /api/repos` | Liste des projets indexes | existant |
+| `GET /api/repos/{repo}/files?path=` | Arborescence bornee au repo | implemente |
+| `GET /api/repos/{repo}/source?path=&start=&end=` | Lecture d'un fichier ou extrait | implemente |
+| `GET /api/repos/{repo}/symbols?q=&limit=` | Recherche de symboles | implemente |
+| `GET /api/repos/{repo}/graph?zoom=&max_nodes=` | Graphe global limite | implemente |
+| `GET /api/repos/{repo}/graph/neighborhood?node_id=&depth=` | Sous-graphe autour d'un noeud | implemente |
+| `GET /api/repos/{repo}/context?node_id=` | Callers, callees, imports, communaute | a faire |
+| `GET /api/repos/{repo}/impact?node_id=&direction=&depth=` | Impact amont/aval | a faire |
 
 La premiere implementation peut reutiliser les memes types que le desktop:
 
@@ -178,6 +191,8 @@ Avant d'exposer les sources au navigateur:
 
 Ajouter les endpoints HTTP read-only dans `gitnexus serve` en reutilisant les fonctions deja presentes cote Tauri quand c'est possible.
 
+Statut: fait pour `files`, `source`, `symbols`, `graph` et `graph/neighborhood`.
+
 Validation:
 
 - tests unitaires path traversal;
@@ -207,6 +222,8 @@ Construire une version web de `FileTreeView` + `FilePreview`:
 - virtualisation si gros arbre;
 - preservation de l'etat par repo.
 
+Statut: premiere version livree dans le panneau `Explorer`. La virtualisation gros arbre reste a ajouter.
+
 Validation:
 
 - arbre vide;
@@ -223,6 +240,8 @@ Porter le coeur de `GraphExplorer` en version web:
 - limiter a 200 noeuds par defaut;
 - lazy expand sur double-clic;
 - inspecteur de noeud a droite.
+
+Statut: premiere version livree avec recherche symbole, voisinage et carte SVG cliquable. Le lazy expand et les filtres relationnels restent a ajouter.
 
 Validation:
 

@@ -22,7 +22,8 @@ Ce lanceur :
 
 Le client chat indique le LLM actif, horodate les questions/reponses, rend le
 Markdown, le code colore et les diagrammes Mermaid, puis exporte les conversations
-en Markdown ou PDF. En cas de `502` sur la liste des projets, le panneau d'erreur
+en Markdown ou PDF. Le bouton `Explorer` ouvre la navigation read-only dans les
+sources indexees et dans le voisinage graphe d'un symbole. En cas de `502` sur la liste des projets, le panneau d'erreur
 propose un diagnostic copiable avec les commandes de reprise.
 
 Si le backend ou le client React repond deja sur le port demande, le script le

@@ -142,6 +142,22 @@ Le script `start-chat-react.cmd` est un raccourci equivalent au mode chat standa
 .\start-chat-react.cmd
 ```
 
+### Explorer les sources et le graphe depuis le chat
+
+Dans le client React, le bouton `Explorer` ouvre un panneau lateral:
+
+- `Sources`: filtrer l'arborescence, ouvrir un fichier, lire un extrait avec numeros de ligne;
+- `Graphe`: chercher une classe, methode, action MVC ou service, puis afficher son voisinage;
+- `Source`: depuis un noeud du graphe, revenir au fichier associe;
+- bouton message: envoyer le fichier ou le noeud selectionne dans le brouillon du chat.
+
+Cette navigation utilise uniquement les depots indexes par GitNexus. Si le panneau est vide, lancez d'abord:
+
+```powershell
+.\gitnexus.cmd analyze -Repo D:\chemin\vers\mon-projet
+.\gitnexus.cmd list
+```
+
 ## 7. Lancer l'application desktop
 
 ```powershell

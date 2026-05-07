@@ -107,6 +107,27 @@ impl LocalBackend {
         Ok((graph, indexes, fts))
     }
 
+    /// Resolve an indexed repository and return cached graph/search indexes for it.
+    ///
+    /// This is used by the HTTP REST transport for browser-native read-only
+    /// exploration endpoints. The returned registry entry is cloned so callers
+    /// can safely keep repository metadata while the mutable backend borrow is
+    /// used to populate caches.
+    pub fn load_repo_indexes(
+        &mut self,
+        repo: &str,
+    ) -> Result<(
+        RegistryEntry,
+        Arc<KnowledgeGraph>,
+        Arc<GraphIndexes>,
+        Arc<FtsIndex>,
+    )> {
+        let entry = self.resolve_repo(Some(repo))?.clone();
+        let snap_path = PathBuf::from(&entry.storage_path).join("graph.bin");
+        let (graph, indexes, fts) = self.load_cached_indexes(&snap_path)?;
+        Ok((entry, graph, indexes, fts))
+    }
+
     /// Collect enrichment metadata from a node's properties into a JSON value.
     fn collect_enrichment_for_node(graph: &KnowledgeGraph, node_id: &str) -> Value {
         let node = match graph.get_node(node_id) {

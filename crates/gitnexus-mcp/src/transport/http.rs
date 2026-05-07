@@ -3,7 +3,8 @@
 //! Provides JSON-RPC endpoint (POST /mcp) and REST API endpoints for
 //! direct HTTP integration without MCP protocol overhead.
 
-use std::path::{Path as FsPath, PathBuf};
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Component, Path as FsPath, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -16,13 +17,17 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 
 use gitnexus_core::secret_store::{decode_secret_from_storage, secret_payload_needs_migration};
 use gitnexus_core::storage::repo_manager::registry_entry_id;
+use gitnexus_core::{
+    config::languages::SupportedLanguage,
+    graph::types::{GraphNode, GraphRelationship, NodeLabel, RelationshipType},
+};
 
 use crate::backend::local::LocalBackend;
 use crate::jsonrpc::{JsonRpcRequest, JsonRpcResponse};
@@ -84,6 +89,14 @@ pub fn mcp_http_router() -> Router<SharedBackend> {
         .route("/api/llm-config", get(llm_config_handler))
         .route("/api/diagnostics", get(diagnostics_handler))
         .route("/api/repos/:name/search", get(search_handler))
+        .route("/api/repos/:name/symbols", get(symbols_handler))
+        .route("/api/repos/:name/files", get(files_handler))
+        .route("/api/repos/:name/source", get(source_handler))
+        .route("/api/repos/:name/graph", get(graph_handler))
+        .route(
+            "/api/repos/:name/graph/neighborhood",
+            get(graph_neighborhood_handler),
+        )
         .route("/api/repos/:name/stats", get(stats_handler))
         .route("/api/repos/:name/hotspots", get(hotspots_handler));
 
@@ -413,6 +426,850 @@ async fn search_handler(
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileTreeNode {
+    name: String,
+    path: String,
+    is_dir: bool,
+    children: Vec<FileTreeNode>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceContent {
+    path: String,
+    content: String,
+    language: Option<String>,
+    total_lines: usize,
+    start_line: u32,
+    end_line: u32,
+    truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchResult {
+    node_id: String,
+    name: String,
+    label: String,
+    file_path: String,
+    score: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end_line: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphPayload {
+    nodes: Vec<CytoNode>,
+    edges: Vec<CytoEdge>,
+    stats: GraphStats,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphStats {
+    node_count: usize,
+    edge_count: usize,
+    truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CytoNode {
+    id: String,
+    label: String,
+    name: String,
+    file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end_line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_exported: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    community: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parameter_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    return_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    layer_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entry_point_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entry_point_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_traced: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trace_call_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_dead_candidate: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    complexity: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    depth: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CytoEdge {
+    id: String,
+    source: String,
+    target: String,
+    rel_type: String,
+    confidence: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct FilesParams {
+    path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SourceParams {
+    path: String,
+    start: Option<u32>,
+    end: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SymbolsParams {
+    q: String,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphParams {
+    zoom: Option<String>,
+    labels: Option<String>,
+    #[serde(default, alias = "filePath")]
+    file_path: Option<String>,
+    max_nodes: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NeighborhoodParams {
+    #[serde(alias = "nodeId")]
+    node_id: String,
+    depth: Option<u32>,
+}
+
+const MAX_SYMBOL_QUERY_CHARS: usize = 1000;
+const MAX_SYMBOL_RESULTS: usize = 100;
+const MAX_GRAPH_NODES: usize = 500;
+const DEFAULT_GRAPH_NODES: usize = 200;
+const MAX_NEIGHBORHOOD_DEPTH: u32 = 5;
+const MAX_NEIGHBORHOOD_NODES: usize = 500;
+const MAX_SOURCE_FILE_BYTES: u64 = 1_000_000;
+const MAX_SOURCE_LINES: u32 = 2_000;
+
+fn api_error(status: StatusCode, message: impl Into<String>) -> (StatusCode, Json<Value>) {
+    (status, Json(json!({ "error": message.into() })))
+}
+
+fn map_backend_error(error: impl std::fmt::Display) -> (StatusCode, Json<Value>) {
+    api_error(StatusCode::BAD_REQUEST, error.to_string())
+}
+
+fn clamp_query_limit(limit: Option<usize>, default: usize, max: usize) -> usize {
+    limit.unwrap_or(default).clamp(1, max)
+}
+
+fn normalize_repo_relative_path(raw: &str) -> Result<String, String> {
+    let normalized = raw.trim().replace('\\', "/");
+    if normalized.is_empty() {
+        return Ok(String::new());
+    }
+    if normalized.contains('\0') {
+        return Err("Path contains a NUL byte.".to_string());
+    }
+
+    let path = FsPath::new(&normalized);
+    if path.is_absolute() {
+        return Err("Absolute paths are not allowed.".to_string());
+    }
+
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => {
+                let value = part
+                    .to_str()
+                    .ok_or_else(|| "Path must be valid UTF-8.".to_string())?;
+                if !value.is_empty() {
+                    parts.push(value.to_string());
+                }
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                return Err("Path traversal is not allowed.".to_string());
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err("Absolute paths are not allowed.".to_string());
+            }
+        }
+    }
+
+    Ok(parts.join("/"))
+}
+
+fn safe_repo_file_path(repo_root: &FsPath, relative_path: &str) -> Result<PathBuf, String> {
+    let relative_path = normalize_repo_relative_path(relative_path)?;
+    if relative_path.is_empty() {
+        return Err("Query parameter 'path' is required.".to_string());
+    }
+
+    let repo_canonical = repo_root
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve repository path: {e}"))?;
+    let full_path = repo_root.join(&relative_path);
+    let file_canonical = full_path
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve file '{relative_path}': {e}"))?;
+    if !file_canonical.starts_with(&repo_canonical) {
+        return Err("Access denied: path is outside the repository.".to_string());
+    }
+    if !file_canonical.is_file() {
+        return Err(format!("'{relative_path}' is not a file."));
+    }
+
+    Ok(file_canonical)
+}
+
+fn language_for_path(path: &str) -> Option<String> {
+    FsPath::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .and_then(|ext| SupportedLanguage::from_extension(&format!(".{ext}")))
+        .map(|language| language.as_str().to_string())
+}
+
+fn normalize_graph_file_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
+fn basename(path: &str) -> String {
+    path.rsplit('/').next().unwrap_or(path).to_string()
+}
+
+fn collect_file_paths(graph: &gitnexus_core::graph::KnowledgeGraph) -> Vec<String> {
+    let mut paths: Vec<String> = graph
+        .iter_nodes()
+        .filter(|node| node.label == NodeLabel::File)
+        .map(|node| normalize_graph_file_path(&node.properties.file_path))
+        .filter(|path| !path.is_empty())
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+fn file_paths_for_prefix(paths: &[String], prefix: &str) -> Vec<String> {
+    if prefix.is_empty() {
+        return paths.to_vec();
+    }
+
+    if paths.iter().any(|path| path == prefix) {
+        return vec![basename(prefix)];
+    }
+
+    let prefix_with_slash = format!("{prefix}/");
+    paths
+        .iter()
+        .filter_map(|path| {
+            path.strip_prefix(&prefix_with_slash)
+                .filter(|rest| !rest.is_empty())
+                .map(|rest| rest.to_string())
+        })
+        .collect()
+}
+
+fn build_tree_from_paths(paths: &[String], prefix: &str) -> Vec<FileTreeNode> {
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    build_tree_impl(&refs, prefix)
+}
+
+fn build_tree_impl(paths: &[&str], prefix: &str) -> Vec<FileTreeNode> {
+    let mut dir_children: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut local_files: Vec<String> = Vec::new();
+
+    for path in paths {
+        let parts: Vec<&str> = path.splitn(2, '/').collect();
+        if parts.len() > 1 {
+            dir_children
+                .entry(parts[0].to_string())
+                .or_default()
+                .push(parts[1].to_string());
+        } else if !path.is_empty() {
+            local_files.push(path.to_string());
+        }
+    }
+
+    let join = |base: &str, name: &str| -> String {
+        if base.is_empty() {
+            name.to_string()
+        } else {
+            format!("{base}/{name}")
+        }
+    };
+
+    let mut result = Vec::new();
+    for (dir_name, child_paths) in &dir_children {
+        let child_refs: Vec<&str> = child_paths.iter().map(String::as_str).collect();
+        let dir_path = join(prefix, dir_name);
+        result.push(FileTreeNode {
+            name: dir_name.clone(),
+            path: dir_path.clone(),
+            is_dir: true,
+            children: build_tree_impl(&child_refs, &dir_path),
+        });
+    }
+
+    for file_name in &local_files {
+        result.push(FileTreeNode {
+            name: file_name.clone(),
+            path: join(prefix, file_name),
+            is_dir: false,
+            children: Vec::new(),
+        });
+    }
+
+    result
+}
+
+/// GET /api/repos/:name/symbols?q=...&limit=N — Browser-native symbol search.
+async fn symbols_handler(
+    State(backend): State<SharedBackend>,
+    Path(name): Path<String>,
+    Query(params): Query<SymbolsParams>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if params.q.trim().is_empty() {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Query parameter 'q' is required.",
+        ));
+    }
+    if params.q.chars().count() > MAX_SYMBOL_QUERY_CHARS {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            format!("Query too long (max {MAX_SYMBOL_QUERY_CHARS} chars)."),
+        ));
+    }
+
+    let limit = clamp_query_limit(params.limit, 20, MAX_SYMBOL_RESULTS);
+    let mut backend_guard = backend.lock().await;
+    let (_entry, graph, _indexes, fts) = backend_guard
+        .load_repo_indexes(&name)
+        .map_err(map_backend_error)?;
+    let mut results = fts.search(&graph, params.q.trim(), None, limit);
+    results.truncate(limit);
+
+    let symbols: Vec<SearchResult> = results
+        .into_iter()
+        .map(|result| SearchResult {
+            node_id: result.node_id,
+            name: result.name,
+            label: result.label,
+            file_path: result.file_path,
+            score: result.score,
+            start_line: result.start_line,
+            end_line: result.end_line,
+        })
+        .collect();
+
+    Ok(Json(json!({ "symbols": symbols })))
+}
+
+/// GET /api/repos/:name/files?path=... — File tree for an indexed repository.
+async fn files_handler(
+    State(backend): State<SharedBackend>,
+    Path(name): Path<String>,
+    Query(params): Query<FilesParams>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let prefix = params
+        .path
+        .as_deref()
+        .map(normalize_repo_relative_path)
+        .transpose()
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?
+        .unwrap_or_default();
+
+    let mut backend_guard = backend.lock().await;
+    let (_entry, graph, _indexes, _fts) = backend_guard
+        .load_repo_indexes(&name)
+        .map_err(map_backend_error)?;
+    let paths = collect_file_paths(&graph);
+    let tree = if !prefix.is_empty() && paths.iter().any(|path| path == &prefix) {
+        vec![FileTreeNode {
+            name: basename(&prefix),
+            path: prefix.clone(),
+            is_dir: false,
+            children: Vec::new(),
+        }]
+    } else {
+        let scoped_paths = file_paths_for_prefix(&paths, &prefix);
+        build_tree_from_paths(&scoped_paths, &prefix)
+    };
+
+    Ok(Json(json!({
+        "path": prefix,
+        "files": tree,
+    })))
+}
+
+/// GET /api/repos/:name/source?path=...&start=1&end=80 — Safe source preview.
+async fn source_handler(
+    State(backend): State<SharedBackend>,
+    Path(name): Path<String>,
+    Query(params): Query<SourceParams>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let relative_path = normalize_repo_relative_path(&params.path)
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+    if relative_path.is_empty() {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Query parameter 'path' is required.",
+        ));
+    }
+
+    let backend_guard = backend.lock().await;
+    let entry = backend_guard
+        .resolve_repo(Some(&name))
+        .map_err(map_backend_error)?
+        .clone();
+    drop(backend_guard);
+
+    let repo_root = FsPath::new(&entry.path);
+    let safe_path = safe_repo_file_path(repo_root, &relative_path)
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+    let metadata = std::fs::metadata(&safe_path).map_err(|e| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            format!("Failed to read metadata for '{relative_path}': {e}"),
+        )
+    })?;
+    if metadata.len() > MAX_SOURCE_FILE_BYTES {
+        return Err(api_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "File is too large for preview ({} bytes, max {}).",
+                metadata.len(),
+                MAX_SOURCE_FILE_BYTES
+            ),
+        ));
+    }
+
+    let content = std::fs::read_to_string(&safe_path).map_err(|e| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            format!("Failed to read file '{relative_path}': {e}"),
+        )
+    })?;
+    let lines: Vec<&str> = content.lines().collect();
+    let total_lines = lines.len();
+
+    if total_lines == 0 {
+        return Ok(Json(json!(SourceContent {
+            path: relative_path.clone(),
+            content: String::new(),
+            language: language_for_path(&relative_path),
+            total_lines,
+            start_line: 0,
+            end_line: 0,
+            truncated: false,
+        })));
+    }
+
+    let requested_start = params.start.unwrap_or(1);
+    if requested_start == 0 {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Line range start must be >= 1.",
+        ));
+    }
+
+    let requested_end = params.end.unwrap_or_else(|| {
+        if params.start.is_some() {
+            requested_start.saturating_add(MAX_SOURCE_LINES - 1)
+        } else {
+            total_lines as u32
+        }
+    });
+    if requested_end < requested_start {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Line range end must be >= start.",
+        ));
+    }
+
+    let requested_count = requested_end
+        .saturating_sub(requested_start)
+        .saturating_add(1);
+    let capped_count = requested_count.min(MAX_SOURCE_LINES);
+    let effective_end = requested_start.saturating_add(capped_count.saturating_sub(1));
+    let start_idx = requested_start.saturating_sub(1) as usize;
+    let end_idx = (effective_end as usize).min(total_lines);
+    let snippet = if start_idx >= total_lines {
+        String::new()
+    } else {
+        lines[start_idx..end_idx].join("\n")
+    };
+
+    let payload = SourceContent {
+        path: relative_path.clone(),
+        content: snippet,
+        language: language_for_path(&relative_path),
+        total_lines,
+        start_line: requested_start,
+        end_line: effective_end.min(total_lines as u32),
+        truncated: requested_count > capped_count,
+    };
+
+    Ok(Json(json!(payload)))
+}
+
+/// GET /api/repos/:name/graph?zoom=symbol&max_nodes=200 — Bounded graph payload.
+async fn graph_handler(
+    State(backend): State<SharedBackend>,
+    Path(name): Path<String>,
+    Query(params): Query<GraphParams>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let zoom = parse_zoom_level(params.zoom.as_deref())
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+    let max_nodes = clamp_query_limit(params.max_nodes, DEFAULT_GRAPH_NODES, MAX_GRAPH_NODES);
+    let labels = parse_label_filter(params.labels.as_deref());
+    let file_path = params
+        .file_path
+        .as_deref()
+        .map(normalize_repo_relative_path)
+        .transpose()
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+
+    let mut backend_guard = backend.lock().await;
+    let (_entry, graph, indexes, _fts) = backend_guard
+        .load_repo_indexes(&name)
+        .map_err(map_backend_error)?;
+    let payload = build_graph_payload(&graph, &indexes, zoom, labels, file_path, max_nodes);
+    Ok(Json(json!(payload)))
+}
+
+/// GET /api/repos/:name/graph/neighborhood?node_id=...&depth=2
+async fn graph_neighborhood_handler(
+    State(backend): State<SharedBackend>,
+    Path(name): Path<String>,
+    Query(params): Query<NeighborhoodParams>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if params.node_id.trim().is_empty() {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Query parameter 'node_id' is required.",
+        ));
+    }
+
+    let depth = params.depth.unwrap_or(2).min(MAX_NEIGHBORHOOD_DEPTH);
+    let mut backend_guard = backend.lock().await;
+    let (_entry, graph, indexes, _fts) = backend_guard
+        .load_repo_indexes(&name)
+        .map_err(map_backend_error)?;
+    if graph.get_node(&params.node_id).is_none() {
+        return Err(api_error(
+            StatusCode::NOT_FOUND,
+            format!("Node '{}' not found.", params.node_id),
+        ));
+    }
+
+    let payload = build_neighborhood_payload(&graph, &indexes, &params.node_id, depth);
+    Ok(Json(json!(payload)))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApiZoomLevel {
+    Package,
+    Module,
+    Symbol,
+}
+
+fn parse_zoom_level(value: Option<&str>) -> Result<ApiZoomLevel, String> {
+    match value.unwrap_or("symbol").trim().to_lowercase().as_str() {
+        "package" | "packages" => Ok(ApiZoomLevel::Package),
+        "module" | "modules" | "file" | "files" => Ok(ApiZoomLevel::Module),
+        "symbol" | "symbols" => Ok(ApiZoomLevel::Symbol),
+        other => Err(format!(
+            "Unsupported zoom level '{other}'. Expected package, module, or symbol."
+        )),
+    }
+}
+
+fn parse_label_filter(value: Option<&str>) -> Option<Vec<NodeLabel>> {
+    let labels: Vec<NodeLabel> = value
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .filter_map(NodeLabel::from_str_label)
+        .collect();
+    if labels.is_empty() {
+        None
+    } else {
+        Some(labels)
+    }
+}
+
+fn labels_for_zoom(zoom: ApiZoomLevel) -> Vec<NodeLabel> {
+    match zoom {
+        ApiZoomLevel::Package => vec![NodeLabel::Folder, NodeLabel::Package, NodeLabel::Project],
+        ApiZoomLevel::Module => vec![NodeLabel::File, NodeLabel::Module, NodeLabel::Folder],
+        ApiZoomLevel::Symbol => vec![
+            NodeLabel::Function,
+            NodeLabel::Class,
+            NodeLabel::Method,
+            NodeLabel::Interface,
+            NodeLabel::Struct,
+            NodeLabel::Trait,
+            NodeLabel::Enum,
+            NodeLabel::Variable,
+            NodeLabel::Type,
+            NodeLabel::Const,
+            NodeLabel::Constructor,
+            NodeLabel::Property,
+            NodeLabel::Namespace,
+            NodeLabel::Route,
+            NodeLabel::Tool,
+            NodeLabel::Controller,
+            NodeLabel::ControllerAction,
+            NodeLabel::Service,
+            NodeLabel::Repository,
+            NodeLabel::View,
+            NodeLabel::DbEntity,
+            NodeLabel::DbContext,
+        ],
+    }
+}
+
+fn relationships_for_zoom(zoom: ApiZoomLevel) -> Vec<RelationshipType> {
+    match zoom {
+        ApiZoomLevel::Package => vec![RelationshipType::Contains],
+        ApiZoomLevel::Module => vec![RelationshipType::Contains, RelationshipType::Imports],
+        ApiZoomLevel::Symbol => vec![
+            RelationshipType::Calls,
+            RelationshipType::Uses,
+            RelationshipType::Imports,
+            RelationshipType::Inherits,
+            RelationshipType::Implements,
+            RelationshipType::Extends,
+            RelationshipType::HasMethod,
+            RelationshipType::HasAction,
+            RelationshipType::CallsService,
+            RelationshipType::CallsAction,
+            RelationshipType::RendersView,
+            RelationshipType::MapsToEntity,
+        ],
+    }
+}
+
+fn file_filter_matches(node_file_path: &str, filter: &str) -> bool {
+    if filter.is_empty() {
+        return true;
+    }
+    let node_path = normalize_graph_file_path(node_file_path);
+    node_path == filter || node_path.starts_with(&format!("{filter}/"))
+}
+
+fn build_graph_payload(
+    graph: &gitnexus_core::graph::KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
+    zoom: ApiZoomLevel,
+    labels: Option<Vec<NodeLabel>>,
+    file_path: Option<String>,
+    max_nodes: usize,
+) -> GraphPayload {
+    let allowed_labels = labels.unwrap_or_else(|| labels_for_zoom(zoom));
+    let allowed_relationships = relationships_for_zoom(zoom);
+    let file_path = file_path.unwrap_or_default();
+
+    let mut scored_nodes: Vec<(f64, &GraphNode)> = graph
+        .iter_nodes()
+        .filter(|node| allowed_labels.contains(&node.label))
+        .filter(|node| file_filter_matches(&node.properties.file_path, &file_path))
+        .map(|node| (node_importance_score(node, indexes), node))
+        .collect();
+    scored_nodes.sort_by(|a, b| b.0.total_cmp(&a.0));
+
+    let total_candidates = scored_nodes.len();
+    let nodes: Vec<CytoNode> = scored_nodes
+        .into_iter()
+        .take(max_nodes)
+        .map(|(_, node)| node_to_cyto(node, None))
+        .collect();
+    let node_ids: HashSet<&str> = nodes.iter().map(|node| node.id.as_str()).collect();
+
+    let edges: Vec<CytoEdge> = graph
+        .iter_relationships()
+        .filter(|rel| allowed_relationships.contains(&rel.rel_type))
+        .filter(|rel| {
+            node_ids.contains(rel.source_id.as_str()) && node_ids.contains(rel.target_id.as_str())
+        })
+        .map(rel_to_cyto)
+        .collect();
+
+    GraphPayload {
+        stats: GraphStats {
+            node_count: nodes.len(),
+            edge_count: edges.len(),
+            truncated: total_candidates > nodes.len(),
+        },
+        nodes,
+        edges,
+    }
+}
+
+fn build_neighborhood_payload(
+    graph: &gitnexus_core::graph::KnowledgeGraph,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
+    center_node_id: &str,
+    max_depth: u32,
+) -> GraphPayload {
+    let mut visited = HashSet::new();
+    let mut depth_map = std::collections::HashMap::new();
+    let mut queue = std::collections::VecDeque::new();
+    let mut hit_cap = false;
+
+    visited.insert(center_node_id.to_string());
+    depth_map.insert(center_node_id.to_string(), 0u32);
+    queue.push_back((center_node_id.to_string(), 0u32));
+
+    'bfs: while let Some((node_id, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+
+        if let Some(outgoing) = indexes.outgoing.get(&node_id) {
+            for (target, _) in outgoing {
+                if visited.len() >= MAX_NEIGHBORHOOD_NODES {
+                    hit_cap = true;
+                    break 'bfs;
+                }
+                if visited.insert(target.clone()) {
+                    depth_map.insert(target.clone(), depth + 1);
+                    queue.push_back((target.clone(), depth + 1));
+                }
+            }
+        }
+
+        if let Some(incoming) = indexes.incoming.get(&node_id) {
+            for (source, _) in incoming {
+                if visited.len() >= MAX_NEIGHBORHOOD_NODES {
+                    hit_cap = true;
+                    break 'bfs;
+                }
+                if visited.insert(source.clone()) {
+                    depth_map.insert(source.clone(), depth + 1);
+                    queue.push_back((source.clone(), depth + 1));
+                }
+            }
+        }
+    }
+
+    let nodes: Vec<CytoNode> = visited
+        .iter()
+        .filter_map(|id| {
+            graph
+                .get_node(id)
+                .map(|node| node_to_cyto(node, depth_map.get(id).copied()))
+        })
+        .collect();
+    let node_ids: HashSet<&str> = nodes.iter().map(|node| node.id.as_str()).collect();
+    let edges: Vec<CytoEdge> = graph
+        .iter_relationships()
+        .filter(|rel| {
+            node_ids.contains(rel.source_id.as_str()) && node_ids.contains(rel.target_id.as_str())
+        })
+        .map(rel_to_cyto)
+        .collect();
+
+    GraphPayload {
+        stats: GraphStats {
+            node_count: nodes.len(),
+            edge_count: edges.len(),
+            truncated: hit_cap,
+        },
+        nodes,
+        edges,
+    }
+}
+
+fn node_importance_score(
+    node: &GraphNode,
+    indexes: &gitnexus_db::inmemory::cypher::GraphIndexes,
+) -> f64 {
+    let indegree = indexes.incoming.get(node.id.as_str()).map_or(0, Vec::len);
+    let outdegree = indexes.outgoing.get(node.id.as_str()).map_or(0, Vec::len);
+
+    let mut score = (indegree + outdegree) as f64 * 2.0;
+    if let Some(entry_point_score) = node.properties.entry_point_score {
+        score += entry_point_score * 10.0;
+    }
+    if node.properties.is_exported == Some(true) {
+        score += 5.0;
+    }
+    if node.properties.is_traced == Some(true) {
+        score += 3.0;
+    }
+    match node.label {
+        NodeLabel::Controller | NodeLabel::Service => score += 20.0,
+        NodeLabel::Class | NodeLabel::Interface => score += 10.0,
+        NodeLabel::Module | NodeLabel::Package => score += 15.0,
+        _ => {}
+    }
+    score
+}
+
+fn node_to_cyto(node: &GraphNode, depth: Option<u32>) -> CytoNode {
+    CytoNode {
+        id: node.id.clone(),
+        label: node.label.as_str().to_string(),
+        name: node.properties.name.clone(),
+        file_path: normalize_graph_file_path(&node.properties.file_path),
+        start_line: node.properties.start_line,
+        end_line: node.properties.end_line,
+        is_exported: node.properties.is_exported,
+        community: node.properties.heuristic_label.clone(),
+        language: node
+            .properties
+            .language
+            .map(|language| language.as_str().to_string()),
+        description: node.properties.description.clone(),
+        parameter_count: node.properties.parameter_count,
+        return_type: node.properties.return_type.clone(),
+        layer_type: node.properties.layer_type.clone(),
+        entry_point_score: node.properties.entry_point_score,
+        entry_point_reason: node.properties.entry_point_reason.clone(),
+        is_traced: node.properties.is_traced,
+        trace_call_count: node.properties.trace_call_count,
+        is_dead_candidate: node.properties.is_dead_candidate,
+        complexity: node.properties.complexity,
+        depth,
+    }
+}
+
+fn rel_to_cyto(rel: &GraphRelationship) -> CytoEdge {
+    CytoEdge {
+        id: rel.id.clone(),
+        source: rel.source_id.clone(),
+        target: rel.target_id.clone(),
+        rel_type: rel.rel_type.as_str().to_string(),
+        confidence: rel.confidence,
+    }
+}
+
 /// GET /api/repos/:name/stats — Repository statistics
 async fn stats_handler(
     State(backend): State<SharedBackend>,
@@ -553,6 +1410,53 @@ mod tests {
         assert!(!text.contains("secret-id-token"));
         assert!(!text.contains("secret-access-token"));
         assert!(!text.contains("secret-refresh-token"));
+    }
+
+    #[test]
+    fn repo_relative_paths_are_normalized_without_traversal() {
+        assert_eq!(
+            normalize_repo_relative_path("src\\commands\\serve.rs").unwrap(),
+            "src/commands/serve.rs"
+        );
+        assert_eq!(
+            normalize_repo_relative_path("./src/./main.rs").unwrap(),
+            "src/main.rs"
+        );
+        assert!(normalize_repo_relative_path("../secrets.txt").is_err());
+        assert!(normalize_repo_relative_path("src/../../secrets.txt").is_err());
+        assert!(normalize_repo_relative_path("/tmp/secrets.txt").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn repo_relative_paths_reject_windows_absolute_paths() {
+        assert!(normalize_repo_relative_path("C:\\Users\\patri\\secret.txt").is_err());
+    }
+
+    #[test]
+    fn tree_builder_keeps_full_paths_under_requested_prefix() {
+        let paths = vec![
+            "Controllers/CourrierController.cs".to_string(),
+            "Controllers/HomeController.cs".to_string(),
+            "Models/Courrier.cs".to_string(),
+        ];
+        let scoped = file_paths_for_prefix(&paths, "Controllers");
+        let tree = build_tree_from_paths(&scoped, "Controllers");
+
+        assert_eq!(tree.len(), 2);
+        assert_eq!(tree[0].name, "CourrierController.cs");
+        assert_eq!(tree[0].path, "Controllers/CourrierController.cs");
+        assert!(!tree[0].is_dir);
+    }
+
+    #[test]
+    fn graph_query_parses_zoom_levels_and_rejects_unknown_values() {
+        assert_eq!(parse_zoom_level(None).unwrap(), ApiZoomLevel::Symbol);
+        assert_eq!(
+            parse_zoom_level(Some("modules")).unwrap(),
+            ApiZoomLevel::Module
+        );
+        assert!(parse_zoom_level(Some("everything")).is_err());
     }
 
     fn unique_temp_auth_path(label: &str) -> PathBuf {

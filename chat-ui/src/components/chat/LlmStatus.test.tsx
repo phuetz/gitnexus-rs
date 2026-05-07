@@ -36,17 +36,34 @@ describe('LlmStatus', () => {
     expect(screen.getAllByText('gpt-5.5').length).toBeGreaterThan(0);
     expect(screen.getAllByText('high').length).toBeGreaterThan(0);
     expect(screen.getByText(/config-chatgpt\.cmd -Model gpt-5\.5 -Reasoning xhigh/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /configuration llm en low/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /configuration llm en medium/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /configuration llm en high/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /configuration llm en xhigh/i })).toBeTruthy();
   });
 
-  it('copies the xhigh reasoning command', async () => {
+  it('copies the selected reasoning preset command', async () => {
     render(<LlmStatus llm={readyState} />);
 
     fireEvent.click(screen.getByRole('button', { name: /configuration llm/i }));
-    fireEvent.click(screen.getByRole('button', { name: /copier la commande/i }));
+    fireEvent.click(screen.getByRole('button', { name: /configuration llm en xhigh/i }));
 
     await waitFor(() => {
       expect(copyTextToClipboard).toHaveBeenCalledWith(
         '.\\config-chatgpt.cmd -Model gpt-5.5 -Reasoning xhigh -MaxTokens 8192'
+      );
+    });
+  });
+
+  it('copies high without forcing xhigh', async () => {
+    render(<LlmStatus llm={readyState} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /configuration llm/i }));
+    fireEvent.click(screen.getByRole('button', { name: /configuration llm en high/i }));
+
+    await waitFor(() => {
+      expect(copyTextToClipboard).toHaveBeenCalledWith(
+        '.\\config-chatgpt.cmd -Model gpt-5.5 -Reasoning high -MaxTokens 8192'
       );
     });
   });

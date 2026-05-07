@@ -8,10 +8,17 @@ interface Props {
   llm: LlmConfigState;
 }
 
+const REASONING_PRESETS = [
+  { value: 'low', label: 'Low', hint: 'rapide' },
+  { value: 'medium', label: 'Medium', hint: 'équilibré' },
+  { value: 'high', label: 'High', hint: 'approfondi' },
+  { value: 'xhigh', label: 'XHigh', hint: 'maximum' },
+] as const;
+
 export function LlmStatus({ llm }: Props) {
   const { status, config, message, refresh } = llm;
   const [expanded, setExpanded] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedPreset, setCopiedPreset] = useState<string | null>(null);
   const label =
     status === 'ready'
       ? `${config?.provider ?? 'LLM'} · ${config?.model ?? 'modèle ?'}`
@@ -29,13 +36,14 @@ export function LlmStatus({ llm }: Props) {
     .filter(Boolean)
     .join('\n');
 
-  const reasoningCommand = useMemo(() => buildReasoningCommand(config), [config]);
+  const activeReasoning = config?.reasoningEffort?.toLowerCase();
+  const previewCommand = useMemo(() => buildReasoningCommand(config, 'xhigh'), [config]);
 
-  const handleCopyCommand = async () => {
-    const ok = await copyTextToClipboard(reasoningCommand);
+  const handleCopyCommand = async (reasoning: string) => {
+    const ok = await copyTextToClipboard(buildReasoningCommand(config, reasoning));
     if (!ok) return;
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    setCopiedPreset(reasoning);
+    window.setTimeout(() => setCopiedPreset(null), 1500);
   };
 
   return (
@@ -93,22 +101,44 @@ export function LlmStatus({ llm }: Props) {
           </dl>
 
           <div className="mt-3 rounded-md border border-neutral-800 bg-neutral-900/70 p-2">
-            <div className="mb-1 text-[11px] uppercase tracking-wide text-neutral-500">
-              Commande réflexion xhigh
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-neutral-200">
-                {reasoningCommand}
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-[11px] uppercase tracking-wide text-neutral-500">
+                Niveau de réflexion
+              </div>
+              <code className="truncate font-mono text-[10px] text-neutral-500">
+                {previewCommand}
               </code>
-              <button
-                type="button"
-                onClick={() => void handleCopyCommand()}
-                className="rounded border border-neutral-800 p-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
-                aria-label="Copier la commande de configuration LLM"
-                title={copied ? 'Copié' : 'Copier'}
-              >
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {REASONING_PRESETS.map((preset) => {
+                const active = activeReasoning === preset.value;
+                const copied = copiedPreset === preset.value;
+                return (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    onClick={() => void handleCopyCommand(preset.value)}
+                    className={clsx(
+                      'flex items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-left transition',
+                      active
+                        ? 'border-purple-700 bg-purple-950/40 text-purple-100'
+                        : 'border-neutral-800 bg-neutral-950/60 text-neutral-300 hover:bg-neutral-900'
+                    )}
+                    aria-label={`Copier la commande de configuration LLM en ${preset.value}`}
+                    title={`Copier la commande ${preset.value}`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium">{preset.label}</span>
+                      <span className="block text-[10px] text-neutral-500">{preset.hint}</span>
+                    </span>
+                    {copied ? (
+                      <Check className="h-3.5 w-3.5 shrink-0 text-emerald-300" aria-hidden />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5 shrink-0 text-neutral-500" aria-hidden />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -142,8 +172,8 @@ function statusLabel(status: LlmConfigState['status']): string {
   return 'Indisponible';
 }
 
-function buildReasoningCommand(config: LlmConfigState['config']): string {
+function buildReasoningCommand(config: LlmConfigState['config'], reasoning: string): string {
   const model = config?.model?.trim() || 'gpt-5.5';
   const maxTokens = config?.maxTokens || 8192;
-  return `.\\config-chatgpt.cmd -Model ${model} -Reasoning xhigh -MaxTokens ${maxTokens}`;
+  return `.\\config-chatgpt.cmd -Model ${model} -Reasoning ${reasoning} -MaxTokens ${maxTokens}`;
 }

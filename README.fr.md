@@ -5,7 +5,9 @@ Intelligence de code basée sur un graphe de connaissances pour agents IA. GitNe
 Écrit en Rust. Supporte 14 langages de programmation. Livré avec une application desktop et un générateur de documentation HTML.
 
 [English version](README.md)
+[Guide d'installation](INSTALLATION.md)
 [Feuille de route de modernisation](MODERNIZATION.md)
+[Plan navigation React sources/graphe](REACT_SOURCE_GRAPH_NAVIGATION.md)
 
 ## Pourquoi GitNexus ? (vs un assistant IA seul)
 

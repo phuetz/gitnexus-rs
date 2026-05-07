@@ -2,6 +2,8 @@
 
 Scripts Windows pour lancer GitNexus sans retenir les longues commandes Cargo/npm.
 
+Voir aussi le guide complet: [INSTALLATION.md](../INSTALLATION.md).
+
 ## Lancer le client chat React
 
 Depuis la racine du projet :

@@ -90,3 +90,4 @@ If you want the highest leverage next:
 - reduce the remaining heavy frontend chunks (`cytoscape`, `katex`, selected Shiki language chunks)
 - add deeper frontend / desktop E2E coverage
 - implement the first flagship workflow: “legacy modernization cockpit”
+- turn the React chat into a source + graph workspace using the staged plan in [REACT_SOURCE_GRAPH_NAVIGATION.md](REACT_SOURCE_GRAPH_NAVIGATION.md)

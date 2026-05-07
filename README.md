@@ -5,7 +5,9 @@ Graph-powered code intelligence for AI agents. GitNexus builds a knowledge graph
 Written in Rust. Supports 14 programming languages. Ships with a desktop app and an HTML documentation generator.
 
 [Version française](README.fr.md)
+[Installation Guide](INSTALLATION.md)
 [Modernization Roadmap](MODERNIZATION.md)
+[React Source/Graph Navigation Plan](REACT_SOURCE_GRAPH_NAVIGATION.md)
 
 ## Why GitNexus? (vs AI coding assistants alone)
 

@@ -130,4 +130,67 @@ describe('MCPClient errors', () => {
     expect(diagnostics.llm.model).toBe('gpt-5.5');
     expect(diagnostics.auth?.chatgptOAuth?.loggedIn).toBe(true);
   });
+
+  it('loads source and graph exploration payloads from typed REST endpoints', async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url);
+      if (href.includes('/source?')) {
+        return new Response(
+          JSON.stringify({
+            path: 'src/App.tsx',
+            content: 'export function App() {}',
+            language: 'typescript',
+            totalLines: 1,
+            startLine: 1,
+            endLine: 1,
+            truncated: false,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      if (href.includes('/symbols?')) {
+        return new Response(
+          JSON.stringify({
+            symbols: [
+              {
+                nodeId: 'Method:src/App.tsx:App',
+                name: 'App',
+                label: 'Function',
+                filePath: 'src/App.tsx',
+                score: 12,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      if (href.includes('/graph/neighborhood?')) {
+        return new Response(
+          JSON.stringify({
+            nodes: [{ id: 'n1', name: 'App', label: 'Function', filePath: 'src/App.tsx' }],
+            edges: [],
+            stats: { nodeCount: 1, edgeCount: 0, truncated: false },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      return new Response(JSON.stringify({ files: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new MCPClient('http://127.0.0.1:3010');
+    const source = await client.source('repo alise', 'src/App.tsx', { start: 1, end: 5 });
+    const symbols = await client.symbols('repo alise', 'App');
+    const graph = await client.graphNeighborhood('repo alise', 'Method:src/App.tsx:App', 2);
+
+    expect(source.language).toBe('typescript');
+    expect(symbols[0].nodeId).toBe('Method:src/App.tsx:App');
+    expect(graph.stats.nodeCount).toBe(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/repos/repo%20alise/source?');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('path=src%2FApp.tsx');
+    expect(String(fetchMock.mock.calls[2][0])).toContain('node_id=Method%3Asrc%2FApp.tsx%3AApp');
+  });
 });

@@ -1,4 +1,5 @@
-import { FileText, MessageSquareText } from 'lucide-react';
+import { useState } from 'react';
+import { Braces, FileText, MessageSquareText } from 'lucide-react';
 import { ChatSidebar } from './ChatSidebar';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
@@ -11,11 +12,13 @@ import { SystemDiagnostics } from './SystemDiagnostics';
 import { useChatStore } from '../../stores/chat-store';
 import { useLlmConfig } from '../../hooks/use-llm-config';
 import { formatMessageTimestamp } from '../../utils/dates';
+import { WorkspacePanel } from '../explorer/WorkspacePanel';
 
 export function ChatPanel() {
   const session = useChatStore((s) => s.getCurrentSession());
   const isSfdOpen = useChatStore((s) => s.isSfdPanelOpen);
   const setSfdOpen = useChatStore((s) => s.setSfdPanelOpen);
+  const [isWorkspaceOpen, setWorkspaceOpen] = useState(false);
   const llm = useLlmConfig();
   const sessionTitle = session?.title.trim() || 'GitNexus Chat';
   const sessionSubtitle = session
@@ -44,6 +47,21 @@ export function ChatPanel() {
             <ProjectSelector />
             <button
               type="button"
+              onClick={() => setWorkspaceOpen((open) => !open)}
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-neutral-900 ${
+                isWorkspaceOpen
+                  ? 'border-neutral-700 bg-neutral-900 text-neutral-100'
+                  : 'border-neutral-800 bg-neutral-900/60 text-neutral-300'
+              }`}
+              aria-pressed={isWorkspaceOpen}
+              aria-label={isWorkspaceOpen ? "Fermer l'explorateur" : "Ouvrir l'explorateur sources et graphe"}
+              title="Sources et graphe"
+            >
+              <Braces className="h-3.5 w-3.5" aria-hidden />
+              <span className="hidden sm:inline">Explorer</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setSfdOpen(!isSfdOpen)}
               className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-neutral-900 ${
                 isSfdOpen
@@ -58,8 +76,11 @@ export function ChatPanel() {
             </button>
           </div>
         </header>
-        <div className="min-h-0 flex-1 bg-neutral-950">
-          <ChatMessages llm={llm.config} />
+        <div className="flex min-h-0 flex-1 bg-neutral-950">
+          <div className="min-w-0 flex-1">
+            <ChatMessages llm={llm.config} />
+          </div>
+          {isWorkspaceOpen && <WorkspacePanel onClose={() => setWorkspaceOpen(false)} />}
         </div>
         <ChatInput />
         <SfdDraftsPanel />

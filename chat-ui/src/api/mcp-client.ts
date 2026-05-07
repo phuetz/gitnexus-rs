@@ -9,6 +9,69 @@ export interface RepoInfo {
   stats?: Record<string, number>;
 }
 
+export interface FileTreeNode {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children: FileTreeNode[];
+}
+
+export interface SourceContent {
+  path: string;
+  content: string;
+  language?: string;
+  totalLines: number;
+  startLine: number;
+  endLine: number;
+  truncated: boolean;
+}
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  name: string;
+  filePath: string;
+  startLine?: number;
+  endLine?: number;
+  language?: string;
+  community?: string;
+  description?: string;
+  returnType?: string;
+  parameterCount?: number;
+  isTraced?: boolean;
+  isDeadCandidate?: boolean;
+  complexity?: number;
+  depth?: number;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  relType: string;
+  confidence: number;
+}
+
+export interface GraphPayload {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+    truncated: boolean;
+  };
+}
+
+export interface SymbolSearchResult {
+  nodeId: string;
+  name: string;
+  label: string;
+  filePath: string;
+  score: number;
+  startLine?: number;
+  endLine?: number;
+}
+
 export interface LlmConfigInfo {
   configured: boolean;
   provider?: string;
@@ -202,6 +265,15 @@ export class MCPClient {
     return res;
   }
 
+  private apiPath(repo: string, suffix: string, params?: Record<string, string | number | undefined>): string {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params ?? {})) {
+      if (value !== undefined && value !== '') query.set(key, String(value));
+    }
+    const qs = query.toString();
+    return `/api/repos/${encodeURIComponent(repo)}${suffix}${qs ? `?${qs}` : ''}`;
+  }
+
   async health(): Promise<{ status: string; service: string; version: string }> {
     const res = await this.request('/health', { headers: this.headers() }, 'health');
     return res.json();
@@ -223,6 +295,61 @@ export class MCPClient {
       '/api/diagnostics',
       { headers: this.headers() },
       'diagnostics'
+    );
+    return res.json();
+  }
+
+  async fileTree(repo: string, path?: string): Promise<FileTreeNode[]> {
+    const res = await this.request(
+      this.apiPath(repo, '/files', { path }),
+      { headers: this.headers() },
+      'files'
+    );
+    const data = await res.json();
+    return Array.isArray(data?.files) ? data.files : [];
+  }
+
+  async source(repo: string, path: string, range?: { start?: number; end?: number }): Promise<SourceContent> {
+    const res = await this.request(
+      this.apiPath(repo, '/source', { path, start: range?.start, end: range?.end }),
+      { headers: this.headers() },
+      'source'
+    );
+    return res.json();
+  }
+
+  async symbols(repo: string, q: string, limit = 20): Promise<SymbolSearchResult[]> {
+    const res = await this.request(
+      this.apiPath(repo, '/symbols', { q, limit }),
+      { headers: this.headers() },
+      'symbols'
+    );
+    const data = await res.json();
+    return Array.isArray(data?.symbols) ? data.symbols : [];
+  }
+
+  async graph(
+    repo: string,
+    params: { zoom?: 'package' | 'module' | 'symbol'; maxNodes?: number; labels?: string; filePath?: string } = {}
+  ): Promise<GraphPayload> {
+    const res = await this.request(
+      this.apiPath(repo, '/graph', {
+        zoom: params.zoom,
+        max_nodes: params.maxNodes,
+        labels: params.labels,
+        filePath: params.filePath,
+      }),
+      { headers: this.headers() },
+      'graph'
+    );
+    return res.json();
+  }
+
+  async graphNeighborhood(repo: string, nodeId: string, depth = 2): Promise<GraphPayload> {
+    const res = await this.request(
+      this.apiPath(repo, '/graph/neighborhood', { node_id: nodeId, depth }),
+      { headers: this.headers() },
+      'graph_neighborhood'
     );
     return res.json();
   }

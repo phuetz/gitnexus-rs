@@ -190,6 +190,16 @@ Produire sans ouvrir le navigateur:
 
 Le site genere contient la navigation, la recherche, une page **Carte du Code** facon DeepWiki (modules, dependances, points d'entree, fichiers pivots), les diagrammes Mermaid, les extraits de code, le chat de documentation et les exports Markdown/PDF des conversations.
 
+### Pilotage DeepWiki
+
+GitNexus sait lire un manifeste compatible DeepWiki dans le repo analyse:
+
+```text
+.devin/wiki.json
+```
+
+Si ce fichier existe, la generation ajoute une section **Wiki guide** avec le plan demande, les notes de depot, les pages ciblees et des fichiers sources probables pour chaque page. Les champs supportes sont `repo_notes`, `pages`, `title`, `purpose`, `parent` et `page_notes`.
+
 ### Exports PDF
 
 Deux exports PDF existent:

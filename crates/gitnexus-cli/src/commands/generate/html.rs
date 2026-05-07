@@ -102,6 +102,7 @@ pub(super) fn generate_html_site(
         "project-health",
         "architecture",
         "code-map",
+        "wiki-steering",
         "getting-started",
         "deployment",
         "hotspots",
@@ -800,7 +801,7 @@ fn classify_page_from_id(id: &str) -> &'static str {
         "ExternalService"
     } else if name == "overview" {
         "Overview"
-    } else if name == "architecture" || name == "code-map" {
+    } else if name == "architecture" || name == "code-map" || name == "wiki-steering" {
         "Architecture"
     } else if name.contains("audit") || name.contains("prompt") {
         "Audit"
@@ -1316,7 +1317,7 @@ fn build_html_template(
     let mermaidRetryCount = 0;
 
     const ICON_ALLOWLIST = new Set([
-      'activity','arrow-right-left','book-open','cloud','cog','component','database',
+      'activity','arrow-right-left','book-open','cloud','cog','compass','component','database',
       'file-text','flame','folder','git-branch','git-commit','globe','hard-drive',
       'home','layers','layout','link','map','route','server','shield-check','table-2','users','workflow'
     ]);
@@ -1351,6 +1352,8 @@ fn build_html_template(
       'data-model': 'Modele de donnees',
       architecture: 'Architecture',
       'code-map': 'Carte du Code',
+      'wiki-steering': 'Wiki guidé',
+      'wiki-guided': 'Wiki guidé',
     }};
 
     function appendIcon(parent, name, fallback) {{
@@ -3076,6 +3079,8 @@ mod tests {
         assert!(html.contains(">Donnees</button>"));
         assert!(html.contains("const SECTION_LABELS"));
         assert!(html.contains("'code-map': 'Carte du Code'"));
+        assert!(html.contains("'wiki-steering': 'Wiki guidé'"));
+        assert!(html.contains("'compass'"));
         assert!(html.contains("navSectionTitle(section).toUpperCase()"));
     }
 

@@ -37,6 +37,7 @@ C'est la différence entre demander à quelqu'un de **lire un livre** et lui don
 - **Support avancé ASP.NET MVC 5** — Controllers, actions, vues Razor, Entity Framework 6 EDMX, grilles Telerik/Kendo, mapping jQuery/AJAX, détection couche service/repository (voir ci-dessous)
 - **Générateur de documentation HTML** — Site "DeepWiki" professionnel avec recherche plein texte (Ctrl+K), icônes Lucide, sidebar dynamique, coloration syntaxique, boutons copier, estimation du temps de lecture et liens de références croisées automatiques entre les symboles.
 - **UX Interactive** — Application mono-page (SPA) avec support de l'historique du navigateur, fil d'Ariane, navigation Précédent/Suivant, scroll spy TOC, design responsive et diagrammes Mermaid interactifs (zoom/plein écran).
+- **Chat de documentation** — Les sites HTML générés incluent un assistant connecté au graphe, avec rendu Markdown, code colorisé, diagrammes Mermaid et exports de conversation en Markdown ou PDF imprimable.
 - **Documentation de Processus Métier** — Génération automatique de rapports fonctionnels de haut niveau (B1-B5) pour les flux complexes (Cycle de paiement, Moteur de calcul, Génération de documents), incluant des diagrammes de séquence et de flux Mermaid détaillés.
 - **Enrichissement LLM** — Mode `--enrich` optionnel qui augmente la documentation avec de la prose LLM grounded, des payloads JSON structurés, des citations avec provenance et une validation anti-hallucination.
 - **Interroger le code** — Commande CLI `gitnexus ask "question"` pour du Q&A basé sur le graphe avec réponses en streaming.
@@ -90,6 +91,7 @@ Le site HTML inclut :
 - **Pages modèle de données** avec diagrammes de relations par entité et par domaine métier
 - **Guide fonctionnel** avec descriptions métier en français, niveaux de criticité et diagrammes de flux Mermaid
 - **Éléments Interactifs** : Zoom sur les diagrammes Mermaid, fichiers sources cliquables avec copie du chemin, et support de l'historique de navigation
+- **Assistant intégré** : chat sur la documentation générée avec exports Markdown/PDF, horodatage et rendu des diagrammes Mermaid
 - **Thème sombre/clair** avec recherche dans la sidebar, fil d'Ariane et navigation Précédent/Suivant
 
 ## Démarrage Rapide
@@ -146,6 +148,8 @@ Scripts Windows pour travailler en local rapidement :
 .\start-desktop.cmd         # UI desktop + Tauri
 .\check-gitnexus.cmd        # Lint/tests/build principaux
 ```
+
+Le chat React affiche le LLM/modèle/niveau de raisonnement actif, horodate les messages, rend Mermaid et le code colorisé, exporte les conversations en Markdown/PDF, et propose un diagnostic copiable quand le backend ou la liste des projets est inaccessible.
 
 ### Compilation avec fonctionnalités optionnelles
 

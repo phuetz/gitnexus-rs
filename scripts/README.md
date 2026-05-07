@@ -18,6 +18,11 @@ Ce lanceur :
 - affiche un resume avec les URLs, le diagnostic et le LLM actif,
 - ouvre le navigateur.
 
+Le client chat indique le LLM actif, horodate les questions/reponses, rend le
+Markdown, le code colore et les diagrammes Mermaid, puis exporte les conversations
+en Markdown ou PDF. En cas de `502` sur la liste des projets, le panneau d'erreur
+propose un diagnostic copiable avec les commandes de reprise.
+
 Si le backend ou le client React repond deja sur le port demande, le script le
 reutilise au lieu d'ouvrir une deuxieme instance. Si le port est occupe par un
 service qui ne repond pas comme GitNexus, le script s'arrete avec un message
@@ -114,6 +119,8 @@ un ancien serveur.
 
 La commande `docs` ouvre automatiquement le site HTML genere. Ajoutez
 `-NoBrowser` pour produire les fichiers sans ouvrir de fenetre.
+Le chat integre du site HTML genere peut copier ou telecharger le transcript
+Markdown, et ouvrir une version imprimable pour produire un PDF.
 
 ## Tout verifier
 

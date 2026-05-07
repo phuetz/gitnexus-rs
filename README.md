@@ -37,6 +37,7 @@ It's the difference between asking someone to **read a book** vs giving them the
 - **ASP.NET MVC 5 Deep Support** -- Controllers, actions, Razor views, Entity Framework 6 EDMX, Telerik/Kendo UI grids, jQuery/AJAX mapping, service/repository layer detection (see below)
 - **HTML Documentation Generator** -- Professional "DeepWiki" HTML site with full-text search (Ctrl+K), Lucide icons, dynamic sidebar, syntax highlighting, copy buttons, reading time estimation, and automated cross-reference linking between symbols.
 - **Interactive UX** -- Single-page application (SPA) with native browser history support, breadcrumbs, Previous/Next navigation, scroll spy TOC, mobile responsive design, and interactive Mermaid diagrams with click-to-zoom/fullscreen.
+- **Documentation Chat** -- Generated HTML sites include a graph-powered assistant that renders Markdown, syntax-highlighted code, Mermaid diagrams, and exports conversations as Markdown or printable PDF.
 - **Business Process Documentation** -- Automated generation of high-level functional reports (B1-B5) for complex flows like Payment Lifecycles, Calculation Engines, and Document Generation, featuring rich Mermaid Sequence and Flowchart diagrams.
 - **LLM Enrichment** -- Optional `--enrich` mode that augments documentation with grounded LLM prose, structured JSON payloads, evidence citations, provenance tracking, and anti-hallucination validation.
 - **Ask the Codebase** -- `gitnexus ask "question"` CLI command for graph-powered Q&A with streaming responses.
@@ -90,6 +91,7 @@ The HTML site includes:
 - **Data model pages** with per-entity relationship diagrams and per-domain ER diagrams
 - **Functional guide** with business descriptions in French, criticality levels, and Mermaid flow diagrams
 - **Interactive Elements**: Zoomable Mermaid diagrams, clickable source files with copy-to-clipboard, and native browser history support
+- **Embedded Assistant**: chat over the generated documentation with Markdown/PDF transcript exports, timestamps, and rendered Mermaid diagrams
 - **Dark/light theme** toggle with sidebar search, breadcrumbs, and Previous/Next navigation
 
 ## Quick Start
@@ -146,6 +148,8 @@ Windows helper scripts for local development:
 .\start-desktop.cmd         # Desktop UI + Tauri
 .\check-gitnexus.cmd        # Main lint/test/build suite
 ```
+
+The React chat shows the active LLM/model/reasoning level, timestamps each message, renders Mermaid and syntax-highlighted code, exports Markdown/PDF transcripts, and offers copyable diagnostics when the backend/project list is unreachable.
 
 ### Optional Feature Builds
 

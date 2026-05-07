@@ -51,6 +51,17 @@ function byRecentActivity(sessions: Session[]): Session[] {
   return [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+function updateSessionByRecentActivity(
+  sessions: Session[],
+  sessionId: string,
+  update: (session: Session, now: number) => Session
+): Session[] {
+  const now = Date.now();
+  return byRecentActivity(
+    sessions.map((session) => (session.id === sessionId ? update(session, now) : session))
+  );
+}
+
 export function migratePersistedChatState(persistedState: unknown): PersistedChatState {
   const state = asRecord(persistedState) ?? {};
   const sessions = byRecentActivity(sanitizeSessions(state.sessions));
@@ -213,83 +224,60 @@ export const useChatStore = create<ChatState>()(
 
       renameSession: (id, title) =>
         set((s) => ({
-          sessions: byRecentActivity(
-            s.sessions.map((sess) =>
-              sess.id === id ? { ...sess, title, updatedAt: Date.now() } : sess
-            )
-          ),
+          sessions: updateSessionByRecentActivity(s.sessions, id, (sess, now) => ({
+            ...sess,
+            title,
+            updatedAt: now,
+          })),
         })),
 
       appendMessage: (sessionId, message) =>
         set((s) => ({
-          sessions: byRecentActivity(
-            s.sessions.map((sess) =>
-              sess.id === sessionId
-                ? {
-                    ...sess,
-                    messages: [...sess.messages, message],
-                    updatedAt: Date.now(),
-                  }
-                : sess
-            )
-          ),
+          sessions: updateSessionByRecentActivity(s.sessions, sessionId, (sess, now) => ({
+            ...sess,
+            messages: [...sess.messages, message],
+            updatedAt: now,
+          })),
         })),
 
       updateMessage: (sessionId, messageId, content) =>
         set((s) => ({
-          sessions: byRecentActivity(
-            s.sessions.map((sess) =>
-              sess.id === sessionId
-                ? {
-                    ...sess,
-                    messages: sess.messages.map((m) =>
-                      m.id === messageId ? { ...m, content } : m
-                    ),
-                    updatedAt: Date.now(),
-                  }
-                : sess
-            )
-          ),
+          sessions: updateSessionByRecentActivity(s.sessions, sessionId, (sess, now) => ({
+            ...sess,
+            messages: sess.messages.map((m) => (m.id === messageId ? { ...m, content } : m)),
+            updatedAt: now,
+          })),
         })),
 
       removeMessagesFrom: (sessionId, messageId) =>
         set((s) => ({
-          sessions: byRecentActivity(
-            s.sessions.map((sess) => {
-              if (sess.id !== sessionId) return sess;
-              const idx = sess.messages.findIndex((m) => m.id === messageId);
-              if (idx === -1) return sess;
-              return {
-                ...sess,
-                messages: sess.messages.slice(0, idx),
-                updatedAt: Date.now(),
-              };
-            })
-          ),
+          sessions: updateSessionByRecentActivity(s.sessions, sessionId, (sess, now) => {
+            const idx = sess.messages.findIndex((m) => m.id === messageId);
+            if (idx === -1) return sess;
+            return {
+              ...sess,
+              messages: sess.messages.slice(0, idx),
+              updatedAt: now,
+            };
+          }),
         })),
 
       upsertToolCall: (sessionId, messageId, toolCall) =>
         set((s) => ({
-          sessions: byRecentActivity(
-            s.sessions.map((sess) =>
-              sess.id === sessionId
-                ? {
-                    ...sess,
-                    messages: sess.messages.map((m) => {
-                      if (m.id !== messageId) return m;
-                      const existing = m.toolCalls ?? [];
-                      const idx = existing.findIndex((tc) => tc.id === toolCall.id);
-                      const next =
-                        idx === -1
-                          ? [...existing, toolCall]
-                          : existing.map((tc, i) => (i === idx ? { ...tc, ...toolCall } : tc));
-                      return { ...m, toolCalls: next };
-                    }),
-                    updatedAt: Date.now(),
-                  }
-                : sess
-            )
-          ),
+          sessions: updateSessionByRecentActivity(s.sessions, sessionId, (sess, now) => ({
+            ...sess,
+            messages: sess.messages.map((m) => {
+              if (m.id !== messageId) return m;
+              const existing = m.toolCalls ?? [];
+              const idx = existing.findIndex((tc) => tc.id === toolCall.id);
+              const next =
+                idx === -1
+                  ? [...existing, toolCall]
+                  : existing.map((tc, i) => (i === idx ? { ...tc, ...toolCall } : tc));
+              return { ...m, toolCalls: next };
+            }),
+            updatedAt: now,
+          })),
         })),
 
       setStreaming: (streaming) => set({ isStreaming: streaming }),

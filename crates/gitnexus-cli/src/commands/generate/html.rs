@@ -1287,6 +1287,7 @@ fn build_html_template(
         </div>
         <div class="chat-actions">
           <button class="chat-icon-button" onclick="copyChatTranscript()" title="Copier la conversation en Markdown" aria-label="Copier la conversation en Markdown"><i data-lucide="copy" style="width:15px;height:15px;"></i></button>
+          <button class="chat-icon-button" onclick="downloadChatTranscriptMarkdown()" title="Télécharger la conversation en Markdown" aria-label="Télécharger la conversation en Markdown"><i data-lucide="file-down" style="width:15px;height:15px;"></i></button>
           <button class="chat-icon-button" onclick="printChatTranscript()" title="Exporter la conversation en PDF" aria-label="Exporter la conversation en PDF"><i data-lucide="printer" style="width:15px;height:15px;"></i></button>
           <button class="chat-icon-button chat-close" onclick="toggleChat()" title="Fermer le chat" aria-label="Fermer le chat"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
         </div>
@@ -2318,13 +2319,18 @@ fn build_html_template(
       return date.toLocaleString();
     }}
 
-    function copyChatTranscript() {{
-      const project = document.querySelector('header h1')?.textContent || '{project_name}';
-      const messages = Array.from(document.querySelectorAll('#chat-messages .message.user, #chat-messages .message.assistant'));
-      if (!messages.length) {{
-        showToast('Aucune conversation à copier.');
-        return;
-      }}
+    function chatProjectName() {{
+      return document.querySelector('header h1')?.textContent || '{project_name}';
+    }}
+
+    function chatTranscriptMessages() {{
+      return Array.from(document.querySelectorAll('#chat-messages .message.user, #chat-messages .message.assistant'));
+    }}
+
+    function buildChatTranscriptMarkdown() {{
+      const project = chatProjectName();
+      const messages = chatTranscriptMessages();
+      if (!messages.length) return '';
       const lines = [
         '# Conversation GitNexus Assistant',
         '',
@@ -2343,7 +2349,45 @@ fn build_html_template(
         lines.push(content);
         lines.push('');
       }});
-      writeClipboard(lines.join('\n').trim() + '\n', 'Conversation copiée');
+      return lines.join('\n').trim() + '\n';
+    }}
+
+    function copyChatTranscript() {{
+      const markdown = buildChatTranscriptMarkdown();
+      if (!markdown.trim()) {{
+        showToast('Aucune conversation à copier.');
+        return;
+      }}
+      writeClipboard(markdown, 'Conversation copiée');
+    }}
+
+    function downloadChatTranscriptMarkdown() {{
+      const markdown = buildChatTranscriptMarkdown();
+      if (!markdown.trim()) {{
+        showToast('Aucune conversation à télécharger.');
+        return;
+      }}
+      const blob = new Blob([markdown], {{ type: 'text/markdown;charset=utf-8' }});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = chatExportFilename('md');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showToast('Export Markdown téléchargé.');
+    }}
+
+    function chatExportFilename(extension) {{
+      const base = chatProjectName().toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 80) || 'conversation';
+      const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
+      return 'gitnexus-' + base + '-' + stamp + '.' + extension;
     }}
 
     function printableChatMessageHtml(msg) {{
@@ -2358,8 +2402,8 @@ fn build_html_template(
     }}
 
     function printChatTranscript() {{
-      const project = document.querySelector('header h1')?.textContent || '{project_name}';
-      const messages = Array.from(document.querySelectorAll('#chat-messages .message.user, #chat-messages .message.assistant'));
+      const project = chatProjectName();
+      const messages = chatTranscriptMessages();
       if (!messages.length) {{
         showToast('Aucune conversation à exporter.');
         return;
@@ -2950,7 +2994,10 @@ mod tests {
         assert!(html.contains("function normalizeChatBareMermaid(markdown)"));
         assert!(html.contains("function decodeSseEvent(rawEvent)"));
         assert!(html.contains("function copyChatTranscript()"));
+        assert!(html.contains("function downloadChatTranscriptMarkdown()"));
+        assert!(html.contains("function chatExportFilename(extension)"));
         assert!(html.contains("function printChatTranscript()"));
+        assert!(html.contains("Télécharger la conversation en Markdown"));
         assert!(html.contains("Exporter la conversation en PDF"));
         assert!(html.contains("messages.map(printableChatMessageHtml).join('')"));
         assert!(html.contains("body.className = 'message-body';"));

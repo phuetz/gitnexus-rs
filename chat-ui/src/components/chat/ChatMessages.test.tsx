@@ -56,6 +56,21 @@ describe('ChatMessages', () => {
     expect(scrollTo).toHaveBeenCalledWith({ top: 1000, behavior: 'smooth' });
   });
 
+  it('shows the active LLM on assistant messages', () => {
+    render(
+      <ChatMessages
+        llm={{
+          configured: true,
+          provider: 'chatgpt',
+          model: 'gpt-5.5',
+          reasoningEffort: 'high',
+        }}
+      />
+    );
+
+    expect(screen.getByText('chatgpt · gpt-5.5 · high')).toBeTruthy();
+  });
+
   it('offers Mermaid sequence and class prompts from the empty chat state', () => {
     useChatStore.setState({
       sessions: [],

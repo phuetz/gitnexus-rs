@@ -10,6 +10,7 @@ import {
 import { useChatStore } from '../../stores/chat-store';
 import { useChat } from '../../hooks/use-chat';
 import { ChatMessage } from './ChatMessage';
+import type { LlmConfigInfo } from '../../api/mcp-client';
 
 const SUGGESTIONS = [
   {
@@ -48,7 +49,11 @@ const SUGGESTIONS = [
   },
 ];
 
-export function ChatMessages() {
+interface Props {
+  llm?: LlmConfigInfo | null;
+}
+
+export function ChatMessages({ llm = null }: Props) {
   const session = useChatStore((s) => s.getCurrentSession());
   const isStreaming = useChatStore((s) => s.isStreaming);
   const selectedRepo = useChatStore((s) => s.selectedRepo);
@@ -157,6 +162,7 @@ export function ChatMessages() {
           <ChatMessage
             key={m.id}
             message={m}
+            llm={llm}
             onRegenerate={regenerate}
             canRegenerate={
               m.role === 'assistant' &&

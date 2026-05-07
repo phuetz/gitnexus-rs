@@ -59,7 +59,7 @@ export function ChatPanel() {
           </div>
         </header>
         <div className="min-h-0 flex-1 bg-neutral-950">
-          <ChatMessages />
+          <ChatMessages llm={llm.config} />
         </div>
         <ChatInput />
         <SfdDraftsPanel />

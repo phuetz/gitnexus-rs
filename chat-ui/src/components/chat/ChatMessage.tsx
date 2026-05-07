@@ -2,20 +2,23 @@ import { useState } from 'react';
 import clsx from 'clsx';
 import { User, Bot, Copy, RotateCcw, Check, Loader2, Wrench, X } from 'lucide-react';
 import type { Message, ToolCall } from '../../types/chat';
+import type { LlmConfigInfo } from '../../api/mcp-client';
 import { Markdown } from '../ui/Markdown';
 import { formatMessageTimestamp } from '../../utils/dates';
 import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface Props {
   message: Message;
+  llm?: LlmConfigInfo | null;
   onRegenerate?: (messageId: string) => void;
   canRegenerate?: boolean;
 }
 
-export function ChatMessage({ message, onRegenerate, canRegenerate }: Props) {
+export function ChatMessage({ message, llm, onRegenerate, canRegenerate }: Props) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const timestamp = formatMessageTimestamp(message.createdAt);
+  const llmLabel = isUser ? null : formatLlmBadge(llm);
 
   const handleCopy = async () => {
     const ok = await copyTextToClipboard(message.content);
@@ -64,6 +67,14 @@ export function ChatMessage({ message, onRegenerate, canRegenerate }: Props) {
                 {timestamp}
               </time>
             )}
+            {llmLabel && (
+              <span
+                className="max-w-[16rem] truncate rounded bg-neutral-900 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-neutral-500"
+                title={`LLM actif : ${llmLabel}`}
+              >
+                {llmLabel}
+              </span>
+            )}
             {message.content && (
               <div className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                 <button
@@ -107,6 +118,14 @@ export function ChatMessage({ message, onRegenerate, canRegenerate }: Props) {
       </div>
     </div>
   );
+}
+
+function formatLlmBadge(llm: LlmConfigInfo | null | undefined): string | null {
+  if (!llm?.configured) return null;
+  const parts = [llm.provider, llm.model, llm.reasoningEffort].filter(
+    (part): part is string => typeof part === 'string' && part.trim().length > 0
+  );
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 function ToolCallBadge({ toolCall }: { toolCall: ToolCall }) {

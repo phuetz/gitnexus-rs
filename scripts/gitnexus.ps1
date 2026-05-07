@@ -439,6 +439,19 @@ function Show-Doctor {
                 $detail += " ($($repoNames -join ', ')$extra)"
             }
             Write-DoctorLine "api/repos" "OK" $detail
+
+            if ($repoItems.Count -gt 0) {
+                $probeRepo = if ($repoItems[0].id) { [string] $repoItems[0].id } else { [string] $repoItems[0].name }
+                $encodedRepo = [uri]::EscapeDataString($probeRepo)
+                $filesProbe = Get-HttpJson -Url "$backendUrl/api/repos/$encodedRepo/files"
+                $graphProbe = Get-HttpJson -Url "$backendUrl/api/repos/$encodedRepo/graph?max_nodes=1"
+                if ($filesProbe -and $null -ne $filesProbe.files -and $graphProbe -and $null -ne $graphProbe.nodes) {
+                    Write-DoctorLine "api/explorer" "OK" "files/source/graphe disponibles pour $probeRepo"
+                }
+                else {
+                    Write-DoctorLine "api/explorer" "WARN" "endpoints Explorer indisponibles; relance .\gitnexus.cmd chat -RestartBackend"
+                }
+            }
         }
         else {
             Write-DoctorLine "api/repos" "WARN" "$backendUrl/api/repos ne repond pas"

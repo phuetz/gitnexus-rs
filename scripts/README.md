@@ -15,12 +15,14 @@ Ce lanceur :
 - demarre le backend HTTP GitNexus sur `http://127.0.0.1:3010`,
 - configure `chat-ui/.env.local` avec `VITE_MCP_URL=http://127.0.0.1:3010`,
 - demarre le client React sur `http://127.0.0.1:5176`,
+- affiche un resume avec les URLs, le diagnostic et le LLM actif,
 - ouvre le navigateur.
 
 Si le backend ou le client React repond deja sur le port demande, le script le
 reutilise au lieu d'ouvrir une deuxieme instance. Si le port est occupe par un
 service qui ne repond pas comme GitNexus, le script s'arrete avec un message
-clair au lieu de basculer silencieusement vers un autre port.
+clair indiquant le processus qui occupe le port, au lieu de basculer
+silencieusement vers un autre port.
 Le lanceur nettoie aussi les anciens processus Vite GitNexus du meme `chat-ui`
 et du meme port lorsqu'ils ecoutent sur un autre host, afin d'eviter les
 conflits `localhost` / `127.0.0.1`.

@@ -297,6 +297,65 @@ function Get-ListeningProcessSummary {
     return ($items -join ", ")
 }
 
+function Get-PortConflictMessage {
+    param(
+        [int] $Port,
+        [string] $ExpectedService,
+        [string] $ProbeUrl
+    )
+
+    $owner = Get-ListeningProcessSummary -Port $Port
+    return "Le port $Port est occupe par $owner, mais $ProbeUrl ne repond pas comme $ExpectedService. Ferme ce processus ou choisis un autre port."
+}
+
+function Get-DiagnosticSummary {
+    param([string] $BackendUrl)
+
+    $diag = Get-HttpJson -Url "$BackendUrl/api/diagnostics"
+    if (-not $diag) {
+        return $null
+    }
+
+    $repoCount = if ($diag.repos -and $null -ne $diag.repos.count) { [string] $diag.repos.count } else { "?" }
+    $llmProvider = if ($diag.llm -and $diag.llm.provider) { [string] $diag.llm.provider } elseif ($diag.llm -and $diag.llm.configured -eq $false) { "non configure" } else { "?" }
+    $llmModel = if ($diag.llm -and $diag.llm.model) { [string] $diag.llm.model } else { "modele ?" }
+    $reasoning = if ($diag.llm -and $diag.llm.reasoning_effort) { [string] $diag.llm.reasoning_effort } elseif ($diag.llm -and $diag.llm.reasoningEffort) { [string] $diag.llm.reasoningEffort } else { "" }
+    $reasoningSuffix = if ($reasoning.Trim()) { " reasoning=$reasoning" } else { "" }
+
+    return "repos=$repoCount llm=$llmProvider/$llmModel$reasoningSuffix"
+}
+
+function Write-ChatLaunchSummary {
+    param(
+        [string] $ChatUrl,
+        [string] $BackendUrl,
+        [int] $BackendPort,
+        [int] $ChatPort,
+        [bool] $BackendHealthy
+    )
+
+    Write-Host ""
+    Write-Host "GitNexus Chat pret" -ForegroundColor Green
+    Write-Host "  Chat React : $ChatUrl"
+    Write-Host "  Backend    : $BackendUrl"
+    Write-Host "  Health     : $BackendUrl/health"
+    if ($BackendHealthy) {
+        $diagSummary = Get-DiagnosticSummary -BackendUrl $BackendUrl
+        if ($diagSummary) {
+            Write-Host "  Contexte   : $diagSummary"
+        }
+        else {
+            Write-Host "  Contexte   : diagnostics backend indisponibles" -ForegroundColor Yellow
+        }
+    }
+    else {
+        Write-Host "  Contexte   : backend non verifie (-NoBackend)" -ForegroundColor Yellow
+    }
+    Write-Host "  Diagnostic : .\gitnexus.cmd doctor -BackendPort $BackendPort -ChatPort $ChatPort"
+    Write-Host "  Redemarrer : .\gitnexus.cmd chat -BackendPort $BackendPort -ChatPort $ChatPort -RestartBackend -RestartChat"
+    Write-Host ""
+}
+
 function Show-Doctor {
     Write-Step "Diagnostic GitNexus"
 
@@ -360,10 +419,7 @@ function Show-Doctor {
     if ($backendOk) {
         $diag = Get-HttpJson -Url "$backendUrl/api/diagnostics"
         if ($diag) {
-            $repoCount = if ($diag.repos -and $null -ne $diag.repos.count) { [string] $diag.repos.count } else { "?" }
-            $llmProvider = if ($diag.llm -and $diag.llm.provider) { [string] $diag.llm.provider } elseif ($diag.llm -and $diag.llm.configured -eq $false) { "non configure" } else { "?" }
-            $llmModel = if ($diag.llm -and $diag.llm.model) { [string] $diag.llm.model } else { "modele ?" }
-            Write-DoctorLine "diagnostic backend" "OK" "repos=$repoCount llm=$llmProvider/$llmModel"
+            Write-DoctorLine "diagnostic backend" "OK" (Get-DiagnosticSummary -BackendUrl $backendUrl)
         }
         else {
             Write-DoctorLine "diagnostic backend" "WARN" "$backendUrl/api/diagnostics ne repond pas"
@@ -626,7 +682,7 @@ switch ($Command) {
                 Write-Step "Backend GitNexus deja disponible sur $backendUrl"
             }
             elseif (Test-PortListening -Port $BackendPort) {
-                throw "Le port backend $BackendPort est occupe mais $backendHealthUrl ne repond pas. Ferme l'ancien processus ou choisis -BackendPort."
+                throw (Get-PortConflictMessage -Port $BackendPort -ExpectedService "le backend GitNexus" -ProbeUrl $backendHealthUrl)
             }
             else {
                 Write-Step "Lancement backend GitNexus HTTP sur $backendUrl"
@@ -646,7 +702,7 @@ switch ($Command) {
             Write-Step "Client chat React deja disponible sur $chatUrl"
         }
         elseif (Test-PortListening -Port $ChatPort) {
-            throw "Le port chat $ChatPort est occupe mais $chatUrl ne sert pas le client React GitNexus. Ferme l'ancien processus ou choisis -ChatPort."
+            throw (Get-PortConflictMessage -Port $ChatPort -ExpectedService "le client React GitNexus" -ProbeUrl $chatUrl)
         }
         else {
             Write-Step "Lancement client chat React sur $chatUrl"
@@ -660,6 +716,8 @@ switch ($Command) {
                 throw "Le client React ne repond pas sur $chatUrl. Consulte la fenetre GitNexus chat React :$ChatPort."
             }
         }
+
+        Write-ChatLaunchSummary -ChatUrl $chatUrl -BackendUrl $backendUrl -BackendPort $BackendPort -ChatPort $ChatPort -BackendHealthy (Test-HttpOk -Url $backendHealthUrl)
 
         if (-not $NoBrowser) {
             Start-Process $chatUrl | Out-Null

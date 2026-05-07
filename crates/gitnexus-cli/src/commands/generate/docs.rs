@@ -1416,10 +1416,12 @@ fn module_link_for_node(
     node_id: &str,
     member_to_module: &HashMap<String, String>,
     communities: &BTreeMap<String, CommunityInfo>,
+    module_path_prefix: &str,
 ) -> Option<String> {
     let filename = member_to_module.get(node_id)?;
     let info = communities.get(filename)?;
-    Some(format!("[{}](modules/{}.md)", info.label, filename))
+    let prefix = module_path_prefix.trim_end_matches('/');
+    Some(format!("[{}]({}/{}.md)", info.label, prefix, filename))
 }
 
 fn line_range(node: &GraphNode) -> String {
@@ -1473,6 +1475,16 @@ struct WikiSteeringConfig {
     repo_notes: Vec<WikiSteeringNote>,
     #[serde(default)]
     pages: Vec<WikiSteeringPage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GuidedSymbolMatch {
+    name: String,
+    kind: String,
+    module: String,
+    file_path: String,
+    lines: String,
+    score: usize,
 }
 
 fn read_wiki_steering_config(repo_path: &Path) -> Result<Option<(PathBuf, WikiSteeringConfig)>> {
@@ -1646,6 +1658,74 @@ fn source_files_for_guided_page(graph: &KnowledgeGraph, page: &WikiSteeringPage)
     scored.into_iter().take(15).map(|(_, path)| path).collect()
 }
 
+fn guided_symbol_matches(
+    graph: &KnowledgeGraph,
+    page: &WikiSteeringPage,
+    member_to_module: &HashMap<String, String>,
+    communities: &BTreeMap<String, CommunityInfo>,
+    module_path_prefix: &str,
+) -> Vec<GuidedSymbolMatch> {
+    let tokens = wiki_steering_tokens(page);
+    if tokens.is_empty() {
+        return Vec::new();
+    }
+
+    let mut scored = graph
+        .iter_nodes()
+        .filter(|node| {
+            !matches!(
+                node.label,
+                NodeLabel::File | NodeLabel::Folder | NodeLabel::Community
+            ) && !node.properties.file_path.is_empty()
+        })
+        .filter_map(|node| {
+            let haystack = format!(
+                "{} {} {}",
+                node.properties.name.to_lowercase(),
+                node.properties.file_path.to_lowercase(),
+                node.label.as_str().to_lowercase()
+            );
+            let mut score = tokens
+                .iter()
+                .filter(|token| haystack.contains(token.as_str()))
+                .count();
+            if node
+                .properties
+                .entry_point_score
+                .map(|value| value > 0.3)
+                .unwrap_or(false)
+            {
+                score += 1;
+            }
+
+            (score > 0).then(|| GuidedSymbolMatch {
+                name: node.properties.name.clone(),
+                kind: node.label.as_str().to_string(),
+                module: module_link_for_node(
+                    &node.id,
+                    member_to_module,
+                    communities,
+                    module_path_prefix,
+                )
+                .unwrap_or_else(|| "-".to_string()),
+                file_path: node.properties.file_path.clone(),
+                lines: line_range(node),
+                score,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    scored.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.file_path.cmp(&b.file_path))
+    });
+    scored.dedup_by(|a, b| a.name == b.name && a.file_path == b.file_path);
+    scored.truncate(30);
+    scored
+}
+
 fn generate_wiki_steering_pages(
     docs_dir: &Path,
     repo_path: &Path,
@@ -1768,6 +1848,8 @@ fn generate_wiki_steering_pages(
         let guided_dir = docs_dir.join("guided");
         std::fs::create_dir_all(&guided_dir)?;
         let mut used_slugs = HashSet::new();
+        let merged_communities = merged_communities_by_filename(&collect_communities(graph));
+        let member_to_module = build_member_to_module(&merged_communities);
         let page_titles: HashSet<&str> = config
             .pages
             .iter()
@@ -1778,7 +1860,20 @@ fn generate_wiki_steering_pages(
             let slug = unique_wiki_page_slug(&page.title, &mut used_slugs);
             let page_path = guided_dir.join(format!("{}.md", slug));
             let mut page_file = std::fs::File::create(&page_path)?;
-            let source_files = source_files_for_guided_page(graph, page);
+            let symbol_matches = guided_symbol_matches(
+                graph,
+                page,
+                &member_to_module,
+                &merged_communities,
+                "../modules",
+            );
+            let mut source_files = source_files_for_guided_page(graph, page);
+            for symbol in &symbol_matches {
+                if !source_files.contains(&symbol.file_path) {
+                    source_files.push(symbol.file_path.clone());
+                }
+            }
+            source_files.truncate(15);
             let source_refs: Vec<&str> = source_files.iter().map(|s| s.as_str()).collect();
 
             writeln!(page_file, "# {}", page.title)?;
@@ -1808,6 +1903,51 @@ fn generate_wiki_steering_pages(
                 writeln!(page_file)?;
                 for note in &page.page_notes {
                     writeln!(page_file, "- {}", compact_wiki_text(note.content(), 900))?;
+                }
+                writeln!(page_file)?;
+            }
+
+            if !symbol_matches.is_empty() {
+                let mut modules = Vec::new();
+                for symbol in &symbol_matches {
+                    if symbol.module != "-" && !modules.contains(&symbol.module) {
+                        modules.push(symbol.module.clone());
+                    }
+                    if modules.len() >= 8 {
+                        break;
+                    }
+                }
+
+                if !modules.is_empty() {
+                    writeln!(page_file, "## Modules liés")?;
+                    writeln!(page_file)?;
+                    for module in &modules {
+                        writeln!(page_file, "- {}", module)?;
+                    }
+                    writeln!(page_file)?;
+                }
+
+                writeln!(page_file, "## Symboles probables")?;
+                writeln!(page_file)?;
+                writeln!(
+                    page_file,
+                    "| Symbole | Type | Module | Fichier | Lignes | Score |"
+                )?;
+                writeln!(
+                    page_file,
+                    "|---------|------|--------|---------|--------|-------|"
+                )?;
+                for symbol in symbol_matches.iter().take(20) {
+                    writeln!(
+                        page_file,
+                        "| `{}` | {} | {} | `{}` | {} | {} |",
+                        markdown_cell(&symbol.name),
+                        markdown_cell(&symbol.kind),
+                        markdown_cell(&symbol.module),
+                        markdown_cell(&symbol.file_path),
+                        symbol.lines,
+                        symbol.score
+                    )?;
                 }
                 writeln!(page_file)?;
             }
@@ -1961,7 +2101,7 @@ fn generate_docs_code_map(
         writeln!(f, "| Symbole | Type | Module | Fichier | Lignes | Score |")?;
         writeln!(f, "|---------|------|--------|---------|--------|-------|")?;
         for (node, score) in entry_points.iter().take(30) {
-            let module = module_link_for_node(&node.id, &member_to_module, &merged)
+            let module = module_link_for_node(&node.id, &member_to_module, &merged, "modules")
                 .unwrap_or_else(|| "-".to_string());
             writeln!(
                 f,
@@ -4348,6 +4488,44 @@ mod tests {
     }
 
     #[test]
+    fn guided_symbol_matches_link_modules_and_boost_entry_points() {
+        let mut graph = KnowledgeGraph::new();
+        graph.add_node(node(
+            "M1",
+            NodeLabel::Method,
+            "LoginController",
+            "src/Auth/LoginController.cs",
+            Some(0.8),
+        ));
+        graph.add_node(node(
+            "M2",
+            NodeLabel::Method,
+            "InvoiceService",
+            "src/Billing/InvoiceService.cs",
+            None,
+        ));
+        let communities = BTreeMap::from([(
+            "auth".to_string(),
+            community("Authentication", &["M1"], &["login"]),
+        )]);
+        let member_to_module = build_member_to_module(&communities);
+        let page = WikiSteeringPage {
+            title: "Authentication System".to_string(),
+            purpose: "Document login controller behavior".to_string(),
+            parent: None,
+            page_notes: Vec::new(),
+        };
+
+        let matches =
+            guided_symbol_matches(&graph, &page, &member_to_module, &communities, "../modules");
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].name, "LoginController");
+        assert_eq!(matches[0].module, "[Authentication](../modules/auth.md)");
+        assert!(matches[0].score >= 2);
+    }
+
+    #[test]
     fn wiki_steering_validation_rejects_duplicate_titles() {
         let config = WikiSteeringConfig {
             repo_notes: Vec::new(),
@@ -4402,6 +4580,15 @@ mod tests {
             "src/Auth/LoginController.cs",
             None,
         ));
+        graph.add_node(node(
+            "M1",
+            NodeLabel::Method,
+            "LoginController",
+            "src/Auth/LoginController.cs",
+            Some(0.8),
+        ));
+        graph.add_node(node("C1", NodeLabel::Community, "Authentication", "", None));
+        graph.add_relationship(rel("r-member", "M1", "C1", RelationshipType::MemberOf));
 
         let pages = generate_wiki_steering_pages(&docs, &repo, &graph).expect("guided pages");
 
@@ -4425,6 +4612,8 @@ mod tests {
         let guided = std::fs::read_to_string(docs.join("guided").join("authentication_system.md"))
             .expect("guided page");
         assert!(guided.contains("src/Auth/LoginController.cs"));
+        assert!(guided.contains("## Symboles probables"));
+        assert!(guided.contains("[Authentication](../modules/authentication.md)"));
 
         std::fs::remove_dir_all(root).expect("cleanup");
     }

@@ -28,15 +28,31 @@ export interface SourceTarget {
   endLine?: number;
 }
 
+export interface GraphTarget {
+  nodeId: string;
+  name: string;
+  label?: string;
+  filePath?: string;
+  startLine?: number;
+  endLine?: number;
+}
+
 interface WorkspacePanelProps {
   onClose: () => void;
   initialSourceTarget?: SourceTarget | null;
+  initialGraphTarget?: GraphTarget | null;
+  initialTab?: WorkspaceTab;
 }
 
-export function WorkspacePanel({ onClose, initialSourceTarget = null }: WorkspacePanelProps) {
+export function WorkspacePanel({
+  onClose,
+  initialSourceTarget = null,
+  initialGraphTarget = null,
+  initialTab,
+}: WorkspacePanelProps) {
   const selectedRepo = useChatStore((s) => s.selectedRepo);
   const selectedRepoName = useChatStore((s) => s.selectedRepoName);
-  const [tab, setTab] = useState<WorkspaceTab>('sources');
+  const [tab, setTab] = useState<WorkspaceTab>(initialTab ?? (initialGraphTarget ? 'graph' : 'sources'));
   const [sourceTarget, setSourceTarget] = useState<SourceTarget | null>(initialSourceTarget);
 
   const openSource = useCallback((target: SourceTarget) => {
@@ -81,7 +97,7 @@ export function WorkspacePanel({ onClose, initialSourceTarget = null }: Workspac
       ) : tab === 'sources' ? (
         <SourceExplorer repo={selectedRepo} target={sourceTarget} />
       ) : (
-        <GraphNavigator repo={selectedRepo} onOpenSource={openSource} />
+        <GraphNavigator repo={selectedRepo} onOpenSource={openSource} initialTarget={initialGraphTarget} />
       )}
     </aside>
   );
@@ -341,9 +357,11 @@ function SourceCode({ source }: { source: SourceContent }) {
 function GraphNavigator({
   repo,
   onOpenSource,
+  initialTarget,
 }: {
   repo: string;
   onOpenSource: (target: SourceTarget) => void;
+  initialTarget?: GraphTarget | null;
 }) {
   const setInputDraft = useChatStore((s) => s.setInputDraft);
   const [query, setQuery] = useState('');
@@ -352,6 +370,30 @@ function GraphNavigator({
   const [graph, setGraph] = useState<GraphPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initialTarget?.nodeId) return;
+    let alive = true;
+    void mcpClient
+      .graphNeighborhood(repo, initialTarget.nodeId, 2)
+      .then((nextGraph) => {
+        if (!alive) return;
+        setGraph(nextGraph);
+        setSelected(
+          nextGraph.nodes.find((node) => node.id === initialTarget.nodeId) ??
+            graphTargetToNode(initialTarget)
+        );
+      })
+      .catch((err) => {
+        if (alive) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [initialTarget, repo]);
 
   const runSearch = async () => {
     if (!query.trim()) return;
@@ -752,6 +794,18 @@ function nodeColor(node: GraphNode): string {
 function compactLabel(value: string, max: number): string {
   if (value.length <= max) return value;
   return `${value.slice(0, Math.max(1, max - 3))}...`;
+}
+
+function graphTargetToNode(target: GraphTarget): GraphNode {
+  return {
+    id: target.nodeId,
+    name: target.name,
+    label: target.label ?? 'Symbol',
+    filePath: target.filePath ?? '',
+    startLine: target.startLine,
+    endLine: target.endLine,
+    depth: 0,
+  };
 }
 
 function filterTree(nodes: FileTreeNode[], query: string): FileTreeNode[] {

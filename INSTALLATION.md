@@ -151,6 +151,8 @@ Dans le client React, le bouton `Explorer` ouvre un panneau lateral:
 - `Source`: depuis un noeud du graphe, revenir au fichier associe;
 - bouton message: envoyer le fichier ou le noeud selectionne dans le brouillon du chat.
 
+Raccourci utile: `Ctrl+K` ouvre la recherche rapide. Elle cherche dans les fichiers et les symboles du projet actif; un fichier ouvre l'onglet Sources, un symbole ouvre directement son voisinage Graphe.
+
 Cette navigation utilise uniquement les depots indexes par GitNexus. Si le panneau est vide, lancez d'abord:
 
 ```powershell

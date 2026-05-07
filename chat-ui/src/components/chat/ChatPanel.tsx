@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { Braces, FileText, MessageSquareText } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Braces, Command, FileText, MessageSquareText } from 'lucide-react';
 import { ChatSidebar } from './ChatSidebar';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
@@ -9,21 +9,27 @@ import { SfdDraftsPanel } from './SfdDraftsPanel';
 import { ChatExports } from './ChatExports';
 import { LlmStatus } from './LlmStatus';
 import { SystemDiagnostics } from './SystemDiagnostics';
+import { QuickOpen } from './QuickOpen';
 import { useChatStore } from '../../stores/chat-store';
 import { useLlmConfig } from '../../hooks/use-llm-config';
 import { formatMessageTimestamp } from '../../utils/dates';
-import { WorkspacePanel, type SourceTarget } from '../explorer/WorkspacePanel';
+import { WorkspacePanel, type GraphTarget, type SourceTarget } from '../explorer/WorkspacePanel';
 import type { SourceReference } from '../../utils/source-references';
 
 export function ChatPanel() {
   const session = useChatStore((s) => s.getCurrentSession());
   const isSfdOpen = useChatStore((s) => s.isSfdPanelOpen);
   const setSfdOpen = useChatStore((s) => s.setSfdPanelOpen);
+  const selectedRepo = useChatStore((s) => s.selectedRepo);
+  const selectedRepoName = useChatStore((s) => s.selectedRepoName);
   const [isWorkspaceOpen, setWorkspaceOpen] = useState(false);
+  const [isQuickOpen, setQuickOpen] = useState(false);
   const [workspaceSeed, setWorkspaceSeed] = useState<{
     key: number;
     sourceTarget: SourceTarget | null;
-  }>({ key: 0, sourceTarget: null });
+    graphTarget: GraphTarget | null;
+    tab: 'sources' | 'graph';
+  }>({ key: 0, sourceTarget: null, graphTarget: null, tab: 'sources' });
   const llm = useLlmConfig();
   const sessionTitle = session?.title.trim() || 'GitNexus Chat';
   const sessionSubtitle = session
@@ -38,8 +44,43 @@ export function ChatPanel() {
         startLine: reference.startLine,
         endLine: reference.endLine,
       },
+      graphTarget: null,
+      tab: 'sources',
     }));
     setWorkspaceOpen(true);
+  }, []);
+
+  const openSourceTarget = useCallback((target: SourceTarget) => {
+    setWorkspaceSeed((current) => ({
+      key: current.key + 1,
+      sourceTarget: target,
+      graphTarget: null,
+      tab: 'sources',
+    }));
+    setWorkspaceOpen(true);
+    setQuickOpen(false);
+  }, []);
+
+  const openGraphTarget = useCallback((target: GraphTarget) => {
+    setWorkspaceSeed((current) => ({
+      key: current.key + 1,
+      sourceTarget: null,
+      graphTarget: target,
+      tab: 'graph',
+    }));
+    setWorkspaceOpen(true);
+    setQuickOpen(false);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setQuickOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   return (
@@ -62,6 +103,16 @@ export function ChatPanel() {
             <SystemDiagnostics />
             <ChatExports llm={llm} />
             <ProjectSelector />
+            <button
+              type="button"
+              onClick={() => setQuickOpen(true)}
+              className="flex items-center gap-1.5 rounded-md border border-neutral-800 bg-neutral-900/60 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-900"
+              aria-label="Ouvrir la recherche rapide"
+              title="Recherche rapide (Ctrl+K)"
+            >
+              <Command className="h-3.5 w-3.5" aria-hidden />
+              <span className="hidden xl:inline">Ctrl K</span>
+            </button>
             <button
               type="button"
               onClick={() => setWorkspaceOpen((open) => !open)}
@@ -101,12 +152,23 @@ export function ChatPanel() {
             <WorkspacePanel
               key={workspaceSeed.key}
               initialSourceTarget={workspaceSeed.sourceTarget}
+              initialGraphTarget={workspaceSeed.graphTarget}
+              initialTab={workspaceSeed.tab}
               onClose={() => setWorkspaceOpen(false)}
             />
           )}
         </div>
         <ChatInput />
         <SfdDraftsPanel />
+        {isQuickOpen && (
+          <QuickOpen
+            repo={selectedRepo}
+            repoName={selectedRepoName}
+            onClose={() => setQuickOpen(false)}
+            onOpenSource={openSourceTarget}
+            onOpenGraph={openGraphTarget}
+          />
+        )}
       </main>
     </div>
   );

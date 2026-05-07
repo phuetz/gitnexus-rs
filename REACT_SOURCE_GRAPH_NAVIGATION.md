@@ -54,6 +54,7 @@ Le client web autonome est centre sur la conversation et possede maintenant un p
 - exports Markdown/PDF avec metadata projet/LLM/date, code, tables, citations source et fallback Mermaid;
 - diagnostics backend.
 - bouton `Explorer`;
+- recherche rapide `Ctrl+K` sur fichiers et symboles;
 - navigation dans l'arbre des fichiers;
 - lecture d'extraits source;
 - recherche de symboles;
@@ -94,6 +95,7 @@ Chat | Sources | Graphe | Recherche
 Le chat reste l'ecran principal. Les ameliorations attendues:
 
 - les citations de fichiers deviennent cliquables;
+- `Ctrl+K` ouvre une palette pour rejoindre rapidement un fichier ou un symbole;
 - un clic sur `Controllers/CourrierController.cs:120` ouvre l'onglet Sources a la bonne ligne;
 - un clic sur un symbole inline ouvre le noeud correspondant dans le Graphe;
 - une selection dans Sources ou Graphe peut etre envoyee au chat avec "poser une question sur cette selection".

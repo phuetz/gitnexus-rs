@@ -46,7 +46,23 @@ describe('ChatPanel', () => {
           });
         }
         if (url.includes('/api/repos/repo-test/files')) {
-          return jsonResponse({ files: [] });
+          return jsonResponse({
+            files: [
+              {
+                name: 'src',
+                path: 'src',
+                isDir: true,
+                children: [
+                  {
+                    name: 'App.tsx',
+                    path: 'src/App.tsx',
+                    isDir: false,
+                    children: [],
+                  },
+                ],
+              },
+            ],
+          });
         }
         if (url.includes('/api/repos/repo-test/source')) {
           return jsonResponse({
@@ -57,6 +73,38 @@ describe('ChatPanel', () => {
             startLine: 12,
             endLine: 12,
             truncated: false,
+          });
+        }
+        if (url.includes('/api/repos/repo-test/symbols')) {
+          return jsonResponse({
+            symbols: [
+              {
+                nodeId: 'node-app',
+                name: 'App',
+                label: 'Component',
+                filePath: 'src/App.tsx',
+                score: 1,
+                startLine: 12,
+                endLine: 12,
+              },
+            ],
+          });
+        }
+        if (url.includes('/api/repos/repo-test/graph/neighborhood')) {
+          return jsonResponse({
+            nodes: [
+              {
+                id: 'node-app',
+                name: 'App',
+                label: 'Component',
+                filePath: 'src/App.tsx',
+                startLine: 12,
+                endLine: 12,
+                depth: 0,
+              },
+            ],
+            edges: [],
+            stats: { nodeCount: 1, edgeCount: 0, truncated: false },
           });
         }
         return jsonResponse({}, { status: 404 });
@@ -137,5 +185,25 @@ describe('ChatPanel', () => {
 
     expect(await screen.findByText('const app = true;')).toBeTruthy();
     expect(screen.getByText('Explorateur')).toBeTruthy();
+  });
+
+  it('opens quick search with Ctrl+K and jumps to a graph symbol', async () => {
+    useChatStore.setState({
+      selectedRepo: 'repo-test',
+      selectedRepoName: 'Repo test',
+    });
+
+    render(<ChatPanel />);
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    expect(await screen.findByRole('dialog', { name: /recherche rapide gitnexus/i })).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText(/chercher un fichier/i), {
+      target: { value: 'App' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: /ouvrir le symbole app/i }));
+
+    expect(await screen.findByText('Voisinage visuel')).toBeTruthy();
+    expect(screen.getAllByText('App').length).toBeGreaterThan(0);
   });
 });

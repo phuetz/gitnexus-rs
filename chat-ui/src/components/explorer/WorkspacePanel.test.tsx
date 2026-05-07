@@ -58,6 +58,54 @@ describe('WorkspacePanel', () => {
             truncated: false,
           });
         }
+        if (url.includes('/symbols')) {
+          return jsonResponse({
+            symbols: [
+              {
+                nodeId: 'node-controller',
+                name: 'CourrierController',
+                label: 'Controller',
+                filePath: 'Controllers/CourrierController.cs',
+                score: 1,
+                startLine: 10,
+                endLine: 42,
+              },
+            ],
+          });
+        }
+        if (url.includes('/graph/neighborhood')) {
+          return jsonResponse({
+            nodes: [
+              {
+                id: 'node-controller',
+                name: 'CourrierController',
+                label: 'Controller',
+                filePath: 'Controllers/CourrierController.cs',
+                startLine: 10,
+                endLine: 42,
+                depth: 0,
+                isTraced: true,
+              },
+              {
+                id: 'node-service',
+                name: 'CourriersService',
+                label: 'Service',
+                filePath: 'BAL/CourriersService.cs',
+                depth: 1,
+              },
+            ],
+            edges: [
+              {
+                id: 'edge-1',
+                source: 'node-controller',
+                target: 'node-service',
+                relType: 'Calls',
+                confidence: 0.9,
+              },
+            ],
+            stats: { nodeCount: 2, edgeCount: 1, truncated: false },
+          });
+        }
         return jsonResponse({}, { status: 404 });
       })
     );
@@ -78,5 +126,22 @@ describe('WorkspacePanel', () => {
     await waitFor(() => {
       expect(useChatStore.getState().inputDraft).toContain('Controllers/CourrierController.cs');
     });
+  });
+
+  it('searches the graph and opens a selected node source', async () => {
+    render(<WorkspacePanel onClose={() => {}} />);
+
+    fireEvent.click(screen.getByText('Graphe'));
+    fireEvent.change(screen.getByPlaceholderText('Chercher une classe, methode, action...'), {
+      target: { value: 'Courrier' },
+    });
+    fireEvent.click(screen.getByText('Chercher'));
+
+    fireEvent.click(await screen.findByText('CourrierController'));
+
+    expect(await screen.findByText('Voisinage visuel')).toBeTruthy();
+    fireEvent.click(screen.getAllByText('Source')[0]);
+
+    expect(await screen.findByText('public class CourrierController {}')).toBeTruthy();
   });
 });

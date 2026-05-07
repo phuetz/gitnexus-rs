@@ -12,6 +12,7 @@ import {
 import {
   mcpClient,
   type FileTreeNode,
+  type GraphEdge,
   type GraphNode,
   type GraphPayload,
   type SourceContent,
@@ -474,20 +475,42 @@ function GraphNavigator({
                   )}
                 </div>
               </div>
+              <GraphMap
+                graph={graph}
+                selectedId={selected?.id ?? null}
+                onSelect={setSelected}
+              />
+              {selected && (
+                <SelectedNodeDetails
+                  node={selected}
+                  graph={graph}
+                  onAsk={askAboutNode}
+                  onOpenSource={onOpenSource}
+                />
+              )}
               <div className="space-y-2">
                 {graph.nodes
                   .slice()
                   .sort((a, b) => (a.depth ?? 0) - (b.depth ?? 0) || a.name.localeCompare(b.name))
                   .map((node) => (
-                    <div key={node.id} className="rounded-lg border border-neutral-900 bg-neutral-950 p-3">
+                    <div
+                      key={node.id}
+                      className={`rounded-lg border bg-neutral-950 p-3 ${
+                        selected?.id === node.id ? 'border-violet-500/60' : 'border-neutral-900'
+                      }`}
+                    >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setSelected(node)}
+                          className="min-w-0 flex-1 text-left"
+                        >
                           <div className="truncate text-sm font-medium text-neutral-100">{node.name}</div>
                           <div className="mt-1 truncate text-xs text-neutral-500">
                             {node.label}
                             {typeof node.depth === 'number' ? ` - distance ${node.depth}` : ''} - {node.filePath}
                           </div>
-                        </div>
+                        </button>
                         {node.filePath && (
                           <button
                             type="button"
@@ -513,6 +536,221 @@ function GraphNavigator({
       </div>
     </div>
   );
+}
+
+interface PositionedGraphNode extends GraphNode {
+  x: number;
+  y: number;
+  radius: number;
+}
+
+function GraphMap({
+  graph,
+  selectedId,
+  onSelect,
+}: {
+  graph: GraphPayload;
+  selectedId: string | null;
+  onSelect: (node: GraphNode) => void;
+}) {
+  const layout = useMemo(() => buildGraphLayout(graph.nodes, graph.edges), [graph.edges, graph.nodes]);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
+      <div className="flex items-center justify-between border-b border-neutral-900 px-3 py-2">
+        <div className="text-xs font-medium text-neutral-200">Voisinage visuel</div>
+        <div className="text-[11px] text-neutral-600">
+          {layout.nodes.length} noeuds - {layout.edges.length} liens
+        </div>
+      </div>
+      <svg
+        viewBox="0 0 720 300"
+        role="img"
+        aria-label="Carte du voisinage de graphe"
+        className="h-72 w-full bg-[radial-gradient(circle_at_center,rgba(124,58,237,0.13),transparent_48%)]"
+      >
+        <g>
+          {layout.edges.map((edge) => (
+            <line
+              key={edge.id}
+              x1={edge.source.x}
+              y1={edge.source.y}
+              x2={edge.target.x}
+              y2={edge.target.y}
+              stroke="rgba(115,115,115,0.42)"
+              strokeWidth={edge.relType === 'Calls' ? 1.8 : 1.1}
+            >
+              <title>{edge.relType}</title>
+            </line>
+          ))}
+        </g>
+        <g>
+          {layout.nodes.map((node) => {
+            const selected = node.id === selectedId;
+            return (
+              <g
+                key={node.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`${node.name} ${node.label}`}
+                transform={`translate(${node.x} ${node.y})`}
+                className="cursor-pointer outline-none"
+                onClick={() => onSelect(node)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelect(node);
+                  }
+                }}
+              >
+                <circle
+                  r={node.radius + (selected ? 5 : 0)}
+                  fill={selected ? 'rgba(139,92,246,0.26)' : 'rgba(23,23,23,0.82)'}
+                  stroke={selected ? 'rgb(167,139,250)' : nodeColor(node)}
+                  strokeWidth={selected ? 2.5 : 1.6}
+                />
+                <circle r={Math.max(4, node.radius * 0.42)} fill={nodeColor(node)} />
+                <text
+                  x={0}
+                  y={node.radius + 15}
+                  textAnchor="middle"
+                  className="pointer-events-none select-none fill-neutral-300 text-[10px]"
+                >
+                  {compactLabel(node.name, 18)}
+                </text>
+                <title>{`${node.name} (${node.label})`}</title>
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+function SelectedNodeDetails({
+  node,
+  graph,
+  onAsk,
+  onOpenSource,
+}: {
+  node: GraphNode;
+  graph: GraphPayload;
+  onAsk: (node: GraphNode) => void;
+  onOpenSource: (target: SourceTarget) => void;
+}) {
+  const relations = graph.edges
+    .filter((edge) => edge.source === node.id || edge.target === node.id)
+    .slice(0, 6);
+
+  return (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900/45 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-neutral-100">{node.name}</div>
+          <div className="mt-1 truncate text-xs text-neutral-500">
+            {node.label} - {node.filePath || 'source inconnue'}
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-1.5">
+          {node.filePath && (
+            <button
+              type="button"
+              onClick={() =>
+                onOpenSource({
+                  path: node.filePath,
+                  startLine: node.startLine,
+                  endLine: node.endLine,
+                })
+              }
+              className="rounded-md border border-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+            >
+              Source
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onAsk(node)}
+            className="rounded-md border border-neutral-800 p-1.5 text-neutral-300 hover:bg-neutral-800"
+            title="Demander au chat"
+          >
+            <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
+      </div>
+      {relations.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {relations.map((edge) => (
+            <span
+              key={edge.id}
+              className="rounded border border-neutral-800 bg-neutral-950 px-1.5 py-0.5 text-[11px] text-neutral-400"
+            >
+              {edge.relType}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function buildGraphLayout(nodes: GraphNode[], edges: GraphEdge[]) {
+  const visibleNodes = nodes
+    .slice()
+    .sort((a, b) => (a.depth ?? 99) - (b.depth ?? 99) || a.name.localeCompare(b.name))
+    .slice(0, 80);
+  const byId = new Map<string, PositionedGraphNode>();
+  const rings = new Map<number, GraphNode[]>();
+  for (const node of visibleNodes) {
+    const depth = Math.max(0, Math.min(4, node.depth ?? 1));
+    const ring = rings.get(depth) ?? [];
+    ring.push(node);
+    rings.set(depth, ring);
+  }
+
+  for (const [depth, ringNodes] of rings) {
+    const radius = depth === 0 ? 0 : 56 + depth * 43;
+    const nodeRadius = depth === 0 ? 14 : Math.max(7, 12 - depth);
+    ringNodes.forEach((node, index) => {
+      const angle = depth === 0 ? 0 : (Math.PI * 2 * index) / ringNodes.length - Math.PI / 2;
+      byId.set(node.id, {
+        ...node,
+        x: 360 + Math.cos(angle) * radius,
+        y: 145 + Math.sin(angle) * Math.min(radius, 130),
+        radius: nodeRadius,
+      });
+    });
+  }
+
+  const visibleEdges = edges
+    .map((edge) => ({
+      ...edge,
+      source: byId.get(edge.source),
+      target: byId.get(edge.target),
+    }))
+    .filter((edge): edge is GraphEdge & { source: PositionedGraphNode; target: PositionedGraphNode } =>
+      Boolean(edge.source && edge.target)
+    )
+    .slice(0, 140);
+
+  return {
+    nodes: Array.from(byId.values()),
+    edges: visibleEdges,
+  };
+}
+
+function nodeColor(node: GraphNode): string {
+  if (node.isDeadCandidate) return 'rgb(248,113,113)';
+  if (node.isTraced) return 'rgb(52,211,153)';
+  if (node.label.includes('Controller')) return 'rgb(96,165,250)';
+  if (node.label.includes('Service')) return 'rgb(167,139,250)';
+  if (node.label.includes('Repository')) return 'rgb(251,191,36)';
+  return 'rgb(163,163,163)';
+}
+
+function compactLabel(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, Math.max(1, max - 3))}...`;
 }
 
 function filterTree(nodes: FileTreeNode[], query: string): FileTreeNode[] {

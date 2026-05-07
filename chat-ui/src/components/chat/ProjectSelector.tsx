@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, FolderOpen, RefreshCw, AlertCircle, Search } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, FolderOpen, RefreshCw, AlertCircle, Search, Copy, Check } from 'lucide-react';
 import clsx from 'clsx';
 import { mcpClient, type RepoInfo } from '../../api/mcp-client';
 import { useChatStore } from '../../stores/chat-store';
 import { parseIndexedAt } from '../../utils/dates';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 function repoSelectionValue(repo: RepoInfo): string {
   return repo.id || repo.name;
@@ -39,6 +40,8 @@ export function ProjectSelector() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [copiedError, setCopiedError] = useState(false);
+  const copiedErrorTimer = useRef<number | null>(null);
 
   const fetchRepos = useCallback(async () => {
     setLoading(true);
@@ -71,6 +74,38 @@ export function ProjectSelector() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchRepos();
   }, [fetchRepos]);
+
+  useEffect(() => {
+    return () => {
+      if (copiedErrorTimer.current !== null) {
+        window.clearTimeout(copiedErrorTimer.current);
+      }
+    };
+  }, []);
+
+  const copyErrorDiagnostic = useCallback(async () => {
+    if (!error) return;
+    const ok = await copyTextToClipboard(
+      [
+        'GitNexus - erreur de liste des projets',
+        '',
+        error,
+        '',
+        'Commandes utiles:',
+        '.\\gitnexus.cmd doctor',
+        '.\\gitnexus.cmd chat -RestartBackend',
+      ].join('\n')
+    );
+    if (!ok) return;
+    setCopiedError(true);
+    if (copiedErrorTimer.current !== null) {
+      window.clearTimeout(copiedErrorTimer.current);
+    }
+    copiedErrorTimer.current = window.setTimeout(() => {
+      setCopiedError(false);
+      copiedErrorTimer.current = null;
+    }, 1600);
+  }, [error]);
 
   const selectedRepoInfo = repos.find((repo) => repoMatchesSelection(repo, selectedRepo));
   const duplicateNames = countRepoNames(repos);
@@ -161,6 +196,16 @@ export function ProjectSelector() {
               <div className="mt-2 text-neutral-500">
                 Lance <code className="rounded bg-neutral-800 px-1">.\gitnexus.cmd doctor</code> pour vérifier ports, backend et proxy Vite.
               </div>
+              <button
+                type="button"
+                onClick={() => void copyErrorDiagnostic()}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-amber-900/60 bg-amber-950/20 px-2 py-1 text-[11px] font-medium text-amber-200 transition hover:bg-amber-950/35"
+                aria-label={copiedError ? 'Diagnostic copié' : 'Copier le diagnostic'}
+                title={copiedError ? 'Diagnostic copié' : 'Copier le diagnostic'}
+              >
+                {copiedError ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+                {copiedError ? 'Copié' : 'Copier diagnostic'}
+              </button>
             </div>
           )}
 

@@ -176,4 +176,33 @@ describe('ProjectSelector', () => {
     expect(screen.getByText(/Aucun projet indexé/i)).toBeTruthy();
     expect(screen.getByText(/gitnexus\.cmd analyze -Repo/i)).toBeTruthy();
   });
+
+  it('copies actionable diagnostics when the backend project list fails', async () => {
+    const writeText = vi.fn(async (text: string) => {
+      void text;
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Bad Gateway', { status: 502, statusText: 'Bad Gateway' }))
+    );
+
+    render(<ProjectSelector />);
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /sélectionner le projet/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /copier le diagnostic/i }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const diagnostic = writeText.mock.calls[0][0];
+    expect(diagnostic).toContain('list_repos: HTTP 502 Bad Gateway');
+    expect(diagnostic).toContain('.\\gitnexus.cmd doctor');
+    expect(diagnostic).toContain('.\\gitnexus.cmd chat -RestartBackend');
+  });
 });

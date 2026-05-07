@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Request, State},
-    http::{header, HeaderName, HeaderValue, Method, StatusCode},
+    http::{header, HeaderName, Method, StatusCode, Uri},
     middleware::{self, Next},
     response::sse::{Event, KeepAlive},
     response::Response,
@@ -34,7 +34,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::convert::Infallible;
 use tokio::sync::Mutex;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
 use gitnexus_mcp::backend::local::LocalBackend;
@@ -77,6 +77,32 @@ fn is_loopback_host(host: &str) -> bool {
             .parse::<IpAddr>()
             .map(|ip| ip.is_loopback())
             .unwrap_or(false)
+}
+
+fn is_loopback_origin(origin: &str) -> bool {
+    let Ok(uri) = origin.parse::<Uri>() else {
+        return false;
+    };
+
+    if !matches!(uri.scheme_str(), Some("http" | "https")) {
+        return false;
+    }
+    if uri
+        .path_and_query()
+        .map(|path_and_query| path_and_query.as_str() != "/")
+        .unwrap_or(false)
+    {
+        return false;
+    }
+
+    let Some(authority) = uri.authority() else {
+        return false;
+    };
+    if authority.as_str().contains('@') {
+        return false;
+    }
+
+    uri.host().map(is_loopback_host).unwrap_or(false)
 }
 
 fn validate_chat_payload(payload: &ChatRequest) -> Result<(), (StatusCode, String)> {
@@ -189,7 +215,8 @@ pub async fn run(port: u16, host: &str) -> anyhow::Result<()> {
 
     let shared: SharedBackend = Arc::new(Mutex::new(backend));
 
-    // CORS — allow browser access from the bundled UI and local dev servers.
+    // CORS -- allow browser access from bundled UI and loopback dev servers,
+    // including custom ChatPort values chosen by the launcher.
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([
@@ -198,21 +225,9 @@ pub async fn run(port: u16, host: &str) -> anyhow::Result<()> {
             header::AUTHORIZATION,
             HeaderName::from_static("x-api-key"),
         ])
-        .allow_origin([
-            "http://localhost".parse::<HeaderValue>().unwrap(),
-            "http://localhost:3000".parse::<HeaderValue>().unwrap(),
-            "http://localhost:3010".parse::<HeaderValue>().unwrap(),
-            "http://localhost:5173".parse::<HeaderValue>().unwrap(),
-            "http://localhost:5174".parse::<HeaderValue>().unwrap(),
-            "http://localhost:5176".parse::<HeaderValue>().unwrap(),
-            "http://localhost:1420".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:3000".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:3010".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:5173".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:5174".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:5176".parse::<HeaderValue>().unwrap(),
-        ]);
+        .allow_origin(AllowOrigin::predicate(|origin, _request_parts| {
+            origin.to_str().map(is_loopback_origin).unwrap_or(false)
+        }));
 
     let chat_routes = Router::new().route("/api/chat", post(chat_handler).get(chat_get_redirect));
     let chat_routes = if let Some(token) = auth_token {
@@ -385,7 +400,7 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
-    use super::is_loopback_host;
+    use super::{is_loopback_host, is_loopback_origin};
 
     #[test]
     fn loopback_host_detection_accepts_local_hosts() {
@@ -400,5 +415,22 @@ mod tests {
         assert!(!is_loopback_host("0.0.0.0"));
         assert!(!is_loopback_host("::"));
         assert!(!is_loopback_host("192.168.1.10"));
+    }
+
+    #[test]
+    fn loopback_origin_detection_accepts_any_local_port() {
+        assert!(is_loopback_origin("http://localhost:5175"));
+        assert!(is_loopback_origin("http://127.0.0.1:5177"));
+        assert!(is_loopback_origin("https://[::1]:1420"));
+    }
+
+    #[test]
+    fn loopback_origin_detection_rejects_remote_and_non_http_origins() {
+        assert!(!is_loopback_origin("http://192.168.1.10:5175"));
+        assert!(!is_loopback_origin("https://example.com"));
+        assert!(!is_loopback_origin("file://localhost/tmp"));
+        assert!(!is_loopback_origin("null"));
+        assert!(!is_loopback_origin("http://localhost:5175/sneaky"));
+        assert!(!is_loopback_origin("http://user@localhost:5175"));
     }
 }

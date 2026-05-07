@@ -5,7 +5,9 @@ Graph-powered code intelligence for AI agents. GitNexus builds a knowledge graph
 Written in Rust. Supports 14 programming languages. Ships with a desktop app and an HTML documentation generator.
 
 [Version française](README.fr.md)
+[Installation Guide](INSTALLATION.md)
 [Modernization Roadmap](MODERNIZATION.md)
+[React Source/Graph Navigation Plan](REACT_SOURCE_GRAPH_NAVIGATION.md)
 
 ## Why GitNexus? (vs AI coding assistants alone)
 
@@ -37,6 +39,7 @@ It's the difference between asking someone to **read a book** vs giving them the
 - **ASP.NET MVC 5 Deep Support** -- Controllers, actions, Razor views, Entity Framework 6 EDMX, Telerik/Kendo UI grids, jQuery/AJAX mapping, service/repository layer detection (see below)
 - **HTML Documentation Generator** -- Professional "DeepWiki" HTML site with full-text search (Ctrl+K), Lucide icons, dynamic sidebar, syntax highlighting, copy buttons, reading time estimation, and automated cross-reference linking between symbols.
 - **Interactive UX** -- Single-page application (SPA) with native browser history support, breadcrumbs, Previous/Next navigation, scroll spy TOC, mobile responsive design, and interactive Mermaid diagrams with click-to-zoom/fullscreen.
+- **Documentation Chat** -- Generated HTML sites include a graph-powered assistant that renders Markdown, syntax-highlighted code, Mermaid diagrams, and exports conversations as Markdown or printable PDF.
 - **Business Process Documentation** -- Automated generation of high-level functional reports (B1-B5) for complex flows like Payment Lifecycles, Calculation Engines, and Document Generation, featuring rich Mermaid Sequence and Flowchart diagrams.
 - **LLM Enrichment** -- Optional `--enrich` mode that augments documentation with grounded LLM prose, structured JSON payloads, evidence citations, provenance tracking, and anti-hallucination validation.
 - **Ask the Codebase** -- `gitnexus ask "question"` CLI command for graph-powered Q&A with streaming responses.
@@ -90,6 +93,7 @@ The HTML site includes:
 - **Data model pages** with per-entity relationship diagrams and per-domain ER diagrams
 - **Functional guide** with business descriptions in French, criticality levels, and Mermaid flow diagrams
 - **Interactive Elements**: Zoomable Mermaid diagrams, clickable source files with copy-to-clipboard, and native browser history support
+- **Embedded Assistant**: chat over the generated documentation with Markdown/PDF transcript exports, timestamps, and rendered Mermaid diagrams
 - **Dark/light theme** toggle with sidebar search, breadcrumbs, and Previous/Next navigation
 
 ## Quick Start
@@ -136,6 +140,19 @@ build-release.bat desktop   # Desktop only
 ./build-release.sh cli      # CLI only
 ```
 
+Windows helper scripts for local development:
+
+```powershell
+.\config-chatgpt.cmd        # Configure ChatGPT OAuth with gpt-5.5
+.\login-chatgpt.cmd         # ChatGPT OAuth login
+.\gitnexus.cmd chat         # Backend 3010 + React chat 5176
+.\gitnexus.cmd chat -ChatPort 5174  # Compatibility with an old browser tab
+.\start-desktop.cmd         # Desktop UI + Tauri
+.\check-gitnexus.cmd        # Main lint/test/build suite
+```
+
+The React chat shows the active LLM/model/reasoning level, timestamps each message, renders Mermaid and syntax-highlighted code, exports Markdown/PDF transcripts, and offers copyable diagnostics when the backend/project list is unreachable.
+
 ### Optional Feature Builds
 
 ```bash
@@ -173,7 +190,26 @@ Create `~/.gitnexus/chat-config.json`:
 }
 ```
 
-Supported providers: **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, no API key needed).
+Supported providers: **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, no API key needed), and **ChatGPT** through the Codex-style OAuth login flow for `gitnexus ask` / `gitnexus serve` chat. `--enrich` still uses OpenAI-compatible API-key providers.
+
+To use your ChatGPT subscription instead of an API key for `gitnexus ask` and the web chat served by `gitnexus serve`:
+
+```bash
+gitnexus login
+```
+
+Then set `~/.gitnexus/chat-config.json` to the ChatGPT provider. `api_key` is intentionally empty; the access token is loaded from the OAuth login created above.
+
+```json
+{
+  "provider": "chatgpt",
+  "api_key": "",
+  "base_url": "https://chatgpt.com/backend-api/codex",
+  "model": "gpt-5.5",
+  "max_tokens": 8192,
+  "reasoning_effort": "high"
+}
+```
 
 The three optional `big_context_*` fields route huge pages (≥ `big_context_threshold_bytes` raw markdown, default 40 KB) through a long-context model to escape the Gemini 2.5 Flash 65K output ceiling that causes `finish_reason: length` truncations. All LLM calls for that page (sectioned, monolithic, freeform fallback, review pass) use the substituted model. Leave the fields unset for legacy single-model behavior.
 
@@ -421,8 +457,12 @@ gitnexus mcp
 gitnexus setup
 
 # HTTP server
-gitnexus serve         # Default port 3000
+gitnexus serve         # Default port 3010
 ```
+
+`gitnexus serve` defaults to `127.0.0.1`. If you bind it to a network
+interface such as `0.0.0.0`, set `GITNEXUS_HTTP_TOKEN` first; the server
+refuses non-loopback binds without that bearer token.
 
 ### Other commands
 
@@ -555,7 +595,7 @@ A standards-based [Model Context Protocol](https://modelcontextprotocol.io/) ser
 
 ```bash
 gitnexus mcp          # stdio transport
-gitnexus serve        # HTTP transport (port 3000)
+gitnexus serve        # HTTP transport (port 3010)
 gitnexus setup        # Auto-configure in your editor
 ```
 

@@ -26,12 +26,15 @@ async function printPDF(htmlPath, pdfPath) {
 
   // Extra wait: ensure all mermaid diagrams have been processed
   await page.waitForFunction(() => {
+    const ready = window.__gitnexusMermaidReady === true;
     const pending = document.querySelectorAll(".mermaid[data-processed='false']");
     const raw = document.querySelectorAll("pre code.language-mermaid");
-    return pending.length === 0 && raw.length === 0;
+    return ready && pending.length === 0 && raw.length === 0;
   }, { timeout: 30000 }).catch(() => {
     // If mermaid never loads (offline), proceed anyway — diagrams will show as code blocks
   });
+
+  await waitForPrintableAssets(page);
 
   await page.pdf({
     path: pdfPath,
@@ -46,6 +49,27 @@ async function printPDF(htmlPath, pdfPath) {
 
   const size = Math.round(fs.statSync(pdfPath).size / 1024);
   console.log(`OK ${path.basename(pdfPath)} (${size} Ko)`);
+}
+
+async function waitForPrintableAssets(page) {
+  await page.evaluate(async () => {
+    if (document.fonts && document.fonts.ready) {
+      await document.fonts.ready.catch(() => undefined);
+    }
+
+    const images = Array.from(document.images);
+    await Promise.all(
+      images
+        .filter((img) => !img.complete)
+        .map(
+          (img) =>
+            new Promise((resolve) => {
+              img.addEventListener("load", resolve, { once: true });
+              img.addEventListener("error", resolve, { once: true });
+            })
+        )
+    );
+  });
 }
 
 const [,, htmlPath, pdfPath] = process.argv;

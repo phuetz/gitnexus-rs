@@ -1,3 +1,4 @@
+mod auth;
 mod commands;
 
 use clap::{Parser, Subcommand};
@@ -52,10 +53,15 @@ enum Commands {
     },
     /// Start MCP server (stdio transport)
     Mcp,
+    /// Authenticate with ChatGPT (Codex OAuth) so the chat can use your
+    /// ChatGPT Pro / Plus subscription instead of a separate API key.
+    Login,
+    /// Forget the cached ChatGPT auth tokens (`gitnexus login` reverses).
+    Logout,
     /// Start HTTP server for web UI
     Serve {
         /// Port to listen on
-        #[arg(short, long, default_value = "3000")]
+        #[arg(short, long, default_value = "3010")]
         port: u16,
         /// Host address to bind (default: 127.0.0.1)
         #[arg(long, default_value = "127.0.0.1")]
@@ -448,6 +454,17 @@ async fn main() -> anyhow::Result<()> {
             .await
         }
         Commands::Mcp => commands::mcp::run().await,
+        Commands::Login => match auth::login().await {
+            Ok(()) => Ok(()),
+            Err(e) => Err(anyhow::anyhow!("login failed: {e}")),
+        },
+        Commands::Logout => match auth::clear() {
+            Ok(()) => {
+                println!("Cleared cached ChatGPT credentials.");
+                Ok(())
+            }
+            Err(e) => Err(anyhow::anyhow!("logout failed: {e}")),
+        },
         Commands::Serve { port, host } => commands::serve::run(port, &host).await,
         Commands::List => commands::list::run(),
         Commands::Status => commands::status::run(),
@@ -529,7 +546,7 @@ async fn main() -> anyhow::Result<()> {
             commands::coupling_cmd::run(min, path.as_deref(), json)
         }
         Commands::Ownership { path, json } => commands::ownership_cmd::run(path.as_deref(), json),
-        Commands::Ask { question, path } => commands::ask::run(&question, path.as_deref()),
+        Commands::Ask { question, path } => commands::ask::run(&question, path.as_deref()).await,
         Commands::Report { path, json } => commands::report::run(path.as_deref(), json),
         Commands::Config { action } => match action.as_str() {
             "test" => tokio::task::spawn_blocking(commands::config_cmd::run_test)

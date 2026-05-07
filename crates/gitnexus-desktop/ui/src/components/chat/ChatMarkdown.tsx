@@ -1,4 +1,4 @@
-import { Copy, GitBranch, RefreshCw, ChevronDown, ChevronRight, Pin, PinOff, Loader2, CheckCircle2, XCircle, Clock, Lightbulb, AlertTriangle, Info, AlertCircle } from "lucide-react";
+import { Copy, GitBranch, RefreshCw, ChevronDown, ChevronRight, Pin, PinOff, Loader2, CheckCircle2, XCircle, Clock, Lightbulb, AlertTriangle, Info, AlertCircle, Download, Code2, Check } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import { commands } from "../../lib/tauri-commands";
 import type { Message, ToolCall, ToolCallStatus } from "../../stores/chat-session-store";
 import { useChatSessionStore } from "../../stores/chat-session-store";
 import { useShikiHighlighter } from "../../hooks/use-shiki-highlighter";
+import { copyTextToClipboard } from "../../lib/clipboard";
 
 function extractTextFromChildren(children: React.ReactNode): string {
   if (typeof children === "string") return children;
@@ -19,6 +20,95 @@ function extractTextFromChildren(children: React.ReactNode): string {
     return extractTextFromChildren(el.props.children);
   }
   return "";
+}
+
+const MERMAID_GRAPH_TYPES = [
+  "flowchart",
+  "sequenceDiagram",
+  "classDiagram",
+  "erDiagram",
+  "stateDiagram",
+  "gantt",
+  "pie",
+  "mindmap",
+  "gitGraph",
+  "journey",
+  "graph",
+];
+
+const MERMAID_LANGUAGE_ALIASES = new Set([
+  "mermaid",
+  "mermaidjs",
+  "mermaid-js",
+  "mmd",
+  "maid",
+  "maimaid",
+  "mermaide",
+  "diagram",
+  "flowchart",
+  "sequence",
+  "sequencediagram",
+  "classdiagram",
+]);
+
+function languageFromClassName(className: string): string {
+  return className.replace(/^language-/, "").trim();
+}
+
+function isMermaidLanguage(language: string | undefined): boolean {
+  return !!language && MERMAID_LANGUAGE_ALIASES.has(language.toLowerCase());
+}
+
+function looksLikeMermaid(text: string): boolean {
+  const head = text.trimStart().split(/\s|\n/, 1)[0] ?? "";
+  return MERMAID_GRAPH_TYPES.some((type) => type.toLowerCase() === head.toLowerCase());
+}
+
+const MERMAID_START_RE =
+  /^\s*(flowchart\s+(?:TB|TD|BT|RL|LR)|graph\s+(?:TB|TD|BT|RL|LR)|sequenceDiagram|classDiagram(?:-v2)?|erDiagram|stateDiagram(?:-v2)?|gantt|pie\b|mindmap|gitGraph|journey)\b/i;
+
+const MERMAID_LINE_RE = new RegExp(
+  String.raw`^\s*(subgraph\b|end\b|participant\b|actor\b|autonumber\b|loop\b|alt\b|opt\b|else\b|par\b|and\b|rect\b|note\b|activate\b|deactivate\b|class\b|classDef\b|click\b|style\b|linkStyle\b|title\b|section\b|dateFormat\b|axisFormat\b|todayMarker\b|[A-Za-z0-9_]+(?:\s*(?:-->|---|-.->|==>|-\.-|--|:::|::)|\s*[\[\(\{>]))`,
+  "i",
+);
+
+function isBareMermaidContinuation(line: string): boolean {
+  if (!line.trim()) return true;
+  if (/^\s+/.test(line)) return true;
+  return MERMAID_LINE_RE.test(line);
+}
+
+function normalizeBareMermaid(markdown: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const out: string[] = [];
+  let inFence = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+
+    if (!inFence && MERMAID_START_RE.test(line)) {
+      out.push("```mermaid");
+      out.push(line);
+      i += 1;
+      while (i < lines.length && isBareMermaidContinuation(lines[i])) {
+        out.push(lines[i]);
+        i += 1;
+      }
+      while (out[out.length - 1] === "") out.pop();
+      out.push("```");
+      i -= 1;
+      continue;
+    }
+
+    out.push(line);
+  }
+
+  return out.join("\n");
 }
 
 // ─── Smart Links Integration ─────────────────────────────────────────
@@ -142,6 +232,8 @@ function MermaidDiagram({ chart }: { chart: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [showSource, setShowSource] = useState(false);
+  const [copied, setCopied] = useState(false);
   const reactId = useId();
   const mermaidId = `mermaid-chat-${reactId.replace(/:/g, "")}`;
   const theme = useAppStore((s) => s.theme);
@@ -158,7 +250,9 @@ function MermaidDiagram({ chart }: { chart: string }) {
         await initMermaid(isDark);
         const { svg: rendered } = await mermaid.render(mermaidId, chart.trim());
         if (!cancelled) {
-          setSvg(rendered);
+          const safeSvg = sanitizeMermaidSvg(rendered);
+          if (!safeSvg) throw new Error("Mermaid produced invalid SVG output");
+          setSvg(safeSvg);
           setError(null);
         }
       } catch (err) {
@@ -174,21 +268,43 @@ function MermaidDiagram({ chart }: { chart: string }) {
     return () => { cancelled = true; };
   }, [chart, mermaidId, isDark]);
 
-  // Render via DOM ref instead of dangerouslySetInnerHTML.
-  // Mermaid's securityLevel:"strict" already strips event handlers;
-  // we add defence-in-depth by removing <script> elements.
+  // Render via DOM ref instead of dangerouslySetInnerHTML. The SVG string was
+  // already sanitized for script-like tags, event attributes, and JS URLs.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !svg) return;
     el.textContent = "";
-    const wrapper = document.createElement("div");
-    wrapper.textContent = "";
     const parser = new DOMParser();
     const doc = parser.parseFromString(svg, "image/svg+xml");
-    doc.querySelectorAll("script,iframe,object,embed").forEach((n) => n.remove());
     const svgEl = doc.documentElement;
     if (svgEl) el.appendChild(document.importNode(svgEl, true));
   }, [svg]);
+
+  const copySource = async () => {
+    const ok = await copyTextToClipboard(chart);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      toast.success("Mermaid source copied.");
+    } else {
+      toast.error("Failed to copy Mermaid source.");
+    }
+  };
+
+  const downloadSvg = () => {
+    if (!svg) return;
+    const blob = new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${svg}`], {
+      type: "image/svg+xml;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "gitnexus-diagram.svg";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
 
   if (error) {
     return (
@@ -198,20 +314,107 @@ function MermaidDiagram({ chart }: { chart: string }) {
       >
         <p className="font-medium mb-1">Failed to render Mermaid diagram</p>
         <pre className="whitespace-pre-wrap">{error}</pre>
+        <pre className="mt-2 whitespace-pre-wrap rounded p-2" style={{ background: "var(--bg-0)", color: "var(--text-2)" }}>
+          {chart}
+        </pre>
       </div>
     );
   }
 
   return (
     <div
-      ref={containerRef}
-      className="my-4 flex justify-center overflow-x-auto rounded-lg p-4"
+      className="my-4 overflow-hidden rounded-lg"
       style={{
         background: "var(--bg-1)",
         border: "1px solid var(--surface-border)",
       }}
-    />
+    >
+      <div
+        className="flex items-center justify-between gap-3 px-3 py-2 text-[11px]"
+        style={{ borderBottom: "1px solid var(--surface-border)", background: "var(--bg-2)", color: "var(--text-2)" }}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          {svg ? (
+            <span className="h-2 w-2 rounded-full" style={{ background: "var(--green)" }} aria-hidden="true" />
+          ) : (
+            <Loader2 size={13} className="animate-spin" style={{ color: "var(--orange)" }} aria-hidden="true" />
+          )}
+          <span className="truncate font-medium">Mermaid</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={downloadSvg}
+            disabled={!svg}
+            className="rounded p-1.5 transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ color: "var(--text-3)" }}
+            aria-label="Download Mermaid diagram as SVG"
+            title="Download SVG"
+          >
+            <Download size={13} />
+          </button>
+          <button
+            onClick={() => setShowSource((value) => !value)}
+            className="rounded p-1.5"
+            style={{ color: "var(--text-3)" }}
+            aria-label={showSource ? "Hide Mermaid source" : "Show Mermaid source"}
+            aria-pressed={showSource}
+            title={showSource ? "Hide source" : "Show source"}
+          >
+            <Code2 size={13} />
+          </button>
+          <button
+            onClick={copySource}
+            className="rounded p-1.5"
+            style={{ color: "var(--text-3)" }}
+            aria-label="Copy Mermaid source"
+            title={copied ? "Copied" : "Copy source"}
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+          </button>
+        </div>
+      </div>
+      <div
+        ref={containerRef}
+        className="flex min-h-28 justify-center overflow-x-auto p-4"
+      >
+        {!svg && (
+          <div className="flex w-full items-center justify-center rounded border border-dashed p-8 text-[11px]" style={{ borderColor: "var(--surface-border)", color: "var(--text-3)" }}>
+            Rendering diagram...
+          </div>
+        )}
+      </div>
+      {showSource && (
+        <div className="p-3" style={{ borderTop: "1px solid var(--surface-border)" }}>
+          <pre className="max-h-80 overflow-auto rounded p-2 text-[11px]" style={{ background: "var(--bg-0)", color: "var(--text-2)" }}>
+            {chart}
+          </pre>
+        </div>
+      )}
+    </div>
   );
+}
+
+function sanitizeMermaidSvg(svg: string): string {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svg, "image/svg+xml");
+  doc.querySelectorAll("script,iframe,object,embed").forEach((node) => node.remove());
+  doc.querySelectorAll("*").forEach((node) => {
+    Array.from(node.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      const isScriptUrl =
+        (name === "href" || name.endsWith(":href")) && value.startsWith("javascript:");
+      if (name.startsWith("on") || isScriptUrl) {
+        node.removeAttribute(attr.name);
+      }
+    });
+  });
+  const svgEl = doc.documentElement;
+  if (!svgEl || svgEl.nodeName.toLowerCase() !== "svg") return "";
+  if (!svgEl.getAttribute("xmlns")) {
+    svgEl.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  }
+  return new XMLSerializer().serializeToString(svgEl);
 }
 
 // ─── Callout detection ───────────────────────────────────────────────
@@ -251,16 +454,12 @@ function detectCallout(children: React.ReactNode): (typeof CALLOUT_MAP)[string] 
 
 function ShikiTokens({ code, langHint }: { code: string; langHint: string }) {
   const { tokenize, ready } = useShikiHighlighter();
-  const [lines, setLines] = useState<{ tokens: { content: string; color?: string; fontStyle?: number }[] }[] | null>(null);
-
-  // Use ready as dep only — tokenize is stable via useCallback in the hook
-  useEffect(() => {
-    if (!ready) return;
+  const lines = useMemo(() => {
+    if (!ready) return null;
     try {
-      const result = tokenize(code, langHint);
-      setLines(result);
+      return tokenize(code, langHint);
     } catch {
-      setLines(null);
+      return null;
     }
   }, [ready, code, langHint, tokenize]);
 
@@ -296,7 +495,14 @@ function ShikiCodeBlock({ code, langHint, rawChildren }: { code: string; langHin
       <button
         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity px-2 py-1 rounded text-[11px]"
         style={{ background: "var(--bg-3)", color: "var(--text-2)" }}
-        onClick={() => { navigator.clipboard.writeText(code).then(() => toast.success("Copied!"), () => toast.error("Failed")); }}
+        onClick={async () => {
+          const ok = await copyTextToClipboard(code);
+          if (ok) {
+            toast.success("Copied!");
+          } else {
+            toast.error("Failed");
+          }
+        }}
       >
         <Copy size={12} className="inline mr-1" />Copy
       </button>
@@ -313,19 +519,19 @@ const createMarkdownComponents = (
   pre: ({ children }: { children?: React.ReactNode }) => {
     const child = children as React.ReactElement<{ className?: string; children?: React.ReactNode }>;
     const className = child?.props?.className ?? "";
-    if (className === "language-mermaid") {
-      const code = String(child.props.children ?? "").replace(/\n$/, "");
+    const langHint = languageFromClassName(className) || "text";
+    const code = extractTextFromChildren(children).replace(/\n$/, "");
+    if (isMermaidLanguage(langHint) || looksLikeMermaid(code)) {
       return <MermaidDiagram chart={code} />;
     }
-    const langHint = className.replace("language-", "") || "text";
-    const code = extractTextFromChildren(children);
     return <ShikiCodeBlock code={code} langHint={langHint} rawChildren={children} />;
   },
   code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
-    if (className && className !== "language-mermaid") {
+    const langHint = languageFromClassName(className ?? "");
+    if (className && !isMermaidLanguage(langHint)) {
       return <code className={className}>{children}</code>;
     }
-    if (className === "language-mermaid") {
+    if (isMermaidLanguage(langHint)) {
       return null; // Handled by pre
     }
     const text = extractTextFromChildren(children);
@@ -435,7 +641,7 @@ export function ChatMarkdown({
   return (
     <div>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {content}
+        {normalizeBareMermaid(content)}
       </ReactMarkdown>
       {message && (message.toolCalls?.length ?? 0) > 0 && (
         <ToolCallList

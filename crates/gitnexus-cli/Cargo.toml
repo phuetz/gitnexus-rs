@@ -51,3 +51,12 @@ uuid.workspace = true
 walkdir.workspace = true
 # JSON repair fallback for malformed LLM responses (phase 3 enrichment hardening)
 jsonrepair = "0.1"
+
+# OAuth Authorization Code + PKCE flow for "gitnexus login" — lets users
+# authenticate with their ChatGPT Pro / Plus subscription and consume the
+# OpenAI API through that quota instead of paying per-token.
+base64 = "0.22"
+rand = "0.9"
+sha2 = { workspace = true }
+webbrowser = "1.0"
+thiserror = { workspace = true }

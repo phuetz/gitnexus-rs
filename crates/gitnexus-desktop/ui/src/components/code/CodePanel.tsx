@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { getUiHighlighter } from "../../lib/shiki-runtime";
+import {
+  ensureUiLanguageLoaded,
+  getUiHighlighter,
+  resolveUiLanguage,
+} from "../../lib/shiki-runtime";
 import { useFileContent } from "../../hooks/use-tauri-query";
 import { useAppStore } from "../../stores/app-store";
 import { useSymbolContext } from "../../hooks/use-tauri-query";
@@ -10,7 +14,6 @@ import { useI18n } from "../../hooks/use-i18n";
 // via loadLanguage/loadTheme so we don't re-create the highlighter on every
 // file change (which was causing seconds of latency and grammar reloads).
 let highlighterPromise: Promise<CodePanelHighlighter> | null = null;
-const loadedLangs = new Set<string>();
 const THEME = "tokyo-night";
 
 type CodePanelHighlighter = Awaited<ReturnType<typeof getUiHighlighter>>;
@@ -20,20 +23,6 @@ async function getCodePanelHighlighter(): Promise<CodePanelHighlighter> {
     highlighterPromise = getUiHighlighter();
   }
   return highlighterPromise;
-}
-
-async function ensureLanguageLoaded(
-  highlighter: CodePanelHighlighter,
-  lang: string
-): Promise<boolean> {
-  if (loadedLangs.has(lang)) return true;
-  try {
-    await highlighter.loadLanguage(lang as never);
-    loadedLangs.add(lang);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function CodePanel() {
@@ -65,17 +54,17 @@ export function CodePanel() {
 
     // Use the singleton Shiki highlighter — never create or dispose per-render
     let cancelled = false;
-    const lang = fileContent.language ?? "text";
+    const lang = resolveUiLanguage(fileContent.language);
 
     (async () => {
       try {
         const highlighter = await getCodePanelHighlighter();
         if (cancelled) return;
-        const langOk = await ensureLanguageLoaded(highlighter, lang);
+        const langOk = lang ? await ensureUiLanguageLoaded(highlighter, lang) : false;
         if (cancelled) return;
 
         const html = highlighter.codeToHtml(fileContent.content, {
-          lang: langOk ? (lang as never) : "text",
+          lang: langOk && lang ? lang : ("text" as never),
           theme: THEME as never,
         });
 

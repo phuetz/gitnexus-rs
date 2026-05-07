@@ -3,7 +3,7 @@
  */
 
 import { lazy, Suspense, useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useI18n } from "../../hooks/use-i18n";
 import { confirm } from "../../lib/confirm";
 import { ChatSuggestions } from "./ChatSuggestions";
@@ -14,21 +14,29 @@ import {
   Hammer,
   Trash2,
   Download,
+  Printer,
   Wrench,
   Search,
   FileJson,
+  Copy,
+  BookOpen,
+  GitBranch,
+  Network,
+  BarChart3,
 } from "lucide-react";
 import { toast } from "sonner";
 import { commands } from "../../lib/tauri-commands";
+import { copyTextToClipboard } from "../../lib/clipboard";
 import type {
   ChatSmartResponse,
+  ChatConfig,
   FeatureDevArtifact,
   CodeReviewArtifact,
   SimplifyArtifact,
 } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
 import { useChatStore } from "../../stores/chat-store";
-import { useChatSessionStore, type Message } from "../../stores/chat-session-store";
+import { useChatSessionStore, type ChatSession, type Message } from "../../stores/chat-session-store";
 import { ChatContextBar } from "./ChatContextBar";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { ShieldCheck } from "lucide-react";
@@ -82,11 +90,164 @@ function renderFilterModals(activeModal: string | null, closeModal: () => void) 
   );
 }
 
+function formatExportTimestamp(timestamp: number | undefined): string {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function messageHeading(message: Message): string {
+  const role = message.role === "user" ? "Vous" : "GitNexus";
+  const timestamp = formatExportTimestamp(message.timestamp);
+  return timestamp ? `${role} - ${timestamp}` : role;
+}
+
+function safeFilenamePart(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function chatExportFilename(activeRepo: string, session: ChatSession | null, extension: "md" | "pdf" | "json"): string {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
+  const base = safeFilenamePart(`${activeRepo || "global"}-${session?.title || "chat"}`) || "chat";
+  return `gitnexus-chat-${base}-${stamp}.${extension}`;
+}
+
+function buildChatMarkdown(
+  activeRepo: string,
+  session: ChatSession | null,
+  messages: Message[],
+  chatConfig?: ChatConfig,
+): string {
+  const lines = [
+    `# ${session?.title || "GitNexus chat"}`,
+    "",
+    `- Projet: ${activeRepo || "global"}`,
+    `- LLM: ${formatChatLlmLabel(chatConfig, messages)}`,
+    `- Export: ${formatExportTimestamp(Date.now())}`,
+    "",
+  ];
+
+  for (const message of messages) {
+    if (!message.content.trim()) continue;
+    lines.push(`## ${messageHeading(message)}`, "");
+    if (message.model) lines.push(`_Model: ${message.model}_`, "");
+    lines.push(message.content.trim(), "");
+  }
+
+  return `${lines.join("\n").trimEnd()}\n`;
+}
+
+function formatChatLlmLabel(config: ChatConfig | undefined, messages: Message[]): string {
+  const provider = config?.provider?.trim();
+  const configuredModel = config?.model?.trim();
+  const messageModel = [...messages].reverse().find((message) => message.model?.trim())?.model?.trim();
+  const model = configuredModel || messageModel;
+  if (!provider && !model) return "non configure";
+
+  const head = provider && model
+    ? `${provider} / ${model}`
+    : provider || model || "non configure";
+  const reasoning = config?.reasoningEffort?.trim()
+    ? `, raisonnement ${config.reasoningEffort.trim()}`
+    : "";
+  const maxTokens = Number.isFinite(config?.maxTokens)
+    ? `, max ${config?.maxTokens} tokens`
+    : "";
+  return `${head}${reasoning}${maxTokens}`;
+}
+
+function downloadTextFile(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function printChatPdf(
+  activeRepo: string,
+  session: ChatSession | null,
+  messages: Message[],
+  chatConfig?: ChatConfig,
+) {
+  const popup = window.open("", "_blank", "width=980,height=760");
+  if (!popup) {
+    throw new Error("La fenetre d'export PDF a ete bloquee par le navigateur.");
+  }
+  const transcript =
+    document.getElementById("gitnexus-desktop-chat-export-source")?.innerHTML ||
+    buildChatMarkdown(activeRepo, session, messages, chatConfig)
+      .split("\n")
+      .map((line) => escapeHtml(line))
+      .join("<br />");
+
+  popup.document.open();
+  popup.document.write(`<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(session?.title || "GitNexus chat")}</title>
+  <style>
+    body { margin: 32px; background: #fff; color: #111827; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.5; }
+    header { border-bottom: 1px solid #d1d5db; margin-bottom: 20px; padding-bottom: 14px; }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    .meta { color: #4b5563; font-size: 12px; }
+    button, [aria-label*="Copy"], [aria-label*="Export"], [aria-label*="Pin"] { display: none !important; }
+    svg { max-width: 100%; height: auto; }
+    pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
+    pre { background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; }
+    .fade-in, .prose-sm, [class*="rounded"] { break-inside: avoid; }
+    @page { margin: 18mm; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${escapeHtml(session?.title || "GitNexus chat")}</h1>
+    <div class="meta">Projet: ${escapeHtml(activeRepo || "global")}</div>
+    <div class="meta">LLM: ${escapeHtml(formatChatLlmLabel(chatConfig, messages))}</div>
+    <div class="meta">Export: ${escapeHtml(formatExportTimestamp(Date.now()))}</div>
+  </header>
+  <main>${transcript}</main>
+</body>
+</html>`);
+  popup.document.close();
+  popup.focus();
+  popup.setTimeout(() => popup.print(), 350);
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ─── Component ──────────────────────────────────────────────────────
 
 export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) {
   const { t } = useI18n();
   const activeRepo = useAppStore((s) => s.activeRepo) || "global";
+  const { data: chatConfig } = useQuery({
+    queryKey: ["chat-config"],
+    queryFn: () => commands.chatGetConfig(),
+    staleTime: 30_000,
+  });
   
   const sessions = useChatSessionStore(s => s.sessions);
   const activeSessionId = useChatSessionStore(s => s.activeSessionId);
@@ -380,7 +541,6 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     // GitNexus built-in slash commands (Copilot-inspired)
     const builtinSlash: Record<string, string> = {
       "expliquer":    "Explique le module ou symbole suivant : ",
-      "expliquer":    "Explique le module ou symbole suivant : ",
       "algorithme":   "Décris l'algorithme étape par étape de : ",
       "impact":       "Analyse le blast radius et les dépendances de : ",
       "architecture": "Présente l'architecture globale de : ",
@@ -462,67 +622,94 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
     <div className="h-full flex flex-row overflow-hidden bg-bg-0">
       <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${previewFile ? 'max-w-[50%]' : 'max-w-full'}`}>
         {/* Context filter bar + mode switcher */}
-        <div className="flex items-center">
+        <div
+          className="flex items-center border-b"
+          style={{ borderColor: "var(--surface-border)", background: "var(--bg-0)" }}
+        >
           <div className="flex-1">
             <ChatContextBar />
           </div>
-          <div className="flex items-center gap-1 mr-2">
+          <div className="flex items-center gap-1.5 mr-2">
             <ModeSwitcher mode={chatMode} onChange={setChatMode} />
             <button
               onClick={() => setSearchOpen(true)}
-              className="text-[11px] hover:bg-[var(--bg-3)] rounded px-2 py-1"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[11px] hover:bg-[var(--bg-3)]"
               style={{ color: "var(--text-3)" }}
               title={(t("chat.searchAll") || "Search all sessions") + " (Ctrl+Shift+F)"}
+              aria-label={t("chat.searchAll") || "Search all sessions"}
             >
               <Search size={12} />
             </button>
             <button
               onClick={() => setToolsPanelOpen((v) => !v)}
-              className="text-[11px] hover:bg-[var(--bg-3)] rounded px-2 py-1"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[11px] hover:bg-[var(--bg-3)]"
               style={{
                 color: toolsPanelOpen ? "var(--accent)" : "var(--text-3)",
                 background: toolsPanelOpen ? "var(--accent-subtle)" : undefined,
               }}
               title={t("chat.toolsPanel") || "Agent tools panel"}
+              aria-label={t("chat.toolsPanel") || "Agent tools panel"}
             >
               <Wrench size={12} />
             </button>
             {messages.length > 0 && (
               <>
                 <button
+                  onClick={async () => {
+                    const copied = await copyTextToClipboard(buildChatMarkdown(activeRepo, activeSession, messages, chatConfig));
+                    if (copied) {
+                      toast.success("Chat copied as Markdown");
+                    } else {
+                      toast.error(t("chat.copyFailed"));
+                    }
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-[11px] hover:bg-[var(--bg-3)]"
+                  style={{ color: "var(--text-3)" }}
+                  title="Copy chat as Markdown"
+                  aria-label="Copy chat as Markdown"
+                >
+                  <Copy size={12} />
+                </button>
+                <button
                   onClick={() => {
-                    const date = new Date().toISOString().split("T")[0];
-                    const filename = `gitnexus-chat-${activeRepo || "global"}-${date}.md`;
-                    const content = messages
-                      .map((m) => `### ${m.role === "user" ? "You" : "GitNexus"}\n\n${m.content}\n`)
-                      .join("\n---\n\n");
-                    const blob = new Blob([content], { type: "text/markdown" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    downloadTextFile(
+                      chatExportFilename(activeRepo, activeSession, "md"),
+                      buildChatMarkdown(activeRepo, activeSession, messages, chatConfig),
+                      "text/markdown",
+                    );
                     toast.success(t("chat.exportedAsMarkdown"));
                   }}
-                  className="text-[11px] hover:bg-[var(--bg-3)] rounded px-2 py-1"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-[11px] hover:bg-[var(--bg-3)]"
                   style={{ color: "var(--text-3)" }}
                   title={t("chat.exportChatMarkdown")}
+                  aria-label={t("chat.exportChatMarkdown")}
                 >
                   <Download size={12} />
                 </button>
                 <button
                   onClick={() => {
-                    const date = new Date().toISOString().split("T")[0];
-                    const filename = `gitnexus-chat-${activeRepo || "global"}-${date}.json`;
+                    try {
+                      printChatPdf(activeRepo, activeSession, messages, chatConfig);
+                    } catch (e) {
+                      toast.error(t("chat.exportFailed").replace("{0}", String(e)));
+                    }
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-[11px] hover:bg-[var(--bg-3)]"
+                  style={{ color: "var(--text-3)" }}
+                  title="Export chat as PDF"
+                  aria-label="Export chat as PDF"
+                >
+                  <Printer size={12} />
+                </button>
+                <button
+                  onClick={() => {
                     // Structured dump: include every persisted field so a
                     // round-trip can rebuild the session exactly (useful for
                     // sharing a retry/fork trail or archiving an experiment).
                     const payload = {
                       exportedAt: new Date().toISOString(),
                       repo: activeRepo,
+                      llm: formatChatLlmLabel(chatConfig, messages),
                       session: activeSession
                         ? {
                             id: activeSession.id,
@@ -534,22 +721,17 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
                         : null,
                       messages,
                     };
-                    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-                      type: "application/json",
-                    });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    downloadTextFile(
+                      chatExportFilename(activeRepo, activeSession, "json"),
+                      JSON.stringify(payload, null, 2),
+                      "application/json",
+                    );
                     toast.success(t("chat.exportedAsJson") || "Chat exported as JSON");
                   }}
-                  className="text-[11px] hover:bg-[var(--bg-3)] rounded px-2 py-1"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-[11px] hover:bg-[var(--bg-3)]"
                   style={{ color: "var(--text-3)" }}
                   title={t("chat.exportChatJson") || "Export chat as JSON (messages + toolCalls)"}
+                  aria-label={t("chat.exportChatJson") || "Export chat as JSON"}
                 >
                   <FileJson size={12} />
                 </button>
@@ -565,9 +747,10 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
                     clearSessionMessages(activeRepo);
                     toast.success(t("chat.conversationCleared"));
                   }}
-                  className="text-[11px] hover:bg-[var(--bg-3)] rounded px-2 py-1"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-[11px] hover:bg-[var(--bg-3)]"
                   style={{ color: "var(--text-3)" }}
                   title={t("chat.clearConversation")}
+                  aria-label={t("chat.clearConversation")}
                 >
                   <Trash2 size={12} />
                 </button>
@@ -579,30 +762,34 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
         {/* Content Area */}
         <div className="flex-1 min-h-0 overflow-auto">
           {messages.length === 0 ? (
-            <>
-              {/* Slash command quick chips */}
-              <div className="flex flex-wrap gap-1.5 px-4 pt-2 pb-1">
+            <div className="flex h-full flex-col">
+              <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
                 {[
-                  { cmd: "/expliquer ", label: "/expliquer", icon: "📖" },
-                  { cmd: "/algorithme ", label: "/algorithme", icon: "⚙️" },
-                  { cmd: "/impact ", label: "/impact", icon: "💥" },
-                  { cmd: "/architecture ", label: "/architecture", icon: "🏗️" },
-                  { cmd: "/diagramme ", label: "/diagramme", icon: "📊" },
-                ].map(({ cmd, label, icon }) => (
+                  { cmd: "/expliquer ", label: "/expliquer", icon: BookOpen },
+                  { cmd: "/algorithme ", label: "/algorithme", icon: GitBranch },
+                  { cmd: "/impact ", label: "/impact", icon: Network },
+                  { cmd: "/architecture ", label: "/architecture", icon: Sparkles },
+                  { cmd: "/diagramme ", label: "/diagramme", icon: BarChart3 },
+                ].map(({ cmd, label, icon: Icon }) => (
                   <button
                     key={cmd}
                     onClick={() => { setInput(cmd); inputRef.current?.focus(); }}
-                    className="px-2 py-0.5 rounded-full text-[11px] transition-all hover:opacity-80"
-                    style={{ background: "var(--bg-2)", border: "1px solid var(--surface-border)", color: "var(--text-2)" }}
+                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-all hover:opacity-85"
+                    style={{ background: "var(--surface)", border: "1px solid var(--surface-border)", color: "var(--text-2)" }}
                   >
-                    {icon} {label}
+                    <Icon size={12} />
+                    {label}
                   </button>
                 ))}
               </div>
               <ChatSuggestions onSelect={(q) => { setInput(q); inputRef.current?.focus(); }} />
-            </>
+            </div>
           ) : (
-            <div className="px-4 py-4 space-y-4" aria-live="polite">
+            <div
+              id="gitnexus-desktop-chat-export-source"
+              className="px-4 py-4 space-y-4"
+              aria-live="polite"
+            >
               {messages.map((msg) => (
                   <ChatMessage
                     key={msg.id}
@@ -618,7 +805,8 @@ export function ChatPanel({ onOpenSettings, onNavigateToNode }: ChatPanelProps) 
                 <ResearchProgress steps={toolHistory} />
               )}
 
-              {/* Active tool badges */}              {activeTools.length > 0 && (
+              {/* Active tool badges */}
+              {activeTools.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 px-1 py-1">
                   {activeTools.map((tool) => (
                     <span

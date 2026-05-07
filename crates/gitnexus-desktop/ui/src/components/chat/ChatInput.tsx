@@ -1,5 +1,5 @@
 import { forwardRef, useRef, useEffect, useCallback, useState } from "react";
-import { Settings2, Send, Loader2, Microscope, Square } from "lucide-react";
+import { Settings2, Send, Loader2, Microscope, Square, SlidersHorizontal } from "lucide-react";
 import { useI18n } from "../../hooks/use-i18n";
 
 const SLASH_COMPLETIONS = [
@@ -60,18 +60,17 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
     );
 
     return (
-      <div
-        className="flex-shrink-0 px-4 py-3"
-        style={{ borderTop: "1px solid var(--surface-border)" }}
-      >
+      <div className="flex-shrink-0 px-4 py-3" style={{ borderTop: "1px solid var(--surface-border)", background: "var(--bg-0)" }}>
         <div
-          className="chat-input-container relative flex items-end gap-2 rounded-2xl px-4 py-3 transition-all"
+          className="chat-input-container relative flex items-end gap-3 rounded-xl px-3 py-2 transition-all"
           style={{
             background: "var(--bg-2)",
             border: deepResearch
-              ? "2px solid var(--purple)"
+              ? "1px solid var(--purple)"
               : "1px solid var(--surface-border)",
-            boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
+            boxShadow: deepResearch
+              ? "0 0 0 3px color-mix(in srgb, var(--purple) 12%, transparent)"
+              : "0 1px 0 rgba(255,255,255,0.03)",
           }}
         >
           {/* Deep research indicator */}
@@ -86,21 +85,21 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
           {/* Slash command completion popup */}
           {slashMatches.length > 0 && (
             <div
-              className="absolute bottom-full left-0 mb-1 w-64 rounded-lg overflow-hidden shadow-lg z-50"
+              className="absolute bottom-full left-0 mb-2 w-[min(420px,calc(100vw-48px))] rounded-lg overflow-hidden shadow-lg z-50"
               style={{ background: "var(--bg-2)", border: "1px solid var(--surface-border)" }}
             >
               {slashMatches.map((m, i) => (
                 <button
                   key={m.cmd}
-                  className="w-full text-left px-3 py-2 text-[13px] flex justify-between items-center"
+                  className="w-full text-left px-3 py-2 text-[13px] flex justify-between items-center gap-3"
                   style={{
                     background: i === selectedIdx ? "var(--accent)" : "transparent",
                     color: i === selectedIdx ? "#fff" : "var(--text-0)",
                   }}
                   onMouseDown={(e) => { e.preventDefault(); onChange(m.cmd); setSlashMatches([]); internalRef.current?.focus(); }}
                 >
-                  <span className="font-mono font-semibold">{m.cmd.trim()}</span>
-                  <span className="text-[11px] opacity-70 ml-2">{m.hint}</span>
+                  <span className="font-mono font-semibold whitespace-nowrap">{m.cmd.trim()}</span>
+                  <span className="text-[11px] opacity-70 truncate">{m.hint}</span>
                 </button>
               ))}
             </div>
@@ -145,15 +144,20 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
               fontFamily: "var(--font-body)",
             }}
           />
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             {onOpenSettings && (
               <button
                 onClick={onOpenSettings}
-                className="p-1.5 rounded-lg transition-colors"
-                style={{ color: "var(--text-3)" }}
+                className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+                style={{
+                  color: "var(--text-3)",
+                  background: "var(--surface)",
+                  border: "1px solid var(--surface-border)",
+                }}
                 aria-label={t("chat.settings") || "Chat Settings"}
+                title={t("chat.settings") || "Chat Settings"}
               >
-                <Settings2 size={14} />
+                <Settings2 size={15} />
               </button>
             )}
             {isStreaming && onCancel ? (
@@ -161,13 +165,11 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                 onClick={onCancel}
                 aria-label="Stop streaming"
                 title="Stop"
-                className="p-2 rounded-xl transition-all"
+                className="flex h-9 w-9 items-center justify-center rounded-lg transition-all"
                 style={{
                   background: "rgba(239,68,68,0.15)",
                   border: "1px solid rgba(239,68,68,0.4)",
                   color: "rgb(239,68,68)",
-                  minWidth: 36, minHeight: 36,
-                  display: "flex", alignItems: "center", justifyContent: "center",
                 }}
               >
                 <Square size={14} />
@@ -177,14 +179,13 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                 onClick={onSend}
                 disabled={!value.trim() || isPending}
                 aria-label={isPending ? "Sending..." : "Send message"}
-                className="p-2 rounded-xl transition-all"
+                className="flex h-9 w-9 items-center justify-center rounded-lg transition-all"
                 style={{
                   background: value.trim() && !isPending
                     ? deepResearch ? "var(--purple)" : "var(--accent)"
                     : "var(--bg-3)",
                   color: value.trim() && !isPending ? "#fff" : "var(--text-3)",
-                  minWidth: 36, minHeight: 36,
-                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: "1px solid transparent",
                 }}
               >
                 {isPending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
@@ -192,11 +193,25 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             )}
           </div>
         </div>
-        <p className="mt-1.5 text-[11px] text-center" style={{ color: "var(--text-3)" }}>
-          {deepResearch
-            ? t("chat.deepResearchHint")
-            : t("chat.inputHint")}
-        </p>
+        <div className="mt-2 flex items-center justify-between gap-2 text-[11px]" style={{ color: "var(--text-3)" }}>
+          <span className="inline-flex min-w-0 items-center gap-1 truncate">
+            <SlidersHorizontal size={11} />
+            <span className="truncate">
+              {hasFilters ? t("chat.placeholder.filtered") : t("chat.placeholder.default")}
+            </span>
+          </span>
+          <span
+            className="shrink-0 rounded px-2 py-0.5"
+            style={{
+              background: deepResearch
+                ? "color-mix(in srgb, var(--purple) 12%, transparent)"
+                : "var(--surface)",
+              color: deepResearch ? "var(--purple)" : "var(--text-3)",
+            }}
+          >
+            {deepResearch ? t("chat.deepResearch") : t("chat.quickAnswer")}
+          </span>
+        </div>
       </div>
     );
   }

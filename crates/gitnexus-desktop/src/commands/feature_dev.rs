@@ -23,6 +23,7 @@ use uuid::Uuid;
 
 use gitnexus_core::graph::types::*;
 use gitnexus_core::graph::KnowledgeGraph;
+use gitnexus_core::llm::PROMPT_CONTEXT_SAFETY;
 use gitnexus_db::inmemory::cypher::GraphIndexes;
 use gitnexus_db::inmemory::fts::FtsIndex;
 
@@ -499,7 +500,7 @@ Rules:\n\
 
 async fn call_role_llm(config: &ChatConfig, system: &str, user: &str) -> Result<String, String> {
     let messages = vec![
-        serde_json::json!({"role": "system", "content": system}),
+        serde_json::json!({"role": "system", "content": format!("{}\n\n{}", PROMPT_CONTEXT_SAFETY, system)}),
         serde_json::json!({"role": "user", "content": user}),
     ];
     chat::call_llm_pub(config, &messages).await

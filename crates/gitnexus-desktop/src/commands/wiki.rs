@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
 use gitnexus_core::graph::types::*;
+use gitnexus_core::llm::PROMPT_CONTEXT_SAFETY;
 
 use crate::state::AppState;
 
@@ -168,7 +169,7 @@ pub async fn wiki_generate(
             if let Ok(text) = crate::commands::chat::call_llm_pub(
                 cfg,
                 &[
-                    serde_json::json!({"role": "system", "content": LLM_WIKI_SYSTEM}),
+                    serde_json::json!({"role": "system", "content": format!("{}\n\n{}", PROMPT_CONTEXT_SAFETY, LLM_WIKI_SYSTEM)}),
                     serde_json::json!({"role": "user", "content": prompt}),
                 ],
             )

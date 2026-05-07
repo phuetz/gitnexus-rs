@@ -4,7 +4,10 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use super::{LlmProvider, LlmResponseChunk, LlmStream, Message, ToolCall, ToolDefinition};
+use super::{
+    sanitize_llm_error_body, LlmProvider, LlmResponseChunk, LlmStream, Message, ToolCall,
+    ToolDefinition,
+};
 
 pub struct OpenAILlmProvider {
     client: Client,
@@ -231,7 +234,7 @@ impl OpenAILlmProvider {
             return Err(format!(
                 "LLM API error ({}): {}",
                 status,
-                error_text.chars().take(300).collect::<String>()
+                sanitize_llm_error_body(&error_text, &[&self.api_key], 300)
             ));
         }
 

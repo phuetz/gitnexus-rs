@@ -9,11 +9,17 @@ import {
 import type { Message } from '../types/chat';
 
 const newId = () => crypto.randomUUID();
+const DEFAULT_SESSION_TITLE = 'Nouvelle conversation';
+
+function titleFromMessage(content: string): string {
+  return content.replace(/\s+/g, ' ').trim().slice(0, 80) || DEFAULT_SESSION_TITLE;
+}
 
 export function useChat() {
   const currentSessionId = useChatStore((s) => s.currentSessionId);
   const selectedRepo = useChatStore((s) => s.selectedRepo);
   const createSession = useChatStore((s) => s.createSession);
+  const renameSession = useChatStore((s) => s.renameSession);
   const appendMessage = useChatStore((s) => s.appendMessage);
   const updateMessage = useChatStore((s) => s.updateMessage);
   const upsertToolCall = useChatStore((s) => s.upsertToolCall);
@@ -31,33 +37,6 @@ export function useChat() {
 
   const removeMessagesFrom = useChatStore((s) => s.removeMessagesFrom);
 
-  /**
-   * Drop the assistant message with `assistantMessageId` (and anything after
-   * it), then re-fire the user message that prompted it. Useful when the
-   * answer is wrong, truncated, or just plain unhelpful — one click and the
-   * LLM gets another shot with the same question. Conversation history up to
-   * that point is preserved.
-   */
-  const regenerate = useCallback(
-    async (assistantMessageId: string) => {
-      if (isStreaming) return;
-      const session = getCurrentSession();
-      if (!session) return;
-      const idx = session.messages.findIndex((m) => m.id === assistantMessageId);
-      if (idx === -1 || idx === 0) return;
-      const previousUser = [...session.messages.slice(0, idx)]
-        .reverse()
-        .find((m) => m.role === 'user');
-      if (!previousUser) return;
-      removeMessagesFrom(session.id, previousUser.id);
-      // sendMessage is defined just below; closures resolve at call time.
-      await sendMessageRef.current?.(previousUser.content);
-    },
-    [getCurrentSession, isStreaming, removeMessagesFrom]
-  );
-
-  const sendMessageRef = useRef<((content: string) => Promise<void>) | null>(null);
-
   const sendMessage = useCallback(
     async (content: string) => {
       const trimmed = content.trim();
@@ -72,15 +51,23 @@ export function useChat() {
           createdAt: Date.now(),
         };
         let sid = currentSessionId;
-        if (!sid) sid = createSession('Nouvelle conversation');
+        if (!sid) sid = createSession(DEFAULT_SESSION_TITLE);
         appendMessage(sid, errMsg);
         return;
       }
 
       let sessionId = currentSessionId;
-      if (!sessionId) sessionId = createSession(trimmed.slice(0, 60));
+      if (!sessionId) sessionId = createSession(titleFromMessage(trimmed));
 
       const previous = getCurrentSession();
+      if (
+        previous &&
+        previous.id === sessionId &&
+        previous.messages.length === 0 &&
+        previous.title === DEFAULT_SESSION_TITLE
+      ) {
+        renameSession(sessionId, titleFromMessage(trimmed));
+      }
       const history: ChatHistoryMessage[] = (previous?.messages ?? [])
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
@@ -109,7 +96,7 @@ export function useChat() {
       let acc = '';
       const onToolCall = (event: ToolCallStreamEvent) => {
         if (event.phase === 'start') {
-          let parsedArgs: Record<string, unknown> = {};
+          let parsedArgs: Record<string, unknown>;
           try {
             parsedArgs = JSON.parse(event.args) as Record<string, unknown>;
           } catch {
@@ -153,7 +140,7 @@ export function useChat() {
           ? '> ⚠️ _Requête annulée._'
           : isStreamErr
             ? `> ❌ **Erreur serveur** : ${msg}`
-            : `> ❌ **Erreur** : ${msg}\n>\n> Vérifie que le serveur tourne : \`gitnexus serve --port 3000\` (ou ajuste \`VITE_MCP_URL\` dans \`.env.local\`).`;
+            : `> ❌ **Erreur** : ${msg}\n>\n> Vérifie le backend avec \`.\\gitnexus.cmd doctor\`, puis relance le chat avec \`.\\gitnexus.cmd chat -RestartBackend\` si le port/proxy est bloqué.`;
         updateMessage(sessionId, assistantId, acc ? `${acc}\n\n${reason}` : reason);
       } finally {
         abortRef.current = null;
@@ -166,6 +153,7 @@ export function useChat() {
       currentSessionId,
       getCurrentSession,
       isStreaming,
+      renameSession,
       selectedRepo,
       setStreaming,
       updateMessage,
@@ -173,7 +161,27 @@ export function useChat() {
     ]
   );
 
-  sendMessageRef.current = sendMessage;
+  /**
+   * Drop the assistant message with `assistantMessageId` (and anything after
+   * it), then re-fire the user message that prompted it. Conversation history
+   * up to that point is preserved.
+   */
+  const regenerate = useCallback(
+    async (assistantMessageId: string) => {
+      if (isStreaming) return;
+      const session = getCurrentSession();
+      if (!session) return;
+      const idx = session.messages.findIndex((m) => m.id === assistantMessageId);
+      if (idx === -1 || idx === 0) return;
+      const previousUser = [...session.messages.slice(0, idx)]
+        .reverse()
+        .find((m) => m.role === 'user');
+      if (!previousUser) return;
+      removeMessagesFrom(session.id, previousUser.id);
+      await sendMessage(previousUser.content);
+    },
+    [getCurrentSession, isStreaming, removeMessagesFrom, sendMessage]
+  );
 
   return { sendMessage, regenerate, cancel, isStreaming };
 }

@@ -14,6 +14,7 @@ mod inject;
 mod markdown;
 mod pdf;
 mod process_doc;
+mod prompt_audit;
 mod skills;
 mod utils;
 mod wiki;
@@ -127,6 +128,19 @@ pub fn run(
                     xref_count
                 );
             }
+            write_prompt_audit(
+                &docs_dir,
+                &repo_path,
+                what,
+                enrich,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                enrich_only,
+                retry_queue,
+                retry_at,
+                traces_dir.is_some(),
+            )?;
         }
         TARGET_PROCESS_DOC => {
             process_doc::generate_process_docs(
@@ -153,6 +167,19 @@ pub fn run(
                     xref_count
                 );
             }
+            write_prompt_audit(
+                &docs_dir,
+                &repo_path,
+                what,
+                enrich,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                enrich_only,
+                retry_queue,
+                retry_at,
+                traces_dir.is_some(),
+            )?;
         }
         TARGET_DOCX => {
             docs::generate_docs(&graph, &repo_path, &docs_dir)?;
@@ -180,6 +207,19 @@ pub fn run(
                     xref_count
                 );
             }
+            write_prompt_audit(
+                &docs_dir,
+                &repo_path,
+                what,
+                enrich,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                enrich_only,
+                retry_queue,
+                retry_at,
+                traces_dir.is_some(),
+            )?;
             let output_path = docs_dir.join("documentation.docx");
             let repo_name = repo_path
                 .file_name()
@@ -229,6 +269,19 @@ pub fn run(
                     xref_count
                 );
             }
+            write_prompt_audit(
+                &docs_dir,
+                &repo_path,
+                what,
+                enrich,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                enrich_only,
+                retry_queue,
+                retry_at,
+                traces_dir.is_some(),
+            )?;
             html::generate_html_site(&graph, &repo_path, &docs_dir)?;
         }
         TARGET_OBSIDIAN => {
@@ -281,6 +334,19 @@ pub fn run(
                     xref_count
                 );
             }
+            write_prompt_audit(
+                &docs_dir,
+                &repo_path,
+                what,
+                enrich,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                enrich_only,
+                retry_queue,
+                retry_at,
+                traces_dir.is_some(),
+            )?;
             let output_path = docs_dir.join("documentation.pdf");
             let repo_name = repo_path
                 .file_name()
@@ -318,6 +384,19 @@ pub fn run(
                     xref_count
                 );
             }
+            write_prompt_audit(
+                &docs_dir,
+                &repo_path,
+                what,
+                enrich,
+                enrich_profile,
+                enrich_lang,
+                enrich_citations,
+                enrich_only,
+                retry_queue,
+                retry_at,
+                traces_dir.is_some(),
+            )?;
             let output_path = docs_dir.join("documentation.docx");
             let repo_name = repo_path
                 .file_name()
@@ -381,6 +460,41 @@ pub fn run(
         }
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_prompt_audit(
+    docs_dir: &Path,
+    repo_path: &Path,
+    target: &str,
+    enrich: bool,
+    enrich_profile: &str,
+    enrich_lang: &str,
+    enrich_citations: bool,
+    enrich_only: bool,
+    retry_queue: bool,
+    retry_at: Option<&str>,
+    traces_enabled: bool,
+) -> Result<()> {
+    let repo_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("repository");
+    prompt_audit::write_prompt_audit(
+        docs_dir,
+        &prompt_audit::PromptAuditOptions {
+            repo_name,
+            target,
+            enrich,
+            enrich_profile,
+            enrich_lang,
+            enrich_citations,
+            enrich_only,
+            retry_queue,
+            retry_at,
+            traces_enabled,
+        },
+    )
 }
 
 #[cfg(test)]

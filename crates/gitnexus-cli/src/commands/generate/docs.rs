@@ -1,11 +1,12 @@
-//! DeepWiki-style documentation generator (overview, architecture, getting-started, modules, index).
+//! DeepWiki-style documentation generator (overview, architecture, code map, getting-started, modules, index).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{ensure, Context, Result};
 use colored::Colorize;
+use serde::Deserialize;
 use serde_json::json;
 use tracing::{info, warn};
 
@@ -86,10 +87,16 @@ pub(super) fn generate_docs(
         edge_count,
     )?;
 
-    // 3. Generate getting-started.md
+    // 3. Generate code-map.md
+    generate_docs_code_map(docs_dir, &communities, graph, &edge_map)?;
+
+    // 3b. Generate optional guided wiki pages from `.devin/wiki.json`
+    let guided_pages = generate_wiki_steering_pages(docs_dir, repo_path, graph)?;
+
+    // 4. Generate getting-started.md
     generate_docs_getting_started(docs_dir, repo_name, &communities, graph)?;
 
-    // 4. Generate per-module files
+    // 5. Generate per-module files
     let module_page_count =
         generate_docs_modules(&modules_dir, &communities, graph, &edge_map, repo_path)?;
 
@@ -118,9 +125,13 @@ pub(super) fn generate_docs(
         Vec::new()
     };
 
-    // Total page count: static pages (overview, architecture, getting-started, deployment, functional-guide, project-health) + git analytics + module pages + ASP.NET pages + business pages
-    let total_pages =
-        6 + git_analytics_count + module_page_count + aspnet_pages.len() + business_page_count;
+    // Total page count: static pages (overview, architecture, code-map, getting-started, deployment, functional-guide, project-health) + git analytics + module pages + ASP.NET pages + business pages
+    let total_pages = 7
+        + guided_pages.len()
+        + git_analytics_count
+        + module_page_count
+        + aspnet_pages.len()
+        + business_page_count;
     info!("Documentation generated: {} pages total", total_pages);
 
     // 6. Generate _index.json LAST so it includes ASP.NET pages
@@ -134,6 +145,7 @@ pub(super) fn generate_docs(
         &communities,
         &aspnet_pages,
         business_page_count > 0,
+        &guided_pages,
     )?;
 
     println!(
@@ -157,6 +169,7 @@ fn generate_docs_index(
     communities: &BTreeMap<String, CommunityInfo>,
     aspnet_pages: &[(String, String, String)],
     has_business: bool,
+    guided_pages: &[(String, String, String)],
 ) -> Result<()> {
     let now = chrono::Local::now().to_rfc3339();
 
@@ -258,6 +271,24 @@ fn generate_docs_index(
             "icon": "git-branch"
         }),
         json!({
+            "id": "code-map",
+            "title": "Carte du Code",
+            "path": "code-map.md",
+            "icon": "map"
+        }),
+        json!({
+            "id": "getting-started",
+            "title": "Getting Started",
+            "path": "getting-started.md",
+            "icon": "book-open"
+        }),
+        json!({
+            "id": "deployment",
+            "title": "Environnement & Déploiement",
+            "path": "deployment.md",
+            "icon": "cloud"
+        }),
+        json!({
             "id": "git-analytics",
             "title": "Git Analytics",
             "icon": "git-commit",
@@ -283,24 +314,36 @@ fn generate_docs_index(
             ]
         }),
         json!({
-            "id": "getting-started",
-            "title": "Getting Started",
-            "path": "getting-started.md",
-            "icon": "book-open"
-        }),
-        json!({
-            "id": "deployment",
-            "title": "Environnement & Déploiement",
-            "path": "deployment.md",
-            "icon": "cloud"
-        }),
-        json!({
             "id": "modules",
             "title": "Modules",
             "icon": "layers",
             "children": module_children
         }),
     ];
+
+    if !guided_pages.is_empty() {
+        let guided_children: Vec<serde_json::Value> = guided_pages
+            .iter()
+            .map(|(id, title, filename)| {
+                json!({
+                    "id": id,
+                    "title": title,
+                    "path": filename,
+                    "icon": if id == "wiki-steering" { "compass" } else { "file-text" }
+                })
+            })
+            .collect();
+
+        pages_array.insert(
+            4,
+            json!({
+                "id": "wiki-guided",
+                "title": "Wiki guidé",
+                "icon": "compass",
+                "children": guided_children
+            }),
+        );
+    }
 
     if !business_children.is_empty() {
         pages_array.push(json!({
@@ -726,7 +769,7 @@ fn generate_docs_overview(
         0
     };
     let total_pages =
-        4 + communities.len() + ctrl_pages + data_pages + svc_page + ui_page + ajax_page;
+        5 + communities.len() + ctrl_pages + data_pages + svc_page + ui_page + ajax_page;
 
     writeln!(f, "## Summary")?;
     writeln!(f)?;
@@ -737,7 +780,7 @@ fn generate_docs_overview(
     )?;
     writeln!(
         f,
-        "Overview, Architecture, Getting Started, Déploiement, Modules"
+        "Overview, Architecture, Carte du Code, Getting Started, Déploiement, Modules"
     )?;
     if controller_count > 0 {
         write!(f, ", Controllers")?;
@@ -756,7 +799,7 @@ fn generate_docs_overview(
 
     writeln!(
         f,
-        "**See also:** [Architecture](./architecture.md) · [Getting Started](./getting-started.md)"
+        "**See also:** [Architecture](./architecture.md) · [Carte du Code](./code-map.md) · [Getting Started](./getting-started.md)"
     )?;
     writeln!(f)?;
     writeln!(f, "---")?;
@@ -1134,20 +1177,1001 @@ fn generate_docs_architecture(
     writeln!(f)?;
     writeln!(
         f,
-        "**See also:** [Overview](./overview.md) · [Getting Started](./getting-started.md)"
+        "**See also:** [Overview](./overview.md) · [Carte du Code](./code-map.md) · [Getting Started](./getting-started.md)"
     )?;
     writeln!(f)?;
     writeln!(f, "---")?;
     // Mirror the static page order built in `generate_docs_modules`
-    // (overview -> project-health -> architecture -> getting-started). The
+    // (overview -> project-health -> architecture -> code-map -> getting-started). The
     // previous footer hard-coded `Previous: Overview`, skipping the
     // project-health page that sits between them and breaking the back-link
     // chain when the user clicked Previous from architecture.
-    writeln!(f, "[<- Previous: Santé du Projet](./project-health.md) | [Next: Getting Started ->](./getting-started.md)")?;
+    writeln!(f, "[<- Previous: Santé du Projet](./project-health.md) | [Next: Carte du Code ->](./code-map.md)")?;
 
     let _ = edge_map;
 
     println!("  {} architecture.md", "OK".green());
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModuleDependencyEdge {
+    source: String,
+    target: String,
+    count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModuleNeighbor {
+    filename: String,
+    label: String,
+    count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModuleDependencyDirection {
+    Incoming,
+    Outgoing,
+}
+
+#[derive(Debug, Clone)]
+struct ModuleMapStats {
+    filename: String,
+    label: String,
+    source_files: Vec<String>,
+    source_file_count: usize,
+    member_count: usize,
+    entry_point_count: usize,
+    incoming_calls: usize,
+    outgoing_calls: usize,
+}
+
+fn merged_communities_by_filename(
+    communities: &BTreeMap<String, CommunityInfo>,
+) -> BTreeMap<String, CommunityInfo> {
+    let mut merged: BTreeMap<String, CommunityInfo> = BTreeMap::new();
+    for info in communities.values() {
+        let filename = sanitize_filename(&info.label);
+        let entry = merged.entry(filename).or_insert_with(|| CommunityInfo {
+            label: info.label.clone(),
+            description: info.description.clone(),
+            member_ids: Vec::new(),
+            keywords: Vec::new(),
+        });
+
+        if entry.description.is_none() {
+            entry.description = info.description.clone();
+        }
+        for mid in &info.member_ids {
+            if !entry.member_ids.contains(mid) {
+                entry.member_ids.push(mid.clone());
+            }
+        }
+        for kw in &info.keywords {
+            if !entry.keywords.contains(kw) {
+                entry.keywords.push(kw.clone());
+            }
+        }
+    }
+    merged
+}
+
+fn build_member_to_module(
+    communities: &BTreeMap<String, CommunityInfo>,
+) -> HashMap<String, String> {
+    let mut member_to_module = HashMap::new();
+    for (filename, info) in communities {
+        for member_id in &info.member_ids {
+            member_to_module.insert(member_id.clone(), filename.clone());
+        }
+    }
+    member_to_module
+}
+
+fn module_dependency_edges(
+    graph: &KnowledgeGraph,
+    member_to_module: &HashMap<String, String>,
+) -> Vec<ModuleDependencyEdge> {
+    let mut counts: BTreeMap<(String, String), usize> = BTreeMap::new();
+    for rel in graph.iter_relationships() {
+        if !matches!(
+            rel.rel_type,
+            RelationshipType::Calls
+                | RelationshipType::CallsAction
+                | RelationshipType::CallsService
+                | RelationshipType::DependsOn
+                | RelationshipType::Uses
+        ) {
+            continue;
+        }
+
+        let Some(source) = member_to_module.get(&rel.source_id) else {
+            continue;
+        };
+        let Some(target) = member_to_module.get(&rel.target_id) else {
+            continue;
+        };
+        if source == target {
+            continue;
+        }
+        *counts.entry((source.clone(), target.clone())).or_insert(0) += 1;
+    }
+
+    let mut edges: Vec<ModuleDependencyEdge> = counts
+        .into_iter()
+        .map(|((source, target), count)| ModuleDependencyEdge {
+            source,
+            target,
+            count,
+        })
+        .collect();
+    edges.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.source.cmp(&b.source))
+            .then_with(|| a.target.cmp(&b.target))
+    });
+    edges
+}
+
+fn module_dependency_neighbors(
+    filename: &str,
+    communities: &BTreeMap<String, CommunityInfo>,
+    edges: &[ModuleDependencyEdge],
+    direction: ModuleDependencyDirection,
+) -> Vec<ModuleNeighbor> {
+    let mut neighbors = Vec::new();
+    for edge in edges {
+        let other = match direction {
+            ModuleDependencyDirection::Incoming if edge.target == filename => &edge.source,
+            ModuleDependencyDirection::Outgoing if edge.source == filename => &edge.target,
+            _ => continue,
+        };
+        let label = communities
+            .get(other)
+            .map(|info| info.label.clone())
+            .unwrap_or_else(|| other.clone());
+        neighbors.push(ModuleNeighbor {
+            filename: other.clone(),
+            label,
+            count: edge.count,
+        });
+    }
+
+    neighbors.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.label.cmp(&b.label))
+            .then_with(|| a.filename.cmp(&b.filename))
+    });
+    neighbors
+}
+
+fn module_map_stats(
+    communities: &BTreeMap<String, CommunityInfo>,
+    graph: &KnowledgeGraph,
+    edges: &[ModuleDependencyEdge],
+) -> Vec<ModuleMapStats> {
+    let mut stats = Vec::new();
+    for (filename, info) in communities {
+        let mut source_files = info
+            .member_ids
+            .iter()
+            .filter_map(|member_id| graph.get_node(member_id))
+            .map(|node| node.properties.file_path.clone())
+            .filter(|path| !path.is_empty())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect::<Vec<String>>();
+        let source_file_count = source_files.len();
+        source_files.truncate(8);
+
+        let entry_point_count = info
+            .member_ids
+            .iter()
+            .filter_map(|member_id| graph.get_node(member_id))
+            .filter(|node| {
+                node.properties
+                    .entry_point_score
+                    .map(|score| score > 0.3)
+                    .unwrap_or(false)
+            })
+            .count();
+
+        let incoming_calls = edges
+            .iter()
+            .filter(|edge| edge.target == *filename)
+            .map(|edge| edge.count)
+            .sum();
+        let outgoing_calls = edges
+            .iter()
+            .filter(|edge| edge.source == *filename)
+            .map(|edge| edge.count)
+            .sum();
+
+        stats.push(ModuleMapStats {
+            filename: filename.clone(),
+            label: info.label.clone(),
+            source_files,
+            source_file_count,
+            member_count: info.member_ids.len(),
+            entry_point_count,
+            incoming_calls,
+            outgoing_calls,
+        });
+    }
+
+    stats.sort_by(|a, b| {
+        b.entry_point_count
+            .cmp(&a.entry_point_count)
+            .then_with(|| b.outgoing_calls.cmp(&a.outgoing_calls))
+            .then_with(|| b.incoming_calls.cmp(&a.incoming_calls))
+            .then_with(|| b.member_count.cmp(&a.member_count))
+            .then_with(|| a.label.cmp(&b.label))
+    });
+    stats
+}
+
+fn module_link_for_node(
+    node_id: &str,
+    member_to_module: &HashMap<String, String>,
+    communities: &BTreeMap<String, CommunityInfo>,
+    module_path_prefix: &str,
+) -> Option<String> {
+    let filename = member_to_module.get(node_id)?;
+    let info = communities.get(filename)?;
+    let prefix = module_path_prefix.trim_end_matches('/');
+    Some(format!("[{}]({}/{}.md)", info.label, prefix, filename))
+}
+
+fn line_range(node: &GraphNode) -> String {
+    match (node.properties.start_line, node.properties.end_line) {
+        (Some(start), Some(end)) => format!("{}-{}", start, end),
+        (Some(start), None) => start.to_string(),
+        _ => "-".to_string(),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum WikiSteeringNote {
+    Object {
+        content: String,
+        #[serde(default)]
+        author: Option<String>,
+    },
+    Text(String),
+}
+
+impl WikiSteeringNote {
+    fn content(&self) -> &str {
+        match self {
+            Self::Object { content, .. } => content,
+            Self::Text(content) => content,
+        }
+    }
+
+    fn author(&self) -> Option<&str> {
+        match self {
+            Self::Object { author, .. } => author.as_deref(),
+            Self::Text(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct WikiSteeringPage {
+    title: String,
+    purpose: String,
+    #[serde(default)]
+    parent: Option<String>,
+    #[serde(default)]
+    page_notes: Vec<WikiSteeringNote>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct WikiSteeringConfig {
+    #[serde(default)]
+    repo_notes: Vec<WikiSteeringNote>,
+    #[serde(default)]
+    pages: Vec<WikiSteeringPage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GuidedSymbolMatch {
+    name: String,
+    kind: String,
+    module: String,
+    file_path: String,
+    lines: String,
+    score: usize,
+}
+
+fn read_wiki_steering_config(repo_path: &Path) -> Result<Option<(PathBuf, WikiSteeringConfig)>> {
+    let config_path = repo_path.join(".devin").join("wiki.json");
+    if !config_path.is_file() {
+        return Ok(None);
+    }
+
+    let raw = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("Failed to read {}", config_path.display()))?;
+    let config: WikiSteeringConfig = serde_json::from_str(&raw)
+        .with_context(|| format!("Invalid DeepWiki steering file {}", config_path.display()))?;
+    validate_wiki_steering_config(&config, &config_path)?;
+    Ok(Some((config_path, config)))
+}
+
+fn validate_wiki_steering_config(config: &WikiSteeringConfig, config_path: &Path) -> Result<()> {
+    ensure!(
+        config.pages.len() <= 30,
+        "{} defines {} pages; GitNexus supports up to 30 guided pages",
+        config_path.display(),
+        config.pages.len()
+    );
+
+    let mut titles = HashSet::new();
+    for page in &config.pages {
+        let title = page.title.trim();
+        ensure!(
+            !title.is_empty(),
+            "{} contains a guided page with an empty title",
+            config_path.display()
+        );
+        ensure!(
+            titles.insert(title.to_lowercase()),
+            "{} contains duplicate guided page title `{}`",
+            config_path.display(),
+            title
+        );
+        ensure!(
+            !page.purpose.trim().is_empty(),
+            "{} contains guided page `{}` with an empty purpose",
+            config_path.display(),
+            title
+        );
+    }
+
+    let note_count = config.repo_notes.len()
+        + config
+            .pages
+            .iter()
+            .map(|page| page.page_notes.len())
+            .sum::<usize>();
+    ensure!(
+        note_count <= 100,
+        "{} defines {} notes; GitNexus supports up to 100 total notes",
+        config_path.display(),
+        note_count
+    );
+
+    for note in config
+        .repo_notes
+        .iter()
+        .chain(config.pages.iter().flat_map(|page| page.page_notes.iter()))
+    {
+        ensure!(
+            note.content().chars().count() <= 10_000,
+            "{} contains a note longer than 10000 characters",
+            config_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn markdown_cell(value: &str) -> String {
+    value
+        .replace('|', "\\|")
+        .replace('\r', " ")
+        .replace('\n', "<br>")
+}
+
+fn compact_wiki_text(value: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    for (idx, ch) in value.chars().enumerate() {
+        if idx >= max_chars {
+            out.push_str("...");
+            return out;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn unique_wiki_page_slug(title: &str, used: &mut HashSet<String>) -> String {
+    let mut base = sanitize_filename(title)
+        .trim_matches('_')
+        .trim_matches('-')
+        .to_string();
+    if base.is_empty() {
+        base = "page".to_string();
+    }
+
+    let mut candidate = base.clone();
+    let mut n = 2u32;
+    while !used.insert(candidate.clone()) {
+        candidate = format!("{}-{}", base, n);
+        n += 1;
+    }
+    candidate
+}
+
+fn wiki_steering_tokens(page: &WikiSteeringPage) -> BTreeSet<String> {
+    const STOP_WORDS: &[&str] = &[
+        "and",
+        "avec",
+        "dans",
+        "des",
+        "document",
+        "documenter",
+        "documentation",
+        "du",
+        "for",
+        "les",
+        "pour",
+        "sur",
+        "the",
+        "une",
+    ];
+
+    let mut text = format!("{} {}", page.title, page.purpose);
+    if let Some(parent) = &page.parent {
+        text.push(' ');
+        text.push_str(parent);
+    }
+    for note in &page.page_notes {
+        text.push(' ');
+        text.push_str(note.content());
+    }
+
+    text.split(|ch: char| !ch.is_alphanumeric())
+        .map(|token| token.to_lowercase())
+        .filter(|token| token.len() >= 3 && !STOP_WORDS.contains(&token.as_str()))
+        .collect()
+}
+
+fn source_files_for_guided_page(graph: &KnowledgeGraph, page: &WikiSteeringPage) -> Vec<String> {
+    let tokens = wiki_steering_tokens(page);
+    if tokens.is_empty() {
+        return Vec::new();
+    }
+
+    let mut scored = graph
+        .iter_nodes()
+        .filter(|node| node.label == NodeLabel::File)
+        .filter_map(|node| {
+            let haystack = format!(
+                "{} {}",
+                node.properties.name.to_lowercase(),
+                node.properties.file_path.to_lowercase()
+            );
+            let score = tokens
+                .iter()
+                .filter(|token| haystack.contains(token.as_str()))
+                .count();
+            (score > 0).then(|| (score, node.properties.file_path.clone()))
+        })
+        .collect::<Vec<_>>();
+
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    scored.dedup_by(|a, b| a.1 == b.1);
+    scored.into_iter().take(15).map(|(_, path)| path).collect()
+}
+
+fn guided_symbol_matches(
+    graph: &KnowledgeGraph,
+    page: &WikiSteeringPage,
+    member_to_module: &HashMap<String, String>,
+    communities: &BTreeMap<String, CommunityInfo>,
+    module_path_prefix: &str,
+) -> Vec<GuidedSymbolMatch> {
+    let tokens = wiki_steering_tokens(page);
+    if tokens.is_empty() {
+        return Vec::new();
+    }
+
+    let mut scored = graph
+        .iter_nodes()
+        .filter(|node| {
+            !matches!(
+                node.label,
+                NodeLabel::File | NodeLabel::Folder | NodeLabel::Community
+            ) && !node.properties.file_path.is_empty()
+        })
+        .filter_map(|node| {
+            let haystack = format!(
+                "{} {} {}",
+                node.properties.name.to_lowercase(),
+                node.properties.file_path.to_lowercase(),
+                node.label.as_str().to_lowercase()
+            );
+            let mut score = tokens
+                .iter()
+                .filter(|token| haystack.contains(token.as_str()))
+                .count();
+            if node
+                .properties
+                .entry_point_score
+                .map(|value| value > 0.3)
+                .unwrap_or(false)
+            {
+                score += 1;
+            }
+
+            (score > 0).then(|| GuidedSymbolMatch {
+                name: node.properties.name.clone(),
+                kind: node.label.as_str().to_string(),
+                module: module_link_for_node(
+                    &node.id,
+                    member_to_module,
+                    communities,
+                    module_path_prefix,
+                )
+                .unwrap_or_else(|| "-".to_string()),
+                file_path: node.properties.file_path.clone(),
+                lines: line_range(node),
+                score,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    scored.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.file_path.cmp(&b.file_path))
+    });
+    scored.dedup_by(|a, b| a.name == b.name && a.file_path == b.file_path);
+    scored.truncate(30);
+    scored
+}
+
+fn generate_wiki_steering_pages(
+    docs_dir: &Path,
+    repo_path: &Path,
+    graph: &KnowledgeGraph,
+) -> Result<Vec<(String, String, String)>> {
+    let Some((config_path, config)) = read_wiki_steering_config(repo_path)? else {
+        return Ok(Vec::new());
+    };
+
+    let mut nav_pages = Vec::new();
+    let rel_config_path = config_path
+        .strip_prefix(repo_path)
+        .unwrap_or(config_path.as_path())
+        .display()
+        .to_string();
+
+    let steering_path = docs_dir.join("wiki-steering.md");
+    let mut f = std::fs::File::create(&steering_path)?;
+    writeln!(f, "# Plan de Wiki Guidé")?;
+    writeln!(f, "<!-- GNX:LEAD -->")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "GitNexus a détecté `{}` et l'utilise comme manifeste de pilotage compatible DeepWiki. Les pages ci-dessous complètent la génération automatique au lieu de la remplacer.",
+        rel_config_path.replace('\\', "/")
+    )?;
+    writeln!(f)?;
+
+    if !config.repo_notes.is_empty() {
+        writeln!(f, "## Notes de dépôt")?;
+        writeln!(f)?;
+        for note in &config.repo_notes {
+            match note.author() {
+                Some(author) if !author.trim().is_empty() => {
+                    writeln!(
+                        f,
+                        "- **{}** : {}",
+                        author,
+                        compact_wiki_text(note.content(), 700)
+                    )?;
+                }
+                _ => {
+                    writeln!(f, "- {}", compact_wiki_text(note.content(), 700))?;
+                }
+            }
+        }
+        writeln!(f)?;
+    }
+
+    if !config.pages.is_empty() {
+        writeln!(f, "## Hiérarchie demandée")?;
+        writeln!(f, "<!-- GNX:INTRO:guided-pages -->")?;
+        writeln!(f)?;
+        writeln!(f, "```mermaid")?;
+        writeln!(f, "graph TD")?;
+        for page in &config.pages {
+            let page_id = format!("P_{}", sanitize_mermaid_id(&sanitize_filename(&page.title)));
+            writeln!(
+                f,
+                "    {}[\"{}\"]",
+                page_id,
+                escape_mermaid_label(&page.title)
+            )?;
+            if let Some(parent) = &page.parent {
+                let parent_id = format!("P_{}", sanitize_mermaid_id(&sanitize_filename(parent)));
+                writeln!(
+                    f,
+                    "    {}[\"{}\"] --> {}",
+                    parent_id,
+                    escape_mermaid_label(parent),
+                    page_id
+                )?;
+            }
+        }
+        writeln!(f, "```")?;
+        writeln!(f)?;
+
+        writeln!(f, "| Page | Parent | Objectif | Notes |")?;
+        writeln!(f, "|------|--------|----------|-------|")?;
+        for page in &config.pages {
+            let notes = page
+                .page_notes
+                .iter()
+                .map(|note| compact_wiki_text(note.content(), 180))
+                .collect::<Vec<_>>()
+                .join("<br>");
+            writeln!(
+                f,
+                "| {} | {} | {} | {} |",
+                markdown_cell(&page.title),
+                markdown_cell(page.parent.as_deref().unwrap_or("-")),
+                markdown_cell(&compact_wiki_text(&page.purpose, 260)),
+                markdown_cell(if notes.is_empty() { "-" } else { &notes })
+            )?;
+        }
+        writeln!(f)?;
+    }
+
+    writeln!(f, "<!-- GNX:CLOSING -->")?;
+    writeln!(f, "## Utilisation")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "Utilise cette page pour contrôler les angles documentaires que GitNexus doit couvrir : notes globales pour orienter l'analyse, pages guidées pour forcer les composants importants à apparaître dans le wiki."
+    )?;
+    writeln!(f)?;
+    writeln!(f, "---")?;
+    writeln!(
+        f,
+        "[<- Previous: Carte du Code](./code-map.md) | [Next: Getting Started ->](./getting-started.md)"
+    )?;
+    println!("  {} wiki-steering.md", "OK".green());
+    nav_pages.push((
+        "wiki-steering".to_string(),
+        "Plan de Wiki Guidé".to_string(),
+        "wiki-steering.md".to_string(),
+    ));
+
+    if !config.pages.is_empty() {
+        let guided_dir = docs_dir.join("guided");
+        std::fs::create_dir_all(&guided_dir)?;
+        let mut used_slugs = HashSet::new();
+        let merged_communities = merged_communities_by_filename(&collect_communities(graph));
+        let member_to_module = build_member_to_module(&merged_communities);
+        let page_titles: HashSet<&str> = config
+            .pages
+            .iter()
+            .map(|page| page.title.as_str())
+            .collect();
+
+        for page in &config.pages {
+            let slug = unique_wiki_page_slug(&page.title, &mut used_slugs);
+            let page_path = guided_dir.join(format!("{}.md", slug));
+            let mut page_file = std::fs::File::create(&page_path)?;
+            let symbol_matches = guided_symbol_matches(
+                graph,
+                page,
+                &member_to_module,
+                &merged_communities,
+                "../modules",
+            );
+            let mut source_files = source_files_for_guided_page(graph, page);
+            for symbol in &symbol_matches {
+                if !source_files.contains(&symbol.file_path) {
+                    source_files.push(symbol.file_path.clone());
+                }
+            }
+            source_files.truncate(15);
+            let source_refs: Vec<&str> = source_files.iter().map(|s| s.as_str()).collect();
+
+            writeln!(page_file, "# {}", page.title)?;
+            writeln!(page_file, "<!-- GNX:LEAD -->")?;
+            writeln!(page_file)?;
+            write!(page_file, "{}", source_files_section(&source_refs))?;
+            writeln!(page_file, "## Objectif")?;
+            writeln!(page_file)?;
+            writeln!(page_file, "{}", page.purpose)?;
+            writeln!(page_file)?;
+
+            if let Some(parent) = &page.parent {
+                let parent_text = if page_titles.contains(parent.as_str()) {
+                    format!("Page parente demandée : **{}**.", parent)
+                } else {
+                    format!(
+                        "Page parente demandée : **{}** (non définie dans le manifeste).",
+                        parent
+                    )
+                };
+                writeln!(page_file, "{}", parent_text)?;
+                writeln!(page_file)?;
+            }
+
+            if !page.page_notes.is_empty() {
+                writeln!(page_file, "## Notes de page")?;
+                writeln!(page_file)?;
+                for note in &page.page_notes {
+                    writeln!(page_file, "- {}", compact_wiki_text(note.content(), 900))?;
+                }
+                writeln!(page_file)?;
+            }
+
+            if !symbol_matches.is_empty() {
+                let mut modules = Vec::new();
+                for symbol in &symbol_matches {
+                    if symbol.module != "-" && !modules.contains(&symbol.module) {
+                        modules.push(symbol.module.clone());
+                    }
+                    if modules.len() >= 8 {
+                        break;
+                    }
+                }
+
+                if !modules.is_empty() {
+                    writeln!(page_file, "## Modules liés")?;
+                    writeln!(page_file)?;
+                    for module in &modules {
+                        writeln!(page_file, "- {}", module)?;
+                    }
+                    writeln!(page_file)?;
+                }
+
+                writeln!(page_file, "## Symboles probables")?;
+                writeln!(page_file)?;
+                writeln!(
+                    page_file,
+                    "| Symbole | Type | Module | Fichier | Lignes | Score |"
+                )?;
+                writeln!(
+                    page_file,
+                    "|---------|------|--------|---------|--------|-------|"
+                )?;
+                for symbol in symbol_matches.iter().take(20) {
+                    writeln!(
+                        page_file,
+                        "| `{}` | {} | {} | `{}` | {} | {} |",
+                        markdown_cell(&symbol.name),
+                        markdown_cell(&symbol.kind),
+                        markdown_cell(&symbol.module),
+                        markdown_cell(&symbol.file_path),
+                        symbol.lines,
+                        symbol.score
+                    )?;
+                }
+                writeln!(page_file)?;
+            }
+
+            writeln!(page_file, "## Questions de vérification")?;
+            writeln!(page_file)?;
+            writeln!(
+                page_file,
+                "- Quels fichiers prouvent l'objectif de cette page ?"
+            )?;
+            writeln!(
+                page_file,
+                "- Quels points d'entrée ou dépendances relient cette page à la Carte du Code ?"
+            )?;
+            writeln!(
+                page_file,
+                "- Quels flux Mermaid seraient utiles pour rendre cette page plus visuelle ?"
+            )?;
+            writeln!(page_file)?;
+            writeln!(page_file, "<!-- GNX:CLOSING -->")?;
+            writeln!(page_file, "## Résumé")?;
+            writeln!(page_file)?;
+            writeln!(
+                page_file,
+                "Cette page est issue du manifeste `.devin/wiki.json`; elle sert de canevas guidé pour l'enrichissement LLM et la revue manuelle."
+            )?;
+            writeln!(page_file)?;
+            writeln!(page_file, "---")?;
+            writeln!(page_file, "[<- Retour au plan guidé](../wiki-steering.md)")?;
+
+            println!("  {} guided/{slug}.md", "OK".green());
+            nav_pages.push((
+                format!("guided-{}", slug),
+                page.title.clone(),
+                format!("guided/{}.md", slug),
+            ));
+        }
+    }
+
+    Ok(nav_pages)
+}
+
+/// Generate a DeepWiki-style source navigation map.
+fn generate_docs_code_map(
+    docs_dir: &Path,
+    communities: &BTreeMap<String, CommunityInfo>,
+    graph: &KnowledgeGraph,
+    _edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+) -> Result<()> {
+    let out_path = docs_dir.join("code-map.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    let merged = merged_communities_by_filename(communities);
+    let member_to_module = build_member_to_module(&merged);
+    let dependency_edges = module_dependency_edges(graph, &member_to_module);
+    let module_stats = module_map_stats(&merged, graph, &dependency_edges);
+
+    writeln!(f, "# Carte du Code")?;
+    writeln!(f, "<!-- GNX:LEAD -->")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "Cette page sert de carte de lecture façon DeepWiki : elle relie les modules, les points d'entrée, les fichiers pivots et les prochaines questions à poser au chat GitNexus."
+    )?;
+    writeln!(f)?;
+
+    if !dependency_edges.is_empty() {
+        writeln!(f, "## Graphe des Modules")?;
+        writeln!(f, "<!-- GNX:INTRO:module-graph -->")?;
+        writeln!(f)?;
+        writeln!(f, "```mermaid")?;
+        writeln!(f, "graph LR")?;
+        for stats in module_stats.iter().take(20) {
+            let id = format!("M_{}", sanitize_mermaid_id(&stats.filename));
+            writeln!(f, "    {}[\"{}\"]", id, escape_mermaid_label(&stats.label))?;
+        }
+        let visible_modules: HashSet<&str> = module_stats
+            .iter()
+            .take(20)
+            .map(|stats| stats.filename.as_str())
+            .collect();
+        for edge in dependency_edges
+            .iter()
+            .filter(|edge| {
+                visible_modules.contains(edge.source.as_str())
+                    && visible_modules.contains(edge.target.as_str())
+            })
+            .take(30)
+        {
+            let source_id = format!("M_{}", sanitize_mermaid_id(&edge.source));
+            let target_id = format!("M_{}", sanitize_mermaid_id(&edge.target));
+            writeln!(f, "    {} -->|{}| {}", source_id, edge.count, target_id)?;
+        }
+        writeln!(f, "```")?;
+        writeln!(f)?;
+    }
+
+    writeln!(f, "## Modules à Lire en Premier")?;
+    writeln!(f, "<!-- GNX:INTRO:reading-map -->")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "| Module | Fichiers | Symboles | Entrées | Entrant | Sortant | Fichiers pivots |"
+    )?;
+    writeln!(
+        f,
+        "|--------|----------|----------|---------|---------|---------|----------------|"
+    )?;
+    for stats in module_stats.iter().take(25) {
+        let files = if stats.source_files.is_empty() {
+            "-".to_string()
+        } else {
+            stats
+                .source_files
+                .iter()
+                .take(3)
+                .map(|path| format!("`{}`", path))
+                .collect::<Vec<_>>()
+                .join("<br>")
+        };
+        writeln!(
+            f,
+            "| [{}](modules/{}.md) | {} | {} | {} | {} | {} | {} |",
+            stats.label,
+            stats.filename,
+            stats.source_file_count,
+            stats.member_count,
+            stats.entry_point_count,
+            stats.incoming_calls,
+            stats.outgoing_calls,
+            files
+        )?;
+    }
+    writeln!(f)?;
+
+    let mut entry_points: Vec<(&GraphNode, f64)> = graph
+        .iter_nodes()
+        .filter_map(|node| {
+            node.properties
+                .entry_point_score
+                .filter(|score| *score > 0.3)
+                .map(|score| (node, score))
+        })
+        .collect();
+    entry_points.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if !entry_points.is_empty() {
+        writeln!(f, "## Points d'Entrée")?;
+        writeln!(f, "<!-- GNX:INTRO:entry-points -->")?;
+        writeln!(f)?;
+        writeln!(f, "| Symbole | Type | Module | Fichier | Lignes | Score |")?;
+        writeln!(f, "|---------|------|--------|---------|--------|-------|")?;
+        for (node, score) in entry_points.iter().take(30) {
+            let module = module_link_for_node(&node.id, &member_to_module, &merged, "modules")
+                .unwrap_or_else(|| "-".to_string());
+            writeln!(
+                f,
+                "| `{}` | {} | {} | `{}` | {} | {:.2} |",
+                node.properties.name,
+                node.label.as_str(),
+                module,
+                node.properties.file_path,
+                line_range(node),
+                score
+            )?;
+        }
+        writeln!(f)?;
+    }
+
+    let top_files = top_connected_files(graph, 25);
+    if !top_files.is_empty() {
+        writeln!(f, "## Fichiers Pivots")?;
+        writeln!(f)?;
+        writeln!(
+            f,
+            "Ces fichiers ont beaucoup de relations dans le graphe et servent souvent de points de départ pour une revue manuelle."
+        )?;
+        writeln!(f)?;
+        for file in top_files {
+            writeln!(f, "- `{}`", file)?;
+        }
+        writeln!(f)?;
+    }
+
+    writeln!(f, "## Questions à Poser au Chat")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "- Explique le module le plus connecté et cite ses fichiers pivots."
+    )?;
+    writeln!(
+        f,
+        "- Trace le flux d'un point d'entrée de cette carte jusqu'à la persistance."
+    )?;
+    writeln!(
+        f,
+        "- Liste les dépendances entrantes et sortantes du module que je sélectionne."
+    )?;
+    writeln!(
+        f,
+        "- Génère un diagramme Mermaid de séquence pour un point d'entrée métier."
+    )?;
+    writeln!(f)?;
+
+    writeln!(f, "<!-- GNX:CLOSING -->")?;
+    writeln!(f, "## Résumé")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "La carte du code donne une première trajectoire d'exploration : partir des modules à forte connectivité, ouvrir leurs pages détaillées, puis demander au chat un flux ou une analyse ciblée avec les fichiers cités."
+    )?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "**Voir aussi :** [Architecture](./architecture.md) · [Getting Started](./getting-started.md)"
+    )?;
+    writeln!(f)?;
+    writeln!(f, "---")?;
+    writeln!(
+        f,
+        "[<- Previous: Architecture](./architecture.md) | [Next: Getting Started ->](./getting-started.md)"
+    )?;
+
+    println!("  {} code-map.md", "OK".green());
     Ok(())
 }
 
@@ -1320,7 +2344,7 @@ fn generate_docs_getting_started(
 
     writeln!(
         f,
-        "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)"
+        "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Carte du Code](./code-map.md) · [Architecture](./architecture.md)"
     )?;
     writeln!(f)?;
     writeln!(f, "---")?;
@@ -1328,11 +2352,11 @@ fn generate_docs_getting_started(
     // `./modules/`, which was a bare directory path that most markdown
     // viewers render as a 404 / file-listing instead of navigating to a
     // page. Deployment is the actual next page in the static doc order
-    // (overview -> project-health -> architecture -> getting-started ->
+    // (overview -> project-health -> architecture -> code-map -> getting-started ->
     // deployment -> modules).
     writeln!(
         f,
-        "[<- Previous: Architecture](./architecture.md) | [Next: Déploiement ->](./deployment.md)"
+        "[<- Previous: Carte du Code](./code-map.md) | [Next: Déploiement ->](./deployment.md)"
     )?;
 
     println!("  {} getting-started.md", "OK".green());
@@ -1352,13 +2376,6 @@ fn generate_docs_modules(
 ) -> Result<usize> {
     let mut page_count: usize = 0;
 
-    let mut member_to_community: HashMap<String, String> = HashMap::new();
-    for info in communities.values() {
-        for mid in &info.member_ids {
-            member_to_community.insert(mid.clone(), info.label.clone());
-        }
-    }
-
     let mut page_order: Vec<(String, String)> = vec![
         ("../overview".to_string(), "Overview".to_string()),
         (
@@ -1366,38 +2383,18 @@ fn generate_docs_modules(
             "Santé du Projet".to_string(),
         ),
         ("../architecture".to_string(), "Architecture".to_string()),
+        ("../code-map".to_string(), "Carte du Code".to_string()),
         (
             "../getting-started".to_string(),
             "Getting Started".to_string(),
         ),
     ];
 
-    let mut merged_communities: BTreeMap<String, CommunityInfo> = BTreeMap::new();
-    for info in communities.values() {
-        let base = sanitize_filename(&info.label);
-        let entry = merged_communities
-            .entry(base)
-            .or_insert_with(|| CommunityInfo {
-                label: info.label.clone(),
-                description: info.description.clone(),
-                member_ids: Vec::new(),
-                keywords: Vec::new(),
-            });
-        for mid in &info.member_ids {
-            if !entry.member_ids.contains(mid) {
-                entry.member_ids.push(mid.clone());
-            }
-        }
-        for kw in &info.keywords {
-            if !entry.keywords.contains(kw) {
-                entry.keywords.push(kw.clone());
-            }
-        }
-    }
+    let merged_communities = merged_communities_by_filename(communities);
+    let module_member_to_filename = build_member_to_module(&merged_communities);
+    let dependency_edges = module_dependency_edges(graph, &module_member_to_filename);
 
-    let mut community_filenames: Vec<(String, String)> = Vec::new();
     for (filename, info) in &merged_communities {
-        community_filenames.push((filename.clone(), info.label.clone()));
         page_order.push((filename.clone(), info.label.clone()));
     }
 
@@ -1595,6 +2592,112 @@ fn generate_docs_modules(
             }
         }
 
+        let entry_point_count = info
+            .member_ids
+            .iter()
+            .filter_map(|mid| graph.get_node(mid))
+            .filter(|n| {
+                n.properties
+                    .entry_point_score
+                    .map(|s| s > 0.3)
+                    .unwrap_or(false)
+            })
+            .count();
+        let incoming_modules = module_dependency_neighbors(
+            filename,
+            &merged_communities,
+            &dependency_edges,
+            ModuleDependencyDirection::Incoming,
+        );
+        let outgoing_modules = module_dependency_neighbors(
+            filename,
+            &merged_communities,
+            &dependency_edges,
+            ModuleDependencyDirection::Outgoing,
+        );
+        let incoming_call_count: usize = incoming_modules.iter().map(|m| m.count).sum();
+        let outgoing_call_count: usize = outgoing_modules.iter().map(|m| m.count).sum();
+
+        writeln!(f, "## Module at a glance")?;
+        writeln!(f)?;
+        writeln!(f, "| Signal | Value |")?;
+        writeln!(f, "|--------|-------|")?;
+        writeln!(f, "| Source files | {} |", files_vec.len())?;
+        writeln!(f, "| Symbols | {} |", info.member_ids.len())?;
+        writeln!(f, "| Entry points | {} |", entry_point_count)?;
+        writeln!(f, "| Internal calls | {} |", internal_calls.len())?;
+        writeln!(f, "| Incoming module calls | {} |", incoming_call_count)?;
+        writeln!(f, "| Outgoing module calls | {} |", outgoing_call_count)?;
+        if !info.keywords.is_empty() {
+            writeln!(f, "| Main topics | {} |", info.keywords.join(", "))?;
+        }
+        writeln!(f)?;
+
+        if !files_vec.is_empty() {
+            writeln!(f, "### Primary files")?;
+            writeln!(f)?;
+            for file in files_vec.iter().take(8) {
+                writeln!(f, "- `{}`", file)?;
+            }
+            writeln!(f)?;
+        }
+
+        writeln!(f, "### Reading path")?;
+        writeln!(f)?;
+        writeln!(
+            f,
+            "1. Start with the entry points to understand how the module is reached."
+        )?;
+        writeln!(
+            f,
+            "2. Follow the module dependencies to understand who calls this module and where it sends work next."
+        )?;
+        writeln!(
+            f,
+            "3. Use the members table as the source map for code-level verification."
+        )?;
+        writeln!(f)?;
+
+        if !incoming_modules.is_empty() || !outgoing_modules.is_empty() {
+            writeln!(f, "## Module Dependencies")?;
+            writeln!(f)?;
+            writeln!(
+                f,
+                "Cette section donne une lecture bidirectionnelle du graphe : ce qui mène vers ce module, puis ce que ce module appelle ou utilise."
+            )?;
+            writeln!(f)?;
+
+            if !incoming_modules.is_empty() {
+                writeln!(f, "### Appelé par")?;
+                writeln!(f)?;
+                writeln!(f, "| Module | Relations |")?;
+                writeln!(f, "|--------|-----------|")?;
+                for neighbor in incoming_modules.iter().take(12) {
+                    writeln!(
+                        f,
+                        "| [{}]({}.md) | {} |",
+                        neighbor.label, neighbor.filename, neighbor.count
+                    )?;
+                }
+                writeln!(f)?;
+            }
+
+            if !outgoing_modules.is_empty() {
+                writeln!(f, "### Appelle / utilise")?;
+                writeln!(f)?;
+                writeln!(f, "| Module | Relations |")?;
+                writeln!(f, "|--------|-----------|")?;
+                for neighbor in outgoing_modules.iter().take(12) {
+                    writeln!(
+                        f,
+                        "| [{}]({}.md) | {} |",
+                        neighbor.label, neighbor.filename, neighbor.count
+                    )?;
+                }
+                writeln!(f)?;
+            }
+        }
+
         if !internal_calls.is_empty() && internal_calls.len() <= 30 {
             writeln!(f, "## Call Graph")?;
             writeln!(f)?;
@@ -1685,37 +2788,6 @@ fn generate_docs_modules(
             writeln!(f)?;
             for (src, tgt) in &internal_calls {
                 writeln!(f, "- `{}` -> `{}`", src, tgt)?;
-            }
-            writeln!(f)?;
-        }
-
-        let mut external_deps: BTreeMap<String, usize> = BTreeMap::new();
-        for mid in &info.member_ids {
-            if let Some(edges) = edge_map.get(mid.as_str()) {
-                for (target_id, rel_type) in edges {
-                    if *rel_type == RelationshipType::Calls
-                        && !member_set.contains(target_id.as_str())
-                    {
-                        if let Some(target_comm) = member_to_community.get(target_id) {
-                            *external_deps.entry(target_comm.clone()).or_insert(0) += 1;
-                        }
-                    }
-                }
-            }
-        }
-
-        if !external_deps.is_empty() {
-            writeln!(f, "## External Dependencies")?;
-            writeln!(f)?;
-            let mut sorted: Vec<_> = external_deps.into_iter().collect();
-            sorted.sort_by(|a, b| b.1.cmp(&a.1));
-            for (target_comm, count) in sorted {
-                let target_filename = sanitize_filename(&target_comm);
-                writeln!(
-                    f,
-                    "- [**{}**]({}.md) - {} call(s)",
-                    target_comm, target_filename, count
-                )?;
             }
             writeln!(f)?;
         }
@@ -3201,4 +4273,378 @@ fn write_llm_badge(content: &mut String, props: &NodeProperties) {
         }
     }
     content.push('\n');
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn community(label: &str, members: &[&str], keywords: &[&str]) -> CommunityInfo {
+        CommunityInfo {
+            label: label.to_string(),
+            description: None,
+            keywords: keywords.iter().map(|kw| (*kw).to_string()).collect(),
+            member_ids: members.iter().map(|id| (*id).to_string()).collect(),
+        }
+    }
+
+    fn node(
+        id: &str,
+        label: NodeLabel,
+        name: &str,
+        file_path: &str,
+        entry_point_score: Option<f64>,
+    ) -> GraphNode {
+        GraphNode {
+            id: id.to_string(),
+            label,
+            properties: NodeProperties {
+                name: name.to_string(),
+                file_path: file_path.to_string(),
+                entry_point_score,
+                ..Default::default()
+            },
+        }
+    }
+
+    fn rel(
+        id: &str,
+        source_id: &str,
+        target_id: &str,
+        rel_type: RelationshipType,
+    ) -> GraphRelationship {
+        GraphRelationship {
+            id: id.to_string(),
+            source_id: source_id.to_string(),
+            target_id: target_id.to_string(),
+            rel_type,
+            confidence: 1.0,
+            reason: String::new(),
+            step: None,
+        }
+    }
+
+    #[test]
+    fn merged_communities_by_filename_deduplicates_members_and_keywords() {
+        let mut communities = BTreeMap::new();
+        communities.insert(
+            "c1".to_string(),
+            community("Billing Module", &["A", "B"], &["invoice"]),
+        );
+        communities.insert(
+            "c2".to_string(),
+            community("Billing Module", &["B", "C"], &["payment"]),
+        );
+
+        let merged = merged_communities_by_filename(&communities);
+        let billing = merged.get("billing_module").expect("merged module");
+
+        assert_eq!(billing.member_ids, vec!["A", "B", "C"]);
+        assert_eq!(billing.keywords, vec!["invoice", "payment"]);
+    }
+
+    #[test]
+    fn module_dependency_edges_count_only_cross_module_code_edges() {
+        let mut graph = KnowledgeGraph::new();
+        graph.add_node(node("A", NodeLabel::Method, "A", "src/a.rs", Some(0.9)));
+        graph.add_node(node("B", NodeLabel::Method, "B", "src/b.rs", None));
+        graph.add_node(node("C", NodeLabel::Method, "C", "src/c.rs", None));
+        graph.add_relationship(rel("r1", "A", "B", RelationshipType::Calls));
+        graph.add_relationship(rel("r2", "A", "B", RelationshipType::DependsOn));
+        graph.add_relationship(rel("r3", "A", "C", RelationshipType::Contains));
+        graph.add_relationship(rel("r4", "B", "B", RelationshipType::Calls));
+
+        let member_to_module = HashMap::from([
+            ("A".to_string(), "module-a".to_string()),
+            ("B".to_string(), "module-b".to_string()),
+            ("C".to_string(), "module-c".to_string()),
+        ]);
+
+        assert_eq!(
+            module_dependency_edges(&graph, &member_to_module),
+            vec![ModuleDependencyEdge {
+                source: "module-a".to_string(),
+                target: "module-b".to_string(),
+                count: 2,
+            }]
+        );
+    }
+
+    #[test]
+    fn module_dependency_neighbors_are_directional_and_sorted() {
+        let communities = BTreeMap::from([
+            (
+                "module-a".to_string(),
+                community("Module A", &["A"], &["entry"]),
+            ),
+            (
+                "module-b".to_string(),
+                community("Module B", &["B"], &["helper"]),
+            ),
+            (
+                "module-c".to_string(),
+                community("Module C", &["C"], &["helper"]),
+            ),
+        ]);
+        let edges = vec![
+            ModuleDependencyEdge {
+                source: "module-a".to_string(),
+                target: "module-b".to_string(),
+                count: 2,
+            },
+            ModuleDependencyEdge {
+                source: "module-a".to_string(),
+                target: "module-c".to_string(),
+                count: 5,
+            },
+            ModuleDependencyEdge {
+                source: "module-b".to_string(),
+                target: "module-a".to_string(),
+                count: 3,
+            },
+        ];
+
+        assert_eq!(
+            module_dependency_neighbors(
+                "module-a",
+                &communities,
+                &edges,
+                ModuleDependencyDirection::Outgoing
+            ),
+            vec![
+                ModuleNeighbor {
+                    filename: "module-c".to_string(),
+                    label: "Module C".to_string(),
+                    count: 5,
+                },
+                ModuleNeighbor {
+                    filename: "module-b".to_string(),
+                    label: "Module B".to_string(),
+                    count: 2,
+                },
+            ]
+        );
+        assert_eq!(
+            module_dependency_neighbors(
+                "module-a",
+                &communities,
+                &edges,
+                ModuleDependencyDirection::Incoming
+            ),
+            vec![ModuleNeighbor {
+                filename: "module-b".to_string(),
+                label: "Module B".to_string(),
+                count: 3,
+            }]
+        );
+    }
+
+    #[test]
+    fn unique_wiki_page_slug_disambiguates_and_handles_empty_titles() {
+        let mut used = HashSet::new();
+
+        assert_eq!(
+            unique_wiki_page_slug("Authentication System", &mut used),
+            "authentication_system"
+        );
+        assert_eq!(
+            unique_wiki_page_slug("Authentication System", &mut used),
+            "authentication_system-2"
+        );
+        assert_eq!(unique_wiki_page_slug("!!!", &mut used), "page");
+    }
+
+    #[test]
+    fn guided_wiki_page_sources_match_title_purpose_and_notes() {
+        let mut graph = KnowledgeGraph::new();
+        graph.add_node(node(
+            "F1",
+            NodeLabel::File,
+            "LoginController.cs",
+            "src/Auth/LoginController.cs",
+            None,
+        ));
+        graph.add_node(node(
+            "F2",
+            NodeLabel::File,
+            "InvoiceService.cs",
+            "src/Billing/InvoiceService.cs",
+            None,
+        ));
+
+        let page = WikiSteeringPage {
+            title: "Authentication System".to_string(),
+            purpose: "Document the login flow and auth controllers".to_string(),
+            parent: None,
+            page_notes: vec![WikiSteeringNote::Text(
+                "Include token validation and sign-in behavior.".to_string(),
+            )],
+        };
+
+        assert_eq!(
+            source_files_for_guided_page(&graph, &page),
+            vec!["src/Auth/LoginController.cs".to_string()]
+        );
+    }
+
+    #[test]
+    fn guided_symbol_matches_link_modules_and_boost_entry_points() {
+        let mut graph = KnowledgeGraph::new();
+        graph.add_node(node(
+            "M1",
+            NodeLabel::Method,
+            "LoginController",
+            "src/Auth/LoginController.cs",
+            Some(0.8),
+        ));
+        graph.add_node(node(
+            "M2",
+            NodeLabel::Method,
+            "InvoiceService",
+            "src/Billing/InvoiceService.cs",
+            None,
+        ));
+        let communities = BTreeMap::from([(
+            "auth".to_string(),
+            community("Authentication", &["M1"], &["login"]),
+        )]);
+        let member_to_module = build_member_to_module(&communities);
+        let page = WikiSteeringPage {
+            title: "Authentication System".to_string(),
+            purpose: "Document login controller behavior".to_string(),
+            parent: None,
+            page_notes: Vec::new(),
+        };
+
+        let matches =
+            guided_symbol_matches(&graph, &page, &member_to_module, &communities, "../modules");
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].name, "LoginController");
+        assert_eq!(matches[0].module, "[Authentication](../modules/auth.md)");
+        assert!(matches[0].score >= 2);
+    }
+
+    #[test]
+    fn wiki_steering_validation_rejects_duplicate_titles() {
+        let config = WikiSteeringConfig {
+            repo_notes: Vec::new(),
+            pages: vec![
+                WikiSteeringPage {
+                    title: "Auth".to_string(),
+                    purpose: "Document auth".to_string(),
+                    parent: None,
+                    page_notes: Vec::new(),
+                },
+                WikiSteeringPage {
+                    title: "auth".to_string(),
+                    purpose: "Document auth again".to_string(),
+                    parent: None,
+                    page_notes: Vec::new(),
+                },
+            ],
+        };
+
+        let err = validate_wiki_steering_config(&config, Path::new(".devin/wiki.json"))
+            .expect_err("duplicate title should fail");
+        assert!(err.to_string().contains("duplicate guided page title"));
+    }
+
+    #[test]
+    fn generate_wiki_steering_pages_writes_plan_and_guided_pages() {
+        let root =
+            std::env::temp_dir().join(format!("gitnexus-wiki-steering-{}", uuid::Uuid::new_v4()));
+        let repo = root.join("repo");
+        let docs = root.join("docs");
+        std::fs::create_dir_all(repo.join(".devin")).expect("repo config dir");
+        std::fs::create_dir_all(&docs).expect("docs dir");
+        std::fs::write(
+            repo.join(".devin").join("wiki.json"),
+            r#"{
+              "repo_notes": [{"content": "Prioritize authentication.", "author": "Patrice"}],
+              "pages": [{
+                "title": "Authentication System",
+                "purpose": "Document the login flow and auth controllers",
+                "parent": null,
+                "page_notes": ["Include token validation."]
+              }]
+            }"#,
+        )
+        .expect("write config");
+
+        let mut graph = KnowledgeGraph::new();
+        graph.add_node(node(
+            "F1",
+            NodeLabel::File,
+            "LoginController.cs",
+            "src/Auth/LoginController.cs",
+            None,
+        ));
+        graph.add_node(node(
+            "M1",
+            NodeLabel::Method,
+            "LoginController",
+            "src/Auth/LoginController.cs",
+            Some(0.8),
+        ));
+        graph.add_node(node("C1", NodeLabel::Community, "Authentication", "", None));
+        graph.add_relationship(rel("r-member", "M1", "C1", RelationshipType::MemberOf));
+
+        let pages = generate_wiki_steering_pages(&docs, &repo, &graph).expect("guided pages");
+
+        assert_eq!(
+            pages,
+            vec![
+                (
+                    "wiki-steering".to_string(),
+                    "Plan de Wiki Guidé".to_string(),
+                    "wiki-steering.md".to_string(),
+                ),
+                (
+                    "guided-authentication_system".to_string(),
+                    "Authentication System".to_string(),
+                    "guided/authentication_system.md".to_string(),
+                ),
+            ]
+        );
+        let plan = std::fs::read_to_string(docs.join("wiki-steering.md")).expect("plan page");
+        assert!(plan.contains("Prioritize authentication."));
+        let guided = std::fs::read_to_string(docs.join("guided").join("authentication_system.md"))
+            .expect("guided page");
+        assert!(guided.contains("src/Auth/LoginController.cs"));
+        assert!(guided.contains("## Symboles probables"));
+        assert!(guided.contains("[Authentication](../modules/authentication.md)"));
+
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn module_map_stats_prioritizes_entry_points_then_dependencies() {
+        let mut graph = KnowledgeGraph::new();
+        graph.add_node(node("A", NodeLabel::Method, "A", "src/a.rs", Some(0.9)));
+        graph.add_node(node("B", NodeLabel::Method, "B", "src/b.rs", None));
+
+        let communities = BTreeMap::from([
+            (
+                "module-a".to_string(),
+                community("Module A", &["A"], &["entry"]),
+            ),
+            (
+                "module-b".to_string(),
+                community("Module B", &["B"], &["helper"]),
+            ),
+        ]);
+        let edges = vec![ModuleDependencyEdge {
+            source: "module-b".to_string(),
+            target: "module-a".to_string(),
+            count: 3,
+        }];
+
+        let stats = module_map_stats(&communities, &graph, &edges);
+
+        assert_eq!(stats[0].filename, "module-a");
+        assert_eq!(stats[0].entry_point_count, 1);
+        assert_eq!(stats[0].incoming_calls, 3);
+        assert_eq!(stats[1].outgoing_calls, 3);
+    }
 }

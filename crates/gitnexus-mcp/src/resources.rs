@@ -6,7 +6,7 @@
 use serde_json::{json, Value};
 
 use gitnexus_core::graph::types::NodeLabel;
-use gitnexus_core::storage::repo_manager::RegistryEntry;
+use gitnexus_core::storage::repo_manager::{registry_entry_id, RegistryEntry};
 
 /// Return the list of MCP resource templates and static resources.
 pub fn resource_definitions() -> Value {
@@ -60,6 +60,26 @@ pub fn resource_definitions() -> Value {
     })
 }
 
+fn find_registry_entry<'a>(
+    registry: &'a [RegistryEntry],
+    repo_name_or_id: &str,
+) -> Option<&'a RegistryEntry> {
+    let lower = repo_name_or_id.to_lowercase();
+    registry.iter().find(|e| {
+        if registry_entry_id(e) == repo_name_or_id {
+            return true;
+        }
+
+        // Match by exact name first; fall back to path that ends with
+        // `/repo_name` (or `\repo_name`) on a segment boundary so a
+        // user passing "foo" doesn't accidentally select "myfoo".
+        e.name.eq_ignore_ascii_case(repo_name_or_id) || {
+            let path_lower = e.path.to_lowercase().replace('\\', "/");
+            path_lower == lower || path_lower.ends_with(&format!("/{}", lower))
+        }
+    })
+}
+
 /// Read a resource by URI and return its contents.
 ///
 /// Static resources (version, help) don't need registry access.
@@ -95,6 +115,7 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
                 .iter()
                 .map(|e| {
                     json!({
+                        "id": registry_entry_id(e),
                         "name": e.name,
                         "path": e.path,
                         "indexedAt": e.indexed_at,
@@ -120,16 +141,7 @@ pub fn read_resource(uri: &str, registry: &[RegistryEntry]) -> Option<Value> {
         }
 
         let repo_name = parts[0];
-        let lower = repo_name.to_lowercase();
-        let entry = registry.iter().find(|e| {
-            // Match by exact name first; fall back to path that ends with
-            // `/repo_name` (or `\repo_name`) on a segment boundary so a
-            // user passing "foo" doesn't accidentally select "myfoo".
-            e.name.eq_ignore_ascii_case(repo_name) || {
-                let path_lower = e.path.to_lowercase().replace('\\', "/");
-                path_lower == lower || path_lower.ends_with(&format!("/{}", lower))
-            }
-        })?;
+        let entry = find_registry_entry(registry, repo_name)?;
 
         let snap_path = std::path::Path::new(&entry.storage_path).join("graph.bin");
         let graph = gitnexus_db::snapshot::load_snapshot(&snap_path).ok()?;
@@ -279,6 +291,17 @@ Getting Started:
 mod tests {
     use super::*;
 
+    fn registry_entry(name: &str, path: &str) -> RegistryEntry {
+        RegistryEntry {
+            name: name.to_string(),
+            path: path.to_string(),
+            storage_path: format!("{path}/.gitnexus"),
+            indexed_at: "2026-05-06T05:00:00Z".to_string(),
+            last_commit: "unknown".to_string(),
+            stats: None,
+        }
+    }
+
     #[test]
     fn test_resource_definitions() {
         let defs = resource_definitions();
@@ -314,6 +337,27 @@ mod tests {
             .unwrap()
             .to_string();
         assert_eq!(text, "[]");
+    }
+
+    #[test]
+    fn test_read_repos_includes_public_id() {
+        let entry = registry_entry("gitnexus-rs", "D:/Repos/gitnexus-rs");
+        let expected_id = registry_entry_id(&entry);
+        let result = read_resource("gitnexus://repos", &[entry]).unwrap();
+        let text = result["contents"][0]["text"].as_str().unwrap();
+
+        assert!(text.contains(&expected_id));
+    }
+
+    #[test]
+    fn test_find_registry_entry_matches_public_id() {
+        let entry = registry_entry("gitnexus-rs", "D:/Repos/gitnexus-rs");
+        let id = registry_entry_id(&entry);
+        let registry = vec![entry];
+
+        let resolved = find_registry_entry(&registry, &id).unwrap();
+
+        assert_eq!(resolved.name, "gitnexus-rs");
     }
 
     #[test]

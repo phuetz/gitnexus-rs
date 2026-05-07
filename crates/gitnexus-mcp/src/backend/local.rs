@@ -10,11 +10,14 @@ use tracing::info;
 
 use gitnexus_core::graph::types::{NodeLabel, RelationshipType};
 use gitnexus_core::graph::KnowledgeGraph;
-use gitnexus_core::storage::repo_manager::{self, RegistryEntry};
+use gitnexus_core::storage::repo_manager::{self, registry_entry_id, RegistryEntry};
 use gitnexus_db::inmemory::cypher::GraphIndexes;
 use gitnexus_db::inmemory::fts::{FtsIndex, FtsResult};
 use gitnexus_db::pool::ConnectionPool;
 use gitnexus_db::query;
+use gitnexus_git::coupling::CouplingError;
+use gitnexus_git::hotspots::HotspotError;
+use gitnexus_git::ownership::OwnershipError;
 use gitnexus_search::bm25::BM25SearchResult;
 use gitnexus_search::embeddings::{
     generate_embeddings, load_embeddings, search_semantic, EmbeddingConfig,
@@ -40,6 +43,13 @@ pub struct LocalBackend {
 const MAX_QUERY_LIMIT: usize = 100;
 const MAX_ANALYTICS_LIMIT: usize = 100;
 const MAX_IMPACT_DEPTH: usize = 10;
+
+fn git_history_required_error(tool: &str) -> McpError {
+    McpError::InvalidArguments {
+        tool: tool.into(),
+        reason: "Git analytics require an indexed path inside a Git working tree. Choose a Git-backed project or re-run `gitnexus analyze` from the repository checkout.".into(),
+    }
+}
 
 fn clamp_limit(raw: Option<u64>, default: usize, max: usize) -> usize {
     raw.map(|v| v as usize).unwrap_or(default).clamp(1, max)
@@ -95,6 +105,27 @@ impl LocalBackend {
         };
 
         Ok((graph, indexes, fts))
+    }
+
+    /// Resolve an indexed repository and return cached graph/search indexes for it.
+    ///
+    /// This is used by the HTTP REST transport for browser-native read-only
+    /// exploration endpoints. The returned registry entry is cloned so callers
+    /// can safely keep repository metadata while the mutable backend borrow is
+    /// used to populate caches.
+    pub fn load_repo_indexes(
+        &mut self,
+        repo: &str,
+    ) -> Result<(
+        RegistryEntry,
+        Arc<KnowledgeGraph>,
+        Arc<GraphIndexes>,
+        Arc<FtsIndex>,
+    )> {
+        let entry = self.resolve_repo(Some(repo))?.clone();
+        let snap_path = PathBuf::from(&entry.storage_path).join("graph.bin");
+        let (graph, indexes, fts) = self.load_cached_indexes(&snap_path)?;
+        Ok((entry, graph, indexes, fts))
     }
 
     /// Collect enrichment metadata from a node's properties into a JSON value.
@@ -187,6 +218,9 @@ impl LocalBackend {
                 self.registry
                     .iter()
                     .find(|e| {
+                        if registry_entry_id(e) == name_or_path {
+                            return true;
+                        }
                         // Exact name / exact path / suffix on a path-segment
                         // boundary. Without the segment guard, "foo" would
                         // also match "/repos/myfoo", silently selecting the
@@ -253,6 +287,7 @@ impl LocalBackend {
             .iter()
             .map(|e| {
                 let mut obj = json!({
+                    "id": registry_entry_id(e),
                     "name": e.name,
                     "path": e.path,
                     "indexedAt": e.indexed_at,
@@ -1219,8 +1254,11 @@ impl LocalBackend {
         let entry = self.resolve_repo(repo_name)?;
         let repo_path = std::path::Path::new(&entry.path);
 
-        let mut hotspots = gitnexus_git::hotspots::analyze_hotspots(repo_path, since_days)
-            .map_err(|e| McpError::Internal(e.to_string()))?;
+        let mut hotspots = match gitnexus_git::hotspots::analyze_hotspots(repo_path, since_days) {
+            Ok(hotspots) => hotspots,
+            Err(HotspotError::NotGitRepo(_)) => return Err(git_history_required_error("hotspots")),
+            Err(e) => return Err(McpError::Internal(e.to_string())),
+        };
 
         hotspots.truncate(limit);
 
@@ -1252,8 +1290,13 @@ impl LocalBackend {
         let repo_path = std::path::Path::new(&entry.path);
 
         let mut couplings =
-            gitnexus_git::coupling::analyze_coupling(repo_path, min_shared, Some(180))
-                .map_err(|e| McpError::Internal(e.to_string()))?;
+            match gitnexus_git::coupling::analyze_coupling(repo_path, min_shared, Some(180)) {
+                Ok(couplings) => couplings,
+                Err(CouplingError::NotGitRepo(_)) => {
+                    return Err(git_history_required_error("coupling"))
+                }
+                Err(e) => return Err(McpError::Internal(e.to_string())),
+            };
 
         couplings.truncate(limit);
 
@@ -1283,8 +1326,13 @@ impl LocalBackend {
         let entry = self.resolve_repo(repo_name)?;
         let repo_path = std::path::Path::new(&entry.path);
 
-        let mut ownerships = gitnexus_git::ownership::analyze_ownership(repo_path)
-            .map_err(|e| McpError::Internal(e.to_string()))?;
+        let mut ownerships = match gitnexus_git::ownership::analyze_ownership(repo_path) {
+            Ok(ownerships) => ownerships,
+            Err(OwnershipError::NotGitRepo(_)) => {
+                return Err(git_history_required_error("ownership"));
+            }
+            Err(e) => return Err(McpError::Internal(e.to_string())),
+        };
 
         ownerships.truncate(limit);
 
@@ -2151,7 +2199,8 @@ impl LocalBackend {
             })
             .collect();
 
-        let reranker = LlmReranker::new(config.base_url, config.model, Some(config.api_key));
+        let api_key = (!config.api_key.is_empty()).then_some(config.api_key);
+        let reranker = LlmReranker::new(config.base_url, config.model, api_key);
         let q = query_str.to_string();
         let reranked =
             match tokio::task::spawn_blocking(move || reranker.rerank(&q, candidates)).await {
@@ -2972,13 +3021,12 @@ impl LocalBackend {
 
     async fn tool_write_sfd_draft(&self, args: &Value) -> Result<Value> {
         let repo_name = args.get("repo").and_then(|v| v.as_str());
-        let page = args
-            .get("page")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| McpError::InvalidArguments {
+        let page = args.get("page").and_then(|v| v.as_str()).ok_or_else(|| {
+            McpError::InvalidArguments {
                 tool: "write_sfd_draft".into(),
                 reason: "missing required parameter 'page'".into(),
-            })?;
+            }
+        })?;
         let content = args
             .get("content")
             .and_then(|v| v.as_str())
@@ -3031,7 +3079,11 @@ impl LocalBackend {
             "**Validation: {}**\n\n\
              - {} pages scanned, {} with issues\n\
              - {} RED issues, {} YELLOW issues\n",
-            status, report.total_pages, report.pages_with_issues, report.red_count, report.yellow_count
+            status,
+            report.total_pages,
+            report.pages_with_issues,
+            report.red_count,
+            report.yellow_count
         );
         if !report.by_kind.is_empty() {
             summary.push_str("\n**Issue kinds:**\n");
@@ -3462,10 +3514,38 @@ mod tests {
     }
 
     #[test]
+    fn test_git_history_required_error_is_user_facing() {
+        let message = git_history_required_error("hotspots").to_string();
+
+        assert!(message.contains("Git analytics require"));
+        assert!(!message.contains("fatal:"));
+    }
+
+    #[test]
     fn test_resolve_repo_not_found() {
         let backend = LocalBackend::new();
         let result = backend.resolve_repo(Some("nonexistent"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_repo_by_public_id() {
+        let mut backend = LocalBackend::new();
+        let entry = RegistryEntry {
+            name: "gitnexus-rs".to_string(),
+            path: "D:/Repos/gitnexus-rs".to_string(),
+            storage_path: "D:/Repos/gitnexus-rs/.gitnexus".to_string(),
+            indexed_at: "2026-05-06T05:00:00Z".to_string(),
+            last_commit: "unknown".to_string(),
+            stats: None,
+        };
+        let id = registry_entry_id(&entry);
+        backend.registry.push(entry);
+
+        let resolved = backend.resolve_repo(Some(&id)).unwrap();
+
+        assert_eq!(resolved.name, "gitnexus-rs");
+        assert_eq!(resolved.path, "D:/Repos/gitnexus-rs");
     }
 
     #[tokio::test]

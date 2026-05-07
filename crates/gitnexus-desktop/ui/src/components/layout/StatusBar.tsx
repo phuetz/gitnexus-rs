@@ -8,6 +8,7 @@ import { useGraphData } from "../../hooks/use-tauri-query";
 import { commands } from "../../lib/tauri-commands";
 import { buildShareUrl } from "../../hooks/use-share-link";
 import { BookmarksDropdown } from "./BookmarksDropdown";
+import { copyTextToClipboard } from "../../lib/clipboard";
 
 /** Separator — extracted outside StatusBar to satisfy react-hooks/static-components. */
 function Sep() {
@@ -177,10 +178,10 @@ export const StatusBar = memo(function StatusBar() {
           <button
             onClick={async () => {
               const url = buildShareUrl();
-              try {
-                await navigator.clipboard.writeText(url);
+              const ok = await copyTextToClipboard(url);
+              if (ok) {
                 toast.success(t("share.linkCopied"));
-              } catch {
+              } else {
                 toast.error(t("share.copyFailed"));
               }
             }}

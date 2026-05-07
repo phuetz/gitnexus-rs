@@ -10,6 +10,7 @@ import { commands } from "../../lib/tauri-commands";
 import { buildGraphologyGraph } from "../../lib/graph-adapter";
 import { NodeHoverCard } from "./NodeHoverCard";
 import { useI18n } from "../../hooks/use-i18n";
+import { copyTextToClipboard } from "../../lib/clipboard";
 import { LENS_EDGE_TYPES } from "../explorer/lens-constants";
 import { useGraphState } from "./useGraphState";
 import { useGraphEffects } from "./useGraphEffects";
@@ -606,8 +607,16 @@ export function GraphExplorer() {
               onViewImpact={(nodeId, name) => { setSelectedNodeId(nodeId, name); setMode("explorer"); }}
               onExpandNeighbors={() => {}}
               onHideNode={(nodeId) => { const g = graphRef.current; if (g?.hasNode(nodeId)) { g.dropNode(nodeId); refresh(); } }}
-              onCopyName={(name) => { navigator.clipboard.writeText(name).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error(t("graph.copyFailed"))); }}
-              onCopyFilePath={(fp) => { navigator.clipboard.writeText(fp).then(() => toast.success(t("graph.copiedToClipboard")), () => toast.error(t("graph.copyFailed"))); }}
+              onCopyName={async (name) => {
+                const ok = await copyTextToClipboard(name);
+                if (ok) toast.success(t("graph.copiedToClipboard"));
+                else toast.error(t("graph.copyFailed"));
+              }}
+              onCopyFilePath={async (fp) => {
+                const ok = await copyTextToClipboard(fp);
+                if (ok) toast.success(t("graph.copiedToClipboard"));
+                else toast.error(t("graph.copyFailed"));
+              }}
               onAiAction={(action, ctx) => {
                 const dispatch = useChatStore.getState().dispatchQuestion;
                 switch (action) {

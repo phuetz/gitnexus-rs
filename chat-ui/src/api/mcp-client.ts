@@ -1,11 +1,118 @@
 const MCP_BASE_URL = import.meta.env.VITE_MCP_URL ?? '';
 
 export interface RepoInfo {
+  id?: string;
   name: string;
   path?: string;
   indexedAt?: string;
   lastCommit?: string;
   stats?: Record<string, number>;
+}
+
+export interface FileTreeNode {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children: FileTreeNode[];
+}
+
+export interface SourceContent {
+  path: string;
+  content: string;
+  language?: string;
+  totalLines: number;
+  startLine: number;
+  endLine: number;
+  truncated: boolean;
+}
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  name: string;
+  filePath: string;
+  startLine?: number;
+  endLine?: number;
+  language?: string;
+  community?: string;
+  description?: string;
+  returnType?: string;
+  parameterCount?: number;
+  isTraced?: boolean;
+  isDeadCandidate?: boolean;
+  complexity?: number;
+  depth?: number;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  relType: string;
+  confidence: number;
+}
+
+export interface GraphPayload {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+    truncated: boolean;
+  };
+}
+
+export interface SymbolSearchResult {
+  nodeId: string;
+  name: string;
+  label: string;
+  filePath: string;
+  score: number;
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface LlmConfigInfo {
+  configured: boolean;
+  provider?: string;
+  model?: string;
+  reasoningEffort?: string;
+  maxTokens?: number;
+  bigContextModel?: string;
+}
+
+export interface DiagnosticsRepoInfo {
+  id: string;
+  name: string;
+  indexedAt?: string;
+  pathExposed: boolean;
+}
+
+export interface ChatGptOAuthDiagnostics {
+  loggedIn: boolean;
+  status: 'logged_in' | 'missing' | 'incomplete' | 'invalid' | 'unreadable' | string;
+  tokenFilePresent: boolean;
+  tokenFileReadable: boolean;
+  refreshTokenPresent: boolean;
+  lastRefresh?: string | null;
+  storage: string;
+  errorKind?: string;
+}
+
+export interface DiagnosticsInfo {
+  service: string;
+  version: string;
+  generatedAtUnixMs: number;
+  httpAuthRequired: boolean;
+  repoPathsExposed: boolean;
+  repos: {
+    count: number;
+    names: DiagnosticsRepoInfo[];
+  };
+  llm: LlmConfigInfo;
+  auth?: {
+    chatgptOAuth?: ChatGptOAuthDiagnostics;
+  };
 }
 
 export interface ChatHistoryMessage {
@@ -125,17 +232,126 @@ export class MCPClient {
     return h;
   }
 
+  private backendLabel(): string {
+    return this.baseUrl || 'le proxy Vite courant';
+  }
+
+  private async request(path: string, init: RequestInit, action: string): Promise<Response> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, init);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        throw e;
+      }
+      const reason = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `${action}: serveur GitNexus injoignable via ${this.backendLabel()}. Vérifie que le backend tourne et que VITE_MCP_URL pointe vers lui. Lance aussi \`.\\gitnexus.cmd doctor\` pour contrôler les ports. (${reason})`,
+        { cause: e }
+      );
+    }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const hint =
+        res.status >= 500
+          ? ` Vérifie ${this.backendLabel()} avec \`.\\gitnexus.cmd doctor\` et relance le chat avec -RestartBackend si besoin.`
+          : '';
+      throw new Error(
+        `${action}: HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.${hint}${formatErrorBody(body)}`
+      );
+    }
+
+    return res;
+  }
+
+  private apiPath(repo: string, suffix: string, params?: Record<string, string | number | undefined>): string {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params ?? {})) {
+      if (value !== undefined && value !== '') query.set(key, String(value));
+    }
+    const qs = query.toString();
+    return `/api/repos/${encodeURIComponent(repo)}${suffix}${qs ? `?${qs}` : ''}`;
+  }
+
   async health(): Promise<{ status: string; service: string; version: string }> {
-    const res = await fetch(`${this.baseUrl}/health`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
+    const res = await this.request('/health', { headers: this.headers() }, 'health');
     return res.json();
   }
 
   async listRepos(): Promise<RepoInfo[]> {
-    const res = await fetch(`${this.baseUrl}/api/repos`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`list_repos failed: ${res.status}`);
+    const res = await this.request('/api/repos', { headers: this.headers() }, 'list_repos');
     const data = await res.json();
     return Array.isArray(data?.repos) ? data.repos : [];
+  }
+
+  async llmConfig(): Promise<LlmConfigInfo> {
+    const res = await this.request('/api/llm-config', { headers: this.headers() }, 'llm_config');
+    return res.json();
+  }
+
+  async diagnostics(): Promise<DiagnosticsInfo> {
+    const res = await this.request(
+      '/api/diagnostics',
+      { headers: this.headers() },
+      'diagnostics'
+    );
+    return res.json();
+  }
+
+  async fileTree(repo: string, path?: string): Promise<FileTreeNode[]> {
+    const res = await this.request(
+      this.apiPath(repo, '/files', { path }),
+      { headers: this.headers() },
+      'files'
+    );
+    const data = await res.json();
+    return Array.isArray(data?.files) ? data.files : [];
+  }
+
+  async source(repo: string, path: string, range?: { start?: number; end?: number }): Promise<SourceContent> {
+    const res = await this.request(
+      this.apiPath(repo, '/source', { path, start: range?.start, end: range?.end }),
+      { headers: this.headers() },
+      'source'
+    );
+    return res.json();
+  }
+
+  async symbols(repo: string, q: string, limit = 20): Promise<SymbolSearchResult[]> {
+    const res = await this.request(
+      this.apiPath(repo, '/symbols', { q, limit }),
+      { headers: this.headers() },
+      'symbols'
+    );
+    const data = await res.json();
+    return Array.isArray(data?.symbols) ? data.symbols : [];
+  }
+
+  async graph(
+    repo: string,
+    params: { zoom?: 'package' | 'module' | 'symbol'; maxNodes?: number; labels?: string; filePath?: string } = {}
+  ): Promise<GraphPayload> {
+    const res = await this.request(
+      this.apiPath(repo, '/graph', {
+        zoom: params.zoom,
+        max_nodes: params.maxNodes,
+        labels: params.labels,
+        filePath: params.filePath,
+      }),
+      { headers: this.headers() },
+      'graph'
+    );
+    return res.json();
+  }
+
+  async graphNeighborhood(repo: string, nodeId: string, depth = 2): Promise<GraphPayload> {
+    const res = await this.request(
+      this.apiPath(repo, '/graph/neighborhood', { node_id: nodeId, depth }),
+      { headers: this.headers() },
+      'graph_neighborhood'
+    );
+    return res.json();
   }
 
   /**
@@ -145,21 +361,20 @@ export class MCPClient {
    * inspect status fields.
    */
   async callTool<T = McpToolResult>(name: string, args: Record<string, unknown> = {}): Promise<T> {
-    const res = await fetch(`${this.baseUrl}/mcp`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method: 'tools/call',
-        params: { name, arguments: args },
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`callTool ${name}: ${res.status} ${res.statusText} ${body}`);
-    }
+    const res = await this.request(
+      '/mcp',
+      {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method: 'tools/call',
+          params: { name, arguments: args },
+        }),
+      },
+      `callTool ${name}`
+    );
 
     const envelope = (await res.json()) as JsonRpcResponse<T>;
     if (envelope.error) {
@@ -179,17 +394,16 @@ export class MCPClient {
     signal?: AbortSignal,
     onToolCall?: (event: ToolCallStreamEvent) => void
   ): Promise<void> {
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: this.headers({ Accept: 'text/event-stream' }),
-      body: JSON.stringify({ question, repo, history }),
-      signal,
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`chat failed: ${res.status} ${res.statusText} ${body}`);
-    }
+    const res = await this.request(
+      '/api/chat',
+      {
+        method: 'POST',
+        headers: this.headers({ Accept: 'text/event-stream' }),
+        body: JSON.stringify({ question, repo, history }),
+        signal,
+      },
+      'chat'
+    );
     if (!res.body) throw new Error('chat: no response body');
 
     const reader = res.body.getReader();
@@ -284,6 +498,27 @@ class SseDone extends Error {
     super('done');
     this.name = 'SseDone';
   }
+}
+
+function formatErrorBody(body: string): string {
+  const trimmed = sanitizeErrorBody(body.trim());
+  if (!trimmed) return '';
+  const singleLine = trimmed.replace(/\s+/g, ' ');
+  const truncated =
+    singleLine.length > 300 ? `${singleLine.slice(0, 300)}...` : singleLine;
+  return ` Réponse: ${truncated}`;
+}
+
+function sanitizeErrorBody(body: string): string {
+  return body
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, 'Bearer [redacted]')
+    .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, '[redacted-openai-key]')
+    .replace(/\bAIza[A-Za-z0-9_-]{20,}\b/g, '[redacted-google-key]')
+    .replace(/\bya29\.[A-Za-z0-9._-]{12,}\b/g, '[redacted-google-token]')
+    .replace(
+      /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization)(["'\s:=]+)([A-Za-z0-9._~+/=-]{8,})/gi,
+      '$1$2[redacted]'
+    );
 }
 
 export const mcpClient = new MCPClient();

@@ -32,6 +32,17 @@ const PRESETS: { label: string; config: Partial<ChatConfig> }[] = [
     },
   },
   {
+    label: "ChatGPT (Codex)",
+    config: {
+      provider: "chatgpt",
+      baseUrl: "https://chatgpt.com/backend-api/codex",
+      model: "gpt-5.5",
+      apiKey: "",
+      maxTokens: 8192,
+      reasoningEffort: "high",
+    },
+  },
+  {
     label: "Anthropic (via proxy)",
     config: {
       provider: "anthropic",
@@ -57,6 +68,8 @@ const PRESETS: { label: string; config: Partial<ChatConfig> }[] = [
     },
   },
 ];
+
+const REASONING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
 
 export function ChatSettings({ onClose }: ChatSettingsProps) {
   const { t } = useI18n();
@@ -122,6 +135,9 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
   const applyPreset = (preset: (typeof PRESETS)[number]) => {
     setForm((prev) => ({ ...prev, ...preset.config }));
   };
+
+  const isChatGpt = form.provider.toLowerCase() === "chatgpt";
+  const selectedReasoning = form.reasoningEffort || "";
 
   if (isLoading) {
     return (
@@ -215,12 +231,13 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
             value={form.apiKey}
             onChange={(v) => setForm((f) => ({ ...f, apiKey: v }))}
             type="password"
-            placeholder={t("chat.apiKeyPlaceholder")}
+            placeholder={isChatGpt ? "gitnexus login" : t("chat.apiKeyPlaceholder")}
+            disabled={isChatGpt}
           />
           <p className="text-[10px] -mt-2" style={{ color: "var(--text-4)" }}>
-            For security, the API key is kept in memory for this session and is
-            not written to disk. Use an environment variable for persistent
-            secrets.
+            {isChatGpt
+              ? "ChatGPT uses the Codex OAuth login stored by the CLI; no API key is written here."
+              : "For security, the API key is kept in memory for this session and is not written to disk. Use an environment variable for persistent secrets."}
           </p>
           <Field
             label={t("settings.maxTokens")}
@@ -233,34 +250,26 @@ export function ChatSettings({ onClose }: ChatSettingsProps) {
             <label className="text-[12px] font-medium mb-1 block" style={{ color: "var(--text-2)" }}>
               {t("settings.thinking")}
             </label>
-            <div className="flex gap-1.5">
-              {(["none", "low", "medium", "high"] as const).map((level) => (
-                <button
-                  key={level}
-                  onClick={() => setForm((f) => ({ ...f, reasoningEffort: level === "none" ? "" : level }))}
-                  className="flex-1 px-2 py-1.5 rounded-lg text-[12px] capitalize transition-all"
-                  style={{
-                    background:
-                      (form.reasoningEffort || "none") === (level === "none" ? "" : level) ||
-                      (level === "none" && !form.reasoningEffort)
-                        ? "var(--accent-subtle)"
-                        : "var(--surface)",
-                    color:
-                      (form.reasoningEffort || "none") === (level === "none" ? "" : level) ||
-                      (level === "none" && !form.reasoningEffort)
-                        ? "var(--accent)"
-                        : "var(--text-3)",
-                    border: `1px solid ${
-                      (form.reasoningEffort || "none") === (level === "none" ? "" : level) ||
-                      (level === "none" && !form.reasoningEffort)
-                        ? "var(--accent-border)"
-                        : "var(--surface-border)"
-                    }`,
-                  }}
-                >
-                  {level}
-                </button>
-              ))}
+            <div className="grid grid-cols-3 gap-1.5">
+              {REASONING_LEVELS.map((level) => {
+                const value = level === "none" ? "" : level;
+                const isActive = selectedReasoning === value;
+
+                return (
+                  <button
+                    key={level}
+                    onClick={() => setForm((f) => ({ ...f, reasoningEffort: value }))}
+                    className="px-2 py-1.5 rounded-lg text-[12px] transition-all"
+                    style={{
+                      background: isActive ? "var(--accent-subtle)" : "var(--surface)",
+                      color: isActive ? "var(--accent)" : "var(--text-3)",
+                      border: `1px solid ${isActive ? "var(--accent-border)" : "var(--surface-border)"}`,
+                    }}
+                  >
+                    {level}
+                  </button>
+                );
+              })}
             </div>
             <p className="text-[10px] mt-1" style={{ color: "var(--text-4)" }}>
               {t("settings.thinkingHint")}
@@ -325,12 +334,14 @@ function Field({
   onChange,
   type = "text",
   placeholder,
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <div>
@@ -342,11 +353,14 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        disabled={disabled}
         className="w-full px-3 py-2 rounded-lg text-[13px] outline-none focus:ring-1 focus:ring-[var(--accent)] transition-all"
         style={{
           background: "var(--surface)",
           border: "1px solid var(--surface-border)",
           color: "var(--text-0)",
+          cursor: disabled ? "not-allowed" : "text",
+          opacity: disabled ? 0.65 : 1,
           fontFamily: type === "password" ? "var(--font-mono)" : "var(--font-body)",
         }}
       />

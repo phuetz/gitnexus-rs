@@ -21,7 +21,7 @@ export function EndpointsView() {
     staleTime: 60_000,
   });
 
-  const all = data ?? [];
+  const all = useMemo(() => data ?? [], [data]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return all.filter((e) => {

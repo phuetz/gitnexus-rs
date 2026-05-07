@@ -1,19 +1,24 @@
-import { MessageSquare, Code2, Network, Skull, Zap, Flame, Share2, GitBranch, Cpu, Search, BookMarked } from "lucide-react";
+import {
+  MessageSquare,
+  Code2,
+  Network,
+  Skull,
+  Zap,
+  Flame,
+  Share2,
+  BookMarked,
+  Map,
+  Link2,
+  ClipboardList,
+  Puzzle,
+  type LucideIcon,
+} from "lucide-react";
 import { useI18n } from "../../hooks/use-i18n";
 import { StaggerContainer, StaggerItem } from "../shared/motion";
 import { useQuery } from "@tanstack/react-query";
 import { commands } from "../../lib/tauri-commands";
 import { useAppStore } from "../../stores/app-store";
 import { toast } from "sonner";
-
-// Slash command shortcuts shown as quick chips
-export const SLASH_COMMANDS = [
-  { cmd: "/expliquer ", label: "/expliquer", hint: "Expliquer un module", icon: "📖" },
-  { cmd: "/algorithme ", label: "/algorithme", hint: "Décrire l'algorithme", icon: "⚙️" },
-  { cmd: "/impact ", label: "/impact", hint: "Analyser le blast radius", icon: "💥" },
-  { cmd: "/architecture ", label: "/architecture", hint: "Vue d'ensemble", icon: "🏗️" },
-  { cmd: "/diagramme ", label: "/diagramme", hint: "Générer un diagramme", icon: "📊" },
-];
 
 const SUGGESTIONS = [
   {
@@ -106,13 +111,13 @@ export function ChatSuggestions({ onSelect }: Props) {
     }
   };
 
-  const recipeIcons: Record<string, string> = {
-    detect_impact: "💥",
-    generate_map: "🗺️",
-    analyze_hotspots: "🔥",
-    find_dead_code: "💀",
-    trace_dependencies: "🔗",
-    describe_process: "📋",
+  const recipeIcons: Record<string, LucideIcon> = {
+    detect_impact: Network,
+    generate_map: Map,
+    analyze_hotspots: Flame,
+    find_dead_code: Skull,
+    trace_dependencies: Link2,
+    describe_process: ClipboardList,
   };
 
   return (
@@ -120,7 +125,7 @@ export function ChatSuggestions({ onSelect }: Props) {
       className="flex flex-col items-center justify-center h-full"
       style={{
         padding: "40px 24px",
-        background: "radial-gradient(ellipse at 50% 40%, rgba(106,161,248,0.04) 0%, transparent 60%)",
+        background: "var(--bg-0)",
       }}
     >
       <div
@@ -234,37 +239,40 @@ export function ChatSuggestions({ onSelect }: Props) {
               width: "100%",
             }}
           >
-            {promptList.prompts.map((p) => (
-              <button
-                key={p.name}
-                onClick={() => handleRecipe(p.name, p.arguments)}
-                title={p.description}
-                className="flex items-center gap-2 rounded-lg transition-all"
-                style={{
-                  padding: "8px 10px",
-                  background: "var(--surface)",
-                  border: "1px solid var(--surface-border)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontSize: 11,
-                  color: "var(--text-2)",
-                  fontFamily: "inherit",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--surface-hover)";
-                  e.currentTarget.style.borderColor = "var(--surface-border-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "var(--surface)";
-                  e.currentTarget.style.borderColor = "var(--surface-border)";
-                }}
-              >
-                <span style={{ fontSize: 14 }}>{recipeIcons[p.name] ?? "🧩"}</span>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5 }}>
-                  {p.name}
-                </span>
-              </button>
-            ))}
+            {promptList.prompts.map((p) => {
+              const Icon = recipeIcons[p.name] ?? Puzzle;
+              return (
+                <button
+                  key={p.name}
+                  onClick={() => handleRecipe(p.name, p.arguments)}
+                  title={p.description}
+                  className="flex items-center gap-2 rounded-lg transition-all"
+                  style={{
+                    padding: "8px 10px",
+                    background: "var(--surface)",
+                    border: "1px solid var(--surface-border)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: 11,
+                    color: "var(--text-2)",
+                    fontFamily: "inherit",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--surface-hover)";
+                    e.currentTarget.style.borderColor = "var(--surface-border-hover)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "var(--surface)";
+                    e.currentTarget.style.borderColor = "var(--surface-border)";
+                  }}
+                >
+                  <Icon size={13} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5 }}>
+                    {p.name}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </>
       )}

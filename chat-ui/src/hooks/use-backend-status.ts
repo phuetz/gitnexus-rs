@@ -69,17 +69,15 @@ export function useBackendStatus(
 
   // Persist the timeout id across renders so we never leak a timer.
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Bumped on unmount so a late probe response can be discarded.
-  const generationRef = useRef(0);
 
   useEffect(() => {
-    const myGeneration = ++generationRef.current;
+    let cancelled = false;
 
     const probe = async () => {
       const startedAt = Date.now();
       try {
         const result = await mcpClient.health();
-        if (myGeneration !== generationRef.current) return; // unmounted
+        if (cancelled) return;
 
         const succeededAt = Date.now();
         setHealth({
@@ -92,7 +90,7 @@ export function useBackendStatus(
           nextProbeAt: succeededAt + pollIntervalMs,
         });
       } catch (err) {
-        if (myGeneration !== generationRef.current) return;
+        if (cancelled) return;
 
         const failedAt = Date.now();
         const reason = err instanceof Error ? err.message : String(err);
@@ -105,13 +103,13 @@ export function useBackendStatus(
           lastSuccessAt: prev.lastSuccessAt,
           lastAttemptAt: failedAt,
           nextProbeAt: failedAt + pollIntervalMs,
-          message:
-            prev.lastSuccessAt > 0
-              ? `Serveur injoignable depuis ${formatAge(failedAt - prev.lastSuccessAt)}. ${reason}`
-              : `Serveur injoignable. Lance \`gitnexus serve --http 8080\` puis recharge la page. (${reason})`,
+          message: formatBackendOfflineMessage(
+            reason,
+            prev.lastSuccessAt > 0 ? failedAt - prev.lastSuccessAt : null,
+          ),
         }));
       } finally {
-        if (myGeneration === generationRef.current) {
+        if (!cancelled) {
           // Schedule the next probe — re-using a single chained setTimeout
           // is more reliable than setInterval (no overlapping requests, no
           // drift if /health hangs).
@@ -125,7 +123,7 @@ export function useBackendStatus(
     timerRef.current = setTimeout(probe, initialDelayMs);
 
     return () => {
-      generationRef.current++;
+      cancelled = true;
       if (timerRef.current !== null) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -141,4 +139,16 @@ function formatAge(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
   if (ms < 60 * 60_000) return `${Math.round(ms / 60_000)} min`;
   return `${Math.round(ms / (60 * 60_000))} h`;
+}
+
+export function formatBackendOfflineMessage(reason: string, offlineForMs: number | null): string {
+  const proxyHint = /\b502\b|bad gateway/i.test(reason)
+    ? ' Un 502 indique souvent que le proxy Vite pointe vers un backend arrêté ou vers le mauvais port.'
+    : '';
+
+  if (offlineForMs !== null) {
+    return `Serveur injoignable depuis ${formatAge(offlineForMs)}.${proxyHint} ${reason}`.trim();
+  }
+
+  return `Serveur injoignable.${proxyHint} Lance \`.\\gitnexus.cmd chat -RestartBackend\` depuis le dépôt, ou \`.\\gitnexus.cmd doctor\` pour vérifier les ports. (${reason})`;
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { FileText, FilePen, ShieldCheck, X, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useSfd } from '../../hooks/use-sfd';
 import { useChatStore } from '../../stores/chat-store';
@@ -16,10 +16,11 @@ import type { SfdValidationIssue, SfdValidationPageReport } from '../../api/mcp-
  */
 export function SfdDraftsPanel() {
   const open = useChatStore((s) => s.isSfdPanelOpen);
-  const close = useChatStore((s) => () => s.setSfdPanelOpen(false));
+  const setSfdPanelOpen = useChatStore((s) => s.setSfdPanelOpen);
   const repo = useChatStore((s) => s.selectedRepo);
-  const sfd = useSfd(repo);
+  const sfd = useSfd(open ? repo : null);
   const [scope, setScope] = useState<'all' | 'drafts'>('drafts');
+  const close = useCallback(() => setSfdPanelOpen(false), [setSfdPanelOpen]);
 
   if (!open) return null;
 

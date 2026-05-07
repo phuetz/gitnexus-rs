@@ -5,7 +5,9 @@ Intelligence de code basée sur un graphe de connaissances pour agents IA. GitNe
 Écrit en Rust. Supporte 14 langages de programmation. Livré avec une application desktop et un générateur de documentation HTML.
 
 [English version](README.md)
+[Guide d'installation](INSTALLATION.md)
 [Feuille de route de modernisation](MODERNIZATION.md)
+[Plan navigation React sources/graphe](REACT_SOURCE_GRAPH_NAVIGATION.md)
 
 ## Pourquoi GitNexus ? (vs un assistant IA seul)
 
@@ -37,6 +39,7 @@ C'est la différence entre demander à quelqu'un de **lire un livre** et lui don
 - **Support avancé ASP.NET MVC 5** — Controllers, actions, vues Razor, Entity Framework 6 EDMX, grilles Telerik/Kendo, mapping jQuery/AJAX, détection couche service/repository (voir ci-dessous)
 - **Générateur de documentation HTML** — Site "DeepWiki" professionnel avec recherche plein texte (Ctrl+K), icônes Lucide, sidebar dynamique, coloration syntaxique, boutons copier, estimation du temps de lecture et liens de références croisées automatiques entre les symboles.
 - **UX Interactive** — Application mono-page (SPA) avec support de l'historique du navigateur, fil d'Ariane, navigation Précédent/Suivant, scroll spy TOC, design responsive et diagrammes Mermaid interactifs (zoom/plein écran).
+- **Chat de documentation** — Les sites HTML générés incluent un assistant connecté au graphe, avec rendu Markdown, code colorisé, diagrammes Mermaid et exports de conversation en Markdown ou PDF imprimable.
 - **Documentation de Processus Métier** — Génération automatique de rapports fonctionnels de haut niveau (B1-B5) pour les flux complexes (Cycle de paiement, Moteur de calcul, Génération de documents), incluant des diagrammes de séquence et de flux Mermaid détaillés.
 - **Enrichissement LLM** — Mode `--enrich` optionnel qui augmente la documentation avec de la prose LLM grounded, des payloads JSON structurés, des citations avec provenance et une validation anti-hallucination.
 - **Interroger le code** — Commande CLI `gitnexus ask "question"` pour du Q&A basé sur le graphe avec réponses en streaming.
@@ -90,6 +93,7 @@ Le site HTML inclut :
 - **Pages modèle de données** avec diagrammes de relations par entité et par domaine métier
 - **Guide fonctionnel** avec descriptions métier en français, niveaux de criticité et diagrammes de flux Mermaid
 - **Éléments Interactifs** : Zoom sur les diagrammes Mermaid, fichiers sources cliquables avec copie du chemin, et support de l'historique de navigation
+- **Assistant intégré** : chat sur la documentation générée avec exports Markdown/PDF, horodatage et rendu des diagrammes Mermaid
 - **Thème sombre/clair** avec recherche dans la sidebar, fil d'Ariane et navigation Précédent/Suivant
 
 ## Démarrage Rapide
@@ -136,6 +140,19 @@ build-release.bat desktop   # Desktop uniquement
 ./build-release.sh cli      # CLI uniquement
 ```
 
+Scripts Windows pour travailler en local rapidement :
+
+```powershell
+.\config-chatgpt.cmd        # Configure ChatGPT OAuth avec gpt-5.5
+.\login-chatgpt.cmd         # Connexion OAuth ChatGPT
+.\gitnexus.cmd chat         # Backend 3010 + chat React 5176
+.\gitnexus.cmd chat -ChatPort 5174  # Compatibilite avec un ancien onglet
+.\start-desktop.cmd         # UI desktop + Tauri
+.\check-gitnexus.cmd        # Lint/tests/build principaux
+```
+
+Le chat React affiche le LLM/modèle/niveau de raisonnement actif, horodate les messages, rend Mermaid et le code colorisé, exporte les conversations en Markdown/PDF, et propose un diagnostic copiable quand le backend ou la liste des projets est inaccessible.
+
 ### Compilation avec fonctionnalités optionnelles
 
 ```bash
@@ -173,7 +190,26 @@ Créer `~/.gitnexus/chat-config.json` :
 }
 ```
 
-Fournisseurs supportés : **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, pas de clé API nécessaire).
+Fournisseurs supportés : **Gemini**, **OpenAI**, **Anthropic**, **OpenRouter**, **Ollama** (local, pas de clé API nécessaire) et **ChatGPT** via le flux OAuth de type Codex pour `gitnexus ask` / le chat `gitnexus serve`. `--enrich` reste sur les fournisseurs API-key compatibles OpenAI.
+
+Pour utiliser votre abonnement ChatGPT au lieu d'une clé API avec `gitnexus ask` et le chat web lancé par `gitnexus serve` :
+
+```bash
+gitnexus login
+```
+
+Puis configurer `~/.gitnexus/chat-config.json` avec le fournisseur ChatGPT. `api_key` reste volontairement vide : le jeton est chargé depuis la connexion OAuth créée ci-dessus.
+
+```json
+{
+  "provider": "chatgpt",
+  "api_key": "",
+  "base_url": "https://chatgpt.com/backend-api/codex",
+  "model": "gpt-5.5",
+  "max_tokens": 8192,
+  "reasoning_effort": "high"
+}
+```
 
 Les trois champs optionnels `big_context_*` routent les pages volumineuses (≥ `big_context_threshold_bytes` de markdown brut, défaut 40 Ko) vers un modèle long-contexte pour échapper au plafond de 65K tokens en sortie de Gemini 2.5 Flash qui provoque les troncatures `finish_reason: length`. Tous les appels LLM pour cette page (mode sectionné, monolithique, fallback freeform, passe de revue) utilisent le modèle de substitution. Laisser ces champs vides conserve le comportement mono-modèle historique.
 
@@ -362,8 +398,12 @@ gitnexus mcp
 gitnexus setup
 
 # Serveur HTTP
-gitnexus serve         # Port 3000 par défaut
+gitnexus serve         # Port 3010 par défaut
 ```
+
+`gitnexus serve` écoute par défaut sur `127.0.0.1`. Si vous le liez à une
+interface réseau comme `0.0.0.0`, définissez d'abord `GITNEXUS_HTTP_TOKEN` ;
+le serveur refuse les binds non-loopback sans ce jeton bearer.
 
 ### Autres commandes
 
@@ -472,7 +512,7 @@ Un serveur [Model Context Protocol](https://modelcontextprotocol.io/) standard e
 
 ```bash
 gitnexus mcp          # transport stdio
-gitnexus serve        # transport HTTP (port 3000)
+gitnexus serve        # transport HTTP (port 3010)
 gitnexus setup        # Configuration automatique dans votre éditeur
 ```
 

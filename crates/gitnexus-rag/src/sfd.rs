@@ -117,8 +117,7 @@ pub fn write_draft(repo_path: &Path, page: &str, content: &str) -> Result<DraftW
         .with_context(|| format!("create drafts dir: {}", drafts_dir.display()))?;
     let target = drafts_dir.join(trimmed);
     let tmp = target.with_extension("md.tmp");
-    std::fs::write(&tmp, content)
-        .with_context(|| format!("write draft tmp: {}", tmp.display()))?;
+    std::fs::write(&tmp, content).with_context(|| format!("write draft tmp: {}", tmp.display()))?;
     std::fs::rename(&tmp, &target)
         .with_context(|| format!("rename {} -> {}", tmp.display(), target.display()))?;
     Ok(DraftWritten {

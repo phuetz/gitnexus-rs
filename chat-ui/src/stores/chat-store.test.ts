@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { migratePersistedChatState, useChatStore } from './chat-store';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('chat-store persistence', () => {
   it('does not persist transient UI and streaming state', () => {
@@ -108,5 +112,40 @@ describe('chat-store persistence', () => {
       selectedRepoName: null,
       inputDraft: '',
     });
+  });
+
+  it('orders persisted and updated sessions by recent activity', () => {
+    const migrated = migratePersistedChatState({
+      sessions: [
+        { id: 'old', title: 'Ancienne', createdAt: 1000, updatedAt: 1000, messages: [] },
+        { id: 'new', title: 'Récente', createdAt: 1000, updatedAt: 2000, messages: [] },
+      ],
+      currentSessionId: 'missing',
+    });
+
+    expect(migrated.sessions.map((session) => session.id)).toEqual(['new', 'old']);
+    expect(migrated.currentSessionId).toBe('new');
+
+    vi.useFakeTimers();
+    vi.setSystemTime(5000);
+    useChatStore.setState({
+      sessions: migrated.sessions,
+      currentSessionId: 'old',
+      selectedRepo: null,
+      selectedRepoName: null,
+      inputDraft: '',
+      isStreaming: false,
+      isSfdPanelOpen: false,
+    });
+
+    useChatStore.getState().appendMessage('old', {
+      id: 'm1',
+      role: 'user',
+      content: 'Nouvelle question',
+      createdAt: 5000,
+    });
+
+    expect(useChatStore.getState().sessions.map((session) => session.id)).toEqual(['old', 'new']);
+    expect(useChatStore.getState().sessions[0].updatedAt).toBe(5000);
   });
 });

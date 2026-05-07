@@ -17,6 +17,38 @@ describe('MCPClient errors', () => {
     );
   });
 
+  it('redacts provider secrets from HTTP error bodies', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            [
+              'provider failed',
+              'Authorization: Bearer sk-proj-1234567890abcdef',
+              'api_key=AIzaSyD9exampleKeySecret1234567890',
+              'refresh_token=ya29.refreshTokenSecret1234567890',
+            ].join('\n'),
+            { status: 500, statusText: 'Internal Server Error' }
+          )
+      )
+    );
+
+    let message = '';
+    try {
+      await new MCPClient('http://127.0.0.1:3010').listRepos();
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain('Bearer [redacted]');
+    expect(message).toContain('[redacted-google-key]');
+    expect(message).toContain('refresh_token=[redacted-google-token]');
+    expect(message).not.toContain('sk-proj-1234567890abcdef');
+    expect(message).not.toContain('AIzaSyD9exampleKeySecret1234567890');
+    expect(message).not.toContain('ya29.refreshTokenSecret1234567890');
+  });
+
   it('turns fetch failures into actionable backend messages', async () => {
     vi.stubGlobal(
       'fetch',

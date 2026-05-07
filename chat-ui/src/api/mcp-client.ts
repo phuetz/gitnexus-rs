@@ -374,12 +374,24 @@ class SseDone extends Error {
 }
 
 function formatErrorBody(body: string): string {
-  const trimmed = body.trim();
+  const trimmed = sanitizeErrorBody(body.trim());
   if (!trimmed) return '';
   const singleLine = trimmed.replace(/\s+/g, ' ');
   const truncated =
     singleLine.length > 300 ? `${singleLine.slice(0, 300)}...` : singleLine;
   return ` Réponse: ${truncated}`;
+}
+
+function sanitizeErrorBody(body: string): string {
+  return body
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, 'Bearer [redacted]')
+    .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, '[redacted-openai-key]')
+    .replace(/\bAIza[A-Za-z0-9_-]{20,}\b/g, '[redacted-google-key]')
+    .replace(/\bya29\.[A-Za-z0-9._-]{12,}\b/g, '[redacted-google-token]')
+    .replace(
+      /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization)(["'\s:=]+)([A-Za-z0-9._~+/=-]{8,})/gi,
+      '$1$2[redacted]'
+    );
 }
 
 export const mcpClient = new MCPClient();

@@ -208,6 +208,10 @@ export function MermaidBlock({ text }: Props) {
         </div>
       )}
 
+      <pre data-print-mermaid-source style={{ display: 'none' }}>
+        <code>{text}</code>
+      </pre>
+
       {expanded && svg && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"

@@ -100,8 +100,88 @@ describe('exportPdf', () => {
 
     const html = written.join('');
     expect(html).toContain('Outils: search_code (done), trace_files (error)');
+    expect(html).toContain('print-diagram-mermaid');
+    expect(html).toContain('Diagramme Mermaid (source)');
     expect(html).toContain('flowchart TD');
     expect(popup.print).toHaveBeenCalled();
+  });
+
+  it('sanitizes invisible PDF-hostile characters before printing', () => {
+    const written: string[] = [];
+    const popup = {
+      document: {
+        open: vi.fn(),
+        write: vi.fn((html: string) => written.push(html)),
+        close: vi.fn(),
+      },
+      focus: vi.fn(),
+      print: vi.fn(),
+      setTimeout: vi.fn((callback: () => void) => {
+        callback();
+        return 0;
+      }),
+    };
+    vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+
+    exportPdf(
+      {
+        ...session,
+        messages: [
+          ...session.messages,
+          {
+            id: 'm3',
+            role: 'assistant',
+            content: 'Texte avec zero\u200B width et variation\uFE0F selector.',
+            createdAt: 1774507069000,
+          },
+        ],
+      },
+      { repo: 'Alise_v2', llm: null },
+      null
+    );
+
+    const html = written.join('');
+    expect(html).not.toContain('\u200B');
+    expect(html).not.toContain('\uFE0F');
+    expect(html).toContain('Texte avec zero width et variation selector.');
+  });
+
+  it('prepares rendered Mermaid fallbacks and source references for print', () => {
+    const written: string[] = [];
+    const popup = {
+      document: {
+        open: vi.fn(),
+        write: vi.fn((html: string) => written.push(html)),
+        close: vi.fn(),
+      },
+      focus: vi.fn(),
+      print: vi.fn(),
+      setTimeout: vi.fn((callback: () => void) => {
+        callback();
+        return 0;
+      }),
+    };
+    const transcript = document.createElement('div');
+    transcript.innerHTML = `
+      <section>
+        <p><button>CCAS.Alise.BAL/Courrier/CourriersService.cs:42</button></p>
+        <button aria-label="Copier"><svg></svg></button>
+        <div data-testid="mermaid-block">
+          <div data-testid="mermaid-loading">Rendu...</div>
+          <pre data-print-mermaid-source style="display:none"><code>flowchart TD
+A --> B</code></pre>
+        </div>
+      </section>
+    `;
+    vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+
+    exportPdf(session, { repo: 'Alise_v2', llm: null }, transcript);
+
+    const html = written.join('');
+    expect(html).toContain('class="print-source-ref"');
+    expect(html).toContain('CCAS.Alise.BAL/Courrier/CourriersService.cs:42');
+    expect(html).toContain('data-print-visible="true"');
+    expect(html).not.toContain('aria-label="Copier"');
   });
 });
 

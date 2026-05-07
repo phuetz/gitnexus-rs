@@ -51,7 +51,7 @@ Le client web autonome est centre sur la conversation et possede maintenant un p
 - rendu Markdown;
 - rendu Mermaid;
 - coloration syntaxique;
-- exports Markdown/PDF;
+- exports Markdown/PDF avec metadata projet/LLM/date, code, tables, citations source et fallback Mermaid;
 - diagnostics backend.
 - bouton `Explorer`;
 - navigation dans l'arbre des fichiers;

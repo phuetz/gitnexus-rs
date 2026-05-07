@@ -188,6 +188,15 @@ Produire sans ouvrir le navigateur:
 
 Le site genere contient la navigation, la recherche, les diagrammes Mermaid, les extraits de code, le chat de documentation et les exports Markdown/PDF des conversations.
 
+### Exports PDF
+
+Deux exports PDF existent:
+
+- dans le chat React, le bouton imprimante ouvre une version imprimable de la conversation avec metadata projet/LLM/date, code lisible, tables, citations source et diagrammes Mermaid deja rendus;
+- dans la CLI, `gitnexus generate pdf --input <markdown>` produit un PDF A4 via Chromium/Playwright et attend les diagrammes Mermaid, les polices et les images avant capture.
+
+Les exports nettoient les caracteres invisibles qui peuvent perturber les moteurs PDF. Si un diagramme Mermaid ne peut pas etre rendu, GitNexus conserve la source du diagramme dans le document au lieu de produire un bloc vide.
+
 ## 9. Compiler depuis les sources
 
 Compiler la CLI en debug:

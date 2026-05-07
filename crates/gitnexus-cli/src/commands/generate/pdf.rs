@@ -60,7 +60,7 @@ pub(super) fn generate_pdf_from_input(input_path: &Path, output_path: &Path) -> 
     }
 
     // Extract metadata from the first document
-    let metadata = extract_metadata(&md_files[0].2);
+    let metadata = extract_metadata(&sanitize_pdf_markdown(&md_files[0].2));
 
     generate_pdf(&md_files, output_path, &metadata)
 }
@@ -90,7 +90,8 @@ fn generate_pdf(
     // Step 1: Convert each markdown to HTML body fragments
     let mut body_sections = Vec::new();
     for (name, _path, content) in md_files {
-        let section_html = markdown_to_html(content);
+        let sanitized = sanitize_pdf_markdown(content);
+        let section_html = markdown_to_html(&sanitized);
         body_sections.push((name.clone(), section_html));
     }
 
@@ -276,6 +277,14 @@ fn extract_table_value(row: &str) -> String {
     } else {
         String::new()
     }
+}
+
+fn sanitize_pdf_markdown(content: &str) -> String {
+    content
+        .replace('\u{200B}', "")
+        .replace('\u{200C}', "")
+        .replace('\u{200D}', "")
+        .replace('\u{FE0F}', "")
 }
 
 fn chrono_date() -> String {
@@ -490,19 +499,7 @@ fn build_full_html(metadata: &PdfMetadata, toc_html: &str, body_html: &str) -> S
   </div>
 
   <script>
-    // Initialize mermaid
-    mermaid.initialize({{ theme: 'default', startOnLoad: false, securityLevel: 'loose' }});
-
-    // Convert <pre><code class="language-mermaid"> to <div class="mermaid">
-    document.querySelectorAll('pre code.language-mermaid').forEach(function(block) {{
-      var div = document.createElement('div');
-      div.className = 'mermaid';
-      div.textContent = block.textContent;
-      block.parentElement.replaceWith(div);
-    }});
-
-    // Run mermaid rendering
-    mermaid.run();
+{mermaid_bootstrap}
   </script>
 </body>
 </html>"#,
@@ -513,6 +510,7 @@ fn build_full_html(metadata: &PdfMetadata, toc_html: &str, body_html: &str) -> S
         author_line = author_line,
         toc_html = toc_html,
         body_html = body_html,
+        mermaid_bootstrap = MERMAID_BOOTSTRAP_JS,
     )
 }
 
@@ -527,7 +525,11 @@ const CSS_CORPORATE: &str = r#"
     }
 
     /* ─── Base typography ───────────────────────────────────── */
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
 
     body {
       font-family: 'Segoe UI', Calibri, 'Helvetica Neue', Arial, sans-serif;
@@ -653,6 +655,11 @@ const CSS_CORPORATE: &str = r#"
       margin-bottom: 12px;
     }
 
+    h2, h3, h4 {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+
     h3 {
       font-size: 12pt;
       color: #2a5a8a;
@@ -720,7 +727,10 @@ const CSS_CORPORATE: &str = r#"
       overflow-x: auto;
       font-size: 9pt;
       line-height: 1.45;
-      page-break-inside: avoid;
+      overflow-wrap: anywhere;
+      page-break-inside: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     code {
       font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
@@ -734,14 +744,50 @@ const CSS_CORPORATE: &str = r#"
     }
 
     /* ─── Mermaid diagrams ──────────────────────────────────── */
-    .mermaid {
+    .mermaid,
+    .mermaid-figure {
       page-break-inside: avoid;
-      text-align: center;
+      break-inside: avoid;
+    }
+    .mermaid-figure {
       margin: 1.5em 0;
+    }
+    .mermaid {
+      text-align: center;
       padding: 16px;
       background: #fafbfc;
       border: 1px solid #e8e8e8;
       border-radius: 4px;
+    }
+    .mermaid-caption {
+      color: #555;
+      font-size: 8.5pt;
+      font-weight: 700;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .mermaid-source {
+      margin-top: 8px;
+    }
+    .mermaid-source summary {
+      color: #7a4a00;
+      cursor: pointer;
+      font-size: 8.5pt;
+      font-weight: 700;
+    }
+    .mermaid-source pre {
+      background: #fff8e6;
+      border-left-color: #ff9800;
+      margin-top: 6px;
+    }
+    .mermaid-error .mermaid {
+      border-color: #ffb74d;
+      color: #7a4a00;
+      font-size: 9pt;
+      min-height: 32px;
+    }
+    .mermaid-error .mermaid::before {
+      content: "Diagramme Mermaid non rendu dans cet environnement. Source ci-dessous.";
     }
 
     /* ─── Lists ─────────────────────────────────────────────── */
@@ -750,7 +796,13 @@ const CSS_CORPORATE: &str = r#"
       padding-left: 24px;
     }
     li {
+      break-inside: avoid;
       margin-bottom: 3px;
+    }
+
+    img {
+      break-inside: avoid;
+      max-width: 100%;
     }
 
     /* ─── Horizontal rules ──────────────────────────────────── */
@@ -796,6 +848,76 @@ const CSS_CORPORATE: &str = r#"
       table { break-inside: auto; }
       tr { break-inside: avoid; }
     }
+"#;
+
+const MERMAID_BOOTSTRAP_JS: &str = r#"
+    (function () {
+      window.__gitnexusMermaidReady = false;
+
+      function createCodeBlock(source) {
+        var pre = document.createElement('pre');
+        var code = document.createElement('code');
+        code.textContent = source;
+        pre.appendChild(code);
+        return pre;
+      }
+
+      function revealSource(figure) {
+        figure.classList.add('mermaid-error');
+        var source = figure.querySelector('.mermaid-source');
+        if (source) {
+          source.open = true;
+        }
+      }
+
+      document.querySelectorAll('pre code.language-mermaid, pre code.language-mmd').forEach(function (block) {
+        var source = block.textContent || '';
+        var figure = document.createElement('figure');
+        figure.className = 'mermaid-figure';
+
+        var caption = document.createElement('figcaption');
+        caption.className = 'mermaid-caption';
+        caption.textContent = 'Diagramme Mermaid';
+
+        var diagram = document.createElement('div');
+        diagram.className = 'mermaid';
+        diagram.textContent = source;
+
+        var details = document.createElement('details');
+        details.className = 'mermaid-source';
+        var summary = document.createElement('summary');
+        summary.textContent = 'Source Mermaid';
+        details.appendChild(summary);
+        details.appendChild(createCodeBlock(source));
+
+        figure.appendChild(caption);
+        figure.appendChild(diagram);
+        figure.appendChild(details);
+        if (block.parentElement) {
+          block.parentElement.replaceWith(figure);
+        }
+      });
+
+      if (!window.mermaid) {
+        document.querySelectorAll('.mermaid-figure').forEach(revealSource);
+        window.__gitnexusMermaidReady = true;
+        return;
+      }
+
+      window.mermaid.initialize({
+        theme: 'default',
+        startOnLoad: false,
+        securityLevel: 'strict'
+      });
+
+      Promise.resolve(window.mermaid.run({ querySelector: '.mermaid' }))
+        .catch(function () {
+          document.querySelectorAll('.mermaid-figure').forEach(revealSource);
+        })
+        .finally(function () {
+          window.__gitnexusMermaidReady = true;
+        });
+    })();
 "#;
 
 // ─── Playwright orchestration ─────────────────────────────────────────────
@@ -1003,5 +1125,34 @@ mod tests {
             extract_table_value("| **Date** | 12/04/2026 |"),
             "12/04/2026"
         );
+    }
+
+    #[test]
+    fn test_sanitize_pdf_markdown_removes_invisible_chars() {
+        assert_eq!(
+            sanitize_pdf_markdown("A\u{200B}B\u{200C}C\u{200D}D\u{FE0F}"),
+            "ABCD"
+        );
+    }
+
+    #[test]
+    fn test_build_full_html_uses_safe_mermaid_bootstrap() {
+        let metadata = PdfMetadata {
+            title: "Doc".into(),
+            subtitle: "Sub".into(),
+            version: String::new(),
+            date: "01/01/2026".into(),
+            author: String::new(),
+        };
+        let html = build_full_html(
+            &metadata,
+            "",
+            "<pre><code class=\"language-mermaid\">flowchart TD\nA --> B</code></pre>",
+        );
+
+        assert!(html.contains("securityLevel: 'strict'"));
+        assert!(html.contains("__gitnexusMermaidReady"));
+        assert!(html.contains("mermaid-source"));
+        assert!(html.contains("print-color-adjust: exact"));
     }
 }

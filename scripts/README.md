@@ -22,7 +22,9 @@ Ce lanceur :
 
 Le client chat indique le LLM actif, horodate les questions/reponses, rend le
 Markdown, le code colore et les diagrammes Mermaid, puis exporte les conversations
-en Markdown ou PDF. Le bouton `Explorer` ouvre la navigation read-only dans les
+en Markdown ou PDF imprimable. L'export PDF conserve les diagrammes rendus,
+les blocs de code, les tables et les citations source; si Mermaid echoue, la
+source du diagramme reste visible dans le document. Le bouton `Explorer` ouvre la navigation read-only dans les
 sources indexees et dans le voisinage graphe d'un symbole. En cas de `502` sur la liste des projets, le panneau d'erreur
 propose un diagnostic copiable avec les commandes de reprise.
 
@@ -125,6 +127,11 @@ La commande `docs` ouvre automatiquement le site HTML genere. Ajoutez
 `-NoBrowser` pour produire les fichiers sans ouvrir de fenetre.
 Le chat integre du site HTML genere peut copier ou telecharger le transcript
 Markdown, et ouvrir une version imprimable pour produire un PDF.
+Pour un PDF de documentation complet depuis Markdown, utilisez aussi:
+
+```powershell
+.\gitnexus.cmd generate pdf --input D:\chemin\vers\docs
+```
 
 ## Tout verifier
 

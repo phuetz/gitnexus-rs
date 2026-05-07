@@ -1287,6 +1287,7 @@ fn build_html_template(
         </div>
         <div class="chat-actions">
           <button class="chat-icon-button" onclick="copyChatTranscript()" title="Copier la conversation en Markdown" aria-label="Copier la conversation en Markdown"><i data-lucide="copy" style="width:15px;height:15px;"></i></button>
+          <button class="chat-icon-button" onclick="printChatTranscript()" title="Exporter la conversation en PDF" aria-label="Exporter la conversation en PDF"><i data-lucide="printer" style="width:15px;height:15px;"></i></button>
           <button class="chat-icon-button chat-close" onclick="toggleChat()" title="Fermer le chat" aria-label="Fermer le chat"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
         </div>
       </div>
@@ -2345,6 +2346,55 @@ fn build_html_template(
       writeClipboard(lines.join('\n').trim() + '\n', 'Conversation copiée');
     }}
 
+    function printableChatMessageHtml(msg) {{
+      const role = msg.classList.contains('user') ? 'Vous' : 'GitNexus';
+      const timestamp = msg.dataset.createdAt ? ' - ' + formatChatTimestamp(msg.dataset.createdAt) : '';
+      const body = chatMessageBody(msg);
+      const html = body.innerHTML || '<pre>' + escapeCodeHtml(getChatMessageText(msg).trim()) + '</pre>';
+      return '<section class="print-message print-message-' + (msg.classList.contains('user') ? 'user' : 'assistant') + '">' +
+        '<h2>' + escapeChatHtml(role + timestamp) + '</h2>' +
+        '<div class="print-body">' + html + '</div>' +
+        '</section>';
+    }}
+
+    function printChatTranscript() {{
+      const project = document.querySelector('header h1')?.textContent || '{project_name}';
+      const messages = Array.from(document.querySelectorAll('#chat-messages .message.user, #chat-messages .message.assistant'));
+      if (!messages.length) {{
+        showToast('Aucune conversation à exporter.');
+        return;
+      }}
+      const popup = window.open('', '_blank', 'width=980,height=760');
+      if (!popup) {{
+        showToast('Fenêtre d\'export PDF bloquée.');
+        return;
+      }}
+      const html = '<!doctype html>' +
+        '<html lang="fr"><head><meta charset="utf-8">' +
+        '<title>' + escapeChatHtml(project) + ' - Conversation GitNexus</title>' +
+        '<style>' +
+        'body {{ margin:32px; background:#fff; color:#111827; font-family:system-ui,-apple-system,Segoe UI,sans-serif; line-height:1.5; }}' +
+        'header {{ border-bottom:1px solid #d1d5db; margin-bottom:20px; padding-bottom:14px; }}' +
+        'h1 {{ font-size:22px; margin:0 0 8px; }} h2 {{ color:#374151; font-size:14px; margin:18px 0 8px; }}' +
+        '.meta {{ color:#4b5563; font-size:12px; }} .print-message {{ break-inside:avoid; margin-bottom:16px; }}' +
+        '.print-body p {{ margin:0 0 8px; }} .print-body ul,.print-body ol {{ padding-left:20px; }}' +
+        'pre {{ background:#f3f4f6; border:1px solid #e5e7eb; border-radius:6px; color:#111827; overflow-wrap:anywhere; padding:10px; white-space:pre-wrap; }}' +
+        'code {{ color:#111827; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }} svg {{ max-width:100%; height:auto; }}' +
+        'button,.copy-btn,.mermaid-actions {{ display:none !important; }} @page {{ margin:18mm; }}' +
+        '</style></head><body>' +
+        '<header><h1>Conversation GitNexus Assistant</h1>' +
+        '<div class="meta">Projet : ' + escapeChatHtml(project) + '</div>' +
+        '<div class="meta">Export : ' + escapeChatHtml(formatChatTimestamp(Date.now())) + '</div>' +
+        '<div class="meta">Messages : ' + messages.length + '</div></header>' +
+        '<main>' + messages.map(printableChatMessageHtml).join('') + '</main>' +
+        '</body></html>';
+      popup.document.open();
+      popup.document.write(html);
+      popup.document.close();
+      popup.focus();
+      popup.setTimeout(function() {{ popup.print(); }}, 350);
+    }}
+
     async function sendChatMessage() {{
       const input = document.getElementById('chat-input');
       const text = input.value.trim();
@@ -2900,6 +2950,9 @@ mod tests {
         assert!(html.contains("function normalizeChatBareMermaid(markdown)"));
         assert!(html.contains("function decodeSseEvent(rawEvent)"));
         assert!(html.contains("function copyChatTranscript()"));
+        assert!(html.contains("function printChatTranscript()"));
+        assert!(html.contains("Exporter la conversation en PDF"));
+        assert!(html.contains("messages.map(printableChatMessageHtml).join('')"));
         assert!(html.contains("body.className = 'message-body';"));
         assert!(html.contains("renderChatMessageContent(loadingMsg, assistantText);"));
         assert!(html.contains("response.headers.get('content-type')"));

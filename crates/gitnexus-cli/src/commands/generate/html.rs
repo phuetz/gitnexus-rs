@@ -1043,6 +1043,12 @@ fn build_html_template(
     .message {{ padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; max-width: 85%; }}
     .message.user {{ background: var(--accent); color: white; align-self: flex-end; border-bottom-right-radius: 2px; }}
     .message.assistant {{ background: var(--bg-sidebar); color: var(--text); align-self: flex-start; border-bottom-left-radius: 2px; }}
+    .message.assistant p {{ margin: 0 0 8px; }}
+    .message.assistant p:last-child {{ margin-bottom: 0; }}
+    .message.assistant h1, .message.assistant h2, .message.assistant h3 {{ margin: 10px 0 6px; font-size: 14px; line-height: 1.3; }}
+    .message.assistant ul, .message.assistant ol {{ margin: 6px 0 8px; padding-left: 18px; }}
+    .message.assistant pre {{ max-width: 100%; overflow-x: auto; }}
+    .message.assistant .code-wrapper, .message.assistant .mermaid {{ margin: 8px 0; }}
     .message.system {{ background: transparent; color: var(--text-muted); align-self: center; text-align: center; font-style: italic; font-size: 12px; }}
     .chat-input-container {{ padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; }}
     #chat-input {{
@@ -2027,6 +2033,8 @@ fn build_html_template(
 
     function setupMermaidZoom() {{
       document.querySelectorAll('.mermaid').forEach(div => {{
+        if (div.dataset.zoomReady === '1') return;
+        div.dataset.zoomReady = '1';
         div.style.position = 'relative';
         div.onclick = (e) => {{
           if (e.target.tagName === 'BUTTON') return;
@@ -2071,6 +2079,196 @@ fn build_html_template(
       const modal = document.getElementById('mermaid-modal');
       modal.classList.remove('open');
       document.body.style.overflow = '';
+    }}
+
+    function escapeChatHtml(value) {{
+      return escapeCodeHtml(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }}
+
+    function normalizeChatFenceLanguage(language) {{
+      var lang = String(language || '').trim().toLowerCase();
+      var aliases = {{
+        'c#': 'csharp',
+        cs: 'csharp',
+        js: 'javascript',
+        ts: 'typescript',
+        py: 'python',
+        sh: 'bash',
+        shell: 'bash',
+        ps1: 'powershell',
+        pwsh: 'powershell',
+        mmd: 'mermaid',
+        mermaidjs: 'mermaid',
+        'mermaid-js': 'mermaid',
+        maimaid: 'mermaid',
+        diagram: 'mermaid',
+        flowchart: 'mermaid',
+        sequence: 'mermaid',
+        sequencediagram: 'mermaid',
+        classdiagram: 'mermaid'
+      }};
+      return aliases[lang] || lang;
+    }}
+
+    function chatLooksLikeMermaid(text) {{
+      return /^\s*(flowchart\s+(TB|TD|BT|RL|LR)|graph\s+(TB|TD|BT|RL|LR)|sequenceDiagram|classDiagram(-v2)?|erDiagram|stateDiagram(-v2)?|gantt|pie\b|mindmap|gitGraph|journey)\b/i.test(text || '');
+    }}
+
+    function isChatMermaidLanguage(language) {{
+      return normalizeChatFenceLanguage(language) === 'mermaid';
+    }}
+
+    function isBareChatMermaidContinuation(line) {{
+      if (!line.trim()) return true;
+      if (/^\s+/.test(line)) return true;
+      return /^\s*(\}}|[+\-#~]\w|subgraph\b|end\b|participant\b|actor\b|autonumber\b|loop\b|alt\b|opt\b|else\b|par\b|and\b|rect\b|note\b|activate\b|deactivate\b|class\b|classDef\b|click\b|style\b|linkStyle\b|title\b|section\b|dateFormat\b|axisFormat\b|todayMarker\b|[A-Za-z0-9_.-]+(\s*(-->|---|-.->|==>|--|:::|::|[-=]+>>[+\-]?|--x|-x|--\)|-\))|\s*[\[\(\{{>]))/i.test(line);
+    }}
+
+    function normalizeChatBareMermaid(markdown) {{
+      var lines = String(markdown || '').split(/\r?\n/);
+      var out = [];
+      var inFence = false;
+      for (var i = 0; i < lines.length; i += 1) {{
+        var line = lines[i];
+        if (/^\s*```/.test(line)) {{
+          inFence = !inFence;
+          out.push(line);
+          continue;
+        }}
+        if (!inFence && chatLooksLikeMermaid(line)) {{
+          out.push('```mermaid');
+          out.push(line);
+          i += 1;
+          while (i < lines.length && isBareChatMermaidContinuation(lines[i])) {{
+            out.push(lines[i]);
+            i += 1;
+          }}
+          while (out[out.length - 1] === '') out.pop();
+          out.push('```');
+          i -= 1;
+          continue;
+        }}
+        out.push(line);
+      }}
+      return out.join('\n');
+    }}
+
+    function renderInlineChatMarkdown(text) {{
+      var codeSpans = [];
+      var withPlaceholders = String(text || '').replace(/`([^`]+)`/g, function(_, code) {{
+        var index = codeSpans.push('<code>' + escapeCodeHtml(code) + '</code>') - 1;
+        return '\u0000CODE' + index + '\u0000';
+      }});
+      var html = escapeCodeHtml(withPlaceholders);
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/\b_([^_]+)_\b/g, '<em>$1</em>');
+      html = html.replace(/\u0000CODE(\d+)\u0000/g, function(_, index) {{
+        return codeSpans[Number(index)] || '';
+      }});
+      return html;
+    }}
+
+    function renderChatCodeBlock(language, code) {{
+      var lang = normalizeChatFenceLanguage(language);
+      if (isChatMermaidLanguage(lang) || chatLooksLikeMermaid(code)) {{
+        return '<pre><code class="language-mermaid">' + escapeCodeHtml(String(code || '').trim()) + '</code></pre>';
+      }}
+      var className = lang ? ' class="language-' + escapeChatHtml(lang.replace(/[^a-z0-9_+#.-]/g, '')) + '"' : '';
+      return '<pre><code' + className + '>' + escapeCodeHtml(code || '') + '</code></pre>';
+    }}
+
+    function renderChatMarkdown(markdown) {{
+      var lines = normalizeChatBareMermaid(markdown).split(/\r?\n/);
+      var html = [];
+      var paragraph = [];
+      var listItems = [];
+      var inFence = false;
+      var fenceLang = '';
+      var fenceLines = [];
+
+      function flushParagraph() {{
+        if (!paragraph.length) return;
+        html.push('<p>' + renderInlineChatMarkdown(paragraph.join(' ')) + '</p>');
+        paragraph = [];
+      }}
+      function flushList() {{
+        if (!listItems.length) return;
+        html.push('<ul>' + listItems.map(function(item) {{
+          return '<li>' + renderInlineChatMarkdown(item) + '</li>';
+        }}).join('') + '</ul>');
+        listItems = [];
+      }}
+
+      lines.forEach(function(line) {{
+        var fence = line.match(/^\s*```\s*([^\s`]*)\s*$/);
+        if (fence) {{
+          if (inFence) {{
+            html.push(renderChatCodeBlock(fenceLang, fenceLines.join('\n')));
+            inFence = false;
+            fenceLang = '';
+            fenceLines = [];
+          }} else {{
+            flushParagraph();
+            flushList();
+            inFence = true;
+            fenceLang = fence[1] || '';
+          }}
+          return;
+        }}
+        if (inFence) {{
+          fenceLines.push(line);
+          return;
+        }}
+        if (!line.trim()) {{
+          flushParagraph();
+          flushList();
+          return;
+        }}
+        var heading = line.match(/^(####|###|##|#)\s+(.+)$/);
+        if (heading) {{
+          flushParagraph();
+          flushList();
+          var level = Math.min(3, heading[1].length);
+          html.push('<h' + level + '>' + renderInlineChatMarkdown(heading[2]) + '</h' + level + '>');
+          return;
+        }}
+        var bullet = line.match(/^\s*[-*]\s+(.+)$/);
+        if (bullet) {{
+          flushParagraph();
+          listItems.push(bullet[1]);
+          return;
+        }}
+        flushList();
+        paragraph.push(line.trim());
+      }});
+      if (inFence) {{
+        html.push(renderChatCodeBlock(fenceLang, fenceLines.join('\n')));
+      }}
+      flushParagraph();
+      flushList();
+      return html.join('');
+    }}
+
+    function renderChatMessageContent(element, markdown) {{
+      element.innerHTML = renderChatMarkdown(markdown);
+      highlightCodeBlocks();
+      addCopyButtons();
+      renderMermaid();
+    }}
+
+    function decodeSseEvent(rawEvent) {{
+      var lines = String(rawEvent || '').replace(/\r\n/g, '\n').split('\n');
+      var eventName = 'message';
+      var dataLines = [];
+      lines.forEach(function(line) {{
+        if (line.startsWith('event:')) eventName = line.slice(6).trim();
+        if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+      }});
+      if (eventName === 'tool_call') return '';
+      var data = dataLines.join('\n');
+      if (!dataLines.length) return rawEvent;
+      if (data === '[DONE]') return '';
+      return data;
     }}
 
     /* Chat Logic */
@@ -2128,16 +2326,34 @@ fn build_html_template(
         const decoder = new TextDecoder();
         loadingMsg.textContent = '';
         loadingMsg.classList.remove('pulse-subtle');
+        const isSse = (response.headers.get('content-type') || '').includes('text/event-stream');
+        let assistantText = '';
+        let sseBuffer = '';
 
         while (true) {{
           const {{ done, value }} = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, {{ stream: true }});
-          // Simple parsing of SSE or raw stream
-          loadingMsg.textContent += chunk;
+          if (isSse) {{
+            sseBuffer += chunk.replace(/\r\n/g, '\n');
+            let boundary = sseBuffer.indexOf('\n\n');
+            while (boundary !== -1) {{
+              const rawEvent = sseBuffer.slice(0, boundary);
+              sseBuffer = sseBuffer.slice(boundary + 2);
+              assistantText += decodeSseEvent(rawEvent);
+              boundary = sseBuffer.indexOf('\n\n');
+            }}
+          }} else {{
+            assistantText += chunk;
+          }}
+          loadingMsg.textContent = assistantText;
           const container = document.getElementById('chat-messages');
           container.scrollTop = container.scrollHeight;
         }}
+        if (isSse && sseBuffer.trim()) {{
+          assistantText += decodeSseEvent(sseBuffer);
+        }}
+        renderChatMessageContent(loadingMsg, assistantText);
       }} catch (err) {{
         loadingMsg.textContent = err?.message || "Désolé, je ne peux pas répondre pour le moment. Assurez-vous que 'gitnexus serve' est en cours d'exécution.";
         loadingMsg.classList.add('error');
@@ -2595,6 +2811,30 @@ mod tests {
         assert!(html.contains(".message.assistant { background: var(--bg-sidebar);"));
         assert!(!html.contains("flexDirection"));
         assert!(!html.contains("var(--bg-3)"));
+    }
+
+    #[test]
+    fn html_template_chat_renders_markdown_code_and_mermaid() {
+        let html = build_html_template(
+            "sample",
+            "1 node",
+            "",
+            "<h1>Overview</h1>",
+            "{}",
+            "[]",
+            "[]",
+            r#"{"pages":[]}"#,
+            "[]",
+            "{}",
+        );
+
+        assert!(html.contains("function renderChatMarkdown(markdown)"));
+        assert!(html.contains("function normalizeChatBareMermaid(markdown)"));
+        assert!(html.contains("function decodeSseEvent(rawEvent)"));
+        assert!(html.contains("renderChatMessageContent(loadingMsg, assistantText);"));
+        assert!(html.contains("response.headers.get('content-type')"));
+        assert!(html.contains("class=\"language-mermaid\""));
+        assert!(html.contains("div.dataset.zoomReady === '1'"));
     }
 
     #[test]

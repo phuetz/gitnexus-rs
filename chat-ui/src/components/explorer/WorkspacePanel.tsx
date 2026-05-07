@@ -22,7 +22,7 @@ import { useChatStore } from '../../stores/chat-store';
 
 type WorkspaceTab = 'sources' | 'graph';
 
-interface SourceTarget {
+export interface SourceTarget {
   path: string;
   startLine?: number;
   endLine?: number;
@@ -30,13 +30,14 @@ interface SourceTarget {
 
 interface WorkspacePanelProps {
   onClose: () => void;
+  initialSourceTarget?: SourceTarget | null;
 }
 
-export function WorkspacePanel({ onClose }: WorkspacePanelProps) {
+export function WorkspacePanel({ onClose, initialSourceTarget = null }: WorkspacePanelProps) {
   const selectedRepo = useChatStore((s) => s.selectedRepo);
   const selectedRepoName = useChatStore((s) => s.selectedRepoName);
   const [tab, setTab] = useState<WorkspaceTab>('sources');
-  const [sourceTarget, setSourceTarget] = useState<SourceTarget | null>(null);
+  const [sourceTarget, setSourceTarget] = useState<SourceTarget | null>(initialSourceTarget);
 
   const openSource = useCallback((target: SourceTarget) => {
     setSourceTarget(target);

@@ -11,6 +11,7 @@ import { useChatStore } from '../../stores/chat-store';
 import { useChat } from '../../hooks/use-chat';
 import { ChatMessage } from './ChatMessage';
 import type { LlmConfigInfo } from '../../api/mcp-client';
+import type { SourceReference } from '../../utils/source-references';
 
 const SUGGESTIONS = [
   {
@@ -51,9 +52,10 @@ const SUGGESTIONS = [
 
 interface Props {
   llm?: LlmConfigInfo | null;
+  onOpenSourceReference?: (reference: SourceReference) => void;
 }
 
-export function ChatMessages({ llm = null }: Props) {
+export function ChatMessages({ llm = null, onOpenSourceReference }: Props) {
   const session = useChatStore((s) => s.getCurrentSession());
   const isStreaming = useChatStore((s) => s.isStreaming);
   const selectedRepo = useChatStore((s) => s.selectedRepo);
@@ -164,6 +166,7 @@ export function ChatMessages({ llm = null }: Props) {
             message={m}
             llm={llm}
             onRegenerate={regenerate}
+            onOpenSourceReference={onOpenSourceReference}
             canRegenerate={
               m.role === 'assistant' &&
               i === session.messages.length - 1 &&

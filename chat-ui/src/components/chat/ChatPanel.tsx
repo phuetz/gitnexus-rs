@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Braces, FileText, MessageSquareText } from 'lucide-react';
 import { ChatSidebar } from './ChatSidebar';
 import { ChatMessages } from './ChatMessages';
@@ -12,18 +12,35 @@ import { SystemDiagnostics } from './SystemDiagnostics';
 import { useChatStore } from '../../stores/chat-store';
 import { useLlmConfig } from '../../hooks/use-llm-config';
 import { formatMessageTimestamp } from '../../utils/dates';
-import { WorkspacePanel } from '../explorer/WorkspacePanel';
+import { WorkspacePanel, type SourceTarget } from '../explorer/WorkspacePanel';
+import type { SourceReference } from '../../utils/source-references';
 
 export function ChatPanel() {
   const session = useChatStore((s) => s.getCurrentSession());
   const isSfdOpen = useChatStore((s) => s.isSfdPanelOpen);
   const setSfdOpen = useChatStore((s) => s.setSfdPanelOpen);
   const [isWorkspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceSeed, setWorkspaceSeed] = useState<{
+    key: number;
+    sourceTarget: SourceTarget | null;
+  }>({ key: 0, sourceTarget: null });
   const llm = useLlmConfig();
   const sessionTitle = session?.title.trim() || 'GitNexus Chat';
   const sessionSubtitle = session
     ? `${session.messages.length} message${session.messages.length > 1 ? 's' : ''} - Dernière activité ${formatMessageTimestamp(session.updatedAt) || 'inconnue'}`
     : 'Analyse de code et recherche outillée';
+
+  const openSourceReference = useCallback((reference: SourceReference) => {
+    setWorkspaceSeed((current) => ({
+      key: current.key + 1,
+      sourceTarget: {
+        path: reference.path,
+        startLine: reference.startLine,
+        endLine: reference.endLine,
+      },
+    }));
+    setWorkspaceOpen(true);
+  }, []);
 
   return (
     <div className="flex h-full w-full bg-neutral-950 text-neutral-100">
@@ -78,9 +95,15 @@ export function ChatPanel() {
         </header>
         <div className="flex min-h-0 flex-1 bg-neutral-950">
           <div className="min-w-0 flex-1">
-            <ChatMessages llm={llm.config} />
+            <ChatMessages llm={llm.config} onOpenSourceReference={openSourceReference} />
           </div>
-          {isWorkspaceOpen && <WorkspacePanel onClose={() => setWorkspaceOpen(false)} />}
+          {isWorkspaceOpen && (
+            <WorkspacePanel
+              key={workspaceSeed.key}
+              initialSourceTarget={workspaceSeed.sourceTarget}
+              onClose={() => setWorkspaceOpen(false)}
+            />
+          )}
         </div>
         <ChatInput />
         <SfdDraftsPanel />

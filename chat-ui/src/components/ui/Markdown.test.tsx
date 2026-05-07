@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Markdown } from './Markdown';
 import { normalizeBareMermaid, normalizeCodeFenceLanguage } from '../../utils/markdown';
+import { linkifySourceReferences } from '../../utils/source-references';
 
 vi.mock('./MermaidBlock', () => ({
   MermaidBlock: ({ text }: { text: string }) => (
@@ -108,5 +109,33 @@ flowchart TD
     render(<Markdown>{'```ts\nconst value: number = 1;\n```'}</Markdown>);
 
     expect(screen.getByText(/const value: number = 1/)).toBeTruthy();
+  });
+});
+
+describe('Markdown source references', () => {
+  it('turns plain source paths into explorer actions', () => {
+    const onOpen = vi.fn();
+
+    render(
+      <Markdown onOpenSourceReference={onOpen}>
+        {'Voir CCAS.Alise.ihm/Controllers/CourrierController.cs:42 pour le controleur.'}
+      </Markdown>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /CourrierController\.cs:42/ }));
+
+    expect(onOpen).toHaveBeenCalledWith({
+      path: 'CCAS.Alise.ihm/Controllers/CourrierController.cs',
+      startLine: 42,
+      endLine: 42,
+    });
+  });
+
+  it('does not linkify source paths inside code fences', () => {
+    const linked = linkifySourceReferences(
+      '```text\nCCAS.Alise.ihm/Controllers/CourrierController.cs:42\n```'
+    );
+
+    expect(linked).not.toContain('gitnexus-source:');
   });
 });

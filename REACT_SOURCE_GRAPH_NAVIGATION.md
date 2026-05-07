@@ -10,6 +10,7 @@ La premiere version web expose un panneau `Explorer` dans le chat:
 
 - onglet `Sources`: arborescence read-only, filtre, apercu source avec numeros de lignes;
 - onglet `Graphe`: recherche de symboles, voisinage graphe, carte SVG cliquable;
+- citations source du chat: les chemins `foo/bar.cs:42` deviennent cliquables;
 - rebond vers le chat: un fichier ou un noeud peut alimenter le brouillon de question.
 
 Cette surface reste volontairement bornee: le navigateur passe par des endpoints HTTP read-only, et le backend refuse les chemins qui sortent du depot indexe.
@@ -58,7 +59,7 @@ Le client web autonome est centre sur la conversation et possede maintenant un p
 - recherche de symboles;
 - voisinage graphe avec carte SVG cliquable.
 
-Il reste a relier automatiquement les citations de fichiers dans les reponses du chat vers cet explorateur.
+Les citations de fichiers simples dans les reponses du chat sont deja reliees a cet explorateur. La prochaine amelioration consiste a enrichir les citations avec les symboles et le graphe quand le backend fournit un `node_id`.
 
 ### Site HTML genere
 
@@ -207,6 +208,8 @@ Transformer les sources et chemins de fichier dans les reponses en actions:
 - ouvrir symbole dans graphe;
 - copier chemin;
 - envoyer au chat.
+
+Statut: fait pour les chemins source simples avec ligne ou plage de lignes. Les liens symbole -> graphe restent a brancher quand la reponse contient un identifiant de noeud exploitable.
 
 Validation:
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MermaidBlock } from './MermaidBlock';
@@ -7,6 +7,11 @@ import {
   normalizeBareMermaid,
   normalizeCodeFenceLanguage,
 } from '../../utils/markdown';
+import {
+  linkifySourceReferences,
+  parseSourceReferenceHref,
+  type SourceReference,
+} from '../../utils/source-references';
 
 const SyntaxCodeBlock = lazy(() =>
   import('./SyntaxCodeBlock').then((m) => ({ default: m.SyntaxCodeBlock }))
@@ -14,13 +19,23 @@ const SyntaxCodeBlock = lazy(() =>
 
 interface Props {
   children: string;
+  onOpenSourceReference?: (reference: SourceReference) => void;
 }
 
-export function Markdown({ children }: Props) {
+export function Markdown({ children, onOpenSourceReference }: Props) {
+  const markdown = useMemo(() => {
+    const normalized = normalizeBareMermaid(children);
+    return onOpenSourceReference ? linkifySourceReferences(normalized) : normalized;
+  }, [children, onOpenSourceReference]);
+  const markdownComponents = useMemo(
+    () => createComponents(onOpenSourceReference),
+    [onOpenSourceReference]
+  );
+
   return (
     <div className="prose prose-invert prose-sm max-w-none prose-pre:bg-transparent prose-pre:border-0 prose-pre:p-0 prose-code:before:content-[''] prose-code:after:content-['']">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {normalizeBareMermaid(children)}
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {markdown}
       </ReactMarkdown>
     </div>
   );
@@ -41,11 +56,38 @@ const MERMAID_LANGUAGE_ALIASES = new Set([
   'classdiagram',
 ]);
 
+function createComponents(onOpenSourceReference?: (reference: SourceReference) => void): Components {
+  return {
+    ...baseComponents,
+    a(props) {
+      const { href, children } = props;
+      const sourceReference = parseSourceReferenceHref(href);
+      if (sourceReference && onOpenSourceReference) {
+        return (
+          <button
+            type="button"
+            onClick={() => onOpenSourceReference(sourceReference)}
+            className="rounded border border-violet-500/30 bg-violet-500/10 px-1 py-0.5 font-mono text-[0.92em] text-violet-200 hover:border-violet-400/60 hover:bg-violet-500/20"
+            title="Ouvrir dans l'explorateur GitNexus"
+          >
+            {children}
+          </button>
+        );
+      }
+      return (
+        <a href={href} target={href?.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
+          {children}
+        </a>
+      );
+    },
+  };
+}
+
 function isMermaidLanguage(language: string | undefined): boolean {
   return !!language && MERMAID_LANGUAGE_ALIASES.has(language.toLowerCase());
 }
 
-const components: Components = {
+const baseComponents: Components = {
   code(props) {
     const { className, children, ...rest } = props;
     const match = /language-([^\s]+)/.exec(className ?? '');

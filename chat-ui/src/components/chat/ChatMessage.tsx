@@ -4,6 +4,7 @@ import { User, Bot, Copy, RotateCcw, Check, Loader2, Wrench, X } from 'lucide-re
 import type { Message, ToolCall } from '../../types/chat';
 import type { LlmConfigInfo } from '../../api/mcp-client';
 import { Markdown } from '../ui/Markdown';
+import type { SourceReference } from '../../utils/source-references';
 import { formatMessageTimestamp } from '../../utils/dates';
 import { copyTextToClipboard } from '../../utils/clipboard';
 
@@ -12,9 +13,16 @@ interface Props {
   llm?: LlmConfigInfo | null;
   onRegenerate?: (messageId: string) => void;
   canRegenerate?: boolean;
+  onOpenSourceReference?: (reference: SourceReference) => void;
 }
 
-export function ChatMessage({ message, llm, onRegenerate, canRegenerate }: Props) {
+export function ChatMessage({
+  message,
+  llm,
+  onRegenerate,
+  canRegenerate,
+  onOpenSourceReference,
+}: Props) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const timestamp = formatMessageTimestamp(message.createdAt);
@@ -112,7 +120,7 @@ export function ChatMessage({ message, llm, onRegenerate, canRegenerate }: Props
               {message.content}
             </div>
           ) : (
-            <Markdown>{message.content}</Markdown>
+            <Markdown onOpenSourceReference={onOpenSourceReference}>{message.content}</Markdown>
           )}
         </div>
       </div>

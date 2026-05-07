@@ -1038,11 +1038,17 @@ fn build_html_template(
       display: flex; justify-content: space-between; align-items: center;
     }}
     .chat-header-title {{ display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }}
+    .chat-actions {{ display:flex; align-items:center; gap:6px; }}
+    .chat-icon-button {{ background:none; border:1px solid transparent; color:var(--text-muted); cursor:pointer; border-radius:6px; padding:4px; display:flex; align-items:center; justify-content:center; }}
+    .chat-icon-button:hover {{ color:var(--text); border-color:var(--border); background:var(--bg); }}
     .chat-close {{ background: none; border: none; color: var(--text-muted); cursor: pointer; }}
     .chat-messages {{ flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }}
     .message {{ padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; max-width: 85%; }}
     .message.user {{ background: var(--accent); color: white; align-self: flex-end; border-bottom-right-radius: 2px; }}
     .message.assistant {{ background: var(--bg-sidebar); color: var(--text); align-self: flex-start; border-bottom-left-radius: 2px; }}
+    .message-meta {{ margin-bottom:6px; font-size:10px; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }}
+    .message.user .message-meta {{ color: rgba(255,255,255,.72); }}
+    .message-body {{ min-width:0; }}
     .message.assistant p {{ margin: 0 0 8px; }}
     .message.assistant p:last-child {{ margin-bottom: 0; }}
     .message.assistant h1, .message.assistant h2, .message.assistant h3 {{ margin: 10px 0 6px; font-size: 14px; line-height: 1.3; }}
@@ -1279,7 +1285,10 @@ fn build_html_template(
           <i data-lucide="bot" style="width:16px;height:16px;"></i>
           <span>GitNexus Assistant</span>
         </div>
-        <button class="chat-close" onclick="toggleChat()"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+        <div class="chat-actions">
+          <button class="chat-icon-button" onclick="copyChatTranscript()" title="Copier la conversation en Markdown" aria-label="Copier la conversation en Markdown"><i data-lucide="copy" style="width:15px;height:15px;"></i></button>
+          <button class="chat-icon-button chat-close" onclick="toggleChat()" title="Fermer le chat" aria-label="Fermer le chat"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+        </div>
       </div>
       <div id="chat-messages" class="chat-messages">
         <div class="message system">
@@ -2249,8 +2258,22 @@ fn build_html_template(
       return html.join('');
     }}
 
+    function chatMessageBody(element) {{
+      return element.querySelector('.message-body') || element;
+    }}
+
+    function setChatMessageText(element, text) {{
+      element.dataset.raw = String(text || '');
+      chatMessageBody(element).textContent = element.dataset.raw;
+    }}
+
+    function getChatMessageText(element) {{
+      return element.dataset.raw || chatMessageBody(element).textContent || '';
+    }}
+
     function renderChatMessageContent(element, markdown) {{
-      element.innerHTML = renderChatMarkdown(markdown);
+      element.dataset.raw = String(markdown || '');
+      chatMessageBody(element).innerHTML = renderChatMarkdown(markdown);
       highlightCodeBlocks();
       addCopyButtons();
       renderMermaid();
@@ -2286,6 +2309,40 @@ fn build_html_template(
         e.preventDefault();
         sendChatMessage();
       }}
+    }}
+
+    function formatChatTimestamp(value) {{
+      var date = value ? new Date(value) : new Date();
+      if (Number.isNaN(date.getTime())) date = new Date();
+      return date.toLocaleString();
+    }}
+
+    function copyChatTranscript() {{
+      const project = document.querySelector('header h1')?.textContent || '{project_name}';
+      const messages = Array.from(document.querySelectorAll('#chat-messages .message.user, #chat-messages .message.assistant'));
+      if (!messages.length) {{
+        showToast('Aucune conversation à copier.');
+        return;
+      }}
+      const lines = [
+        '# Conversation GitNexus Assistant',
+        '',
+        '- Projet: ' + project,
+        '- Export: ' + formatChatTimestamp(Date.now()),
+        '- Messages: ' + messages.length,
+        ''
+      ];
+      messages.forEach(function(msg) {{
+        const role = msg.classList.contains('user') ? 'Vous' : 'GitNexus';
+        const timestamp = msg.dataset.createdAt ? ' - ' + formatChatTimestamp(msg.dataset.createdAt) : '';
+        const content = getChatMessageText(msg).trim();
+        if (!content) return;
+        lines.push('## ' + role + timestamp);
+        lines.push('');
+        lines.push(content);
+        lines.push('');
+      }});
+      writeClipboard(lines.join('\n').trim() + '\n', 'Conversation copiée');
     }}
 
     async function sendChatMessage() {{
@@ -2324,7 +2381,7 @@ fn build_html_template(
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        loadingMsg.textContent = '';
+        setChatMessageText(loadingMsg, '');
         loadingMsg.classList.remove('pulse-subtle');
         const isSse = (response.headers.get('content-type') || '').includes('text/event-stream');
         let assistantText = '';
@@ -2346,7 +2403,7 @@ fn build_html_template(
           }} else {{
             assistantText += chunk;
           }}
-          loadingMsg.textContent = assistantText;
+          setChatMessageText(loadingMsg, assistantText);
           const container = document.getElementById('chat-messages');
           container.scrollTop = container.scrollHeight;
         }}
@@ -2355,7 +2412,7 @@ fn build_html_template(
         }}
         renderChatMessageContent(loadingMsg, assistantText);
       }} catch (err) {{
-        loadingMsg.textContent = err?.message || "Désolé, je ne peux pas répondre pour le moment. Assurez-vous que 'gitnexus serve' est en cours d'exécution.";
+        setChatMessageText(loadingMsg, err?.message || "Désolé, je ne peux pas répondre pour le moment. Assurez-vous que 'gitnexus serve' est en cours d'exécution.");
         loadingMsg.classList.add('error');
       }} finally {{
         sendBtn.disabled = false;
@@ -2366,7 +2423,18 @@ fn build_html_template(
       const container = document.getElementById('chat-messages');
       const div = document.createElement('div');
       div.className = `message ${{role}}`;
-      div.textContent = text;
+      div.dataset.raw = String(text || '');
+      div.dataset.createdAt = new Date().toISOString();
+      if (role !== 'system') {{
+        const meta = document.createElement('div');
+        meta.className = 'message-meta';
+        meta.textContent = `${{role === 'user' ? 'Vous' : 'GitNexus'}} · ${{formatChatTimestamp(div.dataset.createdAt)}}`;
+        div.appendChild(meta);
+      }}
+      const body = document.createElement('div');
+      body.className = 'message-body';
+      body.textContent = div.dataset.raw;
+      div.appendChild(body);
       container.appendChild(div);
       container.scrollTop = container.scrollHeight;
       return div;
@@ -2377,7 +2445,7 @@ fn build_html_template(
       document.querySelectorAll('.message.user, .message.assistant').forEach(msg => {{
         messages.push({{
           role: msg.classList.contains('user') ? 'user' : 'assistant',
-          content: msg.textContent
+          content: getChatMessageText(msg)
         }});
       }});
       return messages.slice(-10);
@@ -2831,8 +2899,11 @@ mod tests {
         assert!(html.contains("function renderChatMarkdown(markdown)"));
         assert!(html.contains("function normalizeChatBareMermaid(markdown)"));
         assert!(html.contains("function decodeSseEvent(rawEvent)"));
+        assert!(html.contains("function copyChatTranscript()"));
+        assert!(html.contains("body.className = 'message-body';"));
         assert!(html.contains("renderChatMessageContent(loadingMsg, assistantText);"));
         assert!(html.contains("response.headers.get('content-type')"));
+        assert!(html.contains("content: getChatMessageText(msg)"));
         assert!(html.contains("class=\"language-mermaid\""));
         assert!(html.contains("div.dataset.zoomReady === '1'"));
     }

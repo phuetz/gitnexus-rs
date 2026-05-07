@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Message, Session, ToolCall } from '../types/chat';
+import type { Message, Role, Session, ToolCall } from '../types/chat';
 
 interface ChatState {
   sessions: Session[];
@@ -34,6 +34,8 @@ type PersistedChatState = Pick<
 >;
 
 const newId = () => crypto.randomUUID();
+const MESSAGE_ROLES: Role[] = ['user', 'assistant', 'system'];
+const TOOL_CALL_STATUSES: ToolCall['status'][] = ['pending', 'running', 'done', 'error'];
 
 function persistedChatState(state: ChatState): PersistedChatState {
   return {
@@ -46,14 +48,125 @@ function persistedChatState(state: ChatState): PersistedChatState {
 }
 
 export function migratePersistedChatState(persistedState: unknown): PersistedChatState {
-  const state = (persistedState ?? {}) as Partial<ChatState>;
+  const state = asRecord(persistedState) ?? {};
+  const sessions = sanitizeSessions(state.sessions);
+  const selectedRepo = readString(state.selectedRepo);
+
   return {
-    sessions: Array.isArray(state.sessions) ? state.sessions : [],
-    currentSessionId: typeof state.currentSessionId === 'string' ? state.currentSessionId : null,
-    selectedRepo: typeof state.selectedRepo === 'string' ? state.selectedRepo : null,
-    selectedRepoName: typeof state.selectedRepoName === 'string' ? state.selectedRepoName : null,
-    inputDraft: typeof state.inputDraft === 'string' ? state.inputDraft : '',
+    sessions,
+    currentSessionId: sanitizeCurrentSessionId(state.currentSessionId, sessions),
+    selectedRepo,
+    selectedRepoName: selectedRepo ? (readString(state.selectedRepoName) ?? selectedRepo) : null,
+    inputDraft: readString(state.inputDraft) ?? '',
   };
+}
+
+function sanitizeCurrentSessionId(value: unknown, sessions: Session[]): string | null {
+  const id = readString(value);
+  if (id && sessions.some((session) => session.id === id)) {
+    return id;
+  }
+  return sessions[0]?.id ?? null;
+}
+
+function sanitizeSessions(value: unknown): Session[] {
+  if (!Array.isArray(value)) return [];
+
+  const sessions: Session[] = [];
+  for (const rawSession of value) {
+    const session = asRecord(rawSession);
+    const id = readString(session?.id);
+    if (!session || !id) continue;
+
+    const title = readString(session.title) ?? 'Conversation récupérée';
+    const createdAt = readTimestamp(session.createdAt) ?? 0;
+    const updatedAt = readTimestamp(session.updatedAt) ?? createdAt;
+
+    sessions.push({
+      id,
+      title,
+      createdAt,
+      updatedAt,
+      messages: sanitizeMessages(session.messages),
+    });
+  }
+  return sessions;
+}
+
+function sanitizeMessages(value: unknown): Message[] {
+  if (!Array.isArray(value)) return [];
+
+  const messages: Message[] = [];
+  for (const rawMessage of value) {
+    const message = asRecord(rawMessage);
+    const id = readString(message?.id);
+    const role = readRole(message?.role);
+    const content = readString(message?.content);
+    if (!message || !id || !role || content === null) continue;
+
+    const toolCalls = sanitizeToolCalls(message.toolCalls);
+    messages.push({
+      id,
+      role,
+      content,
+      createdAt: readTimestamp(message.createdAt) ?? 0,
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    });
+  }
+  return messages;
+}
+
+function sanitizeToolCalls(value: unknown): ToolCall[] {
+  if (!Array.isArray(value)) return [];
+
+  const toolCalls: ToolCall[] = [];
+  for (const rawToolCall of value) {
+    const toolCall = asRecord(rawToolCall);
+    const id = readString(toolCall?.id);
+    const name = readString(toolCall?.name);
+    const status = readToolCallStatus(toolCall?.status);
+    if (!toolCall || !id || !name || !status) continue;
+
+    toolCalls.push({
+      id,
+      name,
+      status,
+      args: asRecord(toolCall.args) ?? {},
+      ...('result' in toolCall ? { result: toolCall.result } : {}),
+    });
+  }
+  return toolCalls;
+}
+
+function readRole(value: unknown): Role | null {
+  const role = readString(value);
+  return role && MESSAGE_ROLES.includes(role as Role) ? (role as Role) : null;
+}
+
+function readToolCallStatus(value: unknown): ToolCall['status'] | null {
+  const status = readString(value);
+  return status && TOOL_CALL_STATUSES.includes(status as ToolCall['status'])
+    ? (status as ToolCall['status'])
+    : null;
+}
+
+function readTimestamp(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 export const useChatStore = create<ChatState>()(

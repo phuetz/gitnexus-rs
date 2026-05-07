@@ -31,12 +31,82 @@ describe('chat-store persistence', () => {
 
     expect(migrated).toEqual({
       sessions: [],
-      currentSessionId: 's1',
+      currentSessionId: null,
       selectedRepo: 'repo_alise',
       selectedRepoName: 'Alise_v2',
       inputDraft: 'Question en cours',
     });
     expect(migrated).not.toHaveProperty('isStreaming');
     expect(migrated).not.toHaveProperty('isSfdPanelOpen');
+  });
+
+  it('recovers usable chat history from malformed persisted state', () => {
+    const migrated = migratePersistedChatState({
+      sessions: [
+        {
+          id: 's1',
+          createdAt: '1000',
+          updatedAt: '2000',
+          messages: [
+            {
+              id: 'm1',
+              role: 'assistant',
+              content: 'Réponse conservée',
+              createdAt: '3000',
+              toolCalls: [
+                {
+                  id: 'tc1',
+                  name: 'query_repo',
+                  args: { q: 'courrier' },
+                  result: { count: 2 },
+                  status: 'done',
+                },
+                { id: 'tc2', name: 'broken_tool', args: [], status: 'unknown' },
+              ],
+            },
+            { id: 'm2', role: 'assistant', content: 42, createdAt: 4000 },
+            { id: 'm3', role: 'alien', content: 'à ignorer', createdAt: 5000 },
+          ],
+        },
+        { id: 42, title: 'Session cassée', messages: [] },
+        null,
+      ],
+      currentSessionId: 'missing',
+      selectedRepo: 123,
+      selectedRepoName: 'Nom orphelin',
+      inputDraft: 123,
+    });
+
+    expect(migrated).toEqual({
+      sessions: [
+        {
+          id: 's1',
+          title: 'Conversation récupérée',
+          createdAt: 1000,
+          updatedAt: 2000,
+          messages: [
+            {
+              id: 'm1',
+              role: 'assistant',
+              content: 'Réponse conservée',
+              createdAt: 3000,
+              toolCalls: [
+                {
+                  id: 'tc1',
+                  name: 'query_repo',
+                  args: { q: 'courrier' },
+                  result: { count: 2 },
+                  status: 'done',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      currentSessionId: 's1',
+      selectedRepo: null,
+      selectedRepoName: null,
+      inputDraft: '',
+    });
   });
 });

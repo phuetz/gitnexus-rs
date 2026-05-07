@@ -64,7 +64,7 @@ Les citations de fichiers simples dans les reponses du chat sont deja reliees a 
 
 ### Site HTML genere
 
-Le site de documentation genere offre deja une navigation documentaire, des liens de sources, Mermaid et le chat de documentation. Il reste oriente "documentation exportee", pas "exploration live du graphe".
+Le site de documentation genere offre deja une navigation documentaire, une Carte du Code statique, des liens de sources, Mermaid et le chat de documentation. Il reste oriente "documentation exportee", pas "exploration live du graphe".
 
 ## Principe d'integration
 

@@ -1,4 +1,4 @@
-//! DeepWiki-style documentation generator (overview, architecture, getting-started, modules, index).
+//! DeepWiki-style documentation generator (overview, architecture, code map, getting-started, modules, index).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Write;
@@ -86,10 +86,13 @@ pub(super) fn generate_docs(
         edge_count,
     )?;
 
-    // 3. Generate getting-started.md
+    // 3. Generate code-map.md
+    generate_docs_code_map(docs_dir, &communities, graph, &edge_map)?;
+
+    // 4. Generate getting-started.md
     generate_docs_getting_started(docs_dir, repo_name, &communities, graph)?;
 
-    // 4. Generate per-module files
+    // 5. Generate per-module files
     let module_page_count =
         generate_docs_modules(&modules_dir, &communities, graph, &edge_map, repo_path)?;
 
@@ -118,9 +121,9 @@ pub(super) fn generate_docs(
         Vec::new()
     };
 
-    // Total page count: static pages (overview, architecture, getting-started, deployment, functional-guide, project-health) + git analytics + module pages + ASP.NET pages + business pages
+    // Total page count: static pages (overview, architecture, code-map, getting-started, deployment, functional-guide, project-health) + git analytics + module pages + ASP.NET pages + business pages
     let total_pages =
-        6 + git_analytics_count + module_page_count + aspnet_pages.len() + business_page_count;
+        7 + git_analytics_count + module_page_count + aspnet_pages.len() + business_page_count;
     info!("Documentation generated: {} pages total", total_pages);
 
     // 6. Generate _index.json LAST so it includes ASP.NET pages
@@ -258,6 +261,24 @@ fn generate_docs_index(
             "icon": "git-branch"
         }),
         json!({
+            "id": "code-map",
+            "title": "Carte du Code",
+            "path": "code-map.md",
+            "icon": "map"
+        }),
+        json!({
+            "id": "getting-started",
+            "title": "Getting Started",
+            "path": "getting-started.md",
+            "icon": "book-open"
+        }),
+        json!({
+            "id": "deployment",
+            "title": "Environnement & Déploiement",
+            "path": "deployment.md",
+            "icon": "cloud"
+        }),
+        json!({
             "id": "git-analytics",
             "title": "Git Analytics",
             "icon": "git-commit",
@@ -281,18 +302,6 @@ fn generate_docs_index(
                     "icon": "users"
                 }
             ]
-        }),
-        json!({
-            "id": "getting-started",
-            "title": "Getting Started",
-            "path": "getting-started.md",
-            "icon": "book-open"
-        }),
-        json!({
-            "id": "deployment",
-            "title": "Environnement & Déploiement",
-            "path": "deployment.md",
-            "icon": "cloud"
         }),
         json!({
             "id": "modules",
@@ -726,7 +735,7 @@ fn generate_docs_overview(
         0
     };
     let total_pages =
-        4 + communities.len() + ctrl_pages + data_pages + svc_page + ui_page + ajax_page;
+        5 + communities.len() + ctrl_pages + data_pages + svc_page + ui_page + ajax_page;
 
     writeln!(f, "## Summary")?;
     writeln!(f)?;
@@ -737,7 +746,7 @@ fn generate_docs_overview(
     )?;
     writeln!(
         f,
-        "Overview, Architecture, Getting Started, Déploiement, Modules"
+        "Overview, Architecture, Carte du Code, Getting Started, Déploiement, Modules"
     )?;
     if controller_count > 0 {
         write!(f, ", Controllers")?;
@@ -756,7 +765,7 @@ fn generate_docs_overview(
 
     writeln!(
         f,
-        "**See also:** [Architecture](./architecture.md) · [Getting Started](./getting-started.md)"
+        "**See also:** [Architecture](./architecture.md) · [Carte du Code](./code-map.md) · [Getting Started](./getting-started.md)"
     )?;
     writeln!(f)?;
     writeln!(f, "---")?;
@@ -1134,20 +1143,395 @@ fn generate_docs_architecture(
     writeln!(f)?;
     writeln!(
         f,
-        "**See also:** [Overview](./overview.md) · [Getting Started](./getting-started.md)"
+        "**See also:** [Overview](./overview.md) · [Carte du Code](./code-map.md) · [Getting Started](./getting-started.md)"
     )?;
     writeln!(f)?;
     writeln!(f, "---")?;
     // Mirror the static page order built in `generate_docs_modules`
-    // (overview -> project-health -> architecture -> getting-started). The
+    // (overview -> project-health -> architecture -> code-map -> getting-started). The
     // previous footer hard-coded `Previous: Overview`, skipping the
     // project-health page that sits between them and breaking the back-link
     // chain when the user clicked Previous from architecture.
-    writeln!(f, "[<- Previous: Santé du Projet](./project-health.md) | [Next: Getting Started ->](./getting-started.md)")?;
+    writeln!(f, "[<- Previous: Santé du Projet](./project-health.md) | [Next: Carte du Code ->](./code-map.md)")?;
 
     let _ = edge_map;
 
     println!("  {} architecture.md", "OK".green());
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModuleDependencyEdge {
+    source: String,
+    target: String,
+    count: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ModuleMapStats {
+    filename: String,
+    label: String,
+    source_files: Vec<String>,
+    source_file_count: usize,
+    member_count: usize,
+    entry_point_count: usize,
+    incoming_calls: usize,
+    outgoing_calls: usize,
+}
+
+fn merged_communities_by_filename(
+    communities: &BTreeMap<String, CommunityInfo>,
+) -> BTreeMap<String, CommunityInfo> {
+    let mut merged: BTreeMap<String, CommunityInfo> = BTreeMap::new();
+    for info in communities.values() {
+        let filename = sanitize_filename(&info.label);
+        let entry = merged.entry(filename).or_insert_with(|| CommunityInfo {
+            label: info.label.clone(),
+            description: info.description.clone(),
+            member_ids: Vec::new(),
+            keywords: Vec::new(),
+        });
+
+        if entry.description.is_none() {
+            entry.description = info.description.clone();
+        }
+        for mid in &info.member_ids {
+            if !entry.member_ids.contains(mid) {
+                entry.member_ids.push(mid.clone());
+            }
+        }
+        for kw in &info.keywords {
+            if !entry.keywords.contains(kw) {
+                entry.keywords.push(kw.clone());
+            }
+        }
+    }
+    merged
+}
+
+fn build_member_to_module(
+    communities: &BTreeMap<String, CommunityInfo>,
+) -> HashMap<String, String> {
+    let mut member_to_module = HashMap::new();
+    for (filename, info) in communities {
+        for member_id in &info.member_ids {
+            member_to_module.insert(member_id.clone(), filename.clone());
+        }
+    }
+    member_to_module
+}
+
+fn module_dependency_edges(
+    graph: &KnowledgeGraph,
+    member_to_module: &HashMap<String, String>,
+) -> Vec<ModuleDependencyEdge> {
+    let mut counts: BTreeMap<(String, String), usize> = BTreeMap::new();
+    for rel in graph.iter_relationships() {
+        if !matches!(
+            rel.rel_type,
+            RelationshipType::Calls
+                | RelationshipType::CallsAction
+                | RelationshipType::CallsService
+                | RelationshipType::DependsOn
+                | RelationshipType::Uses
+        ) {
+            continue;
+        }
+
+        let Some(source) = member_to_module.get(&rel.source_id) else {
+            continue;
+        };
+        let Some(target) = member_to_module.get(&rel.target_id) else {
+            continue;
+        };
+        if source == target {
+            continue;
+        }
+        *counts.entry((source.clone(), target.clone())).or_insert(0) += 1;
+    }
+
+    let mut edges: Vec<ModuleDependencyEdge> = counts
+        .into_iter()
+        .map(|((source, target), count)| ModuleDependencyEdge {
+            source,
+            target,
+            count,
+        })
+        .collect();
+    edges.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.source.cmp(&b.source))
+            .then_with(|| a.target.cmp(&b.target))
+    });
+    edges
+}
+
+fn module_map_stats(
+    communities: &BTreeMap<String, CommunityInfo>,
+    graph: &KnowledgeGraph,
+    edges: &[ModuleDependencyEdge],
+) -> Vec<ModuleMapStats> {
+    let mut stats = Vec::new();
+    for (filename, info) in communities {
+        let mut source_files = info
+            .member_ids
+            .iter()
+            .filter_map(|member_id| graph.get_node(member_id))
+            .map(|node| node.properties.file_path.clone())
+            .filter(|path| !path.is_empty())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect::<Vec<String>>();
+        let source_file_count = source_files.len();
+        source_files.truncate(8);
+
+        let entry_point_count = info
+            .member_ids
+            .iter()
+            .filter_map(|member_id| graph.get_node(member_id))
+            .filter(|node| {
+                node.properties
+                    .entry_point_score
+                    .map(|score| score > 0.3)
+                    .unwrap_or(false)
+            })
+            .count();
+
+        let incoming_calls = edges
+            .iter()
+            .filter(|edge| edge.target == *filename)
+            .map(|edge| edge.count)
+            .sum();
+        let outgoing_calls = edges
+            .iter()
+            .filter(|edge| edge.source == *filename)
+            .map(|edge| edge.count)
+            .sum();
+
+        stats.push(ModuleMapStats {
+            filename: filename.clone(),
+            label: info.label.clone(),
+            source_files,
+            source_file_count,
+            member_count: info.member_ids.len(),
+            entry_point_count,
+            incoming_calls,
+            outgoing_calls,
+        });
+    }
+
+    stats.sort_by(|a, b| {
+        b.entry_point_count
+            .cmp(&a.entry_point_count)
+            .then_with(|| b.outgoing_calls.cmp(&a.outgoing_calls))
+            .then_with(|| b.incoming_calls.cmp(&a.incoming_calls))
+            .then_with(|| b.member_count.cmp(&a.member_count))
+            .then_with(|| a.label.cmp(&b.label))
+    });
+    stats
+}
+
+fn module_link_for_node(
+    node_id: &str,
+    member_to_module: &HashMap<String, String>,
+    communities: &BTreeMap<String, CommunityInfo>,
+) -> Option<String> {
+    let filename = member_to_module.get(node_id)?;
+    let info = communities.get(filename)?;
+    Some(format!("[{}](modules/{}.md)", info.label, filename))
+}
+
+fn line_range(node: &GraphNode) -> String {
+    match (node.properties.start_line, node.properties.end_line) {
+        (Some(start), Some(end)) => format!("{}-{}", start, end),
+        (Some(start), None) => start.to_string(),
+        _ => "-".to_string(),
+    }
+}
+
+/// Generate a DeepWiki-style source navigation map.
+fn generate_docs_code_map(
+    docs_dir: &Path,
+    communities: &BTreeMap<String, CommunityInfo>,
+    graph: &KnowledgeGraph,
+    _edge_map: &HashMap<String, Vec<(String, RelationshipType)>>,
+) -> Result<()> {
+    let out_path = docs_dir.join("code-map.md");
+    let mut f = std::fs::File::create(&out_path)?;
+
+    let merged = merged_communities_by_filename(communities);
+    let member_to_module = build_member_to_module(&merged);
+    let dependency_edges = module_dependency_edges(graph, &member_to_module);
+    let module_stats = module_map_stats(&merged, graph, &dependency_edges);
+
+    writeln!(f, "# Carte du Code")?;
+    writeln!(f, "<!-- GNX:LEAD -->")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "Cette page sert de carte de lecture façon DeepWiki : elle relie les modules, les points d'entrée, les fichiers pivots et les prochaines questions à poser au chat GitNexus."
+    )?;
+    writeln!(f)?;
+
+    if !dependency_edges.is_empty() {
+        writeln!(f, "## Graphe des Modules")?;
+        writeln!(f, "<!-- GNX:INTRO:module-graph -->")?;
+        writeln!(f)?;
+        writeln!(f, "```mermaid")?;
+        writeln!(f, "graph LR")?;
+        for stats in module_stats.iter().take(20) {
+            let id = format!("M_{}", sanitize_mermaid_id(&stats.filename));
+            writeln!(f, "    {}[\"{}\"]", id, escape_mermaid_label(&stats.label))?;
+        }
+        let visible_modules: HashSet<&str> = module_stats
+            .iter()
+            .take(20)
+            .map(|stats| stats.filename.as_str())
+            .collect();
+        for edge in dependency_edges
+            .iter()
+            .filter(|edge| {
+                visible_modules.contains(edge.source.as_str())
+                    && visible_modules.contains(edge.target.as_str())
+            })
+            .take(30)
+        {
+            let source_id = format!("M_{}", sanitize_mermaid_id(&edge.source));
+            let target_id = format!("M_{}", sanitize_mermaid_id(&edge.target));
+            writeln!(f, "    {} -->|{}| {}", source_id, edge.count, target_id)?;
+        }
+        writeln!(f, "```")?;
+        writeln!(f)?;
+    }
+
+    writeln!(f, "## Modules à Lire en Premier")?;
+    writeln!(f, "<!-- GNX:INTRO:reading-map -->")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "| Module | Fichiers | Symboles | Entrées | Entrant | Sortant | Fichiers pivots |"
+    )?;
+    writeln!(
+        f,
+        "|--------|----------|----------|---------|---------|---------|----------------|"
+    )?;
+    for stats in module_stats.iter().take(25) {
+        let files = if stats.source_files.is_empty() {
+            "-".to_string()
+        } else {
+            stats
+                .source_files
+                .iter()
+                .take(3)
+                .map(|path| format!("`{}`", path))
+                .collect::<Vec<_>>()
+                .join("<br>")
+        };
+        writeln!(
+            f,
+            "| [{}](modules/{}.md) | {} | {} | {} | {} | {} | {} |",
+            stats.label,
+            stats.filename,
+            stats.source_file_count,
+            stats.member_count,
+            stats.entry_point_count,
+            stats.incoming_calls,
+            stats.outgoing_calls,
+            files
+        )?;
+    }
+    writeln!(f)?;
+
+    let mut entry_points: Vec<(&GraphNode, f64)> = graph
+        .iter_nodes()
+        .filter_map(|node| {
+            node.properties
+                .entry_point_score
+                .filter(|score| *score > 0.3)
+                .map(|score| (node, score))
+        })
+        .collect();
+    entry_points.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if !entry_points.is_empty() {
+        writeln!(f, "## Points d'Entrée")?;
+        writeln!(f, "<!-- GNX:INTRO:entry-points -->")?;
+        writeln!(f)?;
+        writeln!(f, "| Symbole | Type | Module | Fichier | Lignes | Score |")?;
+        writeln!(f, "|---------|------|--------|---------|--------|-------|")?;
+        for (node, score) in entry_points.iter().take(30) {
+            let module = module_link_for_node(&node.id, &member_to_module, &merged)
+                .unwrap_or_else(|| "-".to_string());
+            writeln!(
+                f,
+                "| `{}` | {} | {} | `{}` | {} | {:.2} |",
+                node.properties.name,
+                node.label.as_str(),
+                module,
+                node.properties.file_path,
+                line_range(node),
+                score
+            )?;
+        }
+        writeln!(f)?;
+    }
+
+    let top_files = top_connected_files(graph, 25);
+    if !top_files.is_empty() {
+        writeln!(f, "## Fichiers Pivots")?;
+        writeln!(f)?;
+        writeln!(
+            f,
+            "Ces fichiers ont beaucoup de relations dans le graphe et servent souvent de points de départ pour une revue manuelle."
+        )?;
+        writeln!(f)?;
+        for file in top_files {
+            writeln!(f, "- `{}`", file)?;
+        }
+        writeln!(f)?;
+    }
+
+    writeln!(f, "## Questions à Poser au Chat")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "- Explique le module le plus connecté et cite ses fichiers pivots."
+    )?;
+    writeln!(
+        f,
+        "- Trace le flux d'un point d'entrée de cette carte jusqu'à la persistance."
+    )?;
+    writeln!(
+        f,
+        "- Liste les dépendances entrantes et sortantes du module que je sélectionne."
+    )?;
+    writeln!(
+        f,
+        "- Génère un diagramme Mermaid de séquence pour un point d'entrée métier."
+    )?;
+    writeln!(f)?;
+
+    writeln!(f, "<!-- GNX:CLOSING -->")?;
+    writeln!(f, "## Résumé")?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "La carte du code donne une première trajectoire d'exploration : partir des modules à forte connectivité, ouvrir leurs pages détaillées, puis demander au chat un flux ou une analyse ciblée avec les fichiers cités."
+    )?;
+    writeln!(f)?;
+    writeln!(
+        f,
+        "**Voir aussi :** [Architecture](./architecture.md) · [Getting Started](./getting-started.md)"
+    )?;
+    writeln!(f)?;
+    writeln!(f, "---")?;
+    writeln!(
+        f,
+        "[<- Previous: Architecture](./architecture.md) | [Next: Getting Started ->](./getting-started.md)"
+    )?;
+
+    println!("  {} code-map.md", "OK".green());
     Ok(())
 }
 
@@ -1320,7 +1704,7 @@ fn generate_docs_getting_started(
 
     writeln!(
         f,
-        "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Architecture](./architecture.md)"
+        "**Voir aussi :** [Vue d'ensemble](./overview.md) · [Carte du Code](./code-map.md) · [Architecture](./architecture.md)"
     )?;
     writeln!(f)?;
     writeln!(f, "---")?;
@@ -1328,11 +1712,11 @@ fn generate_docs_getting_started(
     // `./modules/`, which was a bare directory path that most markdown
     // viewers render as a 404 / file-listing instead of navigating to a
     // page. Deployment is the actual next page in the static doc order
-    // (overview -> project-health -> architecture -> getting-started ->
+    // (overview -> project-health -> architecture -> code-map -> getting-started ->
     // deployment -> modules).
     writeln!(
         f,
-        "[<- Previous: Architecture](./architecture.md) | [Next: Déploiement ->](./deployment.md)"
+        "[<- Previous: Carte du Code](./code-map.md) | [Next: Déploiement ->](./deployment.md)"
     )?;
 
     println!("  {} getting-started.md", "OK".green());
@@ -1366,34 +1750,14 @@ fn generate_docs_modules(
             "Santé du Projet".to_string(),
         ),
         ("../architecture".to_string(), "Architecture".to_string()),
+        ("../code-map".to_string(), "Carte du Code".to_string()),
         (
             "../getting-started".to_string(),
             "Getting Started".to_string(),
         ),
     ];
 
-    let mut merged_communities: BTreeMap<String, CommunityInfo> = BTreeMap::new();
-    for info in communities.values() {
-        let base = sanitize_filename(&info.label);
-        let entry = merged_communities
-            .entry(base)
-            .or_insert_with(|| CommunityInfo {
-                label: info.label.clone(),
-                description: info.description.clone(),
-                member_ids: Vec::new(),
-                keywords: Vec::new(),
-            });
-        for mid in &info.member_ids {
-            if !entry.member_ids.contains(mid) {
-                entry.member_ids.push(mid.clone());
-            }
-        }
-        for kw in &info.keywords {
-            if !entry.keywords.contains(kw) {
-                entry.keywords.push(kw.clone());
-            }
-        }
-    }
+    let merged_communities = merged_communities_by_filename(communities);
 
     let mut community_filenames: Vec<(String, String)> = Vec::new();
     for (filename, info) in &merged_communities {
@@ -3251,4 +3615,130 @@ fn write_llm_badge(content: &mut String, props: &NodeProperties) {
         }
     }
     content.push('\n');
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn community(label: &str, members: &[&str], keywords: &[&str]) -> CommunityInfo {
+        CommunityInfo {
+            label: label.to_string(),
+            description: None,
+            keywords: keywords.iter().map(|kw| (*kw).to_string()).collect(),
+            member_ids: members.iter().map(|id| (*id).to_string()).collect(),
+        }
+    }
+
+    fn node(
+        id: &str,
+        label: NodeLabel,
+        name: &str,
+        file_path: &str,
+        entry_point_score: Option<f64>,
+    ) -> GraphNode {
+        GraphNode {
+            id: id.to_string(),
+            label,
+            properties: NodeProperties {
+                name: name.to_string(),
+                file_path: file_path.to_string(),
+                entry_point_score,
+                ..Default::default()
+            },
+        }
+    }
+
+    fn rel(
+        id: &str,
+        source_id: &str,
+        target_id: &str,
+        rel_type: RelationshipType,
+    ) -> GraphRelationship {
+        GraphRelationship {
+            id: id.to_string(),
+            source_id: source_id.to_string(),
+            target_id: target_id.to_string(),
+            rel_type,
+            confidence: 1.0,
+            reason: String::new(),
+            step: None,
+        }
+    }
+
+    #[test]
+    fn merged_communities_by_filename_deduplicates_members_and_keywords() {
+        let mut communities = BTreeMap::new();
+        communities.insert(
+            "c1".to_string(),
+            community("Billing Module", &["A", "B"], &["invoice"]),
+        );
+        communities.insert(
+            "c2".to_string(),
+            community("Billing Module", &["B", "C"], &["payment"]),
+        );
+
+        let merged = merged_communities_by_filename(&communities);
+        let billing = merged.get("billing_module").expect("merged module");
+
+        assert_eq!(billing.member_ids, vec!["A", "B", "C"]);
+        assert_eq!(billing.keywords, vec!["invoice", "payment"]);
+    }
+
+    #[test]
+    fn module_dependency_edges_count_only_cross_module_code_edges() {
+        let mut graph = KnowledgeGraph::new();
+        graph.add_node(node("A", NodeLabel::Method, "A", "src/a.rs", Some(0.9)));
+        graph.add_node(node("B", NodeLabel::Method, "B", "src/b.rs", None));
+        graph.add_node(node("C", NodeLabel::Method, "C", "src/c.rs", None));
+        graph.add_relationship(rel("r1", "A", "B", RelationshipType::Calls));
+        graph.add_relationship(rel("r2", "A", "B", RelationshipType::DependsOn));
+        graph.add_relationship(rel("r3", "A", "C", RelationshipType::Contains));
+        graph.add_relationship(rel("r4", "B", "B", RelationshipType::Calls));
+
+        let member_to_module = HashMap::from([
+            ("A".to_string(), "module-a".to_string()),
+            ("B".to_string(), "module-b".to_string()),
+            ("C".to_string(), "module-c".to_string()),
+        ]);
+
+        assert_eq!(
+            module_dependency_edges(&graph, &member_to_module),
+            vec![ModuleDependencyEdge {
+                source: "module-a".to_string(),
+                target: "module-b".to_string(),
+                count: 2,
+            }]
+        );
+    }
+
+    #[test]
+    fn module_map_stats_prioritizes_entry_points_then_dependencies() {
+        let mut graph = KnowledgeGraph::new();
+        graph.add_node(node("A", NodeLabel::Method, "A", "src/a.rs", Some(0.9)));
+        graph.add_node(node("B", NodeLabel::Method, "B", "src/b.rs", None));
+
+        let communities = BTreeMap::from([
+            (
+                "module-a".to_string(),
+                community("Module A", &["A"], &["entry"]),
+            ),
+            (
+                "module-b".to_string(),
+                community("Module B", &["B"], &["helper"]),
+            ),
+        ]);
+        let edges = vec![ModuleDependencyEdge {
+            source: "module-b".to_string(),
+            target: "module-a".to_string(),
+            count: 3,
+        }];
+
+        let stats = module_map_stats(&communities, &graph, &edges);
+
+        assert_eq!(stats[0].filename, "module-a");
+        assert_eq!(stats[0].entry_point_count, 1);
+        assert_eq!(stats[0].incoming_calls, 3);
+        assert_eq!(stats[1].outgoing_calls, 3);
+    }
 }

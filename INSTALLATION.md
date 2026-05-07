@@ -188,7 +188,7 @@ Produire sans ouvrir le navigateur:
 .\gitnexus.cmd docs -Repo D:\chemin\vers\mon-projet -NoBrowser
 ```
 
-Le site genere contient la navigation, la recherche, les diagrammes Mermaid, les extraits de code, le chat de documentation et les exports Markdown/PDF des conversations.
+Le site genere contient la navigation, la recherche, une page **Carte du Code** facon DeepWiki (modules, dependances, points d'entree, fichiers pivots), les diagrammes Mermaid, les extraits de code, le chat de documentation et les exports Markdown/PDF des conversations.
 
 ### Exports PDF
 

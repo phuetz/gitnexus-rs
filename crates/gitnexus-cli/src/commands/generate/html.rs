@@ -101,6 +101,7 @@ pub(super) fn generate_html_site(
         "functional-guide",
         "project-health",
         "architecture",
+        "code-map",
         "getting-started",
         "deployment",
         "hotspots",
@@ -799,7 +800,7 @@ fn classify_page_from_id(id: &str) -> &'static str {
         "ExternalService"
     } else if name == "overview" {
         "Overview"
-    } else if name == "architecture" {
+    } else if name == "architecture" || name == "code-map" {
         "Architecture"
     } else if name.contains("audit") || name.contains("prompt") {
         "Audit"
@@ -1317,7 +1318,7 @@ fn build_html_template(
     const ICON_ALLOWLIST = new Set([
       'activity','arrow-right-left','book-open','cloud','cog','component','database',
       'file-text','flame','folder','git-branch','git-commit','globe','hard-drive',
-      'home','layers','layout','link','route','server','shield-check','table-2','users','workflow'
+      'home','layers','layout','link','map','route','server','shield-check','table-2','users','workflow'
     ]);
 
     function navPages() {{
@@ -1349,6 +1350,7 @@ fn build_html_template(
       controllers: 'Controleurs',
       'data-model': 'Modele de donnees',
       architecture: 'Architecture',
+      'code-map': 'Carte du Code',
     }};
 
     function appendIcon(parent, name, fallback) {{
@@ -3073,6 +3075,7 @@ mod tests {
         assert!(html.contains(">Controleurs</button>"));
         assert!(html.contains(">Donnees</button>"));
         assert!(html.contains("const SECTION_LABELS"));
+        assert!(html.contains("'code-map': 'Carte du Code'"));
         assert!(html.contains("navSectionTitle(section).toUpperCase()"));
     }
 
